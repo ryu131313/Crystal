@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MirCraft Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-grid.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-theme-quartz.css" />
+  <link rel="stylesheet" href="/shared/mir-theme.css" />
+  <link rel="stylesheet" href="style.css" />
+  <!-- Feature stylesheets (one per section module; replaced by the feature owners). -->
+  <link rel="stylesheet" href="admin-dashboard.css" />
+  <link rel="stylesheet" href="admin-server.css" />
+  <link rel="stylesheet" href="admin-players.css" />
+  <link rel="stylesheet" href="admin-security.css" />
+  <link rel="stylesheet" href="admin-gm.css" />
+  <link rel="stylesheet" href="admin-broadcast.css" />
+  <link rel="stylesheet" href="admin-chatlog.css" />
+  <link rel="stylesheet" href="admin-maintenance.css" />
+  <link rel="stylesheet" href="admin-audit.css" />
+  <link rel="stylesheet" href="admin-accounts.css" />
+  <link rel="stylesheet" href="admin-characters.css" />
+  <link rel="stylesheet" href="admin-guilds.css" />
+  <link rel="stylesheet" href="admin-market.css" />
+  <link rel="stylesheet" href="admin-namelists.css" />
+  <link rel="stylesheet" href="admin-gamedata.css" />
+  <link rel="stylesheet" href="admin-scripts.css" />
+  <link rel="stylesheet" href="admin-backups.css" />
+  <link rel="stylesheet" href="admin-config.css" />
+  <link rel="stylesheet" href="admin-balance.css" />
+  <link rel="stylesheet" href="admin-systems.css" />
+  <!-- MUST stay last: the Shattering skin overrides everything above. -->
+  <link rel="stylesheet" href="/shared/admin-theme.css" />
+</head>
+
+<body>
+  <header class="mir-topbar admin-topbar">
+    <div class="mir-brand"><span class="mir-wordmark">MirCraft</span><span class="mir-brand-tag">Admin</span></div>
+    <div class="admin-topbar-status">
+      <span id="worldPill" class="world-pill" title="">World …</span>
+      <button type="button" id="pendingRebootBadge" class="pending-reboot-badge hidden"></button>
+    </div>
+    <div class="admin-topbar-right">
+      <span id="adminUser" class="mir-muted"></span>
+      <button type="button" class="mir-btn" id="btnAdminLogout">Logout</button>
+    </div>
+  </header>
+
+  <div class="mir-layout">
+    <aside class="mir-sidebar">
+      <nav class="mir-sidebar-nav" id="adminNav">
+        <div class="mir-sidebar-section">Monitoring</div>
+        <button type="button" class="nav-link active" data-section="dashboard">Dashboard</button>
+        <button type="button" class="nav-link" data-section="server">Server Control</button>
+        <button type="button" class="nav-link" data-section="players-online">Players Online <span id="navOnlineBadge" class="nav-badge hidden">0</span></button>
+        <button type="button" class="nav-link" data-section="security">Security</button>
+
+        <div class="mir-sidebar-section">Operations</div>
+        <button type="button" class="nav-link" data-section="gm">GM Console</button>
+        <button type="button" class="nav-link" data-section="broadcast">Broadcast</button>
+        <button type="button" class="nav-link" data-section="chatlog">Chat Log</button>
+        <button type="button" class="nav-link" data-section="maintenance">Maintenance <span id="navMaintenanceBadge" class="nav-badge hidden">on</span></button>
+        <button type="button" class="nav-link" data-section="auditlog">Audit Trail</button>
+
+        <div class="mir-sidebar-section">Players</div>
+        <button type="button" class="nav-link" data-section="accounts">Accounts</button>
+        <button type="button" class="nav-link" data-section="characters">Characters</button>
+        <button type="button" class="nav-link" data-section="guilds">Guilds</button>
+        <button type="button" class="nav-link" data-section="market">Market</button>
+        <button type="button" class="nav-link" data-section="namelists">Name Lists</button>
+
+        <div class="mir-sidebar-section">Game Data</div>
+        <button type="button" class="nav-link" data-section="gamedata">Game Data <span id="navGameDataBadge" class="nav-badge hidden">0</span></button>
+        <button type="button" class="nav-link" data-section="scripts">Scripts &amp; Files</button>
+        <button type="button" class="nav-link" data-section="backups">Backups &amp; History</button>
+
+        <div class="mir-sidebar-section">Config</div>
+        <button type="button" class="nav-link" data-section="config">Server Config</button>
+        <button type="button" class="nav-link" data-section="balance">Balance</button>
+        <button type="button" class="nav-link" data-section="systems">Systems</button>
+      </nav>
+    </aside>
+
+    <main class="mir-main">
+      <div class="admin-crumb-row">
+        <p id="adminBreadcrumb" class="admin-breadcrumb mir-muted">Dashboard</p>
+      </div>
+
+      <!-- One section per planned page (contract §3.3). Each module renders into its own section via AdminSections. -->
+      <section id="section-dashboard" class="admin-section"></section>
+      <section id="section-server" class="admin-section hidden"></section>
+      <section id="section-players-online" class="admin-section hidden"></section>
+      <section id="section-security" class="admin-section hidden"></section>
+      <section id="section-gm" class="admin-section hidden"></section>
+      <section id="section-broadcast" class="admin-section hidden"></section>
+      <section id="section-chatlog" class="admin-section hidden"></section>
+      <section id="section-maintenance" class="admin-section hidden"></section>
+      <section id="section-auditlog" class="admin-section hidden"></section>
+      <section id="section-accounts" class="admin-section hidden"></section>
+      <section id="section-characters" class="admin-section hidden"></section>
+      <section id="section-guilds" class="admin-section hidden"></section>
+      <section id="section-market" class="admin-section hidden"></section>
+      <section id="section-namelists" class="admin-section hidden"></section>
+      <section id="section-gamedata" class="admin-section hidden"></section>
+      <section id="section-scripts" class="admin-section hidden"></section>
+      <section id="section-backups" class="admin-section hidden"></section>
+      <section id="section-config" class="admin-section hidden"></section>
+      <section id="section-balance" class="admin-section hidden"></section>
+      <section id="section-systems" class="admin-section hidden"></section>
+    </main>
+  </div>
+
+  <!-- Row form drawer (admin-form-drawer.js requires these ids). -->
+  <aside id="formDrawer" class="inspect-drawer form-drawer hidden">
+    <div class="inspect-drawer-head">
+      <h3 id="formDrawerTitle">Edit Row</h3>
+      <div>
+        <button type="button" class="mir-btn primary" id="formDrawerApply">Apply to grid</button>
+        <button type="button" class="mir-btn" id="formDrawerClose" aria-label="Close">&times;</button>
+      </div>
+    </div>
+    <p id="formDrawerStatus" class="mir-muted" style="margin:4px 16px"></p>
+    <div id="formDrawerBody" class="inspect-drawer-body form-drawer-body"></div>
+  </aside>
+
+  <!-- Generic inspect drawer (AdminInspect.open / close in admin-shell.js). -->
+  <aside id="inspectDrawer" class="inspect-drawer hidden">
+    <div class="inspect-drawer-head">
+      <h3 id="inspectDrawerTitle">Details</h3>
+      <div id="inspectDrawerActions">
+        <button type="button" class="mir-btn" id="inspectDrawerClose" aria-label="Close">&times;</button>
+      </div>
+    </div>
+    <div id="inspectDrawerBody" class="inspect-drawer-body"></div>
+  </aside>
+
+  <!-- Libraries (exact pins). -->
+  <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <!-- Shell (dependency order). -->
+  <script src="/shared/portal-i18n.js"></script>
+  <script src="/shared/portal-features.js"></script>
+  <script src="admin-toast.js"></script>
+  <script src="admin-shell.js"></script>
+  <script src="admin-ops-common.js"></script>
+  <script src="admin-db-tools.js"></script>
+  <script src="admin-grid-factory.js"></script>
+  <script src="admin-lookups.js"></script>
+  <script src="admin-schema.js"></script>
+  <script src="admin-form-drawer.js"></script>
+  <script src="admin-player-chip.js"></script>
+  <!-- Section modules (each registers with AdminSections). -->
+  <script src="admin-dashboard.js"></script>
+  <script src="admin-server.js"></script>
+  <script src="admin-players.js"></script>
+  <script src="admin-security.js"></script>
+  <script src="admin-gm.js"></script>
+  <script src="admin-broadcast.js"></script>
+  <script src="admin-chatlog.js"></script>
+  <script src="admin-maintenance.js"></script>
+  <script src="admin-audit.js"></script>
+  <script src="admin-accounts.js"></script>
+  <script src="admin-characters.js"></script>
+  <script src="admin-guilds.js"></script>
+  <script src="admin-market.js"></script>
+  <script src="admin-namelists.js"></script>
+  <script src="admin-gamedata.js"></script>
+  <script src="admin-scripts.js"></script>
+  <script src="admin-backups.js"></script>
+  <script src="admin-config.js"></script>
+  <script src="admin-balance.js"></script>
+  <script src="admin-systems.js"></script>
+  <!-- Bootstrap LAST: auth gate, topbar status, AdminSections.start(). -->
+  <script src="app.js"></script>
+</body>
+
+</html>

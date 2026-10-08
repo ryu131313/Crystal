@@ -1,4 +1,5 @@
 ﻿using log4net;
+using Server.WebAdmin;
 using System.Reflection;
 
 namespace Server.MirForms
@@ -20,9 +21,50 @@ namespace Server.MirForms
             {
                 Settings.Load();
 
+                if (Settings.WebAdminEnabled)
+                {
+                    try
+                    {
+                        WebAdminHost.Start();
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.GetLogger().Error(ex);
+                    }
+                }
+
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
-                Application.Run(new SMain());
+
+                var mainForm = new SMain();
+
+                // Web admin "Shut down Server.exe": close the main form on the UI thread (runs the normal FormClosing -> Envir.Stop path).
+                Action shutdown = () =>
+                {
+                    try
+                    {
+                        if (!mainForm.IsDisposed && mainForm.IsHandleCreated)
+                            mainForm.BeginInvoke(new Action(mainForm.Close));
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.GetLogger().Error(ex);
+                    }
+                };
+                WebAdminHost.ShutdownRequested += shutdown;
+
+                Application.Run(mainForm);
+
+                WebAdminHost.ShutdownRequested -= shutdown;
+
+                try
+                {
+                    WebAdminHost.Stop();
+                }
+                catch (Exception ex)
+                {
+                    Logger.GetLogger().Error(ex);
+                }
 
                 Settings.Save();
             }

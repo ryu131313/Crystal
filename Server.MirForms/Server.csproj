@@ -47,6 +47,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- MirCraft web admin static files: copied to the output (folders preserved), never compiled or embedded. -->
+    <Compile Remove="wwwroot\**" />
+    <EmbeddedResource Remove="wwwroot\**" />
+    <None Update="wwwroot\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
     <None Update="Localization\Chinese.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>

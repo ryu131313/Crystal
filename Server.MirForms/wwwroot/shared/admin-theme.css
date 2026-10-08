@@ -1,0 +1,955 @@
+/* ═══════════════════════════════════════════════════════════════════
+   MirCraft Admin — "The Shattering" skin
+   Brings the operator dashboard in line with the public portal:
+   abyss black · parchment gold · molten orange · blood red, Cinzel
+   display type, smoked-glass surfaces with a gilded top hairline.
+
+   Loaded LAST on every admin page (after mir-theme.css and style.css).
+   Lives in /shared/ because login.html must load it before sign-in and the
+   server gates every /admin/* path except login.html behind an admin session.
+   It is a pure restyle layer — it only changes how existing markup
+   looks. Layout rules, hooks, ids and behaviour live in style.css and
+   the admin-*.js modules and are untouched.
+
+   Why a separate file: shared/mir-theme.css is also loaded by the
+   public portal, so re-theming it in place would change the portal.
+   Only the admin pages link this file, so nothing here reaches the portal.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Tokens ──────────────────────────────────────────────────────────
+   Same remap the portal does under .portal-site, so every var(--…)
+   consumer in mir-theme.css / style.css / the admin JS (Chart.js reads
+   --accent, --success, --warn, --danger, --border, --muted at runtime)
+   follows the new palette without edits. */
+:root {
+  color-scheme: dark;
+
+  --sh-gold: #c5a059;
+  --sh-gold-bright: #e8d3a0;
+  --sh-gold-pale: #f6ead0;
+  --sh-molten: #ff6a00;
+  --sh-molten-lit: #ffa24d;
+  --sh-ember: #e85d1f;
+  --sh-blood: #8b0000;
+  --sh-blood-deep: #4a0000;
+
+  --font-display: 'Cinzel', 'Times New Roman', serif;
+  --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --topbar-h: 56px;
+
+  --panel-fill: linear-gradient(180deg, rgba(28, 23, 31, 0.88) 0%, rgba(13, 11, 16, 0.94) 100%);
+  --panel-edge: inset 0 1px 0 rgba(255, 236, 200, 0.05), inset 0 0 0 1px rgba(0, 0, 0, 0.3);
+  --panel-drop: 0 24px 48px -30px rgba(0, 0, 0, 0.95);
+  --gilt-line: linear-gradient(90deg, transparent, rgba(232, 211, 160, 0.7) 50%, transparent);
+  --well: rgba(0, 0, 0, 0.34);
+
+  --text: #e9e3d8;
+  --text-secondary: #b7ada0;
+  --muted: #8a7f70;
+
+  --border: rgba(197, 160, 89, 0.15);
+  --border-dim: rgba(197, 160, 89, 0.08);
+  --border-bright: rgba(197, 160, 89, 0.34);
+
+  --bg: #07060a;
+  --bg-elevated: #110e14;
+  --panel: #18141c;
+  --panel-hover: #201a24;
+  --surface: #0f0c12;
+
+  --accent: #ff7a1f;
+  --accent-hover: #ffa24d;
+  --accent-dim: rgba(255, 106, 0, 0.13);
+  --accent-glow: rgba(255, 106, 0, 0.22);
+  --accent-solid: #e85d1f;
+
+  --success: #5fd38a;
+  --success-dim: rgba(95, 211, 138, 0.11);
+  --ok: #5fd38a;
+  --danger: #e0524d;
+  --danger-dim: rgba(224, 82, 77, 0.13);
+  --warn: #e8b04a;
+  --warn-dim: rgba(232, 176, 74, 0.12);
+
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.6);
+  --shadow-md: 0 12px 28px -14px rgba(0, 0, 0, 0.9);
+  --shadow-lg: 0 30px 60px -34px rgba(0, 0, 0, 0.95);
+
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --duration: 0.25s;
+}
+
+/* ── Page ────────────────────────────────────────────────────────── */
+html { background: #07060a; }
+
+body {
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-body);
+}
+
+/* Key art, pushed far back (the file is tiny on purpose — scaling it up
+   is what softens it) under a blood-and-ember wash. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 0%, rgba(74, 0, 0, 0.32), transparent 70%),
+    radial-gradient(ellipse 70% 45% at 50% 105%, rgba(232, 93, 31, 0.14), transparent 70%),
+    linear-gradient(180deg, rgba(7, 6, 10, 0.86) 0%, rgba(7, 6, 10, 0.92) 50%, rgba(7, 6, 10, 0.97) 100%),
+    url('/shared/admin-bg.jpg') center 40% / cover no-repeat;
+}
+
+/* Stone grain over everything; inert. */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 20000;
+  pointer-events: none;
+  opacity: 0.045;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+}
+
+::selection { background: var(--sh-blood); color: #f5e9d2; }
+
+:focus-visible {
+  outline: 2px solid rgba(232, 211, 160, 0.75);
+  outline-offset: 2px;
+}
+
+code { color: var(--sh-gold-bright); }
+
+/* Gothic scrollbar. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: #070608; }
+::-webkit-scrollbar-thumb { background: #2a1f21; border-radius: 5px; border: 2px solid #070608; }
+::-webkit-scrollbar-thumb:hover { background: var(--sh-ember); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   EMOJI ICONS — retired
+   mir-theme.css / style.css decorate nav items, section headings and
+   buttons with emoji via ::before. They are the plainest "generated"
+   tell on the page, so they are switched off here and replaced by the
+   portal's typographic ornaments (diamond + rule) below. !important is
+   deliberate: the originals are id-scoped (#section-… / #btnReload…)
+   and would otherwise win on specificity. Plain glyphs (▶ ■ ↻) stay.
+   ═══════════════════════════════════════════════════════════════════ */
+.mir-sidebar-nav button::before,
+.admin-toptabs .mir-btn::before,
+.admin-logs-tabs .mir-btn[data-log-kind]::before,
+[id^="btnReload"]::before,
+[id^="section-"] h2::before,
+[id^="section-"] h3::before { content: none !important; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   TOP BAR — smoked glass with a gilded underline
+   ═══════════════════════════════════════════════════════════════════ */
+.mir-topbar {
+  height: var(--topbar-h);
+  padding: 0 22px;
+  background: rgba(9, 7, 12, 0.9);
+  border-bottom: 0;
+  box-shadow: 0 14px 34px -18px rgba(0, 0, 0, 0.9);
+  -webkit-backdrop-filter: blur(16px) saturate(1.25);
+  backdrop-filter: blur(16px) saturate(1.25);
+}
+
+.mir-topbar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent 0%, rgba(197, 160, 89, 0.4) 30%, rgba(232, 211, 160, 0.55) 50%, rgba(197, 160, 89, 0.4) 70%, transparent 100%);
+}
+
+.mir-brand {
+  gap: 12px;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sh-gold-bright);
+  text-decoration: none;
+}
+
+/* Text wordmark in place of a logo image: Cinzel with a gold gradient. */
+.mir-wordmark {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-transform: none;
+  color: var(--sh-gold-bright);
+  background: linear-gradient(180deg, #fff6e0 0%, #ecd6a4 45%, #b98f4b 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.7));
+}
+
+/* "Admin" tag beside the crest. */
+.mir-brand-tag {
+  padding-left: 12px;
+  border-left: 1px solid var(--border-bright);
+  font-size: 11px;
+  letter-spacing: 0.34em;
+  color: var(--sh-molten-lit);
+  text-shadow: 0 0 14px rgba(255, 106, 0, 0.55);
+}
+
+/* Portal links in the bar — the portal's nav treatment: tracked caps and
+   a gilded underline that grows from the centre. */
+/* One row only: the bar is a fixed height, so the original wrap would clip
+   the second row. Overflowing links scroll sideways instead of vanishing. */
+.admin-toptabs {
+  margin-left: 18px;
+  gap: 0;
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.admin-toptabs::-webkit-scrollbar { display: none; }
+.admin-toptabs .mir-btn { flex: none; }
+
+@media (max-width: 1100px) {
+  .admin-toptabs .mir-btn { padding: 0 9px; letter-spacing: 0.1em; }
+  .mir-topbar { padding: 0 14px; }
+}
+
+.admin-toptabs .mir-btn {
+  position: relative;
+  height: 40px;
+  padding: 0 14px;
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: rgba(233, 227, 216, 0.72);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8);
+  background: transparent;
+  box-shadow: none;
+  border: 0;
+  border-radius: 0;
+  transform: none;
+}
+
+.admin-toptabs .mir-btn::after {
+  content: '';
+  position: absolute;
+  top: auto;
+  bottom: 6px;
+  left: 14px;
+  right: 14px;
+  width: auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--sh-gold-bright), transparent);
+  transform: scaleX(0);
+  opacity: 0;
+  transition: transform 0.35s var(--ease), opacity 0.35s var(--ease);
+}
+
+.admin-toptabs .mir-btn:hover {
+  color: #fff;
+  background: transparent;
+  box-shadow: none;
+  filter: none;
+}
+
+.admin-toptabs .mir-btn:hover::after { transform: scaleX(1); opacity: 0.6; }
+
+.admin-topbar-right { gap: 10px; }
+
+#adminUser {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+#adminUser::before {
+  background: var(--success);
+  box-shadow: 0 0 8px rgba(95, 211, 138, 0.7);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   SIDEBAR
+   ═══════════════════════════════════════════════════════════════════ */
+.mir-layout { min-height: calc(100vh - var(--topbar-h)); }
+
+.mir-sidebar {
+  width: 232px;
+  min-width: 232px;
+  top: var(--topbar-h);
+  height: calc(100vh - var(--topbar-h));
+  padding-top: 10px;
+  background: linear-gradient(180deg, rgba(15, 12, 18, 0.93) 0%, rgba(9, 7, 12, 0.95) 100%);
+  border-right: 1px solid var(--border);
+  box-shadow: 18px 0 40px -28px rgba(0, 0, 0, 0.9);
+}
+
+.mir-sidebar-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 22px 18px 8px;
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  color: var(--sh-gold);
+}
+
+.mir-sidebar-section::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(197, 160, 89, 0.38), transparent);
+}
+
+.mir-sidebar-section:first-child { padding-top: 8px; }
+
+.mir-sidebar .mir-sidebar-nav button.nav-link {
+  position: relative;
+  width: calc(100% - 16px);
+  margin: 1px 8px;
+  padding: 7px 12px 7px 16px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--text-secondary);
+  background: transparent;
+  border-radius: var(--radius-sm);
+  transition: color var(--duration) var(--ease), background var(--duration) var(--ease);
+}
+
+.mir-sidebar .mir-sidebar-nav button.nav-link:hover {
+  color: var(--sh-gold-pale);
+  background: rgba(197, 160, 89, 0.07);
+}
+
+/* Current section: molten bar on the left edge, warm wash fading right. */
+.mir-sidebar .mir-sidebar-nav button.nav-link.active {
+  color: var(--sh-gold-bright);
+  font-weight: 600;
+  background: linear-gradient(90deg, rgba(255, 106, 0, 0.2) 0%, rgba(255, 106, 0, 0.05) 65%, transparent 100%);
+  box-shadow: inset 2px 0 0 var(--sh-molten), inset 0 1px 0 rgba(255, 236, 200, 0.04);
+}
+
+.mir-sidebar .mir-sidebar-nav button.nav-link.active::before {
+  content: '' !important;
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  background: var(--sh-molten);
+  box-shadow: 0 0 10px rgba(255, 106, 0, 0.8);
+  transform: translateX(-50%) rotate(45deg);
+  opacity: 1;
+}
+
+.mir-sidebar::after {
+  content: 'MirCraft · Admin';
+  padding: 14px 18px;
+  font-family: var(--font-display);
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-top: 1px solid var(--border-dim);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   MAIN
+   ═══════════════════════════════════════════════════════════════════ */
+.mir-main {
+  padding: 26px 34px 40px;
+  background: transparent;
+}
+
+/* Breadcrumb becomes the portal's molten eyebrow. */
+.admin-breadcrumb {
+  margin: 0 0 16px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--sh-molten-lit);
+  text-shadow: 0 0 14px rgba(255, 106, 0, 0.45);
+}
+
+.mir-muted { color: var(--muted); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   PANELS — smoked glass, gilded hairline across the top edge
+   ═══════════════════════════════════════════════════════════════════ */
+.mir-card {
+  position: relative;
+  padding: 24px 28px 26px;
+  background: var(--panel-fill);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--panel-edge), var(--panel-drop);
+}
+
+.mir-card::before,
+.metrics-grid::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 14%;
+  right: 14%;
+  height: 1px;
+  pointer-events: none;
+  background: var(--gilt-line);
+  opacity: 0.8;
+}
+
+h2, h3 { font-family: var(--font-display); letter-spacing: 0.05em; }
+
+/* Panel title: molten diamond, gilded name, rule running out right. */
+.mir-card h2,
+.mir-card h3 {
+  font-weight: 600;
+  color: var(--sh-gold-pale);
+}
+
+.mir-card h2 { font-size: 18px; }
+
+.mir-card > h2,
+.mir-card > h3,
+.mir-card > .toolbar > h2,
+.mir-card > .toolbar > h3,
+.admin-logs-section > h3 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mir-card > h2::before,
+.mir-card > h3::before,
+.mir-card > .toolbar > h2::before,
+.mir-card > .toolbar > h3::before,
+.admin-logs-section > h3::before {
+  content: '' !important;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  transform: rotate(45deg);
+  background: var(--sh-molten);
+  box-shadow: 0 0 10px rgba(255, 106, 0, 0.75);
+}
+
+.mir-card > h2::after,
+.mir-card > h3::after,
+.mir-card > .toolbar > h2::after,
+.mir-card > .toolbar > h3::after,
+.admin-logs-section > h3::after {
+  content: '';
+  flex: 1;
+  min-width: 24px;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(197, 160, 89, 0.4), transparent);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   BUTTONS
+   Default   — dark bronze in a gilded rim (the portal's secondary)
+   .primary  — molten enamel in a gilded rim
+   .danger   — blood enamel in a gilded rim
+   ═══════════════════════════════════════════════════════════════════ */
+.mir-btn {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  gap: 8px;
+  padding: 8px 16px;
+  font-family: var(--font-display);
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sh-gold-pale);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.8);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background:
+    linear-gradient(180deg, rgba(255, 236, 200, 0.09) 0%, rgba(255, 236, 200, 0) 50%) padding-box,
+    linear-gradient(180deg, #2b1e15 0%, #140e0b 100%) padding-box,
+    linear-gradient(180deg, #f3d9a0 0%, #a47d3e 48%, #5d4220 100%) border-box;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 8px 18px -12px rgba(0, 0, 0, 0.95);
+  transition: transform 0.25s var(--ease), box-shadow 0.3s var(--ease), filter 0.25s var(--ease), color 0.25s var(--ease);
+}
+
+/* Glint that crosses the button on hover. */
+.mir-btn::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -70%;
+  z-index: -1;
+  width: 45%;
+  background: linear-gradient(100deg, transparent, rgba(255, 246, 228, 0.22), transparent);
+  transform: skewX(-20deg);
+  transition: left 0.7s var(--ease);
+  pointer-events: none;
+}
+
+.mir-btn:hover {
+  color: #fff;
+  background:
+    linear-gradient(180deg, rgba(255, 236, 200, 0.09) 0%, rgba(255, 236, 200, 0) 50%) padding-box,
+    linear-gradient(180deg, #2b1e15 0%, #140e0b 100%) padding-box,
+    linear-gradient(180deg, #f3d9a0 0%, #a47d3e 48%, #5d4220 100%) border-box;
+  border-color: transparent;
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 10px 22px -12px rgba(0, 0, 0, 0.95), 0 0 26px -8px rgba(232, 211, 160, 0.4);
+}
+
+.mir-btn:hover::after { left: 125%; }
+.mir-btn:active { transform: translateY(0); }
+
+.mir-btn.primary,
+.mir-btn.primary:hover {
+  color: #fff7ea;
+  text-shadow: 0 1px 0 rgba(90, 22, 0, 0.7), 0 0 14px rgba(255, 200, 140, 0.3);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0) 48%) padding-box,
+    linear-gradient(180deg, #f07b2c 0%, #cf4e10 52%, #922c06 100%) padding-box,
+    linear-gradient(180deg, #ffe6b0 0%, #d09c4c 45%, #7a4d1c 100%) border-box;
+  border-color: transparent;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 10px 22px -12px rgba(255, 90, 10, 0.8), inset 0 -3px 8px rgba(90, 18, 0, 0.45);
+}
+
+.mir-btn.primary:hover {
+  filter: brightness(1.1) saturate(1.05);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 14px 32px -12px rgba(255, 106, 0, 0.95), 0 0 44px -16px rgba(255, 150, 60, 0.85), inset 0 -3px 8px rgba(90, 18, 0, 0.45);
+}
+
+.mir-btn.danger,
+.mir-btn.danger:hover,
+#btnStopServer,
+#btnStopServer:hover {
+  color: #ffe9e4;
+  text-shadow: 0 1px 0 rgba(40, 0, 0, 0.8);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0) 48%) padding-box,
+    linear-gradient(180deg, #b3261e 0%, #7d1410 55%, #4a0807 100%) padding-box,
+    linear-gradient(180deg, #f1c4a0 0%, #a4573e 48%, #5d2620 100%) border-box;
+  border-color: transparent;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 10px 22px -12px rgba(200, 30, 20, 0.7), inset 0 -3px 8px rgba(40, 0, 0, 0.45);
+}
+
+.mir-btn.danger:hover,
+#btnStopServer:hover { filter: brightness(1.12); }
+
+/* Start Server is the only green action. */
+#btnStartServer,
+#btnStartServer:hover {
+  color: #eafff1;
+  text-shadow: 0 1px 0 rgba(0, 40, 14, 0.8);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0) 48%) padding-box,
+    linear-gradient(180deg, #2f8f55 0%, #1d6339 55%, #0f3a21 100%) padding-box,
+    linear-gradient(180deg, #e6efb8 0%, #9aa44e 48%, #55602a 100%) border-box;
+  border-color: transparent;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 10px 22px -12px rgba(40, 160, 90, 0.6), inset 0 -3px 8px rgba(0, 40, 14, 0.45);
+}
+
+#btnStartServer:hover { filter: brightness(1.12); }
+
+.mir-btn:disabled { transform: none; filter: saturate(0.5); }
+
+/* Compact variants whose size lives in single-class rules in style.css —
+   the base button above would otherwise out-rank them (same specificity,
+   later file). */
+.ops-row-btn { padding: 3px 8px; font-size: 10px; }
+.fd-browse { padding: 4px 10px; font-size: 10.5px; }
+
+/* Tab-style button rows: inactive tabs are quiet smoked glass so a strip of
+   thirty doesn't read as thirty gilded buttons; only the current tab (the
+   .primary / .active the JS toggles) gets the full enamel. */
+.database-tabs .mir-btn:not(.primary),
+.map-editor-tabs .mir-btn:not(.primary):not(.active),
+.admin-logs-tabs .mir-btn:not(.active),
+.lib-browse-tabs .mir-btn:not(.active),
+.sheet-tabs .mir-btn:not(.primary):not(.active) {
+  color: var(--text-secondary);
+  text-shadow: none;
+  background: rgba(12, 10, 15, 0.5);
+  border-color: rgba(197, 160, 89, 0.24);
+  box-shadow: none;
+}
+
+.database-tabs .mir-btn:not(.primary):hover,
+.map-editor-tabs .mir-btn:not(.primary):not(.active):hover,
+.admin-logs-tabs .mir-btn:not(.active):hover,
+.lib-browse-tabs .mir-btn:not(.active):hover,
+.sheet-tabs .mir-btn:not(.primary):not(.active):hover {
+  color: var(--sh-gold-pale);
+  background: rgba(32, 26, 36, 0.7);
+  border-color: rgba(232, 211, 160, 0.6);
+  box-shadow: none;
+}
+
+.admin-logs-tabs .mir-btn { border-radius: var(--radius-sm); }
+
+.admin-logs-tabs .mir-btn.active,
+.lib-browse-tabs .mir-btn.active,
+#section-sprite-sheets .sheet-tab.active {
+  color: #fff7ea;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0) 48%) padding-box,
+    linear-gradient(180deg, #f07b2c 0%, #cf4e10 52%, #922c06 100%) padding-box,
+    linear-gradient(180deg, #ffe6b0 0%, #d09c4c 45%, #7a4d1c 100%) border-box;
+  border-color: transparent;
+}
+
+/* ── Chips / range pills ─────────────────────────────────────────── */
+.dash-range-btn {
+  font-family: var(--font-body);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  border-color: var(--border-bright);
+  transition: color var(--duration) var(--ease), border-color var(--duration) var(--ease), background var(--duration) var(--ease);
+}
+
+.dash-range-btn:hover { border-color: rgba(232, 211, 160, 0.6); color: var(--sh-gold-pale); }
+
+.dash-range-btn.active {
+  color: var(--sh-molten-lit);
+  background: var(--accent-dim);
+  border-color: rgba(255, 106, 0, 0.55);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   STAT TILES — the portal's gilded numerals over tracked caps labels
+   ═══════════════════════════════════════════════════════════════════ */
+.metrics-grid {
+  position: relative;
+  background: var(--panel-fill);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--panel-edge), var(--panel-drop);
+}
+
+.metric-card {
+  border-right-color: var(--border-dim);
+  border-bottom-color: var(--border-dim);
+}
+
+.metric-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--muted);
+}
+
+.metric-value {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--sh-gold-bright);
+  background: linear-gradient(180deg, #fff3d6 0%, #e3c68a 55%, #b48a45 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Status tiles carry meaning in colour — keep that, drop the gradient. */
+.metric-ok .metric-value,
+.metric-warn .metric-value,
+.metric-bad .metric-value {
+  background: none;
+  -webkit-text-fill-color: currentColor;
+}
+
+.metric-link:hover { background: rgba(197, 160, 89, 0.06); }
+.metric-bar { background: rgba(197, 160, 89, 0.14); }
+.metric-bar-fill { background: linear-gradient(90deg, var(--sh-ember), var(--sh-molten-lit)); }
+.metric-warn .metric-bar-fill { background: var(--warn); }
+.metric-bad .metric-bar-fill { background: var(--danger); }
+
+.dash-live-dot { box-shadow: 0 0 8px rgba(95, 211, 138, 0.6); }
+
+@keyframes dashPulse {
+  0% { box-shadow: 0 0 0 0 rgba(95, 211, 138, 0.5); }
+  70%, 100% { box-shadow: 0 0 0 6px rgba(95, 211, 138, 0); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TABLES
+   ═══════════════════════════════════════════════════════════════════ */
+.user-table th {
+  font-family: var(--font-body);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  color: var(--sh-gold);
+  background: rgba(0, 0, 0, 0.32);
+  border-bottom: 1px solid var(--border-bright);
+}
+
+.user-table td { border-bottom-color: var(--border-dim); }
+.user-table tbody tr:hover { background: rgba(255, 106, 0, 0.06); }
+
+.cfg-section { background: var(--panel-fill); box-shadow: var(--panel-edge); }
+
+.cfg-section-title {
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  color: var(--sh-gold);
+  background: rgba(0, 0, 0, 0.32);
+  border-bottom-color: var(--border-bright);
+}
+
+.cfg-table tr:hover { background: rgba(255, 106, 0, 0.04); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   FORM CONTROLS
+   ═══════════════════════════════════════════════════════════════════ */
+input[type="search"],
+input[type="text"],
+input[type="number"],
+input[type="email"],
+input[type="password"],
+select,
+textarea,
+.fd-input,
+.cfg-val input[type=text],
+.cfg-val input[type=number],
+.cfg-val input[type=password] {
+  background: var(--well);
+  border-color: var(--border-bright);
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.55);
+}
+
+input[type="search"]:focus,
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+select:focus,
+textarea:focus,
+.fd-input:focus,
+.cfg-val input:focus,
+.db-lookup-editor__filter:focus {
+  border-color: rgba(232, 211, 160, 0.75);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.55), 0 0 0 2px rgba(255, 106, 0, 0.2);
+  outline: none;
+}
+
+select option { background: #18141c; color: var(--text); }
+
+label { color: var(--text-secondary); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   AG-GRID — Quartz dark remapped to the same ink
+   ═══════════════════════════════════════════════════════════════════ */
+/* `body` prefix: ag-Grid injects its own <style> after this sheet, so an
+   equal-specificity .ag-theme-quartz-dark rule here would lose the tie. */
+body .ag-theme-quartz-dark {
+  --ag-font-family: var(--font-body);
+  --ag-background-color: #0d0b10;
+  --ag-foreground-color: #d8cfc1;
+  --ag-secondary-foreground-color: #b7ada0;
+  --ag-data-color: #d8cfc1;
+  --ag-header-background-color: #18141c;
+  --ag-header-foreground-color: #c5a059;
+  --ag-header-cell-hover-background-color: #201a24;
+  --ag-subheader-background-color: #130f16;
+  --ag-border-color: rgba(197, 160, 89, 0.18);
+  --ag-secondary-border-color: rgba(197, 160, 89, 0.1);
+  --ag-row-border-color: rgba(197, 160, 89, 0.07);
+  --ag-odd-row-background-color: rgba(197, 160, 89, 0.025);
+  --ag-row-hover-color: rgba(255, 106, 0, 0.08);
+  --ag-selected-row-background-color: rgba(255, 106, 0, 0.16);
+  --ag-range-selection-background-color: rgba(255, 106, 0, 0.14);
+  --ag-range-selection-border-color: #ffa24d;
+  --ag-control-panel-background-color: #130f16;
+  --ag-input-focus-border-color: #e8d3a0;
+  --ag-input-border-color: rgba(197, 160, 89, 0.34);
+  --ag-checkbox-checked-color: #ff7a1f;
+  --ag-active-color: #ff7a1f;
+  --ag-chip-background-color: rgba(197, 160, 89, 0.12);
+  --ag-modal-overlay-background-color: rgba(4, 3, 6, 0.7);
+  --ag-header-column-resize-handle-color: rgba(197, 160, 89, 0.4);
+  --ag-menu-background-color: #18141c;
+  --ag-popup-shadow: 0 18px 40px -14px rgba(0, 0, 0, 0.95);
+  --ag-invalid-color: #e0524d;
+}
+
+.ag-theme-quartz-dark .ag-header-cell-text {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.grid-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--panel-drop);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   LISTS, BADGES, VIEWERS — hard-coded blues in style.css
+   ═══════════════════════════════════════════════════════════════════ */
+.admin-log-view { background: rgba(0, 0, 0, 0.5); border-color: var(--border-bright); }
+
+.qa-sev-info {
+  background: rgba(197, 160, 89, 0.1);
+  color: var(--sh-gold-bright);
+  border-color: rgba(197, 160, 89, 0.28);
+}
+
+.cfg-badge.restart { color: #f0c36a; }
+.cfg-badge.secret { color: #ef7d78; }
+
+.nav-badge { background: var(--sh-blood); color: #ffe9e4; box-shadow: 0 0 10px rgba(139, 0, 0, 0.6); }
+
+.map-list-players { color: #07140c; }
+
+.monitor-count-badge { background: linear-gradient(180deg, var(--sh-molten-lit), var(--sh-ember)); color: #1b0a00; }
+
+.monitor-map-wrap,
+.mapv-wrap,
+.item-cell img,
+.item-icon-blank,
+.fd-thumb,
+.img-picker-cell img { background-color: #050407; }
+
+.mapv-wrap {
+  background:
+    radial-gradient(ellipse at center, rgba(255, 106, 0, 0.05), transparent 70%),
+    #050407;
+}
+
+.monitor-pin { border-color: #f6ead0; }
+
+.library-canvas {
+  background:
+    repeating-conic-gradient(#14101a 0% 25%, #0b090e 0% 50%) 50% / 24px 24px;
+}
+
+.hpmp-bar { background: rgba(0, 0, 0, 0.5); }
+
+/* Lookup popup used by ag-Grid FK cells. */
+.db-lookup-editor {
+  background: #14101a;
+  border-color: var(--border-bright);
+  box-shadow: 0 18px 40px -14px rgba(0, 0, 0, 0.95);
+}
+
+.db-lookup-editor__filter,
+.db-lookup-editor__list { background: rgba(0, 0, 0, 0.4); border-color: var(--border-bright); }
+.db-lookup-editor__option { border-bottom-color: var(--border-dim); }
+.db-lookup-editor__option:hover,
+.db-lookup-editor__option.active { background: var(--accent-dim); }
+.db-lookup-editor__option.selected { color: var(--sh-gold-bright); }
+
+/* ── Drawers, pickers, confirm dialog ────────────────────────────── */
+.inspect-drawer {
+  background: linear-gradient(180deg, rgba(20, 16, 24, 0.97), rgba(10, 8, 13, 0.98));
+  border-left-color: var(--border-bright);
+  box-shadow: -18px 0 50px -20px rgba(0, 0, 0, 0.95);
+}
+
+.inspect-drawer-head { border-bottom-color: var(--border-bright); }
+.inspect-drawer-head h3 { color: var(--sh-gold-pale); }
+
+.inspect-drawer-body h4,
+.ins-label,
+.fd-label { color: var(--sh-gold); letter-spacing: 0.12em; }
+
+.form-drawer-body details { background: rgba(0, 0, 0, 0.22); }
+.form-drawer-body summary { color: var(--sh-gold-bright); letter-spacing: 0.1em; }
+
+.img-picker-modal {
+  background: rgba(4, 3, 6, 0.78);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+.img-picker-panel,
+.portal-confirm-dialog {
+  position: relative;
+  background: var(--panel-fill);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--panel-edge), 0 30px 70px -20px rgba(0, 0, 0, 0.98);
+}
+
+.img-picker-panel { background: linear-gradient(180deg, #1c171f, #0d0b10); }
+
+.portal-confirm-backdrop {
+  background: rgba(4, 3, 6, 0.78);
+  -webkit-backdrop-filter: blur(5px);
+  backdrop-filter: blur(5px);
+}
+
+.portal-confirm-dialog::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 14%;
+  right: 14%;
+  height: 1px;
+  background: var(--gilt-line);
+}
+
+.portal-confirm-dialog h3 {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--sh-gold-pale);
+}
+
+.portal-confirm-dialog p { color: var(--text-secondary); }
+
+.mapv-tooltip,
+.monitor-pin:hover::after,
+.fd-lookup-list {
+  background: #14101a;
+  border-color: var(--border-bright);
+}
+
+/* ── Visual editor chrome (canvas internals keep their contrast colours) ── */
+.ve-workspace { background: var(--panel-fill); border-color: var(--border-bright); }
+.ve-canvas-pane { background: #09070c; }
+.ve-viewport { background-color: #07060a; }
+.ve-layer.selected { background: rgba(255, 106, 0, 0.14); color: var(--sh-gold-bright); }
+.ve-warnings { color: #f0c36a; }
+#veDialogSelect { background: var(--well); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   REDUCED MOTION
+   ═══════════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  .mir-btn,
+  .mir-btn::after,
+  .admin-toptabs .mir-btn::after,
+  .dash-live-dot { transition: none !important; animation: none !important; }
+  .mir-btn:hover { transform: none; }
+}

@@ -398,6 +398,7 @@ namespace Server.MirObjects
             }
 
             Envir.Players.Remove(this);
+            global::Server.WebAdmin.WebAdminHooks.RaisePlayerLeft(this);
 
             CurrentMap.RemoveObject(this);
             Broadcast(new S.ObjectRemove { ObjectID = ObjectID });
@@ -1105,6 +1106,9 @@ namespace Server.MirObjects
             Envir.Players.Add(this);
 
             StartGameSuccess();
+
+            //WebAdmin: raised once the player is in Envir.Players and before the Login/Daily scripts (which may remove the player again)
+            global::Server.WebAdmin.WebAdminHooks.RaisePlayerEntered(this);
 
             if (!IsGM && CurrentMap?.Info?.RequiredGroup == true)
             {
@@ -1997,11 +2001,13 @@ namespace Server.MirObjects
 
                 ReceiveChat(string.Format("/{0}", message), ChatType.WhisperOut);
                 player.ReceiveChat(string.Format("{0}=>{1}", Name, message.Remove(0, parts[0].Length)), ChatType.WhisperIn);
+                global::Server.WebAdmin.WebAdminHooks.RaiseChat("whisper", Name, message.Remove(0, parts[0].Length).TrimStart(), player.Name);
             }
             else if (message.StartsWith("!!"))
             {
                 if (GroupMembers == null) return;
                 //Group
+                global::Server.WebAdmin.WebAdminHooks.RaiseChat("group", Name, message.Substring(2).Trim(), null);
                 message = String.Format("{0}:{1}", Name, " " + message.Remove(0, 2));
 
                 message = ProcessChatItems(message, GroupMembers, linkedItems);
@@ -2017,6 +2023,7 @@ namespace Server.MirObjects
 
                 //Guild
                 message = message.Remove(0, 2);
+                global::Server.WebAdmin.WebAdminHooks.RaiseChat("guild", Name, message.Trim(), MyGuild.Name);
 
                 message = ProcessChatItems(message, MyGuild.GetOnlinePlayers(), linkedItems);
 
@@ -2046,6 +2053,7 @@ namespace Server.MirObjects
 
                 ReceiveChat(string.Format("{0}: {1}", Name, message), ChatType.Mentor);
                 player.ReceiveChat(string.Format("{0}: {1}", Name, message), ChatType.Mentor);
+                global::Server.WebAdmin.WebAdminHooks.RaiseChat("mentor", Name, message, player.Name);
             }
             else if (message.StartsWith("!"))
             {
@@ -2062,6 +2070,7 @@ namespace Server.MirObjects
                 }
 
                 ShoutTime = Envir.Time + 10000;
+                global::Server.WebAdmin.WebAdminHooks.RaiseChat(HasServerShout ? "shout-server" : HasMapShout ? "shout-map" : "shout", Name, message.Substring(1).Trim(), null);
                 message = String.Format("(!){0}:{1}", Name, message.Remove(0, 1));
 
                 if (HasMapShout)
@@ -2136,11 +2145,13 @@ namespace Server.MirObjects
 
                 ReceiveChat(string.Format("{0}: {1}", Name, message), ChatType.Relationship);
                 player.ReceiveChat(string.Format("{0}: {1}", Name, message), ChatType.Relationship);
+                global::Server.WebAdmin.WebAdminHooks.RaiseChat("relationship", Name, message, player.Name);
             }
             else if (message.StartsWith("@!"))
             {
                 if (!IsGM) return;
 
+                global::Server.WebAdmin.WebAdminHooks.RaiseChat("announcement", Name, message.Substring(2).Trim(), null);
                 message = String.Format("(*){0}:{1}", Name, message.Remove(0, 2));
 
                 message = ProcessChatItems(message, Envir.Players, linkedItems);
@@ -4157,6 +4168,7 @@ namespace Server.MirObjects
             }
             else
             {
+                global::Server.WebAdmin.WebAdminHooks.RaiseChat("normal", Name, message, null);
                 message = String.Format("{0}:{1}", CurrentMap.Info.NoNames ? "?????" : Name, " " + message);
 
                 message = ProcessChatItems(message, null, linkedItems);

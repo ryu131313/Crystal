@@ -2028,6 +2028,7 @@ namespace Server.MirEnvir
                     StopEnvir();
                     _thread = null;
                     Stop();
+                    global::Server.WebAdmin.WebAdminHooks.RaiseWorldStopped();
                     return;
                 }
 
@@ -2048,6 +2049,10 @@ namespace Server.MirEnvir
                     http = new HttpServer();
                     http.Start();
                 }
+
+                OpenAdminQueue();
+                global::Server.WebAdmin.WebAdminHooks.RaiseWorldStarted();
+
                 try
                 {
                     while (Running)
@@ -2144,11 +2149,14 @@ namespace Server.MirEnvir
 
                         Process();
 
-                        if (Time >= saveTime)
+                        DrainAdminActions();
+
+                        if (Time >= saveTime || _saveNowRequested)
                         {
+                            _saveNowRequested = false;
                             saveTime = Time + Settings.SaveDelay * Settings.Minute;
                             BeginSaveAccounts();
-                            SaveDB();
+                            if (!SystemDataStale) SaveDB(); //WebAdmin: never overwrite newer system data saved by the Edit envir
                             SaveGuilds();
                             SaveGoods();
                             SaveConquests();
@@ -2196,6 +2204,8 @@ namespace Server.MirEnvir
                     MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.InnerWorkloopErrorLine), line, ex));
                 }
 
+                CloseAdminQueue();
+
                 StopNetwork();
                 StopEnvir();
                 SaveAccounts();
@@ -2213,6 +2223,9 @@ namespace Server.MirEnvir
 
                 MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.OuterWorkloopErrorLine), line, ex));
             }
+
+            CloseAdminQueue();
+            global::Server.WebAdmin.WebAdminHooks.RaiseWorldStopped();
 
             _thread = null;
         }
@@ -2504,6 +2517,9 @@ namespace Server.MirEnvir
                 for (var i = 0; i < GTMapList.Count; i++)
                     GTMapList[i].Save(writer);
             }
+
+            //WebAdmin: once the Edit envir has written Server.MirDB, Main's in-memory system data is stale until it reloads.
+            if (this == Edit) _systemDataStale = true;
         }
 
 
@@ -2609,6 +2625,8 @@ namespace Server.MirEnvir
                     Save.Save(writer);
                 }
             }
+
+            if (this == Main) global::Server.WebAdmin.WebAdminHooks.RaiseAccountsSaved();
         }
 
         private void SaveGuilds(bool forced = false)
@@ -3251,6 +3269,105 @@ namespace Server.MirEnvir
             return bound;
         }
 
+        #region WebAdmin hooks (MirCraft web admin)
+
+        private static volatile bool _systemDataStale;
+
+        /// <summary>True once Envir.Edit.SaveDB() ran after Envir.Main last loaded its DB: Main's periodic SaveDB() is skipped until the next Start/Reboot reloads it.</summary>
+        public static bool SystemDataStale => _systemDataStale;
+
+        private readonly ConcurrentQueue<(Action Run, Action<Exception> Dropped)> _adminActions = new ConcurrentQueue<(Action Run, Action<Exception> Dropped)>();
+        private readonly object _adminQueueLock = new object();
+        private volatile bool _adminQueueOpen;
+        private volatile bool _saveNowRequested;
+
+        private const int AdminActionsPerTick = 64;
+        private const long AdminActionsBudgetMs = 10;
+
+        /// <summary>True while the game loop is running and draining queued admin actions.</summary>
+        public bool AdminQueueOpen => _adminQueueOpen;
+
+        /// <summary>True while the WorkLoop thread exists (starting, running or stopping).</summary>
+        public bool WorkLoopAlive => _thread != null;
+
+        /// <summary>
+        /// Queues an action to run on the game thread (right after Process() in WorkLoop).
+        /// Returns false (and never runs it) when the world loop is not running.
+        /// <paramref name="dropped"/> is invoked if the loop exits before the action ran.
+        /// </summary>
+        public bool QueueAdminAction(Action action, Action<Exception> dropped = null)
+        {
+            if (action == null) return false;
+
+            lock (_adminQueueLock)
+            {
+                if (!_adminQueueOpen || !Running) return false;
+                _adminActions.Enqueue((action, dropped));
+            }
+
+            return true;
+        }
+
+        /// <summary>Makes the next game tick run the periodic save block (accounts, DB, guilds, goods, conquests).</summary>
+        public void RequestSaveNow()
+        {
+            _saveNowRequested = true;
+        }
+
+        private void OpenAdminQueue()
+        {
+            _saveNowRequested = false;
+
+            lock (_adminQueueLock)
+                _adminQueueOpen = true;
+        }
+
+        private void DrainAdminActions()
+        {
+            if (_adminActions.IsEmpty) return;
+
+            var start = Stopwatch.ElapsedMilliseconds;
+            var count = 0;
+
+            while (count < AdminActionsPerTick && _adminActions.TryDequeue(out var item))
+            {
+                count++;
+
+                try
+                {
+                    item.Run();
+                }
+                catch (Exception ex)
+                {
+                    MessageQueue.Enqueue(ex);
+                }
+
+                if (Stopwatch.ElapsedMilliseconds - start >= AdminActionsBudgetMs) break;
+            }
+        }
+
+        private void CloseAdminQueue()
+        {
+            lock (_adminQueueLock)
+                _adminQueueOpen = false;
+
+            while (_adminActions.TryDequeue(out var item))
+            {
+                if (item.Dropped == null) continue;
+
+                try
+                {
+                    item.Dropped(new global::Server.WebAdmin.WorldNotRunningException());
+                }
+                catch (Exception ex)
+                {
+                    MessageQueue.Enqueue(ex);
+                }
+            }
+        }
+
+        #endregion
+
         public void Start()
         {
             if (Running || _thread != null) return;
@@ -3317,6 +3434,8 @@ namespace Server.MirEnvir
             CustomCommands.Clear();
             Heroes.Clear();
             MonsterCount = 0;
+
+            if (this == Main) _systemDataStale = false;
 
             LoadDB();
 
@@ -3415,6 +3534,7 @@ namespace Server.MirEnvir
             Connections.Clear();
 
             LoadAccounts();
+            global::Server.WebAdmin.WebAdminHooks.RaiseAccountsLoaded();
 
             LoadGuilds();
 
@@ -3859,6 +3979,7 @@ namespace Server.MirEnvir
 
             if (account == null)
             {
+                global::Server.WebAdmin.WebAdminHooks.RaiseLoginAttempt(p.AccountID, c.IPAddress, "no-account");
                 c.Enqueue(new ServerPackets.Login { Result = 3 });
                 return;
             }
@@ -3867,6 +3988,7 @@ namespace Server.MirEnvir
             {
                 if (account.ExpiryDate > Now)
                 {
+                    global::Server.WebAdmin.WebAdminHooks.RaiseLoginAttempt(account.AccountID, c.IPAddress, "banned");
                     c.Enqueue(new ServerPackets.LoginBanned
                     {
                         Reason = account.BanReason,
@@ -3883,6 +4005,8 @@ namespace Server.MirEnvir
 
             if (string.CompareOrdinal(account.Password, p.Password) != 0)
             {
+                global::Server.WebAdmin.WebAdminHooks.RaiseLoginAttempt(account.AccountID, c.IPAddress, "bad-password");
+
                 if (account.WrongPasswordCount++ >= 5)
                 {
                     account.Banned = true;
@@ -3901,6 +4025,15 @@ namespace Server.MirEnvir
                 return;
             }
             account.WrongPasswordCount = 0;
+
+            //WebAdmin: optional login gate (e.g. maintenance mode). A non-null result refuses the login like AllowLogin=false does.
+            var gateRefusal = global::Server.WebAdmin.WebAdminHooks.CheckLoginGate(account);
+            if (gateRefusal != null)
+            {
+                global::Server.WebAdmin.WebAdminHooks.RaiseLoginAttempt(account.AccountID, c.IPAddress, "refused:" + gateRefusal);
+                c.Enqueue(new ServerPackets.Login { Result = 0 });
+                return;
+            }
 
             if (account.RequirePasswordChange)
             {
@@ -3923,6 +4056,7 @@ namespace Server.MirEnvir
 
             MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.UserLoggedIn), account.Connection.SessionID, account.Connection.IPAddress));
             c.Enqueue(new ServerPackets.LoginSuccess { Characters = account.GetSelectInfo() });
+            global::Server.WebAdmin.WebAdminHooks.RaiseLoginAttempt(account.AccountID, c.IPAddress, "ok");
         }
 
         public int HTTPLogin(string AccountID, string Password)

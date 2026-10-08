@@ -77,6 +77,14 @@ namespace Server
         public static string HTTPIPAddress = "http://127.0.0.1:5679/";
         public static string HTTPTrustedIPAddress = "127.0.0.1";
 
+        //WebAdmin (MirCraft web admin panel)
+        public static bool WebAdminEnabled = true;
+        public static string WebAdminBind = "127.0.0.1";
+        public static ushort WebAdminPort = 5680;
+        public static string WebAdminWebRoot = @".\wwwroot";
+        public static int WebAdminSessionHours = 8;
+        public static int WebAdminMaxBodyKB = 2048;
+
         //Permission
         public static bool AllowNewAccount = true,
                            AllowChangePassword = true,
@@ -401,6 +409,14 @@ namespace Server
             HTTPIPAddress = Reader.ReadString("Network", "HTTPIPAddress", HTTPIPAddress);
             HTTPTrustedIPAddress = Reader.ReadString("Network", "HTTPTrustedIPAddress", HTTPTrustedIPAddress);
 
+            //WebAdmin
+            WebAdminEnabled = Reader.ReadBoolean("WebAdmin", "Enabled", WebAdminEnabled);
+            WebAdminBind = Reader.ReadString("WebAdmin", "Bind", WebAdminBind);
+            WebAdminPort = Reader.ReadUInt16("WebAdmin", "Port", WebAdminPort);
+            WebAdminWebRoot = Reader.ReadString("WebAdmin", "WebRoot", WebAdminWebRoot);
+            WebAdminSessionHours = Reader.ReadInt32("WebAdmin", "SessionHours", WebAdminSessionHours);
+            WebAdminMaxBodyKB = Reader.ReadInt32("WebAdmin", "MaxBodyKB", WebAdminMaxBodyKB);
+
             //Permission
             AllowNewAccount = Reader.ReadBoolean("Permission", "AllowNewAccount", AllowNewAccount);
             AllowChangePassword = Reader.ReadBoolean("Permission", "AllowChangePassword", AllowChangePassword);
@@ -687,6 +703,14 @@ namespace Server
             Reader.Write("Network", "StartHTTPService", StartHTTPService);
             Reader.Write("Network", "HTTPIPAddress", HTTPIPAddress);
             Reader.Write("Network", "HTTPTrustedIPAddress", HTTPTrustedIPAddress);
+
+            //WebAdmin
+            Reader.Write("WebAdmin", "Enabled", WebAdminEnabled);
+            Reader.Write("WebAdmin", "Bind", WebAdminBind);
+            Reader.Write("WebAdmin", "Port", WebAdminPort);
+            Reader.Write("WebAdmin", "WebRoot", WebAdminWebRoot);
+            Reader.Write("WebAdmin", "SessionHours", WebAdminSessionHours);
+            Reader.Write("WebAdmin", "MaxBodyKB", WebAdminMaxBodyKB);
 
             //Permission
             Reader.Write("Permission", "AllowNewAccount", AllowNewAccount);

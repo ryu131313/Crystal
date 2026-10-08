@@ -23,6 +23,8 @@ namespace Server
                 MessageLog.Enqueue(String.Format("[{0}]: {1}" + Environment.NewLine, DateTime.Now, msg));
 
             Logger.GetLogger(LogType.Server).Info(msg);
+
+            global::Server.WebAdmin.WebAdminLogTap.AppendServer(msg);
         }
 
         public void Enqueue(Exception ex)
@@ -31,6 +33,8 @@ namespace Server
                 MessageLog.Enqueue(String.Format("[{0}]: {1} - {2}" + Environment.NewLine, DateTime.Now, ex.TargetSite, ex));
 
             Logger.GetLogger(LogType.Server).Error(ex);
+
+            global::Server.WebAdmin.WebAdminLogTap.AppendServer(ex?.ToString());
         }
 
         public void EnqueueDebugging(string msg)
@@ -39,6 +43,8 @@ namespace Server
                 DebugLog.Enqueue(String.Format("[{0}]: {1}" + Environment.NewLine, DateTime.Now, msg));
 
             Logger.GetLogger(LogType.Debug).Debug(msg);
+
+            global::Server.WebAdmin.WebAdminLogTap.AppendDebug(msg);
         }
 
         public void EnqueueChat(string msg)
@@ -47,6 +53,8 @@ namespace Server
                 ChatLog.Enqueue(String.Format("[{0}]: {1}" + Environment.NewLine, DateTime.Now, msg));
 
             Logger.GetLogger(LogType.Chat).Info(msg);
+
+            global::Server.WebAdmin.WebAdminLogTap.AppendChat(msg);
         }
     }
 }

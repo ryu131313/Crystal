@@ -1,0 +1,918 @@
+/* ═══════════════════════════════════════════════════════════════════
+   MirCraft Admin — shell components
+   Generic blocks ported from the MirCraftcraft admin style.css (top bar, breadcrumb, nav badges, grids, lookup editor,
+   inspect / form drawers, dialogs, toolbars, player chip) plus the MirCraft shell additions at the end.
+   Loads after /shared/mir-theme.css and before the feature stylesheets and /shared/admin-theme.css (which stays LAST).
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Global visibility helper: the admin toggles `.hidden` on sections, drawers, badges and anything else. */
+.hidden { display: none !important; }
+
+
+/* ── Top Bar Layout ─────────────────────────────────────────────── */
+.admin-topbar {
+  gap: 12px;
+}
+
+/* ── Top Bar Right (user area + online indicator) ───────────────── */
+.admin-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+/* Online status indicator */
+#adminUser::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  margin-right: 6px;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
+  vertical-align: middle;
+}
+
+/* ── Hidden Grid Panels ─────────────────────────────────────────── */
+.grid-panel.hidden {
+  display: none;
+}
+
+/* ── Compact grid density (match the desktop Server.exe editors) ──── */
+.ag-theme-quartz-dark {
+  --ag-grid-size: 4px;
+  --ag-font-size: 12px;
+  --ag-row-height: 26px;
+  --ag-header-height: 30px;
+  --ag-cell-horizontal-padding: 8px;
+  --ag-list-item-height: 24px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   CONFIG EDITORS
+   ═══════════════════════════════════════════════════════════════════ */
+.cfg-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: 14px;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.cfg-section-title {
+  margin: 0;
+  padding: 10px 16px;
+  background: var(--surface);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.cfg-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.cfg-table td {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-dim);
+  vertical-align: middle;
+}
+
+.cfg-table tr:last-child td {
+  border-bottom: none;
+}
+
+.cfg-table tr:hover {
+  background: rgba(59, 130, 246, 0.03);
+}
+
+.cfg-key {
+  width: 280px;
+  font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.cfg-val input[type=text],
+.cfg-val input[type=number],
+.cfg-val input[type=password] {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 5px 10px;
+  font-size: 13px;
+}
+
+.cfg-val input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+  outline: none;
+}
+
+/* ── Config Badges ──────────────────────────────────────────────── */
+.cfg-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  margin-left: 8px;
+  vertical-align: middle;
+  font-weight: 600;
+}
+
+.cfg-badge.restart {
+  background: var(--warn-dim);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.cfg-badge.secret {
+  background: var(--danger-dim);
+  color: #fb7185;
+  border: 1px solid rgba(244, 63, 94, 0.2);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   BREADCRUMB & NAV BADGES
+   ═══════════════════════════════════════════════════════════════════ */
+.admin-breadcrumb {
+  margin: 0 0 14px 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.nav-badge {
+  font-size: 10px;
+  margin-left: 6px;
+  color: var(--muted);
+  background: var(--surface);
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  font-weight: 600;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   LOG TABS
+   ═══════════════════════════════════════════════════════════════════ */
+.admin-logs-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.admin-logs-tabs .mir-btn {
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  padding: 5px 14px;
+  border-color: var(--border-bright);
+}
+
+.admin-logs-tabs .mir-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   RELOAD LIVE DATA — button icons
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Searchable DB lookup editor (ag-grid popup) ─────────────────── */
+.db-lookup-editor {
+  min-width: 320px;
+  max-width: 520px;
+  background: #0f1724;
+  border: 1px solid var(--border, #2a3a52);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.db-lookup-editor__filter {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--border, #2a3a52);
+  border-radius: var(--radius-sm, 6px);
+  background: #111b2a;
+  color: var(--text, #e8eef7);
+  font: inherit;
+}
+
+.db-lookup-editor__filter:focus {
+  outline: none;
+  border-color: var(--accent, #5eb3ff);
+  box-shadow: 0 0 0 2px rgba(94, 179, 255, 0.2);
+}
+
+.db-lookup-editor__meta {
+  font-size: 12px;
+  color: var(--muted, #8aa0bd);
+  padding: 0 2px;
+}
+
+.db-lookup-editor__list {
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--border, #2a3a52);
+  border-radius: var(--radius-sm, 6px);
+  background: #111b2a;
+}
+
+.db-lookup-editor__option {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  padding: 7px 10px;
+  border: none;
+  border-bottom: 1px solid rgba(42, 58, 82, 0.55);
+  background: transparent;
+  color: var(--text, #e8eef7);
+  font: inherit;
+  cursor: pointer;
+}
+
+.db-lookup-editor__option:last-child {
+  border-bottom: none;
+}
+
+.db-lookup-editor__option:hover,
+.db-lookup-editor__option.active {
+  background: rgba(94, 179, 255, 0.14);
+}
+
+.db-lookup-editor__option.selected {
+  color: #9ed4ff;
+  font-weight: 600;
+}
+
+/* §6 step 5 (D-43): the detail column (level / AI / boss, item type / price, NPC map) after the label. */
+.db-lookup-editor__detail {
+  float: right;
+  margin-left: 10px;
+  color: var(--muted, #8aa0b8);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.db-lookup-editor__empty {
+  padding: 12px 10px;
+  color: var(--muted, #8aa0bd);
+  font-size: 13px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   INSPECT DRAWER
+   ═══════════════════════════════════════════════════════════════════ */
+
+.inspect-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 420px;
+  max-width: 92vw;
+  z-index: 1000;
+  background: var(--bg-elevated);
+  border-left: 1px solid var(--border-bright);
+  box-shadow: -8px 0 30px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+}
+
+.inspect-drawer.hidden { display: none; }
+
+.inspect-drawer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.inspect-drawer-head h3 { margin: 0; font-size: 15px; }
+
+.inspect-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+  font-size: 13px;
+}
+
+.inspect-drawer-body h4 {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.inspect-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+}
+
+.ins-label {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.item-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+}
+
+.item-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+}
+
+.item-cell img,
+.item-icon-blank {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  background: #04141d;
+  border-radius: var(--radius-xs);
+  flex: 0 0 32px;
+}
+
+.item-cell-name {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.item-cell-name em { color: var(--warn); font-style: normal; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   ROW FORM DRAWER + IMAGE PICKER
+   ═══════════════════════════════════════════════════════════════════ */
+
+.form-drawer { width: 520px; }
+
+.form-drawer-body details {
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+.form-drawer-body summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.fd-group-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  padding: 10px 12px;
+}
+
+.fd-field { min-width: 0; position: relative; }
+
+.fd-field-bool {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-direction: row-reverse;
+  justify-content: flex-end;
+}
+
+.fd-label {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fd-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.fd-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.fd-readonly { color: var(--muted); background: var(--bg-elevated); }
+
+/* Long / multi-line text (NPCPage.Say ...): a textarea across both drawer columns, line breaks kept. */
+.fd-field-wide { grid-column: 1 / -1; }
+.fd-textarea { min-height: 64px; resize: vertical; white-space: pre-wrap; line-height: 1.4; }
+
+.fd-point-wrap { display: flex; align-items: center; gap: 6px; }
+.fd-point { width: 70px; }
+
+.fd-lookup { position: relative; }
+
+.fd-lookup-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-xs);
+  box-shadow: var(--shadow-md);
+}
+
+.fd-lookup-option {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  padding: 5px 8px;
+  border: none;
+  border-bottom: 1px solid var(--border-dim);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.fd-lookup-option:hover { background: var(--accent-dim); }
+.fd-lookup-empty { padding: 8px; color: var(--muted); font-size: 12px; }
+
+.fd-thumb {
+  display: block;
+  margin-top: 4px;
+  max-width: 96px;
+  max-height: 96px;
+  image-rendering: pixelated;
+  background: #04141d;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+}
+
+.fd-browse { margin-top: 4px; font-size: 12px; padding: 3px 10px; }
+
+.img-picker-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgba(4, 8, 18, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.img-picker-modal.hidden { display: none; }
+
+.img-picker-panel {
+  width: 720px;
+  max-width: 94vw;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.img-picker-grid {
+  flex: 1;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 6px;
+  padding: 12px 16px;
+}
+
+.img-picker-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  color: var(--muted);
+  font: 11px 'JetBrains Mono', monospace;
+}
+
+.img-picker-cell:hover { border-color: var(--accent); background: var(--panel-hover); }
+.img-picker-cell.empty { opacity: 0.35; }
+
+.img-picker-cell img {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  background: #04141d;
+}
+
+/* ============================ OPERATIONS CONSOLE ============================
+ * GM console, broadcast/MOTD, maintenance, alerts, scheduler, live events,
+ * mass mail, chat log, economy and the account-timeline drawer.
+ *
+ * NOTE: the admin site has no bare `.hidden { display:none }` rule — visibility
+ * comes from companion-class rules only. The new sections use `.admin-section
+ * hidden` and the timeline drawer uses `.inspect-drawer hidden`, both of which
+ * already have companion rules, so nothing extra is needed here.
+ */
+
+/* Form rows: label-above-input pairs that wrap freely. */
+.ops-form { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; margin:10px 0; }
+.ops-form label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); }
+.ops-form label.mir-toggle { flex-direction:row; align-items:center; gap:6px; }
+.ops-form .fd-input { min-width:150px; }
+
+.ops-block { display:block; margin:10px 0; font-size:12px; color:var(--muted); }
+.ops-textarea { width:100%; min-height:70px; font-family:inherit; resize:vertical; }
+
+.ops-group { border-top:1px solid var(--border); margin-top:14px; padding-top:10px; }
+.ops-group h3 { margin:0 0 8px; font-size:13px; }
+
+/* Log/feed blocks — chat log, GM trail, alerts, scan results. */
+.ops-log { max-height:520px; overflow-y:auto; border:1px solid var(--border); border-radius:6px; margin-top:10px; }
+.ops-log:empty::after { content:'Nothing to show.'; display:block; padding:12px; color:var(--muted); font-size:12px; }
+
+.ops-row {
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  padding:6px 10px; border-bottom:1px solid var(--border); font-size:12px;
+}
+.ops-row:last-child { border-bottom:none; }
+.ops-row:hover { background:var(--bg-elevated); }
+.ops-row-muted { opacity:.5; }
+.ops-row-time { color:var(--muted); min-width:74px; font-variant-numeric:tabular-nums; }
+.ops-row-tag {
+  color:var(--accent); min-width:78px; font-family:'JetBrains Mono',monospace; font-size:11px;
+}
+.ops-row-who { font-weight:600; min-width:130px; }
+.ops-row-text { flex:1 1 260px; word-break:break-word; }
+.ops-row-btn { padding:2px 7px; font-size:11px; margin:0; }
+
+/* Status pills. */
+.ops-pill {
+  display:inline-block; padding:1px 8px; border-radius:999px;
+  font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.03em;
+}
+.ops-pill-ok { background:rgba(34,197,94,.15); color:#4ade80; }
+.ops-pill-warn { background:rgba(245,158,11,.15); color:#fbbf24; }
+.ops-pill-danger { background:rgba(225,29,72,.18); color:#fb7185; }
+
+/* Sidebar unacknowledged-alert badge. */
+.nav-badge {
+  display:inline-block; margin-left:6px; padding:0 6px; border-radius:999px;
+  background:var(--danger,#e11d48); color:#fff; font-size:10px; font-weight:700; line-height:16px;
+}
+
+/* GM action bar inside the Live Monitor inspect drawer. */
+.drawer-gm { flex-wrap:wrap; gap:5px; margin:6px 0 12px; }
+.drawer-gm .mir-btn { padding:3px 8px; font-size:11px; }
+
+.ops-table-scroll { overflow-x:auto; overscroll-behavior-inline:contain; }
+.ops-table-scroll .user-table { min-width:920px; }
+.mir-btn:disabled { opacity:.55; cursor:wait; filter:saturate(.65); }
+
+.portal-confirm-backdrop {
+  position:fixed; inset:0; z-index:12000; display:grid; place-items:center;
+  padding:20px; background:rgba(4,8,13,.72); backdrop-filter:blur(4px);
+}
+.portal-confirm-dialog {
+  width:min(440px,100%); padding:22px; border:1px solid var(--border);
+  border-radius:12px; background:var(--panel); color:var(--text);
+  box-shadow:0 22px 70px rgba(0,0,0,.58);
+}
+.portal-confirm-dialog h3 { margin:0 0 10px; }
+.portal-confirm-dialog p { margin:0; color:var(--muted); white-space:pre-line; line-height:1.55; }
+.portal-confirm-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:20px; }
+
+/* Economy two-column tables. */
+.eco-columns { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:16px; margin-top:14px; }
+.eco-columns h3 { margin:0 0 6px; font-size:13px; }
+
+@media (max-width:760px) {
+  .ops-form label { flex:1 1 100%; }
+  .ops-row-who, .ops-row-tag { min-width:0; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   GAME DATA AREA (admin-db-registry.js, admin-db.js, admin-grid-factory.js)
+   admin-database-review.md sections 3-5: grouped tables, compact grids,
+   one toolbar row, drawer panels, NPC page editor. DB grids only.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Grid typography: 11px cells and headers in normal case (headers wrap instead of widening columns). */
+body .grid-panel.ag-theme-quartz-dark {
+  --ag-font-size: 11px;
+  --ag-row-height: 24px;
+  --ag-header-height: 28px;
+  --ag-cell-horizontal-padding: 5px;
+  --ag-grid-size: 3px;
+  --ag-list-item-height: 22px;
+}
+body.db-density-comfortable .grid-panel.ag-theme-quartz-dark {
+  --ag-font-size: 12px;
+  --ag-row-height: 30px;
+  --ag-header-height: 32px;
+  --ag-cell-horizontal-padding: 8px;
+  --ag-grid-size: 4px;
+}
+.grid-panel.ag-theme-quartz-dark .ag-header-cell-text {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11px;
+  line-height: 1.2;
+}
+.grid-panel.ag-theme-quartz-dark .ag-header-group-cell.db-col-group { font-size: 10.5px; color: var(--muted); }
+.grid-panel .ag-cell { font-variant-numeric: tabular-nums; }
+.grid-panel .ag-cell.db-cell-index { color: var(--muted); }
+.grid-panel .ag-cell.db-cell-name { font-weight: 600; }
+.grid-panel .ag-cell.db-cell-display { color: var(--sh-gold-pale, var(--text-secondary)); font-weight: 500; }
+.grid-panel .ag-cell.db-cell-lookup { color: var(--sh-gold-pale, var(--text)); font-weight: 500; cursor: pointer; }
+.grid-panel .ag-cell.db-cell-center .ag-cell-wrapper,
+.grid-panel .ag-cell.db-cell-center { justify-content: center; text-align: center; }
+
+/* Go-to arrow on lookup cells (Ctrl+click the cell does the same). */
+.db-goto-cell { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.db-goto-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.db-goto { flex: none; color: var(--muted); text-decoration: none; font-size: 11px; opacity: 0; }
+.ag-row-hover .db-goto, .ag-cell-focus .db-goto { opacity: 1; }
+.db-goto:hover { color: var(--accent); }
+
+/* LiveDb header markers: only the exception (restart-only) is marked; the toolbar shows a legend. */
+.ag-theme-quartz-dark .ag-header-cell.livedb-live { box-shadow: none; }
+.fd-label.livedb-live, .fd-label.livedb-restart { border-bottom: none; }
+.db-legend { font-size: 11px; display: inline-flex; align-items: center; gap: 5px; }
+.db-legend-swatch { display: inline-block; width: 16px; height: 0; border-bottom: 2px solid var(--warn); }
+
+/* Group header + tab strip */
+.gd-strip { margin: 0 0 8px; }
+.gd-group-title { margin: 0 0 6px; font-size: 17px; }
+.gd-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.gd-tabs .mir-btn { margin: 0; padding: 3px 10px; font-size: 12px; }
+.gd-tabs .gd-child-tab:not(.primary) { opacity: .9; }
+.gd-tabs .gd-editor-tab:not(.primary) { border-style: dashed; }
+.gd-tabs .gd-link-tab:not(.primary) { border-color: transparent; background: transparent; color: var(--muted); }
+.gd-editor-strip { margin: 0 0 10px; }
+
+/* One pane per table; the grid takes the rest of the window. */
+.db-pane.hidden, .gd-all.hidden, .npe-editor.hidden, #npeEmpty.hidden { display: none; }
+.db-pane .db-grid { height: calc(100vh - 230px); min-height: 360px; }
+.db-tools-bar.compact { gap: 5px; margin-bottom: 6px; }
+.db-tools-bar.compact .mir-btn { padding: 3px 9px; font-size: 12px; }
+.db-tools-bar.compact input[type=search] { min-width: 160px !important; padding: 3px 8px; font-size: 12px; }
+.db-pane-head { display: inline-flex; align-items: baseline; gap: 8px; margin-right: 6px; }
+.db-pane-title { margin: 0; font-size: 14px; }
+.db-pane-meta { font-size: 12px; white-space: nowrap; }
+.db-tools-end { margin-left: auto; display: inline-flex; gap: 5px; align-items: center; }
+.db-save-btn.db-has-pending, .mir-btn.db-has-pending { box-shadow: 0 0 0 1px var(--warn) inset; }
+
+/* Parent filter chip ("Monster = Oma Warrior ×") */
+.db-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 4px 1px 9px; border-radius: 999px; border: 1px solid var(--accent); background: var(--accent-dim, transparent); font-size: 12px; }
+.db-chip-x { border: 0; background: transparent; color: var(--text); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 4px; }
+
+/* Popovers: Columns menu, Changes list */
+.db-popover { position: absolute; top: 100%; z-index: 50; margin-top: 4px; min-width: 260px; max-width: 520px; max-height: 60vh; overflow: auto;
+  background: var(--bg-elevated); border: 1px solid var(--border-bright); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg, 0 12px 30px rgba(0,0,0,.6)); padding: 8px; }
+.db-columns-menu input[type=search] { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
+.db-columns-list { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; font-size: 12px; max-height: 44vh; overflow: auto; }
+.db-columns-list label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.db-columns-actions { display: flex; gap: 6px; margin-top: 8px; }
+.db-changes-panel { font-size: 12px; }
+.db-changes-panel ul { list-style: none; margin: 6px 0; padding: 0; }
+.db-changes-panel li { padding: 4px 0; border-bottom: 1px solid var(--border-dim, var(--border)); }
+.db-changes-head { font-weight: 600; }
+.db-changes-field { color: var(--text-secondary); padding-left: 10px; overflow-wrap: anywhere; }
+
+/* [Flags] editor (grid popup and drawer) */
+.db-flags-editor { background: var(--bg-elevated); border: 1px solid var(--border-bright); padding: 8px; min-width: 220px; }
+.db-flags-list, .fd-flags { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 2px 10px; font-size: 12px; }
+.db-flags-quick, .fd-flags-quick { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.db-flags-quick .mir-btn, .fd-flags-quick .mir-btn { padding: 1px 7px; font-size: 11px; }
+.db-flags-value, .fd-flags-value { margin-top: 6px; font-size: 11px; }
+
+/* All tables */
+.gd-all-head { margin: 0 0 8px; }
+.gd-all-search { min-width: 240px; }
+.gd-all-table td.num, .gd-all-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.gd-all-table td { padding-top: 3px; padding-bottom: 3px; font-size: 12.5px; }
+.gd-all-table .mir-btn { padding: 2px 10px; font-size: 12px; }
+.gd-status-restart { color: var(--warn); }
+.gd-status-live { color: var(--success); }
+
+/* Row drawer: wider, resizable from its left edge, normal-case labels, long text across both columns. */
+.inspect-drawer.form-drawer { width: 760px; }
+.fd-resize-handle { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: ew-resize; z-index: 2; }
+.fd-resize-handle:hover { background: linear-gradient(90deg, transparent 3px, var(--accent) 3px, var(--accent) 5px, transparent 5px); }
+.form-drawer .fd-label { text-transform: none; letter-spacing: 0; font-size: 11px; color: var(--text-secondary); }
+.fd-badge { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 999px; border: 1px solid var(--warn); color: var(--warn); font-size: 9.5px; line-height: 14px; vertical-align: 1px; }
+.fd-related { margin: 12px 0 4px; }
+.fd-related-title { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin: 0 0 6px; }
+.fd-related-link { display: block; font-size: 12.5px; margin: 0 0 6px; }
+.fd-related-panel { margin-bottom: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel); }
+.fd-related-panel > summary { cursor: pointer; padding: 6px 10px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.fd-related-panel > .fd-related-bar, .fd-related-panel > .db-tools-bar, .fd-related-panel > .grid-panel, .fd-related-panel > .fd-pages, .fd-related-panel > .livedb-banner { margin-left: 8px; margin-right: 8px; }
+.fd-related-bar { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; margin-bottom: 6px; }
+.fd-mini-grid { margin-bottom: 8px; }
+.fd-pages-list { list-style: none; margin: 0 0 8px; padding: 0; font-size: 12.5px; max-height: 260px; overflow: auto; }
+
+/* History: before -> after per field */
+.db-hist-change { font-size: 11.5px; padding-left: 10px; overflow-wrap: anywhere; }
+.db-hist-change .b { color: var(--danger); }
+.db-hist-change .a { color: var(--success); }
+
+/* ── WS2: players, community, shell (admin-portal-improvements-and-fixes.md 6, 8.1) ───────────────────────── */
+/* Player chip (8.1): one clickable name everywhere; its menu. */
+.player-chip { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border: 1px solid var(--border-bright);
+  border-radius: 999px; background: var(--panel); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
+.player-chip:hover, .player-chip:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+.player-chip-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
+.player-chip-menu { position: fixed; z-index: 12500; min-width: 190px; padding: 4px; border: 1px solid var(--border-bright);
+  border-radius: var(--radius-sm, 6px); background: var(--bg-elevated); box-shadow: 0 14px 40px rgba(0, 0, 0, .6); }
+.player-chip-menu-head { padding: 6px 10px 4px; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.player-chip-menu button { display: block; width: 100%; padding: 6px 10px; border: 0; border-radius: 4px; background: none;
+  color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.player-chip-menu button:hover, .player-chip-menu button:focus-visible { background: var(--accent-dim); outline: none; }
+
+/* Ctrl+K quick jump */
+.quickjump-backdrop { place-items: start center; padding-top: 12vh; }
+.portal-confirm-dialog.quickjump { width: min(620px, 100%); padding: 14px; }
+.quickjump-input { width: 100%; font-size: 15px; padding: 9px 12px; box-sizing: border-box; }
+.quickjump-list { margin-top: 8px; max-height: 52vh; overflow-y: auto; }
+.quickjump-item { display: flex; justify-content: space-between; gap: 12px; width: 100%; padding: 7px 10px; border: 0; border-radius: 6px;
+  background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.quickjump-item.active { background: var(--accent-dim); }
+.quickjump-kind { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.quickjump-empty { padding: 10px; }
+.quickjump-hint { margin: 8px 2px 0; font-size: 11px; }
+
+/* Form dialog (portalDialog: ban, mute, currency, ...) */
+.portal-form-dialog { width: min(480px, 100%); }
+.portal-form-field { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; font-size: 12px; }
+.portal-form-field .fd-input { width: 100%; box-sizing: border-box; }
+.portal-form-check { flex-direction: row; align-items: center; gap: 8px; }
+.portal-form-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.portal-form-preset.active { border-color: var(--accent); color: var(--accent); }
+.portal-form-error { min-height: 1.2em; margin: 10px 0 0; color: var(--warn); font-size: 12px; }
+
+/* Accounts / Characters / Security / Guilds / Market */
+.users-table th[data-sort] { cursor: pointer; user-select: none; }
+.users-table th[aria-sort="ascending"]::after { content: ' ▲'; font-size: 9px; }
+.users-table th[aria-sort="descending"]::after { content: ' ▼'; font-size: 9px; }
+.users-actions { white-space: nowrap; }
+.users-check { width: 26px; }
+.users-sub { font-size: 11px; }
+.users-link { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; text-align: left; }
+.users-link:hover { text-decoration: underline; }
+.users-online { color: var(--success); white-space: nowrap; }
+.users-bulk { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.users-drawer-map { margin: 10px 0; }
+.users-drawer-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.users-pre { white-space: pre-wrap; margin: 0; }
+.users-news { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.security-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 18px; margin-top: 10px; }
+.security-grid h3, #section-security > .mir-card > h3 { margin: 14px 0 6px; font-size: 14px; }
+.security-blocks { margin-top: 16px; }
+.security-blocks summary { cursor: pointer; }
+
+/* Server Config: filter, read-only path keys (B43), rejected edits (B42), .dblite output */
+.cfg-filter { width: 100%; max-width: 420px; margin: 4px 0 10px; }
+.cfg-badge.readonly { background: var(--border-dim); color: var(--muted); }
+.cfg-error { color: var(--danger); font-size: 11.5px; }
+.cfg-error:empty { display: none; }
+.cfg-val input.cfg-rejected { border-color: var(--danger); }
+.cfg-val input:disabled { opacity: .65; cursor: not-allowed; }
+.dblite-output { margin: 10px 0; }
+.dblite-output .admin-log-view { max-height: 320px; overflow: auto; }
+
+/* Bug reports: duplicate-of link */
+.bug-dup { display: block; font-size: 11.5px; }
+
+/* ---- WS1 live operations (admin-portal-improvements §5, B7-B29) ---- */
+/* Activity feed: the ops-console event types. */
+.feed-badge.ev-gm { background: var(--accent-dim); color: var(--accent); }
+.feed-badge.ev-broadcast { background: var(--success-dim); color: var(--success); }
+.feed-badge.ev-maintenance { background: var(--danger-dim); color: var(--danger); }
+.feed-badge.ev-schedule { background: var(--surface); color: var(--text-secondary); }
+.feed-badge.ev-massmail { background: var(--warn-dim); color: var(--warn); }
+.dash-feed-filters { margin: 0 0 8px; }
+/* B7 action dialog: fields, duration presets, inline error. */
+.ops-dialog { width: min(520px, 100%); }
+.ops-dialog-field { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; color: var(--muted); font-size: 12.5px; }
+.ops-dialog-field input[type=checkbox] { align-self: flex-start; }
+.ops-dialog-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.ops-dialog-error { color: var(--danger); min-height: 1em; margin-top: 10px !important; }
+/* Inline text-style buttons (links inside log rows). */
+.ops-link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline; }
+.ops-link:hover { filter: brightness(1.2); }
+.ops-row-data { flex: 1 1 100%; font-size: 11.5px; color: var(--muted); }
+.ops-row-data pre { margin: 4px 0 0; white-space: pre-wrap; }
+.gm-target-state { margin: 6px 0; min-height: 1.4em; }
+.motd-preview .motd-line { padding: 3px 0; color: var(--warn); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   MIRCRAFT SHELL ADDITIONS
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Topbar: wordmark + world-state pill + pending-reboot badge + signed-in account. */
+.admin-topbar-status { display: inline-flex; align-items: center; gap: 8px; margin-left: 18px; flex: 1; min-width: 0; }
+.world-pill {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px;
+  border: 1px solid var(--border-bright); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted); white-space: nowrap;
+}
+.world-pill::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.world-pill.world-running { color: var(--success); border-color: rgba(95, 211, 138, .45); }
+.world-pill.world-running::before { background: var(--success); box-shadow: 0 0 8px rgba(95, 211, 138, .7); }
+.world-pill.world-stopped, .world-pill.world-offline { color: var(--danger); border-color: rgba(224, 82, 77, .45); }
+.world-pill.world-stopped::before, .world-pill.world-offline::before { background: var(--danger); }
+.world-pill.world-starting, .world-pill.world-stopping { color: var(--warn); border-color: rgba(232, 176, 74, .45); }
+.world-pill.world-starting::before, .world-pill.world-stopping::before { background: var(--warn); }
+.pending-reboot-badge {
+  display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--warn); background: var(--warn-dim, rgba(232, 176, 74, .12)); color: var(--warn);
+  font: inherit; font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+.pending-reboot-badge:hover { filter: brightness(1.15); }
+
+/* Breadcrumb row above the sections. */
+.admin-crumb-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; }
+
+/* Sidebar group headings stay readable when the nav scrolls. */
+.mir-sidebar-nav .nav-link { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; text-align: left; }
+
+/* Placeholder card rendered by the section stubs. */
+.admin-stub-card { text-align: left; }
+.admin-stub-card .admin-stub-note { margin: 0; }
+
+/* Dashboard smoke-test status card (replaced by the dashboard module). */
+.admin-status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 8px; }
+.admin-status-tile { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md, 6px); background: var(--well, rgba(0, 0, 0, .3)); }
+.admin-status-tile .k { display: block; font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.admin-status-tile .v { display: block; margin-top: 4px; font-size: 20px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* Generic key/value list for inspect drawers. */
+.kv-list { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 12.5px; margin: 0; }
+.kv-list dt { color: var(--muted); }
+.kv-list dd { margin: 0; overflow-wrap: anywhere; }
+
+/* Monospace log blocks. */
+.admin-log-view, .cfg-key, .mono { font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace; }
+
+@media (max-width: 900px) {
+  .admin-topbar-status { margin-left: 8px; }
+  .pending-reboot-badge { display: none; }
+}

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MirCraft Admin — Sign in</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/shared/mir-theme.css" />
+  <link rel="stylesheet" href="/shared/admin-theme.css" />
+  <style>
+    .login-wrapper {
+      min-height: calc(100vh - var(--topbar-h));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .login-card {
+      position: relative;
+      width: 100%;
+      max-width: 430px;
+      background: var(--panel-fill);
+      border: 1px solid var(--border-bright);
+      border-radius: var(--radius-lg);
+      padding: 40px 36px 34px;
+      box-shadow: var(--panel-edge), 0 40px 80px -30px rgba(0, 0, 0, 0.98), 0 0 90px -40px rgba(255, 106, 0, 0.35);
+    }
+    .login-card::before {
+      content: '';
+      position: absolute;
+      top: -1px;
+      left: 14%;
+      right: 14%;
+      height: 1px;
+      background: var(--gilt-line);
+    }
+    .login-eyebrow {
+      margin: 0 0 10px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.34em;
+      text-transform: uppercase;
+      color: var(--sh-molten-lit);
+      text-shadow: 0 0 14px rgba(255, 106, 0, 0.55);
+    }
+    .login-card h2 {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      margin: 0 0 8px;
+      color: var(--sh-gold-bright);
+      background: linear-gradient(180deg, #fff6e0 0%, #ecd6a4 45%, #b98f4b 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .login-subtitle {
+      color: var(--text-secondary);
+      font-size: 13px;
+      margin: 0 0 8px;
+    }
+    .login-rule {
+      height: 1px;
+      margin: 18px 0 20px;
+      border: 0;
+      background: linear-gradient(90deg, rgba(197, 160, 89, 0.5), rgba(197, 160, 89, 0.12), transparent);
+    }
+    .login-hint {
+      color: var(--muted);
+      font-size: 11px;
+      margin: 0 0 20px;
+    }
+    .login-hint a {
+      color: var(--sh-gold-bright);
+      text-decoration: none;
+    }
+    .login-hint a:hover {
+      color: var(--sh-molten-lit);
+      text-decoration: underline;
+    }
+    .login-field {
+      margin-bottom: 18px;
+    }
+    .login-field label {
+      display: block;
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--sh-gold);
+      margin-bottom: 7px;
+    }
+    .login-field input {
+      width: 100%;
+      padding: 11px 14px;
+      font-size: 14px;
+      font-family: inherit;
+    }
+    .login-actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-top: 6px;
+    }
+    .login-actions .mir-btn {
+      padding: 12px 24px;
+      font-size: 12px;
+    }
+    #msg {
+      margin-top: 16px;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+  </style>
+</head>
+<body>
+  <header class="mir-topbar"><div class="mir-brand"><span class="mir-wordmark">MirCraft</span><span class="mir-brand-tag">Admin</span></div></header>
+  <main class="login-wrapper">
+    <div class="login-card">
+      <p class="login-eyebrow">Operators only</p>
+      <h2>Sign in</h2>
+      <p class="login-subtitle">A game account flagged as Admin is required.</p>
+      <hr class="login-rule" />
+      <form id="loginForm">
+        <div class="login-field">
+          <label for="accountId">Account ID</label>
+          <input type="text" id="accountId" required autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="Account ID" />
+        </div>
+        <div class="login-field">
+          <label for="password">Password</label>
+          <input type="password" id="password" required autocomplete="current-password" placeholder="••••••••" />
+        </div>
+        <div class="login-actions">
+          <button type="submit" class="mir-btn primary">Login</button>
+          <a class="mir-btn" href="/admin/">Cancel</a>
+        </div>
+      </form>
+      <p id="msg"></p>
+    </div>
+  </main>
+  <script>
+    // B64: where to go after signing in. ?next=#section=... (from the admin page), or the #fragment the browser kept across the
+    // server's redirect from /admin/. Only an in-page hash is accepted, so the parameter cannot send anyone to another site.
+    // The server's redirect puts the path (?next=/admin/...) in the query: then the kept #fragment is the real deep link.
+    function nextTarget() {
+      var params = new URLSearchParams(window.location.search);
+      var next = params.get('next') || '';
+      if (!next || next.charAt(0) === '/') next = window.location.hash || '';
+      if (next && next.charAt(0) !== '#') next = '#' + next;
+      if (!/^#[A-Za-z0-9_\-=&%.~+]*$/.test(next) || next.length < 2) return '/admin/';
+      return '/admin/' + next;
+    }
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      if (params.get('denied') === '1') {
+        document.getElementById('msg').textContent = 'Admin privileges required.';
+      }
+    })();
+    // Already signed in (e.g. Back button after login): go straight to the admin.
+    fetch('/api/auth/me', { credentials: 'include' }).then(function (r) { return r.json(); }).then(function (j) {
+      if (j && j.authenticated && j.admin && new URLSearchParams(window.location.search).get('denied') !== '1') window.location = nextTarget();
+    }).catch(function () { /* offline: stay on the form */ });
+    document.getElementById('loginForm').onsubmit = async function (e) {
+      e.preventDefault();
+      const msg = document.getElementById('msg');
+      msg.textContent = 'Signing in…';
+      try {
+        const r = await fetch('/api/auth/login', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accountId: document.getElementById('accountId').value.trim(),
+            password: document.getElementById('password').value
+          })
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || j.ok === false) {
+          msg.textContent = j.message || j.error || (r.status === 429 ? 'Too many attempts, try again later.' : r.statusText || 'Sign-in failed.');
+          return;
+        }
+        window.location = nextTarget();
+      } catch (ex) { msg.textContent = String(ex); }
+    };
+  </script>
+</body>
+</html>
