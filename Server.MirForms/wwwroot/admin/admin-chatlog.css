@@ -1,1 +1,44 @@
-/* admin-chatlog.css — Chat Log section styles (stub; replaced by the feature owner). */
+/* admin-chatlog.css — Chat Log section (live feed, channel chips, history mode). */
+
+#section-chatlog .cl-modes { display: flex; gap: 6px; }
+#section-chatlog .cl-modes .mir-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+#section-chatlog .cl-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
+#section-chatlog .cl-chip {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+#section-chatlog .cl-chip:hover { border-color: var(--border-bright); color: inherit; }
+#section-chatlog .cl-chip.active { background: var(--accent-dim); border-color: var(--accent); color: inherit; }
+
+#section-chatlog .cl-tools { display: inline-flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+#section-chatlog .cl-status { margin: 4px 0 0; font-size: 12px; min-height: 1.2em; }
+
+#section-chatlog .cl-feed { max-height: calc(100vh - 330px); min-height: 280px; }
+#section-chatlog .cl-row { align-items: baseline; }
+#section-chatlog .cl-row .ops-row-time { min-width: 64px; }
+#section-chatlog .cl-actions { display: inline-flex; gap: 4px; align-items: center; opacity: 0; transition: opacity .12s; }
+#section-chatlog .cl-row:hover .cl-actions,
+#section-chatlog .cl-row:focus-within .cl-actions { opacity: 1; }
+#section-chatlog .cl-empty { padding: 12px; margin: 0; }
+
+/* Channel colours (tag and chip text). */
+#section-chatlog .cl-ch-shout, #section-chatlog .cl-ch-shout-map, #section-chatlog .cl-ch-shout-server { color: #ffe066; }
+#section-chatlog .cl-ch-whisper { color: #c4a2ff; }
+#section-chatlog .cl-ch-group { color: #8ff58f; }
+#section-chatlog .cl-ch-guild { color: #7fd6c2; }
+#section-chatlog .cl-ch-mentor, #section-chatlog .cl-ch-relationship { color: #ff9fd0; }
+#section-chatlog .cl-ch-announcement, #section-chatlog .cl-ch-broadcast { color: #6ec1ff; }
+#section-chatlog .cl-ch-admin { color: #ffb366; }
+#section-chatlog .cl-ch-command { color: #ff7a7a; }
+#section-chatlog .cl-ch-system { color: var(--muted); }
+
+@media (hover: none) {
+  #section-chatlog .cl-actions { opacity: 1; }
+}

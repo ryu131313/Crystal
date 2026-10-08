@@ -1,1 +1,51 @@
-/* admin-gm.css — GM Console section styles (stub; replaced by the feature owner). */
+/* admin-gm.css — GM Console section. Shared look comes from style.css (ops-*, mir-card, toolbar); only layout lives here. */
+
+#section-gm .gm-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 16px;
+  align-items: start;
+}
+
+#section-gm .gm-columns > .mir-card { margin: 0; }
+
+#section-gm .gm-target-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-height: 1.6em;
+}
+
+#section-gm .gm-group:first-child { border-top: none; margin-top: 0; padding-top: 0; }
+
+#section-gm .gm-verbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+#section-gm .gm-verbs .mir-btn[disabled] { opacity: .45; cursor: not-allowed; }
+
+#section-gm .gm-form-host {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+}
+
+#section-gm .gm-form-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+#section-gm .gm-form .ops-form label.gm-wide { flex: 1 1 100%; }
+#section-gm .gm-form .ops-form label.gm-wide textarea { width: 100%; }
+#section-gm .gm-form-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+#section-gm .gm-result { margin: 6px 0 0; min-height: 1.2em; font-size: 13px; }
+#section-gm .gm-result.ok { color: var(--ok); }
+#section-gm .gm-result.error { color: var(--danger); }
+
+#section-gm .gm-empty { padding: 12px; margin: 0; }
+
+@media (max-width: 1100px) {
+  #section-gm .gm-columns { grid-template-columns: minmax(0, 1fr); }
+}

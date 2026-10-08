@@ -1,1 +1,16 @@
-/* admin-maintenance.css — Maintenance section styles (stub; replaced by the feature owner). */
+/* admin-maintenance.css — Maintenance section. */
+
+#section-maintenance .mt-pills { margin: 4px 0 10px; }
+#section-maintenance .mt-kv { margin: 8px 0 4px; max-width: 760px; }
+#section-maintenance .mt-countdown { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--warn); }
+#section-maintenance .mt-warning {
+  margin: 10px 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--warn-dim);
+  color: var(--warn);
+  font-size: 12.5px;
+}
+#section-maintenance .mt-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+#section-maintenance .mt-disabled { opacity: .45; pointer-events: none; }
+#section-maintenance .ops-block textarea { margin-top: 4px; }

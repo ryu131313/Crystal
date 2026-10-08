@@ -1,1 +1,51 @@
-/* admin-broadcast.css — Broadcast section styles (stub; replaced by the feature owner). */
+/* admin-broadcast.css — Broadcast section (message composer, recent list, login notice editor). */
+
+#section-broadcast .bc-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+#section-broadcast .bc-columns > .mir-card { margin: 0; }
+
+#section-broadcast .bc-message { width: 100%; min-height: 90px; }
+#section-broadcast .bc-meta { margin: 4px 0 8px; font-size: 12px; }
+#section-broadcast .bc-warn { color: var(--warn); }
+#section-broadcast .bc-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+
+/* In-game look of the chat line types (approximate client colours). */
+#section-broadcast .bc-preview {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, .55);
+  padding: 8px 10px;
+  min-height: 2.4em;
+  font-size: 13px;
+}
+#section-broadcast .bc-line { padding: 1px 0; word-break: break-word; }
+#section-broadcast .bc-type-announcement { color: #6ec1ff; }
+#section-broadcast .bc-type-shout { color: #ffe066; }
+#section-broadcast .bc-type-system { color: #ff7a7a; }
+#section-broadcast .bc-type-hint { color: #8ff58f; }
+#section-broadcast .bc-type-linemessage { color: #f2a2ff; }
+
+#section-broadcast .bc-recent-text { white-space: pre-wrap; }
+#section-broadcast .bc-empty { padding: 12px; margin: 0; }
+#section-broadcast .ops-group .toolbar h3 { margin: 0; }
+
+#section-broadcast .bc-notice { width: 100%; min-height: 220px; font-size: 12.5px; }
+#section-broadcast .bc-path { font-size: 11.5px; word-break: break-all; margin: 0 0 6px; }
+#section-broadcast .bc-subhead { font-size: 13px; margin: 14px 0 6px; }
+#section-broadcast .bc-notice-preview {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+}
+#section-broadcast .bc-notice-title { font-weight: 600; margin-bottom: 6px; color: var(--warn); }
+#section-broadcast .bc-notice-body { margin: 0; white-space: pre-wrap; font-family: inherit; font-size: 13px; }
+
+@media (max-width: 1100px) {
+  #section-broadcast .bc-columns { grid-template-columns: minmax(0, 1fr); }
+}
