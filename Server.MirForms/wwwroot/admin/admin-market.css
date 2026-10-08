@@ -1,1 +1,23 @@
-/* admin-market.css — Market section styles (stub; replaced by the feature owner). */
+/* admin-market.css — Market section (B5). Table / buttons / pills come from the shared theme; layout only here. */
+
+.mkt-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mkt-tools input[type=search] { min-width: 240px; }
+.mkt-tools select.fd-input { width: auto; }
+
+.mkt-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 10px; }
+.mkt-chips .mir-btn { padding: 4px 12px; font-size: 12px; }
+.mkt-chips [data-count] { opacity: 0.75; }
+.mkt-hint { margin-left: auto; font-size: 12px; }
+
+.mkt-world { margin: 0 0 10px; font-size: 12.5px; }
+
+.mkt-table td { white-space: nowrap; }
+.mkt-table td:nth-child(2) { white-space: normal; min-width: 160px; }
+.mkt-table .users-actions .mir-btn + .mir-btn { margin-left: 4px; }
+
+.mkt-pager { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+
+@media (max-width: 800px) {
+  .mkt-tools input[type=search] { min-width: 0; flex: 1 1 160px; }
+  .mkt-hint { margin-left: 0; width: 100%; }
+}

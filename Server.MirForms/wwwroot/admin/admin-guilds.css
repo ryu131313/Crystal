@@ -1,1 +1,49 @@
-/* admin-guilds.css — Guilds section styles (stub; replaced by the feature owner). */
+/* admin-guilds.css — Guilds section (B5). Shared look comes from mir-card / user-table / inspect-drawer; only layout bits here. */
+
+.gld-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.gld-tools input[type=search] { min-width: 240px; }
+
+.gld-world-note { margin: 0 0 10px; font-size: 12.5px; }
+
+.gld-table td { white-space: nowrap; }
+.gld-table td:nth-child(2) { white-space: normal; }
+
+.gld-pager { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+
+/* The shared inspect drawer is widened while it shows a guild (class toggled by admin-guilds.js). */
+.inspect-drawer.gld-wide { width: 760px; }
+
+.gld-summary { margin-bottom: 8px; }
+.gld-flag {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+  margin-right: 4px;
+  border: 1px solid var(--border, #555);
+  border-radius: 3px;
+}
+
+.gld-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 10px; }
+.gld-tabs .mir-btn { padding: 4px 10px; font-size: 12px; }
+
+.gld-tab-body .user-table th,
+.gld-tab-body .user-table td { padding: 6px 8px; }
+
+.gld-notice {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 260px;
+  font-family: var(--font-mono, Consolas, monospace);
+  font-size: 12.5px;
+  resize: vertical;
+}
+.gld-notice-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.gld-dirty { color: var(--warn, #e0a83a); }
+
+.gld-muted-row td { opacity: 0.6; }
+
+@media (max-width: 800px) {
+  .inspect-drawer.gld-wide { width: 100vw; max-width: 100vw; }
+  .gld-tools input[type=search] { min-width: 0; flex: 1 1 160px; }
+}
