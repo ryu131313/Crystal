@@ -506,6 +506,13 @@ namespace Server.WebAdmin.Routes
         public string Reason { get; set; }
         public string Target { get; set; }
         public bool Revertible { get; set; }
+
+        /// <summary>
+        /// The endpoint keys rows by position in a parent's list (map safe zones / movements / mine zones, conquest children): the Index
+        /// may belong to a different record now, so the entry is never revertible and its history can mix records.
+        /// </summary>
+        public bool PositionKeyed { get; set; }
+
         public List<AuditDbHistoryChange> Changes { get; set; } = new List<AuditDbHistoryChange>();
     }
 
@@ -636,13 +643,28 @@ namespace Server.WebAdmin.Routes
                 else item.Index = ownIndex ?? (rows.Count == 1 ? detailIndex ?? targetIndex : null);
 
                 item.Changes = ParseChanges(row);
+                item.PositionKeyed = IsPositionKeyed(item.Endpoint);
                 item.Revertible = item.Kind == "update" && !string.IsNullOrEmpty(item.Endpoint) && item.Index.HasValue
-                    && item.Changes.Count > 0 && item.Changes.All(c => c.Before.HasValue);
+                    && item.Changes.Count > 0 && item.Changes.All(c => c.Before.HasValue) && !item.PositionKeyed;
 
                 result.Add(item);
             }
 
             return result;
+        }
+
+        private static bool IsPositionKeyed(string endpoint)
+        {
+            if (string.IsNullOrWhiteSpace(endpoint)) return false;
+            try
+            {
+                return global::Server.WebAdmin.GameData.GameDataRegistry.Get(endpoint)?.PositionKeyed ?? false;
+            }
+            catch (Exception ex)
+            {
+                WebAdminLog.Error(ex, "Looking up game-data table " + endpoint + " for the history failed");
+                return false;
+            }
         }
 
         /// <summary>"db.items.update" → "items" (only when the action has three or more segments).</summary>

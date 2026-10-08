@@ -64,19 +64,7 @@ namespace Server.WebAdmin.Routes
         /// False when the Edit envir holds no system data although Server.MirDB exists: saving it would wipe the database
         /// (the host normally loads Edit at start-up, see SMain_Load).
         /// </summary>
-        private static bool EditLooksLoaded()
-        {
-            var edit = Envir.Edit;
-            if (edit.ItemInfoList.Count > 0 || edit.MonsterInfoList.Count > 0 || edit.MapInfoList.Count > 0) return true;
-            try
-            {
-                return !File.Exists(Envir.DatabasePath) || new FileInfo(Envir.DatabasePath).Length < 1024;
-            }
-            catch (IOException)
-            {
-                return false;
-            }
-        }
+        private static bool EditLooksLoaded() => GameDataSave.EditLooksLoaded();
 
         private static List<JsonElement> ReadRows(JsonElement body)
         {
@@ -116,6 +104,7 @@ namespace Server.WebAdmin.Routes
                     insertable = t.Insertable,
                     deletable = t.Deletable,
                     parent = t.IsChild ? new { endpoint = t.ParentEndpoint, field = t.ParentField } : null,
+                    positionKeyed = t.PositionKeyed,
                 };
             }).ToList());
 
@@ -465,30 +454,32 @@ namespace Server.WebAdmin.Routes
 
         private static async Task SaveDatabase(WebAdminRequest req)
         {
-            IReadOnlyList<string> areas;
-            List<MagicInfo> magic;
-            lock (WebAdminGame.EditLock)
+            // EditLock is held on this worker thread while the file IO may run on the game thread (GameDataSave.RunFileIo):
+            // Task.Run keeps the blocking wait off the request's continuation and Monitor on one thread.
+            var saved = await Task.Run(() =>
             {
-                if (GameDataState.EditReloadFailed)
-                    throw new WebAdminException(409, "The last reload of the editor copy failed part-way, so it may be incomplete and saving could truncate Server.MirDB. Reload it successfully first (Discard unsaved).");
-
-                if (!EditLooksLoaded())
-                    throw new WebAdminException(409, "The editor copy of the game data is not loaded, so saving would empty Server.MirDB. Reload it first (Discard unsaved).");
-
-                try
+                lock (WebAdminGame.EditLock)
                 {
-                    Envir.Edit.SaveDB();
-                }
-                catch (Exception ex)
-                {
-                    WebAdminLog.Error(ex, "Saving the game database (Envir.Edit.SaveDB) failed");
-                    throw new WebAdminException(500, "Saving the game database failed, see the server log");
-                }
+                    GameDataSave.EnsureSavable();
 
-                areas = GameDataState.Unsaved.MarkSaved();
-                magic = GameDataMagicSync.Snapshot(Envir.Edit.MagicInfoList);
-                GameDataMagicSync.SetPending(magic);
-            }
+                    try
+                    {
+                        return GameDataSave.SaveEdit();
+                    }
+                    catch (WebAdminException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        WebAdminLog.Error(ex, "Saving the game database (Envir.Edit.SaveDB) failed");
+                        throw new WebAdminException(500, "Saving the game database failed, see the server log");
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            var areas = saved.Areas;
+            var magic = saved.Magic;
 
             var description = areas.Count > 0
                 ? "Game data saved (" + string.Join(", ", areas) + ")"
@@ -498,22 +489,7 @@ namespace Server.WebAdmin.Routes
 
             // Main never reloads MagicInfo (not even on Reboot) and would write its old spells back with its next periodic save:
             // push the saved spell values onto Main's MagicInfo objects now (see GameDataMagicSync).
-            var magicSynced = false;
-            var magicChanged = 0;
-            try
-            {
-                magicChanged = await WebAdminGame.RunOrInlineAsync(() => GameDataMagicSync.CopyInto(magic, Envir.Main.MagicInfoList), 10000).ConfigureAwait(false);
-                GameDataMagicSync.ClearPending(magic);
-                magicSynced = true;
-            }
-            catch (WebAdminException ex) when (ex is WorldNotRunningException || ex is GameThreadTimeoutException)
-            {
-                // Still pending: applied by the WorldStarted hook (game thread, after Main.LoadDB) the next time the world starts.
-            }
-            catch (Exception ex)
-            {
-                WebAdminLog.Error(ex, "Applying saved magic changes to the running world failed");
-            }
+            var (magicChanged, magicSynced) = await GameDataSave.SyncMagicAsync(magic).ConfigureAwait(false);
 
             var message = "Saved Server.MirDB (the previous file is in Back Up\\Database). Changes take effect after the next world restart.";
             if (magicChanged > 0)
@@ -559,7 +535,14 @@ namespace Server.WebAdmin.Routes
                 try
                 {
                     edit.MagicInfoList.Clear();
-                    ok = edit.LoadDB(); // takes Envir.LoadLock itself
+                    // Serialised with Main's periodic SaveDB (an open read handle would make it throw and stop the world).
+                    ok = GameDataSave.RunFileIo(() => edit.LoadDB()); // LoadDB takes Envir.LoadLock itself (re-entrant)
+                }
+                catch (WebAdminException ex) when ((ex is GameThreadTimeoutException t && !t.Started) || ex.Status == 409)
+                {
+                    // Cancelled before LoadDB ran: the editor copy is untouched.
+                    if (edit.MagicInfoList.Count == 0) edit.MagicInfoList.AddRange(magicBackup);
+                    throw;
                 }
                 catch (Exception ex)
                 {

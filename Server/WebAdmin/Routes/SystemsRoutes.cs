@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Server.MirDatabase;
 using Server.MirEnvir;
+using Server.WebAdmin.GameData;
 using Server.MirObjects;
 
 namespace Server.WebAdmin.Routes
@@ -552,9 +553,12 @@ namespace Server.WebAdmin.Routes
             var outcome = await BsGate.MutateAsync(async () =>
             {
                 SpawnTickDto before;
+                GameDataSave.SaveOutcome saved;
 
                 lock (WebAdminGame.EditLock)
                 {
+                    // Same guards and bookkeeping as Game Data's database/save: this writes the whole editor copy.
+                    GameDataSave.EnsureSavable();
                     if (!EditLoaded())
                         throw new WebAdminException(409, "The editor database is not loaded, so it cannot be saved. Start or reboot the server first.");
 
@@ -570,7 +574,15 @@ namespace Server.WebAdmin.Routes
 
                     try
                     {
-                        Envir.Edit.SaveDB();
+                        // Serialised with Main's periodic SaveDB; clears the Game Data unsaved count and leaves the saved spells
+                        // pending for Main (it never reloads them), exactly like database/save.
+                        saved = GameDataSave.SaveEdit();
+                    }
+                    catch (WebAdminException)
+                    {
+                        timer.BaseSpawnRate = oldRate;
+                        timer.Respawn = oldOptions;
+                        throw;
                     }
                     catch (Exception ex)
                     {
@@ -580,6 +592,10 @@ namespace Server.WebAdmin.Routes
                         throw new WebAdminException(500, "Writing Server.MirDB failed (see the server log); nothing was changed.");
                     }
                 }
+
+                if (saved.Areas.Count > 0)
+                    WebAdminPending.Add("gamedata", "Game data saved with the respawn tick (" + string.Join(", ", saved.Areas) + ")", req.AdminName);
+                await GameDataSave.SyncMagicAsync(saved.Magic).ConfigureAwait(false);
 
                 // Server.MirDB is written from here on: whatever happens to the live apply, the request reports success, records the
                 // audit entry and flags a pending reboot (Edit.SaveDB also set Envir.SystemDataStale and may have written other

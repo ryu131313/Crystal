@@ -292,6 +292,12 @@
   width: 420px;
   max-width: 92vw;
   z-index: 1000;
+}
+
+/* The row form drawer always paints above the inspect drawer: both sit at the right edge, and the shell routes Escape to the
+   form drawer first, so it must be the one on top (never hidden underneath a wide character / guild drawer). */
+.inspect-drawer.form-drawer {
+  z-index: 1001;
   background: var(--bg-elevated);
   border-left: 1px solid var(--border-bright);
   box-shadow: -8px 0 30px rgba(0, 0, 0, 0.5);

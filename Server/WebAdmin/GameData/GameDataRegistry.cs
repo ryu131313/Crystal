@@ -451,6 +451,7 @@ namespace Server.WebAdmin.GameData
                 ParentEndpoint = "maps",
                 ParentField = "MapIndex",
                 IndexNote = indexNote ?? "MapIndex * " + Stride.ToString(CultureInfo.InvariantCulture) + " + position (0-based) in the map's list",
+                PositionKeyed = key == null,
                 Columns = columns,
                 Rows = ctx => ctx.Maps.SelectMany(map => list(map).Select((e, i) => new GameDataRow
                 {
@@ -627,6 +628,7 @@ namespace Server.WebAdmin.GameData
                 ParentField = "ConquestIndex",
                 NameColumn = "Name",
                 IndexNote = "ConquestIndex * " + Stride.ToString(CultureInfo.InvariantCulture) + " + position (0-based); the record's own index is LocalIndex",
+                PositionKeyed = true,
                 Columns = columns,
                 Rows = ctx => ctx.Conquests.SelectMany(c => list(c).Select((e, i) => new GameDataRow
                 {

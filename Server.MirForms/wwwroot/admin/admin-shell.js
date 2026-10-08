@@ -141,6 +141,8 @@
       opts = opts || {};
       var body = { rows: rows };
       if (opts.reason) body.reason = opts.reason;
+      // noRev: rows without __rev may update existing rows (B8 PUT body flag); only after an explicit user confirmation.
+      if (opts.noRev) body.noRev = true;
       var put = await portalApi('/api/admin/db/' + encodeURIComponent(endpoint), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -204,11 +206,16 @@
   var ackSeq = 0;     // the dirtySeq the user last answered "leave anyway" for
   global.DbSave.setDirty = function (key, on) {
     key = key || 'legacy';
-    if (on) { dirtyKeys[key] = true; dirtySeq++; } else delete dirtyKeys[key];
+    // The value is the section that was visible when the key became dirty (its owner), so leaving another section never asks.
+    if (on) { if (!dirtyKeys[key]) dirtyKeys[key] = (started && currentSectionId()) || true; dirtySeq++; } else delete dirtyKeys[key];
   };
   global.DbSave.isDirty = function (key) { return !!dirtyKeys[key || 'legacy']; };
   global.DbSave.anyDirty = function () { for (var k in dirtyKeys) return true; return false; };
   global.DbSave.dirtyKeys = function () { return Object.keys(dirtyKeys); };
+  /** Dirty keys owned by section `id` (keys registered before the shell started count for every section). */
+  global.DbSave.dirtyKeysOf = function (id) {
+    return Object.keys(dirtyKeys).filter(function (k) { return dirtyKeys[k] === true || dirtyKeys[k] === id; });
+  };
   Object.defineProperty(global, '__gridDirty', {
     configurable: true,
     enumerable: true,
@@ -561,9 +568,12 @@
     if (!id || !sectionEl(id)) id = DEFAULT_SECTION;
     var prev = currentSectionId();
     var leaving = prev !== id;
-    // Unsaved grid edits stay in their grid (hidden sections are not destroyed); ask once per new edit.
-    if (leaving && global.DbSave.anyDirty() && dirtySeq > ackSeq) {
-      if (!global.confirm('You have unsaved grid edits. They stay in their grid until you save or reload it. Leave this section anyway?')) return false;
+    // Unsaved edits stay in their section (hidden sections are not destroyed); ask once per new edit, and only about the edits of
+    // the section being left (never when going TO the section that holds them).
+    var leavingDirty = leaving && prev ? global.DbSave.dirtyKeysOf(prev) : [];
+    if (leavingDirty.length && dirtySeq > ackSeq) {
+      if (!global.confirm('This section has unsaved changes (' + leavingDirty.slice(0, 4).join(', ') + (leavingDirty.length > 4 ? ', …' : '') +
+        '). They stay here until you save or discard them. Leave this section anyway?')) return false;
       ackSeq = dirtySeq;
     }
     if (leaving && started && activeId) callHide(activeId);
@@ -648,10 +658,14 @@
   // ---- AdminInspect: the generic right-hand inspect drawer (#inspectDrawer) -----------------------------------------
 
   var inspectOnClose = null;
+  var inspectOwner = null;     // opts.owner of the current content (e.g. 'characters')
+  var inspectIsDirty = null;   // opts.isDirty of the current content
   global.AdminInspect = {
     /**
-     * open({ title, node?, html?, text?, onClose? }) -> the drawer body element. `html` must already be escaped (OpsUI.esc);
-     * prefer `node` (a DOM element) or `text`. Replaces whatever the drawer showed.
+     * open({ title, node?, html?, text?, onClose?, owner?, isDirty? }) -> the drawer body element. `html` must already be escaped
+     * (OpsUI.esc); prefer `node` (a DOM element) or `text`. Replaces whatever the drawer showed (running its onClose). A module whose
+     * drawer can hold unsaved edits passes isDirty(); every opener awaits confirmReplace(owner) first so those edits are never
+     * dropped silently.
      */
     open: function (opts) {
       opts = opts || {};
@@ -666,12 +680,31 @@
       else if (opts.html != null) b.innerHTML = opts.html;
       else if (opts.text != null) b.textContent = String(opts.text);
       inspectOnClose = typeof opts.onClose === 'function' ? opts.onClose : null;
+      inspectOwner = opts.owner || null;
+      inspectIsDirty = typeof opts.isDirty === 'function' ? opts.isDirty : null;
       d.classList.remove('hidden');
       return b;
+    },
+    /**
+     * Resolves true when the drawer may be replaced: nothing open, the content has no unsaved edits, it belongs to `owner` (that
+     * module asks its own question), or the user agreed to discard them.
+     */
+    confirmReplace: async function (owner) {
+      if (!global.AdminInspect.isOpen() || !inspectIsDirty) return true;
+      if (owner && owner === inspectOwner) return true;
+      var dirty = false;
+      try { dirty = !!inspectIsDirty(); } catch (e) { dirty = false; }
+      if (!dirty) return true;
+      var t = document.getElementById('inspectDrawerTitle');
+      var what = t && t.textContent ? '"' + t.textContent + '"' : 'The open drawer';
+      return !!(await global.portalConfirm(what + ' has unsaved changes. Discard them and open this instead?',
+        { title: 'Discard unsaved changes?', confirmLabel: 'Discard', danger: true }));
     },
     close: function () {
       var d = document.getElementById('inspectDrawer');
       if (d) d.classList.add('hidden');
+      inspectOwner = null;
+      inspectIsDirty = null;
       if (inspectOnClose) { var fn = inspectOnClose; inspectOnClose = null; try { fn(); } catch (e) { /* listener */ } }
     },
     isOpen: function () {

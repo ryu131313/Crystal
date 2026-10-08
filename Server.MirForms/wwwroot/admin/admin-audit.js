@@ -452,6 +452,9 @@
   if (global.portalRegisterDeepLink) {
     global.portalRegisterDeepLink('auditlog', function (params) {
       if (!root) return;
+      // Plain sidebar navigation also dispatches here with only {section}: keep the admin's filters (show() refreshes).
+      var p = params || {};
+      if (['action', 'admin', 'q', 'name', 'days'].every(function (k) { return p[k] == null || p[k] === ''; })) return;
       var f = fromParams(params);
       if (!paramsDiffer(f)) return;
       setForm(f);

@@ -2,7 +2,9 @@ using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Server.MirDatabase;
 using Server.MirEnvir;
+using Server.WebAdmin.GameData;
 
 namespace Server.WebAdmin.Routes
 {
@@ -398,6 +400,7 @@ namespace Server.WebAdmin.Routes
             string preName = null;
             var editReloaded = false;
             var accountsReloaded = false;
+            List<MagicInfo> restoredMagic = null;
 
             lock (BackupGate)
             {
@@ -434,6 +437,12 @@ namespace Server.WebAdmin.Routes
 
                             // The editor copy was replaced: its unsaved web edits are gone.
                             DiscardGameDataUnsaved();
+                            GameDataState.EditReloadFailed = false;
+
+                            // Main never reloads MagicInfo (Main.LoadDB only adds missing spells) and its periodic SaveDB would write
+                            // its old spells over the restored ones: leave the restored spells pending for Main, replacing any older
+                            // snapshot (synced below, or by the WorldStarted hook).
+                            restoredMagic = GameDataSave.AfterFileChanged(false).Magic;
                         }
                     }
                     finally
@@ -443,7 +452,11 @@ namespace Server.WebAdmin.Routes
                 }
                 else
                 {
+                    // AccountLock (after LoadLock, the documented order) across the check, the swap and the reload: inline account and
+                    // character edits save Server.MirADB under AccountLock while the world is stopped, and must not write the
+                    // pre-restore list over the restored file between the swap and the reload.
                     lock (Envir.LoadLock)
+                    lock (Envir.AccountLock)
                     {
                         EnsureStoppedForRestore(spec);
                         CheckBackupHeader(spec, path);
@@ -475,16 +488,20 @@ namespace Server.WebAdmin.Routes
                 }
             }
 
+            var magicApplied = 0;
+            if (restoredMagic != null)
+                magicApplied = (await GameDataSave.SyncMagicAsync(restoredMagic).ConfigureAwait(false)).Changed;
+
             WebAdminAudit.Record(req, "backup.restore", spec.Kind + ":" + name, new { kind = spec.Kind, name, preRestore = preName, editReloaded, accountsReloaded }, reason);
 
             var message = spec.Kind == Database
-                ? "Database restored from " + name + ". The editor copy was reloaded and its unsaved changes discarded; start the world to load it. " +
-                  "Spell (magic) settings are only re-read after a full server restart."
+                ? "Database restored from " + name + ". The editor copy was reloaded and its unsaved changes discarded; start the world to load it." +
+                  (magicApplied > 0 ? " The restored spell (magic) settings were also applied to the server's spell list." : string.Empty)
                 : "Accounts restored from " + name + "." + (accountsReloaded
                     ? " The account list in memory was reloaded from it."
                     : " Start the world to load them.");
 
-            await req.Ok(new { kind = spec.Kind, name, preRestore = preName, editReloaded, accountsReloaded }, message).ConfigureAwait(false);
+            await req.Ok(new { kind = spec.Kind, name, preRestore = preName, editReloaded, accountsReloaded, magicApplied }, message).ConfigureAwait(false);
         }
 
         private static void EnsureStoppedForRestore(KindSpec spec)
@@ -579,6 +596,7 @@ namespace Server.WebAdmin.Routes
             {
                 Envir.Main.AccountList.Clear();
                 Envir.Main.CharacterList.Clear();
+                AccountRoutes.MarkAccountsUnloaded();
             }
         }
 

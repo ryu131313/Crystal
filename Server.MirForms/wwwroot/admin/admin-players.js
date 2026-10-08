@@ -62,8 +62,9 @@
         var j = r.ok ? global.OpsUI.unwrap(r.data) : null;
         var verbs = j && Array.isArray(j.verbs) ? j.verbs : null;
         if (!verbs || !verbs.length) return FALLBACK_VERBS.slice();
-        var worldVerbs = { spawnmob: 1, clearmobs: 1, startconquest: 1 };
-        return verbs.filter(function (v) { return v && v.action && !worldVerbs[v.action] && v.world !== true; }).map(function (v) {
+        // B4 marks world verbs with target: 'world' (spawnmob, clearmobs, startconquest, stopconquest, ...); the name list is a fallback.
+        var worldVerbs = { spawnmob: 1, clearmobs: 1, startconquest: 1, stopconquest: 1 };
+        return verbs.filter(function (v) { return v && v.action && !worldVerbs[v.action] && v.world !== true && v.target !== 'world'; }).map(function (v) {
           var fb = FALLBACK_VERBS.filter(function (f) { return f.action === v.action; })[0];
           return {
             action: v.action, label: v.label || (fb && fb.label) || v.action, group: v.group || (fb && fb.group) || 'Other',
@@ -549,13 +550,17 @@
   }
 
   // Keep the sidebar badge current from the topbar status poll (every 10 s) even when this section is not shown.
-  if (global.AdminStatus && typeof global.AdminStatus.onChange === 'function') {
+  // app.js (which defines AdminStatus) loads after this file, so subscribe once the document is parsed.
+  function hookStatusBadge() {
+    if (!(global.AdminStatus && typeof global.AdminStatus.onChange === 'function')) return;
     global.AdminStatus.onChange(function (st) {
       if (!st) return;
       var world = st.world || st.worldState;
       setBadge(world === 'running' && st.players != null ? Number(st.players) : null);
     });
   }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', hookStatusBadge);
+  else hookStatusBadge();
 
   global.portalRegisterDeepLink('players-online', function (params) {
     if (!els.filter) return;

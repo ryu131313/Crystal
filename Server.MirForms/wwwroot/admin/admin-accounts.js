@@ -565,6 +565,7 @@
     if (!index) return;
     if (drawer.index === index && global.AdminInspect.isOpen()) { loadDetail(index, true); return; }
     if (!(await confirmDiscard())) return;
+    if (global.AdminInspect.confirmReplace && !(await global.AdminInspect.confirmReplace('accounts'))) return;
     drawer.index = index;
     drawer.detail = null;
     drawer.dirty = false;
@@ -577,6 +578,8 @@
     global.AdminInspect.open({
       title: 'Account #' + index,
       node: body,
+      owner: 'accounts',
+      isDirty: function () { return drawer.token === token && drawer.dirty; },
       onClose: function () {
         if (drawer.token !== token) return;
         drawer.index = null;

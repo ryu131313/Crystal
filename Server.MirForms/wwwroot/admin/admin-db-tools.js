@@ -777,12 +777,15 @@
     try { rows = JSON.parse(text); } catch (e) { portalToast('Invalid JSON file.', 'error'); return; }
     if (!Array.isArray(rows) || !rows.length) { portalToast('Expected a non-empty JSON array of rows.', 'error'); return; }
     var live = !!(global.LiveDbEditor && await LiveDbEditor.useLiveDb());
+    var withRev = rows.filter(function (r) { return r && r.__rev != null; }).length;
     var ok = await portalConfirm('Import ' + rows.length + ' row(s) into ' + ctx.endpoint +
-      '? Existing Index values update those rows; new/unknown Index values create rows. All go through validation.' +
-      (live ? '\n\nLiveDb: an import file carries no revision tokens, so the rows overwrite the live values without the usual stale-edit check. You will see a dry-run preview before anything is applied.' : ''));
+      '? Existing Index values update those rows; new/unknown Index values create rows. All go through validation, ' +
+      'then the rows are applied and the database is saved right away (there is no preview).' +
+      (withRev ? '\n\n' + withRev + ' row(s) carry a revision (__rev) from the export: rows that changed since then are skipped as conflicts.' : '') +
+      (live ? '\n\nLiveDb: rows without a revision token overwrite the live values without the usual stale-edit check.' : ''));
     if (!ok) return;
     // noRev: only here (after the confirm above) may rows without __rev update existing rows.
-    var res = await DbSave.persist(ctx.endpoint, rows, live ? { noRev: true, label: 'import ' + ctx.endpoint } : undefined);
+    var res = await DbSave.persist(ctx.endpoint, rows, live ? { noRev: true, reason: 'import ' + ctx.endpoint } : { reason: 'import ' + ctx.endpoint });
     if (res.ok && ctx.reload) ctx.reload();
   }
 

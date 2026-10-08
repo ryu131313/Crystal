@@ -40,6 +40,12 @@ namespace Server.WebAdmin.GameData
         /// <summary>Human text describing how "Index" is formed (published in the schema).</summary>
         public string IndexNote;
 
+        /// <summary>
+        /// Index = parent * Stride + position in the parent's list: the key moves to another record when an earlier sibling is deleted,
+        /// so an Index recorded in the audit log does not identify the same record later (no history revert).
+        /// </summary>
+        public bool PositionKeyed;
+
         public List<GameDataColumn> Columns = new List<GameDataColumn>();
 
         public Func<GameDataContext, IEnumerable<GameDataRow>> Rows;

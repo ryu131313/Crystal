@@ -359,7 +359,8 @@
       '  </div>' +
       '  <p class="mir-muted backups-hint">Edits made to the game data (items, monsters, maps, …) through this panel, from the audit trail. ' +
       'Revert puts the recorded "before" values back on the current row and saves the database; like every game-data change it takes effect after the next world restart. ' +
-      'Inserted or deleted rows cannot be reverted here — restore a database backup instead.</p>' +
+      'Inserted or deleted rows cannot be reverted here — restore a database backup instead. Safe zones, movements, mine zones and conquest ' +
+      'parts are numbered by their position in the map / conquest, so their numbers can move to another row after a delete; those edits are not revertible here.</p>' +
       '  <form class="backups-hist-filters" data-role="hist-filters" autocomplete="off">' +
       '    <label><span class="mir-muted">Table</span><input class="fd-input" name="endpoint" list="backupsEndpointList" placeholder="all" value="' + esc(f.endpoint) + '"></label>' +
       '    <datalist id="backupsEndpointList">' + ENDPOINTS.map(function (e) { return '<option value="' + esc(e) + '"></option>'; }).join('') + '</datalist>' +
@@ -463,7 +464,9 @@
           : '<span class="mir-muted">—</span>';
         var actions = it.revertible
           ? '<button type="button" class="mir-btn ops-row-btn danger" data-revert="' + i + '">Revert…</button>'
-          : '<button type="button" class="mir-btn ops-row-btn" disabled title="' + esc(it.kind === 'insert' || it.kind === 'delete'
+          : '<button type="button" class="mir-btn ops-row-btn" disabled title="' + esc(it.positionKeyed
+            ? 'Rows of this table are numbered by their position in the parent list, so #' + it.index + ' may be a different row now: edit it in Game Data instead'
+            : it.kind === 'insert' || it.kind === 'delete'
             ? 'Inserted / deleted rows cannot be reverted here'
             : 'The audit entry does not record the previous values') + '">Revert…</button>';
         return '<tr>' +
@@ -492,7 +495,8 @@
   }
 
   async function revert(item) {
-    if (!item || !item.revertible) return;
+    if (!item || !item.revertible || item.positionKeyed) return;
+    if (global.AdminInspect.confirmReplace && !(await global.AdminInspect.confirmReplace('backups'))) return;
     var rows;
     try {
       var j = await OpsUI.fetchJson('/api/admin/db/' + encodeURIComponent(item.endpoint));

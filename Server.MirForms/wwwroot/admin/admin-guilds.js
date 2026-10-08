@@ -229,6 +229,7 @@
   async function openGuild(index, tab) {
     if (!(index >= 0) && index !== 0) return;
     if (drawer.index !== null && drawer.index !== index && !(await confirmDiscardNotice())) return;
+    if (global.AdminInspect.confirmReplace && !(await global.AdminInspect.confirmReplace('guilds'))) return;
 
     var sameGuild = drawer.index === index && global.AdminInspect.isOpen();
     var body;
@@ -238,7 +239,8 @@
     } else {
       // open() runs the previous onClose first (which resets the drawer state), so set the state afterwards.
       drawer.noticeDirty = false;
-      body = global.AdminInspect.open({ title: 'Guild #' + index, text: 'Loading…', onClose: onDrawerClosed });
+      body = global.AdminInspect.open({ title: 'Guild #' + index, text: 'Loading…', onClose: onDrawerClosed, owner: 'guilds',
+        isDirty: function () { return !!drawer.noticeDirty; } });
       drawer.tab = tab || 'members';
     }
     drawer.index = index;

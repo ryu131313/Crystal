@@ -175,7 +175,11 @@ namespace Server.WebAdmin
         private static CancellationTokenSource _cts;
         private static Task _acceptTask;
         private static SemaphoreSlim _slots;
+        private static int _slotCount;
         private static WebAdminOptions _options;
+
+        /// <summary>How long Stop() waits for in-flight requests (e.g. a Server.MirDB or Setup.ini write) before closing.</summary>
+        internal static int DrainTimeoutMs = 15000;
 
         /// <summary>Raised (on a thread-pool thread) when an admin asks to shut Server.exe down. The WinForms host closes its main form.</summary>
         public static event Action ShutdownRequested;
@@ -272,7 +276,8 @@ namespace Server.WebAdmin
                     listener.Start();
 
                     _listener = listener;
-                    _slots = new SemaphoreSlim(Math.Clamp(options.MaxConcurrentRequests, 4, 512));
+                    _slotCount = Math.Clamp(options.MaxConcurrentRequests, 4, 512);
+                    _slots = new SemaphoreSlim(_slotCount);
                     _cts = new CancellationTokenSource();
 
                     var token = _cts.Token;
@@ -306,6 +311,9 @@ namespace Server.WebAdmin
         public static void Stop()
         {
             Task accept;
+            HttpListener listener;
+            SemaphoreSlim slots;
+            int slotCount;
 
             lock (Gate)
             {
@@ -313,18 +321,26 @@ namespace Server.WebAdmin
 
                 try
                 {
-                    _cts?.Cancel();
+                    _cts?.Cancel(); // the accept loop now rejects new requests with 503
                 }
                 catch
                 {
                 }
 
-                SafeClose(_listener);
+                listener = _listener;
+                slots = _slots;
+                slotCount = _slotCount;
                 _listener = null;
                 accept = _acceptTask;
                 _acceptTask = null;
                 Url = null;
             }
+
+            // Let in-flight handlers finish before the process exits: one may be writing Server.MirDB, Server.MirADB, Setup.ini or a
+            // restore swap, and the host process ends right after Stop() (thread-pool threads die mid-write).
+            DrainInFlight(slots, slotCount);
+
+            SafeClose(listener);
 
             try
             {
@@ -336,6 +352,23 @@ namespace Server.WebAdmin
             }
 
             WebAdminLog.Info("MirCraft web admin stopped.");
+        }
+
+        private static void DrainInFlight(SemaphoreSlim slots, int slotCount)
+        {
+            if (slots == null || slotCount <= 0) return;
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (slots.CurrentCount < slotCount)
+            {
+                if (sw.ElapsedMilliseconds >= DrainTimeoutMs)
+                {
+                    WebAdminLog.Info("Web admin stop: " + (slotCount - slots.CurrentCount) + " request(s) still running after " + DrainTimeoutMs + " ms; closing anyway.");
+                    return;
+                }
+
+                Thread.Sleep(25);
+            }
         }
 
         private static void SafeClose(HttpListener listener)
@@ -390,6 +423,13 @@ namespace Server.WebAdmin
                     WebAdminLog.Error(ex, "Web admin accept loop error");
                     await Task.Delay(250).ConfigureAwait(false);
                     continue;
+                }
+
+                if (token.IsCancellationRequested)
+                {
+                    // Shutting down: no new work (Stop() is draining the requests already running).
+                    RejectBusy(context);
+                    break;
                 }
 
                 if (!slots.Wait(0))

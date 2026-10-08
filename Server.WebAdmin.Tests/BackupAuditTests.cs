@@ -296,6 +296,27 @@ namespace Server.WebAdmin.Tests
             Assert.True(item.Revertible);
         }
 
+        [Theory]
+        [InlineData("mapsafezones", 50002, true)]
+        [InlineData("mapmovements", 40000, true)]
+        [InlineData("conquestguards", 10003, true)]
+        [InlineData("maprespawns", 77, false)]
+        [InlineData("items", 12, false)]
+        public void PositionKeyedTables_AreNeverRevertible(string endpoint, int index, bool positionKeyed)
+        {
+            // Child rows keyed parent*10000 + position: after an earlier sibling is deleted the same Index is a different row.
+            var e = Entry("db.update", endpoint + "#" + index, new
+            {
+                endpoint,
+                index,
+                changes = new object[] { new { field = "Size", before = 3, after = 5 } },
+            });
+
+            var item = Assert.Single(AuditDbHistory.Normalize(e));
+            Assert.Equal(positionKeyed, item.PositionKeyed);
+            Assert.Equal(!positionKeyed, item.Revertible);
+        }
+
         [Fact]
         public void ChangeMap_WithBeforeAfterObjectsOrPairs_FallsBackToTarget()
         {

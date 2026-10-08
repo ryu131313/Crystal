@@ -611,19 +611,26 @@
       var dry = await global.OpsUI.post('/api/admin/db/rename-propagate', { endpoint: ep, old: rn.old, 'new': rn['new'], dryRun: true }, { quiet: true });
       if (!dry.__ok) continue;
       var dd = global.OpsUI.unwrap(dry) || {};
-      var files = (Array.isArray(dd.files) ? dd.files : (Array.isArray(dry.files) ? dry.files : [])).filter(function (f) { return f && Number(f.replacements) !== 0; });
+      // Keep file renames too: a monster without DropPath has its drop file Drops\<old>.txt moved to <new>.txt (renameTo set,
+      // replacements 0); without that move the renamed monster would load a missing drop file and drop nothing.
+      var files = (Array.isArray(dd.files) ? dd.files : (Array.isArray(dry.files) ? dry.files : [])).filter(function (f) { return f && (Number(f.replacements) !== 0 || !!f.renameTo); });
       if (!files.length) { portalToast('No drop, recipe, quest or NPC file references "' + rn.old + '".', 'info'); continue; }
       var total = files.reduce(function (n, f) { return n + (Number(f.replacements) || 0); }, 0);
+      var moves = files.filter(function (f) { return !!f.renameTo; }).length;
       var go = await modal({
         title: 'Rewrite references to "' + rn.old + '"',
         confirmLabel: 'Rewrite ' + files.length + ' file(s)',
         build: function (body) {
-          body.appendChild(el('p', null, total + ' reference(s) in ' + files.length + ' file(s) will be changed to "' + rn['new'] + '". Each file is backed up first.'));
+          body.appendChild(el('p', null, total + ' reference(s) in ' + files.length + ' file(s) will be changed to "' + rn['new'] + '"' +
+            (moves ? ' and ' + moves + ' file(s) renamed' : '') + '. Each file is backed up first.'));
           var ul = el('ul', 'gd-file-list');
           files.slice(0, 400).forEach(function (f) {
             var li = el('li');
-            li.appendChild(el('code', null, String(f.path || f.file || f.name || '')));
-            li.appendChild(el('span', 'mir-muted', ' — ' + (f.replacements != null ? f.replacements + ' replacement(s)' : 'changed')));
+            li.appendChild(el('code', null, renameFileLabel(f)));
+            var what = [];
+            if (Number(f.replacements) > 0) what.push(f.replacements + ' replacement(s)');
+            if (f.renameTo) what.push('renamed to ' + f.renameTo);
+            li.appendChild(el('span', 'mir-muted', ' — ' + (what.length ? what.join(', ') : 'changed')));
             ul.appendChild(li);
           });
           if (files.length > 400) ul.appendChild(el('li', 'mir-muted', '… and ' + (files.length - 400) + ' more'));
@@ -638,7 +645,14 @@
       touched = touched.concat(written);
       portalToast('Updated references to "' + rn['new'] + '" in ' + written.length + ' file(s).', 'ok');
     }
-    if (touched.length) noteRenameRestart(reloadKinds(touched));
+    if (touched.length) noteRenameRestart(reloadKinds(touched.map(function (f) { return { path: renameFileLabel(f) }; })));
+  }
+
+  // "<root>\<path>" so the list (and reloadKinds) can tell Drops / NPCs files apart; plan paths are relative to their root.
+  function renameFileLabel(f) {
+    var p = String((f && (f.path || f.file || f.name)) || '');
+    var root = f && f.root ? String(f.root).replace(/[\\/]+$/, '') : '';
+    return root ? root + '\\' + p : p;
   }
 
   // No live reload after a rename: the running world (Envir.Main) still has the OLD ItemInfo / MonsterInfo names — the rename
@@ -1485,6 +1499,22 @@
     }
   }
 
+  // The sidebar badge must reflect the editor copy's unsaved changes on every page, not only after Game Data was opened (e.g. edits
+  // left behind by a failed save or a partly failed revert from Backups). Outside the section, piggy-back on the topbar status poll
+  // and re-read /api/admin/database/status at most every 30 s. app.js (AdminStatus) loads after this file.
+  var lastBackgroundStatus = 0;
+  function hookBackgroundBadge() {
+    if (!(global.AdminStatus && typeof global.AdminStatus.onChange === 'function')) return;
+    global.AdminStatus.onChange(function () {
+      if (global.AdminSections.current && global.AdminSections.current() === SECTION) return; // the section polls itself
+      if (Date.now() - lastBackgroundStatus < 30000) return;
+      lastBackgroundStatus = Date.now();
+      refreshDbStatus();
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', hookBackgroundBadge);
+  else hookBackgroundBadge();
+
   global.AdminSections.register(SECTION, {
     load: function (el0) {
       buildSection(el0);
@@ -1498,6 +1528,12 @@
       if (!currentTab) return showTab(initialTab());
       var ed = editors[currentTab];
       if (ed && ed.getApi()) return ed.show();
+    },
+    hide: function () {
+      // The row form drawer belongs to these grids: do not leave it floating over other sections (it asks first when it has
+      // unapplied edits; kept open if the admin says so).
+      var fd = document.getElementById('formDrawer');
+      if (fd && !fd.classList.contains('hidden') && global.FormDrawer && typeof global.FormDrawer.close === 'function') global.FormDrawer.close();
     }
   });
 

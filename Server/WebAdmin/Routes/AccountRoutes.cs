@@ -46,6 +46,9 @@ namespace Server.WebAdmin.Routes
         internal static DateTime GameNow() => WebAdminGame.World.QueueOpen ? Envir.Main.Now : DateTime.UtcNow;
 
         /// <summary>409 when the world is stopped and accounts were never loaded in this process (AccountList is empty until the first start).</summary>
+        /// <summary>The account list in memory no longer reflects Server.MirADB (a failed restore cleared it): block edits until a reload.</summary>
+        internal static void MarkAccountsUnloaded() => _accountsLoaded = false;
+
         internal static void EnsureAccountsLoaded()
         {
             if (WebAdminGame.World.QueueOpen) return;
@@ -249,6 +252,13 @@ namespace Server.WebAdmin.Routes
             if (Envir.Main.Saving)
             {
                 WebAdminLog.Info("Account file not saved after a web admin change: a previous save is still flagged as in progress.");
+                return "unsaved";
+            }
+
+            // Never write an empty / not-loaded account list over Server.MirADB (e.g. after a restore that could load nothing).
+            if (Envir.Main.AccountList.Count == 0)
+            {
+                WebAdminLog.Info("Account file not saved after a web admin change: the account list is not loaded from disk.");
                 return "unsaved";
             }
 

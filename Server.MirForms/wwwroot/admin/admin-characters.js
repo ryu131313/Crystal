@@ -225,7 +225,9 @@
     }, true);
   }
 
-  function openAccount(accountId, accountIndex) {
+  async function openAccount(accountId, accountIndex) {
+    // The account drawer replaces this one: never drop unsaved character edits silently.
+    if (!(await confirmDiscard())) return;
     var p = { q: accountId || '', mode: 'account' };
     if (accountIndex && accountIndex !== '0') p.account = String(accountIndex);
     if (global.portalOpenDeepLink) global.portalOpenDeepLink('accounts', p);
@@ -347,6 +349,8 @@
     if (!index && index !== 0) return;
     if (detail.index !== index && !(await confirmDiscard())) return;
     if (detail.index === index && detail.dirty && !opts.force && !(await confirmDiscard())) return;
+    // Another module's drawer (an account profile, a guild notice, ...) may hold unsaved edits: ask before replacing it.
+    if (!isDrawerOurs() && global.AdminInspect.confirmReplace && !(await global.AdminInspect.confirmReplace('characters'))) return;
     var my = ++detail.loading;
     var r = await O.fetchResult(charUrl(index));
     if (my !== detail.loading) return;
@@ -442,6 +446,8 @@
     global.AdminInspect.open({
       title: 'Character — ' + d.name,
       node: root,
+      owner: 'characters',
+      isDirty: function () { return detail.root === root && detail.dirty; },
       onClose: function () {
         if (detail.root !== root) return;
         var dr = drawerEl();

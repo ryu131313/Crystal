@@ -140,10 +140,18 @@ namespace Server.WebAdmin.Routes
             var info = Envir.Main.MapInfoList.FirstOrDefault(m => m.Index == index);
 
             // Inline path only (world stopped, HTTP thread): fall back to the Edit database. Never block the game thread on EditLock.
-            if (info == null && !WebAdminGame.IsRunning)
+            // This runs under Envir.AccountLock (RunOrInlineAsync's inline path), and the lock order everywhere else is EditLock ->
+            // LoadLock -> AccountLock, so never WAIT for EditLock here: if it is busy (a save/reload/restore), show "Map #n".
+            if (info == null && !WebAdminGame.IsRunning && Monitor.TryEnter(WebAdminGame.EditLock, 0))
             {
-                lock (WebAdminGame.EditLock)
+                try
+                {
                     info = Envir.Edit.MapInfoList.FirstOrDefault(m => m.Index == index);
+                }
+                finally
+                {
+                    Monitor.Exit(WebAdminGame.EditLock);
+                }
             }
 
             if (info == null) return "Map #" + index;

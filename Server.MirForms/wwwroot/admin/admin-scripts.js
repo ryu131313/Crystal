@@ -794,6 +794,7 @@
   }
 
   async function showBackups(root, path) {
+    if (global.AdminInspect && AdminInspect.confirmReplace && !(await AdminInspect.confirmReplace('scripts'))) return;
     var data;
     try {
       data = await getData(API + '/backups?' + qs({ root: root, path: path }));
