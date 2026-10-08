@@ -1,1 +1,47 @@
-/* admin-audit.css — Audit Trail section styles (stub; replaced by the feature owner). */
+/* admin-audit.css — Audit Trail section (B11). Only feature-specific layout; colours come from the theme variables. */
+
+#section-auditlog .audit-toolbar-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#section-auditlog .audit-intro { margin: 0 0 10px; font-size: 12.5px; }
+
+#section-auditlog .audit-filters {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(130px, 1fr) minmax(200px, 2fr) minmax(130px, 1fr) auto;
+  gap: 8px 10px;
+  align-items: end;
+  margin-bottom: 10px;
+}
+#section-auditlog .audit-filters label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+#section-auditlog .audit-filter-buttons { display: flex; gap: 6px; }
+
+#section-auditlog .audit-groups { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 0 0 10px; font-size: 12px; }
+#section-auditlog .audit-group { text-transform: none; }
+#section-auditlog .audit-group-count { opacity: .7; margin-left: 3px; font-size: 11px; }
+
+#section-auditlog .audit-table td { vertical-align: top; }
+#section-auditlog .audit-table .audit-time { white-space: nowrap; }
+#section-auditlog .audit-target,
+#section-auditlog .audit-reason { overflow-wrap: anywhere; max-width: 360px; }
+#section-auditlog .audit-toggle { min-width: 26px; padding: 0 6px; }
+#section-auditlog .audit-row.open td { border-bottom-color: transparent; }
+#section-auditlog .audit-pill { background: rgba(197, 160, 89, .14); color: var(--accent, #c5a059); text-transform: none; }
+#section-auditlog .ops-pill { text-transform: none; letter-spacing: 0; }
+
+.audit-detail { padding: 4px 0 10px; display: flex; flex-direction: column; gap: 8px; }
+.audit-detail h4 { margin: 4px 0 0; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.audit-detail-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.audit-json {
+  margin: 6px 0 0; padding: 8px 10px; max-height: 360px; overflow: auto;
+  background: rgba(0, 0, 0, .28); border: 1px solid var(--border-dim, rgba(255, 255, 255, .08)); border-radius: 6px;
+  font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.audit-diff { font-size: 12.5px; }
+.audit-diff td { overflow-wrap: anywhere; }
+.audit-diff .audit-before { color: var(--danger, #fb7185); }
+.audit-diff .audit-after { color: var(--success, #4ade80); }
+
+#section-auditlog .audit-footer { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 10px; }
+
+@media (max-width: 1000px) {
+  #section-auditlog .audit-filters { grid-template-columns: 1fr 1fr; }
+  #section-auditlog .audit-filter-q { grid-column: 1 / -1; }
+}
