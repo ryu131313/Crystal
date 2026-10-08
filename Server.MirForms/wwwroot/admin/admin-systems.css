@@ -1,1 +1,21 @@
-/* admin-systems.css — Systems section styles (stub; replaced by the feature owner). */
+/* admin-systems.css — Systems section (B7). Shared "bs-" editor styles live in admin-balance.css. */
+
+.bs-sections { display: flex; flex-direction: column; gap: 4px; }
+.bs-sections .ops-group h3 { display: flex; align-items: center; gap: 8px; }
+
+/* Label-over-input field rows used by the guild, mining and spawn tick editors. */
+.bs-fields { display: flex; flex-wrap: wrap; gap: 10px 16px; margin: 6px 0 10px; }
+.bs-field { display: flex; flex-direction: column; gap: 4px; min-width: 150px; font-size: 12px; color: var(--muted); }
+.bs-field .fd-input { min-width: 0; }
+.bs-field .bs-input-num { width: 140px; }
+.bs-field .bs-input-wide { min-width: 200px; }
+.bs-field-cap { white-space: nowrap; }
+.bs-fields-compact { gap: 8px 12px; }
+.bs-fields-compact .bs-field { min-width: 120px; }
+.bs-fields-compact .bs-input-num { width: 110px; }
+
+.bs-notes { margin: 6px 0 0 18px; padding: 0; font-size: 12px; }
+.bs-notes:empty { display: none; }
+.bs-notes li { margin: 2px 0; }
+
+#section-systems .kv-list dd { font-variant-numeric: tabular-nums; }
