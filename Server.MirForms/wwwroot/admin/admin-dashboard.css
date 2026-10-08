@@ -1,1 +1,175 @@
-/* admin-dashboard.css — Dashboard section styles (stub; replaced by the feature owner). */
+/* admin-dashboard.css — Dashboard section (#section-dashboard): tiles, charts, activity feed.
+   Layout only; colours come from the theme tokens (admin-theme.css loads last and skins the metric tiles). */
+
+#section-dashboard .dash-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+#section-dashboard .dash-toolbar-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#section-dashboard .dash-actions .mir-btn { padding: 4px 12px; font-size: 12px; }
+
+#section-dashboard .dash-live { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); }
+#section-dashboard .dash-live-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--success);
+  animation: dashPulse 2s ease-out infinite;
+}
+#section-dashboard .dash-live.stale { color: var(--warn); }
+#section-dashboard .dash-live.stale .dash-live-dot { background: var(--warn); animation: none; box-shadow: none; }
+@keyframes dashPulse {
+  0% { box-shadow: 0 0 0 0 rgba(95, 211, 138, 0.5); }
+  70%, 100% { box-shadow: 0 0 0 6px rgba(95, 211, 138, 0); }
+}
+
+#section-dashboard .dash-range { display: inline-flex; align-items: center; gap: 4px; }
+#section-dashboard .dash-range .mir-muted { margin-right: 4px; }
+#section-dashboard .dash-range-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: var(--radius-sm);
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+#section-dashboard .dash-range-btn.active { background: var(--accent-dim); color: var(--accent); }
+
+/* Restart-countdown banner */
+#section-dashboard .dash-countdown {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-md);
+  background: var(--warn-dim);
+  color: var(--warn);
+  font-weight: 600;
+}
+#section-dashboard .dash-countdown .dash-countdown-text { flex: 1 1 240px; }
+
+/* Tiles */
+#section-dashboard .metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 0;
+  margin: 0 0 14px;
+  overflow: hidden;
+}
+#section-dashboard .metric-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 14px 10px;
+  border: none;
+  border-right: 1px solid var(--border-dim);
+  border-bottom: 1px solid var(--border-dim);
+  border-radius: 0;
+  background: transparent;
+  text-align: center;
+}
+#section-dashboard .metric-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#section-dashboard .metric-value {
+  white-space: nowrap;
+  font-size: clamp(16px, 1.6vw, 22px);
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+#section-dashboard .metric-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#section-dashboard .metric-foot { margin-top: auto; }
+#section-dashboard .metric-bar {
+  height: 4px;
+  margin: 6px 6px 0;
+  border-radius: 2px;
+  overflow: hidden;
+}
+#section-dashboard .metric-bar-fill { height: 100%; width: 0; transition: width 0.4s ease; }
+#section-dashboard .metric-link { cursor: pointer; }
+#section-dashboard .metric-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+#section-dashboard .metric-ok .metric-value { color: var(--success); }
+#section-dashboard .metric-warn .metric-value { color: var(--warn); }
+#section-dashboard .metric-bad .metric-value { color: var(--danger); }
+#section-dashboard .metrics-grid.dash-stale { opacity: 0.55; }
+
+/* Charts */
+#section-dashboard .dash-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+#section-dashboard .dash-chart-card { margin: 0; }
+#section-dashboard .dash-chart-card h3 { margin: 0 0 8px; }
+#section-dashboard .dash-canvas { position: relative; height: 220px; }
+#section-dashboard .dash-chart-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+
+/* Activity feed */
+#section-dashboard .dash-feed-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+#section-dashboard .dash-feed-head h3 { margin: 0; }
+#section-dashboard .activity-feed {
+  max-height: 380px;
+  overflow-y: auto;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--well, rgba(0, 0, 0, 0.3));
+}
+#section-dashboard .feed-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-dim);
+  font-size: 13px;
+}
+#section-dashboard .feed-row:last-child { border-bottom: none; }
+#section-dashboard .feed-badge {
+  flex: 0 0 84px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text-secondary);
+}
+#section-dashboard .feed-badge.ev-login { background: var(--success-dim); color: var(--success); }
+#section-dashboard .feed-badge.ev-logout { background: var(--surface); color: var(--muted); }
+#section-dashboard .feed-badge.ev-login-failed { background: var(--danger-dim); color: var(--danger); }
+#section-dashboard .feed-badge.ev-world { background: var(--warn-dim); color: var(--warn); }
+#section-dashboard .feed-badge.ev-admin { background: var(--accent-dim); color: var(--accent); }
+#section-dashboard .feed-text { flex: 1; min-width: 0; color: var(--text); overflow-wrap: anywhere; }
+#section-dashboard .feed-time { flex: 0 0 auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+#section-dashboard .feed-empty { padding: 12px; margin: 0; }
+
+@media (max-width: 700px) {
+  #section-dashboard .dash-charts { grid-template-columns: 1fr; }
+  #section-dashboard .feed-badge { flex-basis: 64px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #section-dashboard .dash-live-dot { animation: none; }
+  #section-dashboard .metric-bar-fill { transition: none; }
+}

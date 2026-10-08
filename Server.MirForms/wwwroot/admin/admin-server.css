@@ -1,1 +1,81 @@
-/* admin-server.css — Server Control section styles (stub; replaced by the feature owner). */
+/* admin-server.css — Server Control section (#section-server): status card, countdown, reloads, pending list, info, log viewer. */
+
+#section-server .srv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+#section-server .srv-grid > .mir-card { margin: 0; }
+#section-server .toolbar h2,
+#section-server .toolbar h3 { margin: 0; }
+
+#section-server .srv-kv { margin: 10px 0; }
+#section-server .srv-note {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-sm);
+  background: var(--well, rgba(0, 0, 0, 0.3));
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+#section-server .srv-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+#section-server .srv-buttons .mir-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+#section-server .srv-shutdown { margin-left: auto; }
+
+#section-server .srv-lasterror { margin-top: 12px; }
+#section-server .srv-lasterror summary {
+  cursor: pointer;
+  color: var(--danger);
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#section-server .srv-error-text { max-height: 260px; margin-top: 6px; }
+
+#section-server .srv-countdown-live {
+  margin: 6px 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-sm);
+  background: var(--warn-dim);
+  color: var(--warn);
+  font-weight: 600;
+}
+#section-server .srv-countdown-form .ops-dialog-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; font-size: 12px; }
+
+#section-server .srv-pending-scroll,
+#section-server .srv-files-scroll { max-height: 280px; overflow: auto; }
+#section-server .srv-pending-scroll .user-table,
+#section-server .srv-files-scroll .user-table { min-width: 0; width: 100%; }
+#section-server .srv-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+#section-server .srv-info-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 8px 24px; }
+
+/* Log viewer */
+#section-server .srv-log-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+#section-server .srv-log-filter { width: 220px; max-width: 100%; }
+#section-server .srv-pause { display: inline-flex; align-items: center; gap: 4px; }
+#section-server .srv-files { margin-bottom: 10px; }
+#section-server .admin-log-view,
+#section-server .srv-log-view {
+  display: block;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: auto;
+}
+#section-server .srv-log-view { height: 460px; resize: vertical; }
+
+@media (max-width: 700px) {
+  #section-server .srv-grid { grid-template-columns: 1fr; }
+  #section-server .srv-shutdown { margin-left: 0; }
+  #section-server .srv-log-view { height: 320px; }
+}
