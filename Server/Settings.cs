@@ -34,7 +34,7 @@ namespace Server
             NPCPreviewPath = Path.Combine(EnvirPath, "Previews", "NPC"),
             Previews = Path.Combine(EnvirPath, "Previews");
 
-        private static readonly InIReader Reader = new InIReader(Path.Combine(ConfigPath, "Setup.ini"));
+        internal static readonly InIReader Reader = new InIReader(Path.Combine(ConfigPath, "Setup.ini"));
 
         public static Notice Notice;
 
