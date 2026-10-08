@@ -1,1 +1,72 @@
-/* admin-characters.css — Characters section styles (stub; replaced by the feature owner). */
+/* admin-characters.css — Characters section + character drawer (B2). Only feature-specific rules. */
+
+#section-characters .toolbar h2 { margin: 0; }
+#section-characters .ch-search { margin-top: 0; }
+#section-characters .ch-q .fd-input { min-width: 240px; }
+#section-characters .ch-table td { white-space: nowrap; }
+#section-characters .ch-table td.num,
+#section-characters .ch-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+#section-characters .ch-table tbody tr { cursor: pointer; }
+#section-characters .ch-table tbody tr:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+#section-characters .ch-table tbody tr.ch-selected { background: var(--accent-dim); }
+#section-characters .ch-idx { font-size: 11px; }
+#section-characters .ch-pager { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 10px; }
+
+/* The shared inspect drawer is widened while it shows a character. */
+#inspectDrawer.ch-drawer-wide { width: 820px; }
+
+.ch-drawer .ch-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.ch-drawer .ch-title { font-size: 16px; font-weight: 600; color: var(--text); }
+.ch-drawer .ch-badges { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0 2px; }
+.ch-drawer .ch-sub { font-size: 12px; }
+
+.ch-drawer .ch-actions { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel); }
+.ch-drawer .ch-verb-group { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.ch-drawer .ch-verb-group .ins-label { min-width: 120px; }
+.ch-drawer .ch-verb-group .mir-btn { margin: 0; }
+.ch-drawer .ch-verb-danger:not(:disabled):hover { border-color: var(--danger); color: var(--danger); }
+
+.ch-drawer .ch-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 10px; }
+.ch-drawer .ch-tabs .mir-btn { margin: 0; padding: 4px 11px; font-size: 12px; }
+
+.ch-drawer .ch-panel table td { vertical-align: middle; }
+.ch-drawer .ch-panel td.num,
+.ch-drawer .ch-panel th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ch-drawer .ch-panel .users-actions .mir-btn { margin: 0 0 0 4px; }
+.ch-drawer .ops-table-scroll .user-table { min-width: 0; }
+
+.ch-drawer .ch-edit { margin-bottom: 6px; }
+.ch-drawer .ch-edit-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 12px; }
+.ch-drawer .ch-edit-grid .fd-input { width: 100%; box-sizing: border-box; }
+.ch-drawer .ch-edit-grid .fd-input:disabled { opacity: 0.55; cursor: not-allowed; }
+.ch-drawer .ch-edit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; }
+.ch-drawer .ch-hint { display: block; font-size: 11px; margin: 4px 0 8px; }
+.ch-drawer .ch-stats { grid-template-columns: repeat(4, 1fr); }
+
+.ch-drawer .ch-additem { margin-top: 0; }
+.ch-drawer .ch-item-input .fd-input { min-width: 260px; }
+.ch-drawer .ch-count { width: 90px; min-width: 0 !important; }
+.ch-drawer .ch-items td { white-space: nowrap; }
+.ch-drawer .ch-item-name { font-weight: 600; color: var(--text); }
+.ch-drawer .ch-stats-cell { white-space: normal !important; max-width: 220px; font-size: 11.5px; color: var(--text-secondary); }
+.ch-drawer .ch-uid { font-size: 11px; font-variant-numeric: tabular-nums; }
+
+.ch-drawer .ch-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 12px; }
+
+.ch-drawer .ch-flag-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.ch-drawer .ch-flag { display: inline-flex; align-items: center; gap: 4px; padding: 1px 4px 1px 9px; border: 1px solid var(--border-bright); border-radius: 999px; font-size: 12px; }
+.ch-drawer .ch-flag.on { border-color: var(--success); }
+.ch-drawer .ch-flag-filter { width: 100%; max-width: 320px; margin-bottom: 6px; }
+.ch-drawer .ch-flag-scroll { max-height: 360px; overflow-y: auto; }
+
+.ch-drawer .ch-mail-tiles { display: grid; grid-template-columns: repeat(2, minmax(120px, 180px)); overflow: hidden; }
+.ch-drawer .ch-mail-tiles .metric-card { padding: 8px 12px; }
+.ch-drawer .ch-mail-tiles .metric-label { text-transform: uppercase; }
+.ch-drawer .ch-mail-tiles .metric-value { font-size: 20px; }
+.ch-drawer .ch-mail-tiles .metric-warn .metric-value { color: var(--warn); }
+.ch-drawer .ch-mail-msg { white-space: normal !important; max-width: 320px; }
+
+@media (max-width: 900px) {
+  #inspectDrawer.ch-drawer-wide { width: 100vw; max-width: 100vw; }
+  .ch-drawer .ch-stats { grid-template-columns: repeat(2, 1fr); }
+}

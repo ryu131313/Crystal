@@ -1,1 +1,65 @@
-/* admin-players.css — Players Online section styles (stub; replaced by the feature owner). */
+/* admin-players.css — Players Online section (B2). Only feature-specific rules; the look comes from the shared classes. */
+
+#section-players-online .toolbar h2 { display: flex; align-items: center; gap: 8px; margin: 0; }
+#section-players-online .po-count {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 1px 9px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+#section-players-online .po-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+#section-players-online .po-filter { min-width: 240px; }
+
+#section-players-online .po-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  margin: 0 0 14px;
+  overflow: hidden;
+}
+#section-players-online .po-tiles .metric-card {
+  padding: 10px 14px;
+  border-right: 1px solid var(--border-dim);
+}
+#section-players-online .po-tiles .metric-card:last-child { border-right: none; }
+#section-players-online .po-tiles .metric-label { text-transform: uppercase; margin-bottom: 4px; }
+#section-players-online .po-tiles .metric-value { font-size: 22px; line-height: 1.15; }
+#section-players-online .po-tiles .metric-warn .metric-value { color: var(--warn); }
+
+#section-players-online .po-table td { vertical-align: middle; white-space: nowrap; }
+#section-players-online .po-table td.num,
+#section-players-online .po-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+#section-players-online .po-table tbody tr { cursor: default; }
+
+.po-bar {
+  position: relative;
+  width: 86px;
+  height: 14px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.po-bar-fill { position: absolute; left: 0; top: 0; bottom: 0; }
+.po-bar.hp .po-bar-fill { background: linear-gradient(90deg, #7f1d1d, #dc2626); }
+.po-bar.mp .po-bar-fill { background: linear-gradient(90deg, #1e3a8a, #3b82f6); }
+.po-bar-text {
+  position: relative;
+  display: block;
+  text-align: center;
+  font-size: 10px;
+  line-height: 12px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.8);
+}
+
+.po-pk-yellow { color: var(--warn); font-weight: 600; }
+.po-pk-red { color: var(--danger); font-weight: 700; }
+
+#section-players-online .po-empty { margin: 12px 0 0; }
+#section-players-online .po-hint { margin: 10px 0 0; font-size: 12px; }
+
+.po-row-menu .po-menu-danger { color: var(--danger); }
