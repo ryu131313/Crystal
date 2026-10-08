@@ -110,7 +110,7 @@
   // ---- "go to" arrow on lookup cells ----------------------------------------------------------------------------------
 
   function gotoTarget(colDef, data) {
-    var g = colDef && colDef.__goto;
+    var g = colDef && colDef.context && colDef.context.goto;
     if (!g || !data) return null;
     var idx = Number(data[g.indexField]);
     if (!(idx > 0)) return null;
@@ -161,7 +161,7 @@
   function addGotoRenderers(defs) {
     (defs || []).forEach(function (c) {
       if (c && Array.isArray(c.children)) addGotoRenderers(c.children);
-      else if (c && c.__goto && !c.cellRenderer && !c.hide) c.cellRenderer = gotoRenderer;
+      else if (c && c.context && c.context.goto && !c.cellRenderer && !c.hide) c.cellRenderer = gotoRenderer;
     });
   }
 

@@ -398,7 +398,8 @@
       tooltipValueGetter: function (p) { return p.value == null ? '' : String(p.value); }
     });
     addCellClass(c, 'db-cell-lookup');
-    c.__goto = { lookup: ref.lookup, indexField: ref.indexField };
+    // App data lives under colDef.context (ag-Grid warns about unknown colDef keys).
+    c.context = Object.assign({}, c.context, { goto: { lookup: ref.lookup, indexField: ref.indexField } });
     return c;
   }
 
@@ -419,7 +420,7 @@
     cols.forEach(function (c) {
       if (c.pinned) { top.push(c); return; }
       var name = c.field || '';
-      var p = propByName[name] || (c.__refIndexField ? propByName[c.__refIndexField] : null);
+      var p = propByName[name] || (c.context && c.context.refIndexField ? propByName[c.context.refIndexField] : null);
       var kind = p ? p.kind : 'display';
       var id = null;
       for (var i = 0; i < GROUP_RULES.length && !id; i++) if (GROUP_RULES[i].test.test(name)) id = GROUP_RULES[i].id;
@@ -566,7 +567,7 @@
           if (!editable) dc.editable = false; // LiveDb: a restart-only reference column stays read-only
           return dc;
         }
-        if (p.lookup) col.__goto = { lookup: p.lookup, indexField: k };
+        if (p.lookup) col.context = Object.assign({}, col.context, { goto: { lookup: p.lookup, indexField: k } });
         return col; // display-mode refs hide this column via applyReferenceColumns
       }
       applyKind(col, p, rows);
@@ -597,8 +598,7 @@
       colDefs.forEach(function (c) {
         allRefs.forEach(function (ref) {
           if (c.field !== ref.displayField) return;
-          c.__goto = { lookup: ref.lookup, indexField: ref.indexField };
-          c.__refIndexField = ref.indexField;
+          c.context = Object.assign({}, c.context, { goto: { lookup: ref.lookup, indexField: ref.indexField }, refIndexField: ref.indexField });
           var ip = propByName[ref.indexField];
           if (ld && ip) {
             // The display column (ItemName ...) stands in for the index column: it inherits that column's

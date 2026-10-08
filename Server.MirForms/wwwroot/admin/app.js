@@ -7,7 +7,7 @@
 
   var STATUS_MS = 10000;
   var statusTimer = null;
-  var statusBusy = false;
+  var statusInFlight = null;
   var lastStatus = null;
   var statusListeners = [];
 
@@ -58,25 +58,29 @@
     }
   }
 
-  async function pollStatus() {
-    if (statusBusy) return lastStatus;
-    statusBusy = true;
-    try {
-      var r = await portalApi('/api/admin/status');
-      var j = await r.json().catch(function () { return null; });
-      var st = null;
-      if (r.ok && j) st = (j.data && typeof j.data === 'object' && j.ok !== undefined) ? j.data : j;
-      lastStatus = st;
-      renderStatus(st);
-      statusListeners.slice().forEach(function (fn) { try { fn(st); } catch (e) { /* listener */ } });
-      return st;
-    } catch (e) {
-      lastStatus = null;
-      renderStatus(null);
-      return null;
-    } finally {
-      statusBusy = false;
-    }
+  // Concurrent callers (topbar timer, dashboard/server polls, post-action refreshes) share the in-flight request, so nobody
+  // ever receives the not-yet-loaded status as if the server were unreachable.
+  function pollStatus() {
+    if (statusInFlight) return statusInFlight;
+    statusInFlight = (async function () {
+      try {
+        var r = await portalApi('/api/admin/status');
+        var j = await r.json().catch(function () { return null; });
+        var st = null;
+        if (r.ok && j) st = (j.data && typeof j.data === 'object' && j.ok !== undefined) ? j.data : j;
+        lastStatus = st;
+        renderStatus(st);
+        statusListeners.slice().forEach(function (fn) { try { fn(st); } catch (e) { /* listener */ } });
+        return st;
+      } catch (e) {
+        lastStatus = null;
+        renderStatus(null);
+        return null;
+      } finally {
+        statusInFlight = null;
+      }
+    })();
+    return statusInFlight;
   }
 
   function startStatusPolling() {

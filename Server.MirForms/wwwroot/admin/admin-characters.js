@@ -1116,6 +1116,6 @@
       if (freshlyLoaded) { freshlyLoaded = false; return; }
       return search(state.page);
     },
-    hide: function () { /* the drawer may stay open while browsing other sections */ }
+    hide: function () { /* the shell closes our drawer when leaving the section (AdminInspect owner) */ }
   });
 })(window);

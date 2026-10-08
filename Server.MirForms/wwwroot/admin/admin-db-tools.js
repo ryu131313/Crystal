@@ -33,10 +33,13 @@
     return out;
   }
 
+  /** The row-selection checkbox column (app data under colDef.context: ag-Grid warns about unknown colDef keys). */
+  function isSelectCol(d) { return !!(d && d.context && d.context.select); }
+
   function editableColumns(api) {
     var cols = [];
     flatDefs(api.getColumnDefs() || []).forEach(function (c) {
-      if (!c.field || c.__select || c.hide) return;
+      if (!c.field || isSelectCol(c) || c.hide) return;
       if (c.field.indexOf('__') === 0 || c.field === 'Index') return;
       if (c.editable !== true && typeof c.editable !== 'function') {
         if (c.editable === false) return;
@@ -199,7 +202,7 @@
     box.appendChild(list);
     var cols = (api.getColumns() || []).filter(function (c) {
       var d = c.getColDef ? c.getColDef() : {};
-      return !d.__select && !(d.field && d.field.indexOf('__') === 0 && d.colId !== '__stats');
+      return !isSelectCol(d) && !(d.field && d.field.indexOf('__') === 0 && d.colId !== '__stats');
     });
     function draw() {
       var q = filter.value.trim().toLowerCase();
@@ -760,7 +763,7 @@
     if (sel.length) rows = sel;
     else api.forEachNodeAfterFilterAndSort(function (n) { rows.push(n.data); });
     var cols = (api.getAllDisplayedColumns ? api.getAllDisplayedColumns() : []).map(function (c) { return c.getColDef(); })
-      .filter(function (d) { return d && d.field && !d.__select && d.field.indexOf('__') !== 0; })
+      .filter(function (d) { return d && d.field && !isSelectCol(d) && d.field.indexOf('__') !== 0; })
       .map(function (d) { return { field: d.field, get: function (r) { return typeof d.valueGetter === 'function' ? d.valueGetter({ data: r, colDef: d }) : r[d.field]; } }; });
     var text = toTsv(rows, cols);
     try {
@@ -794,10 +797,10 @@
     opts = opts || {};
     gridOpts.rowSelection = 'multiple';
     gridOpts.suppressRowClickSelection = true;
-    if (!opts.readOnly && Array.isArray(gridOpts.columnDefs) && !gridOpts.columnDefs.some(function (c) { return c.__select; })) {
+    if (!opts.readOnly && Array.isArray(gridOpts.columnDefs) && !gridOpts.columnDefs.some(isSelectCol)) {
       // concat (not unshift) so a schema-cached colDefs array is never mutated.
       gridOpts.columnDefs = [{
-        __select: true, headerName: '', width: 42, pinned: 'left',
+        context: { select: true }, headerName: '', width: 42, pinned: 'left',
         checkboxSelection: true, headerCheckboxSelection: true, headerCheckboxSelectionFilteredOnly: true,
         editable: false, sortable: false, filter: false, resizable: false, suppressMenu: true
       }].concat(gridOpts.columnDefs);

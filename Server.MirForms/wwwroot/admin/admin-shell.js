@@ -576,6 +576,10 @@
         '). They stay here until you save or discard them. Leave this section anyway?')) return false;
       ackSeq = dirtySeq;
     }
+    // The inspect drawer belongs to the section that opened it: leaving that section closes it (after asking when it holds
+    // unsaved edits — "stay" keeps the admin on the section). A drawer owned by the destination (a cross-link that opens the
+    // drawer before switching) stays.
+    if (leaving && !closeForeignInspect(id)) return false;
     if (leaving && started && activeId) callHide(activeId);
     showSectionDom(id, dbTab);
     if (!skipHash) updateHash(id, dbTab);
@@ -658,14 +662,32 @@
   // ---- AdminInspect: the generic right-hand inspect drawer (#inspectDrawer) -----------------------------------------
 
   var inspectOnClose = null;
-  var inspectOwner = null;     // opts.owner of the current content (e.g. 'characters')
+  var inspectOwner = null;     // section id owning the current content: opts.owner, else the section visible when it opened
   var inspectIsDirty = null;   // opts.isDirty of the current content
+
+  /**
+   * Navigating to section `toId`: closes the inspect drawer unless that section owns it. Asks first (synchronously, like the
+   * unsaved-grid guard in portalShowSection) when the content reports unsaved edits; returns false when the admin chose to stay.
+   */
+  function closeForeignInspect(toId) {
+    if (!global.AdminInspect.isOpen() || (inspectOwner && inspectOwner === toId)) return true;
+    var dirty = false;
+    try { dirty = !!(inspectIsDirty && inspectIsDirty()); } catch (e) { dirty = false; }
+    if (dirty) {
+      var t = document.getElementById('inspectDrawerTitle');
+      var what = t && t.textContent ? '"' + t.textContent + '"' : 'The open drawer';
+      if (!global.confirm(what + ' has unsaved changes. Discard them and leave this section?')) return false;
+    }
+    global.AdminInspect.close();
+    return true;
+  }
   global.AdminInspect = {
     /**
      * open({ title, node?, html?, text?, onClose?, owner?, isDirty? }) -> the drawer body element. `html` must already be escaped
      * (OpsUI.esc); prefer `node` (a DOM element) or `text`. Replaces whatever the drawer showed (running its onClose). A module whose
      * drawer can hold unsaved edits passes isDirty(); every opener awaits confirmReplace(owner) first so those edits are never
-     * dropped silently.
+     * dropped silently. `owner` is the section id the drawer belongs to (default: the visible section); navigating to any other
+     * section closes the drawer (portalShowSection, after the isDirty() question).
      */
     open: function (opts) {
       opts = opts || {};
@@ -680,8 +702,9 @@
       else if (opts.html != null) b.innerHTML = opts.html;
       else if (opts.text != null) b.textContent = String(opts.text);
       inspectOnClose = typeof opts.onClose === 'function' ? opts.onClose : null;
-      inspectOwner = opts.owner || null;
+      inspectOwner = opts.owner || currentSectionId();
       inspectIsDirty = typeof opts.isDirty === 'function' ? opts.isDirty : null;
+      if (inspectOwner) d.setAttribute('data-owner', inspectOwner); else d.removeAttribute('data-owner');
       d.classList.remove('hidden');
       return b;
     },
@@ -702,7 +725,7 @@
     },
     close: function () {
       var d = document.getElementById('inspectDrawer');
-      if (d) d.classList.add('hidden');
+      if (d) { d.classList.add('hidden'); d.removeAttribute('data-owner'); }
       inspectOwner = null;
       inspectIsDirty = null;
       if (inspectOnClose) { var fn = inspectOnClose; inspectOnClose = null; try { fn(); } catch (e) { /* listener */ } }
@@ -711,7 +734,9 @@
       var d = document.getElementById('inspectDrawer');
       return !!(d && !d.classList.contains('hidden'));
     },
-    body: function () { return document.getElementById('inspectDrawerBody'); }
+    body: function () { return document.getElementById('inspectDrawerBody'); },
+    /** The section id the open drawer belongs to (null when closed). */
+    owner: function () { return global.AdminInspect.isOpen() ? inspectOwner : null; }
   };
   document.addEventListener('DOMContentLoaded', function () {
     var c = document.getElementById('inspectDrawerClose');

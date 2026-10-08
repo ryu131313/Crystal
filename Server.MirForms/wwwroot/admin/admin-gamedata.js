@@ -726,7 +726,8 @@
     if (!list) return false;
     var f = d.field || '';
     if (list.indexOf(f) >= 0) return true;
-    if (d.__refIndexField && list.indexOf(d.__refIndexField) >= 0) return true;
+    var rif = d.context && d.context.refIndexField;
+    if (rif && list.indexOf(rif) >= 0) return true;
     return /Name$/.test(f) && list.indexOf(f.replace(/Name$/, 'Index')) >= 0;
   }
 
@@ -749,7 +750,7 @@
     var basic = BASIC[endpoint];
     (api.getColumns() || []).forEach(function (c) {
       var d = c.getColDef() || {};
-      if (d.__select || d.hide === true) return;   // the checkbox column; index columns a lookup column stands in for
+      if ((d.context && d.context.select) || d.hide === true) return;   // the checkbox column; index columns a lookup column stands in for
       var k = columnKind(d);
       var on;
       if (preset === 'all') on = true;
