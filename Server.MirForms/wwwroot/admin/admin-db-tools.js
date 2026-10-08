@@ -132,6 +132,12 @@
     schema.properties.forEach(function (p) {
       if (!p || p.name === 'Index' || p.readOnly) return;
       if (schema.liveDb && p.live === false) return;   // LiveDb: restart-only columns are not part of a live insert
+      // The server publishes the values it gives a new row (e.g. RandomStatsId 255, monster speeds): use them, never 0 / '' / false.
+      if (schema.defaults && Object.prototype.hasOwnProperty.call(schema.defaults, p.name)) {
+        var d = schema.defaults[p.name];
+        out[p.name] = d && typeof d === 'object' ? JSON.parse(JSON.stringify(d)) : d;
+        return;
+      }
       switch (p.kind) {
         case 'number':
         case 'reference': out[p.name] = 0; break;
