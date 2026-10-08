@@ -1,1 +1,37 @@
-/* admin-accounts.css — Accounts section styles (stub; replaced by the feature owner). */
+/* admin-accounts.css — Accounts section (B3). Shared look comes from style.css / admin-theme.css; only feature layout here. */
+
+#section-accounts .acc-toolbar-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+#section-accounts .acc-tiles { margin: 0 0 14px; }
+#section-accounts .acc-search { align-items: flex-start; }
+#section-accounts .acc-search-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+#section-accounts .acc-search-row input[type=search] { min-width: 240px; }
+#section-accounts .acc-search-row select { width: auto; }
+#section-accounts .acc-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+#section-accounts .acc-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+#section-accounts .acc-chip { padding: 3px 10px; font-size: 12px; }
+#section-accounts .acc-chip.active { border-color: var(--accent); color: var(--accent); }
+#section-accounts .acc-table td.num,
+#section-accounts .acc-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+#section-accounts .acc-table tbody tr.acc-row { cursor: pointer; }
+#section-accounts .acc-table tbody tr.selected td { background: var(--accent-dim, rgba(197, 160, 89, 0.12)); }
+#section-accounts .acc-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+#section-accounts .acc-pager select { width: auto; margin-left: 4px; }
+
+/* Detail drawer (rendered inside the shared #inspectDrawer). */
+.acc-detail .acc-ban-box {
+  margin: 0 0 10px; padding: 8px 10px; border: 1px solid var(--danger, #e11d48); border-radius: var(--radius-md, 6px);
+  background: var(--danger-dim, rgba(225, 29, 72, 0.08)); font-size: 12.5px;
+}
+.acc-detail .users-drawer-actions .mir-btn { font-size: 12px; padding: 4px 10px; }
+.acc-detail .acc-h { margin: 18px 0 8px; font-size: 13px; letter-spacing: .04em; }
+.acc-detail .acc-dirty {
+  margin-left: 8px; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+  background: rgba(245, 158, 11, .15); color: var(--warn, #fbbf24);
+}
+.acc-detail .acc-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 14px; }
+.acc-detail .acc-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.acc-detail .acc-form .fd-input { width: 100%; box-sizing: border-box; }
+.acc-detail .acc-form-actions { grid-column: 1 / -1; display: flex; gap: 8px; }
+.acc-detail .acc-mini { font-size: 12px; }
+.acc-detail .acc-mini th,
+.acc-detail .acc-mini td { padding: 6px 8px; }

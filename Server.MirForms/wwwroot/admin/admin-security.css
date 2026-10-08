@@ -1,1 +1,17 @@
-/* admin-security.css — Security section styles (stub; replaced by the feature owner). */
+/* admin-security.css — Security section (B3). Shared look comes from style.css / admin-theme.css; only feature layout here. */
+
+#section-security .sec-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+#section-security .sec-toolbar select { width: auto; margin-left: 4px; }
+#section-security .sec-tiles { margin: 4px 0 6px; }
+#section-security .sec-tile-warn .v { color: var(--warn, #fbbf24); }
+#section-security .sec-note { margin: 0 0 8px; font-size: 12px; }
+#section-security .sec-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+#section-security .sec-head h3 { margin: 14px 0 6px; font-size: 14px; }
+#section-security .sec-scroll .user-table { min-width: 0; }
+#section-security .sec-table { font-size: 12.5px; }
+#section-security .sec-table th,
+#section-security .sec-table td { padding: 6px 10px; vertical-align: top; }
+#section-security .sec-login-bar { justify-content: flex-start; }
+#section-security .sec-login-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+#section-security .sec-login-row input[type=search] { min-width: 240px; }
+#section-security .sec-login-row select { width: auto; }
