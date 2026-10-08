@@ -173,9 +173,13 @@ namespace Server.WebAdmin.Routes
                 }
             }
 
+            // ?live=1 on monsters always answers with a live block (FEATURES: live:{applied, refreshedMonsters}), even when the
+            // write changed nothing, so the client can tell "nothing to push" from "live apply not attempted".
             object liveResult = null;
-            if (live && !dryRun && string.Equals(table.Endpoint, "monsters", StringComparison.OrdinalIgnoreCase) && result.Applied > 0)
-                liveResult = await ApplyLiveMonsters(req, result, reason).ConfigureAwait(false);
+            if (live && !dryRun && string.Equals(table.Endpoint, "monsters", StringComparison.OrdinalIgnoreCase))
+                liveResult = result.Applied > 0
+                    ? await ApplyLiveMonsters(req, result, reason).ConfigureAwait(false)
+                    : LiveNothingApplied(result);
 
             var status = 200;
             if (!dryRun && result.Applied == 0)
@@ -207,6 +211,22 @@ namespace Server.WebAdmin.Routes
                 unsavedChanges = GameDataState.Unsaved.Changes,
                 live = liveResult,
             }, status).ConfigureAwait(false);
+        }
+
+        /// <summary>Live block for a ?live=1 monsters write that saved no rows (no-op edit, or rejected by conflicts / validation).</summary>
+        internal static object LiveNothingApplied(GameDataWriteResult result)
+        {
+            var rejected = result != null && (result.Conflicts.Count > 0 || result.Validation.Count > 0);
+            return new
+            {
+                applied = 0,
+                refreshedMonsters = 0,
+                skippedFields = new List<string>(),
+                newMonstersNeedRestart = 0,
+                message = rejected
+                    ? "Nothing was saved, so nothing was applied to the running world."
+                    : "No changes to apply.",
+            };
         }
 
         /// <summary>

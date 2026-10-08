@@ -69,6 +69,19 @@ namespace Server.WebAdmin
             return null;
         }
 
+        /// <summary>
+        /// Null when the offline admin directory can check credentials, else the 503 message shown on the login page. The directory is
+        /// filled when the world loads/saves accounts (or from a fresh WebAdmin\admins.dat), so while it is empty no sign-in can succeed.
+        /// </summary>
+        internal static string OfflineSignInUnavailableMessage(int directoryCount, string worldState)
+        {
+            if (directoryCount > 0) return null;
+
+            return worldState == "starting"
+                ? "The world is starting; web sign-in will be available as soon as the accounts have loaded. Try again in a few seconds."
+                : "Web sign-in is unavailable until the world has loaded the accounts. Start the world from the server window, then try again.";
+        }
+
         private sealed class LoginBody
         {
             public string AccountId { get; set; }
@@ -172,7 +185,21 @@ namespace Server.WebAdmin
             }
 
             if (!checkedOnline)
+            {
+                // An empty offline directory (first run, admins.dat deleted or stale) cannot verify anyone: say so instead of
+                // "Invalid account or password", without counting it as a failed attempt. Reveals nothing per account.
+                var world = WebAdminGame.WorldState;
+                var unavailable = OfflineSignInUnavailableMessage(WebAdminAdmins.Count, world);
+                if (unavailable != null)
+                {
+                    WebAdminAudit.Record(accountId, req.ClientIp, "auth.login-unavailable", accountId, new { world });
+                    req.SetHeader("Retry-After", "5");
+                    await req.Error(503, unavailable, new { world });
+                    return;
+                }
+
                 entry = WebAdminAdmins.TryAuthenticate(accountId, password, nowUtc, out reason);
+            }
 
             if (entry == null)
             {

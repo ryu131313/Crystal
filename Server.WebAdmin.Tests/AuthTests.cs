@@ -21,5 +21,33 @@ namespace Server.WebAdmin.Tests
         {
             Assert.Equal(expected, WebAdminAuth.CheckLoginRequest(contentType, secFetchSite, origin, host));
         }
+
+        [Theory]
+        [InlineData(1, "starting")]
+        [InlineData(1, "stopped")]
+        [InlineData(3, "stopping")]
+        public void OfflineSignIn_Available_WhenDirectoryHasEntries(int count, string world)
+        {
+            Assert.Null(WebAdminAuth.OfflineSignInUnavailableMessage(count, world));
+        }
+
+        [Fact]
+        public void OfflineSignIn_EmptyDirectory_WhileStarting_SaysStarting()
+        {
+            var msg = WebAdminAuth.OfflineSignInUnavailableMessage(0, "starting");
+            Assert.NotNull(msg);
+            Assert.Contains("starting", msg);
+            Assert.DoesNotContain("Invalid account", msg);
+        }
+
+        [Theory]
+        [InlineData("stopped")]
+        [InlineData("stopping")]
+        public void OfflineSignIn_EmptyDirectory_WhileStopped_AsksToStartWorld(string world)
+        {
+            var msg = WebAdminAuth.OfflineSignInUnavailableMessage(0, world);
+            Assert.NotNull(msg);
+            Assert.Contains("Start the world", msg);
+        }
     }
 }

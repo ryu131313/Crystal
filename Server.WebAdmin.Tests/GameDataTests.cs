@@ -792,5 +792,21 @@ namespace Server.WebAdmin.Tests
             Assert.Null(GameDataRename.GenderBaseName("Sword"));
             Assert.Equal(1, GameDataRename.CountGenderRewardRefs(L("[@FIXEDREWARDS]", "Sword 1", "[@ITEMTASKS]", "Sword 1"), "Sword"));
         }
+
+        [Fact]
+        public void LiveNothingApplied_AlwaysCarriesTheLiveShape()
+        {
+            var noop = JsonDocument.Parse(WebAdminJson.Serialize(new { live = Server.WebAdmin.Routes.GameDataRoutes.LiveNothingApplied(new GameDataWriteResult()) })).RootElement.GetProperty("live");
+            Assert.Equal(0, noop.GetProperty("applied").GetInt32());
+            Assert.Equal(0, noop.GetProperty("refreshedMonsters").GetInt32());
+            Assert.Equal(0, noop.GetProperty("skippedFields").GetArrayLength());
+            Assert.Equal("No changes to apply.", noop.GetProperty("message").GetString());
+
+            var rejected = new GameDataWriteResult();
+            rejected.Conflicts.Add(new { index = 1 });
+            var r = JsonDocument.Parse(WebAdminJson.Serialize(Server.WebAdmin.Routes.GameDataRoutes.LiveNothingApplied(rejected))).RootElement;
+            Assert.Equal(0, r.GetProperty("applied").GetInt32());
+            Assert.Contains("Nothing was saved", r.GetProperty("message").GetString());
+        }
     }
 }
