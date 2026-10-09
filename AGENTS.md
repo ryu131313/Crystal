@@ -240,7 +240,7 @@ Server details: `server.md` §2.3, §3.2. Client details: `client.md` §2.1, §3
 - Remotes: `origin` = https://github.com/ryu131313/Crystal.git (user's fork), `upstream` = https://github.com/Suprcode/Crystal.git.
 - `master` mirrors upstream (tip `0e315fe3`); `FuckingAround` is the working branch (one fork commit `6891bc2e` moves the status port 3000→3100, then the MirCraft web admin commits sit on top of master). Base fork work on `FuckingAround` unless told to target upstream `master`. Workflow worktrees created with `isolation: 'worktree'` branch from `master` — pre-create them from the right commit.
 - Commit only when asked. Message style: imperative sentence, no prefix (e.g. "Add web admin backups, history and audit trail"); upstream commits carry a PR suffix like `(#1188)`.
-- `.claude/` is excluded via `.git/info/exclude`. `Knowledgebase/` and `agents.md` are currently untracked.
+- `.claude/` is excluded via `.git/info/exclude`. `Knowledgebase/` and `AGENTS.md` are tracked (since `9150e119`; the repo is private).
 - Encoding: most `.cs` files start with a UTF-8 BOM — keep it; `.gitattributes` is `* text=auto` — keep line endings as found. `*.csproj.user` files are tracked despite `.gitignore`.
 - The fork does **not** pull upstream updates (user, 2026-10-08), so upstream merge-compatibility is not a constraint. Keep diffs small for reviewability, not for merges.
 
