@@ -26,6 +26,7 @@ namespace Server.MirForms.VisualMapInfo.Control
         public ushort RandomDelay;
 
         public ushort tempRange;
+        [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)] // runtime data, never designer-set (WFO1000, .NET 10)
         public ushort Range
         {
             get => (ushort)(tempRange);

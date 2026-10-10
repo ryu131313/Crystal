@@ -14,6 +14,7 @@ namespace Server.Systems
 {
     public partial class GuildItemForm : Form
     {
+        [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)] // runtime data, never designer-set (WFO1000, .NET 10)
         public GuildObject Guild { get; set; }
         public string GuildName;
         public SMain main;

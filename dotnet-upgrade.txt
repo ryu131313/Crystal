@@ -11,3 +11,16 @@
 - Dotnet 8 Runtimes (Client)
 
 -- https://dotnet.microsoft.com/en-us/download/dotnet/8.0
+
+
+//////////////////////////////////////
+// .NET 10 (server side), 2026-10-10 //
+//////////////////////////////////////
+
+- Roadmap phase P4 (Knowledgebase/roadmap.md). TFMs are set centrally in Directory.Build.props:
+  ServerTfm = net10.0, ServerWinTfm = net10.0-windows7.0 (Server.Library, Server.exe, server tests).
+  SharedTfm stays net8.0 and ClientTfm stays net8.0-windows7.0 until roadmap C5 (SlimDX exit).
+- Build: .NET 10 SDK.
+- Server host: install the .NET 10 Desktop Runtime x64; keep .NET 8 installed for the rollback window.
+- Client: still the .NET 8 Desktop Runtime.
+-- https://dotnet.microsoft.com/en-us/download/dotnet/10.0

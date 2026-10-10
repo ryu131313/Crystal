@@ -55,6 +55,14 @@ internal static class Oracle
         if (t.Namespace != null && SkippedNamespaces.Any(n => t.Namespace.StartsWith(n, StringComparison.Ordinal))) return;
         if (typeof(Delegate).IsAssignableFrom(t)) return;
 
+        // Framework objects (Regex caches, streams, ...) are runtime internals whose private fields change between .NET
+        // versions: print the type only. Collections are still walked below.
+        if (t.Namespace != null && t.Namespace.StartsWith("System", StringComparison.Ordinal) && v is not IEnumerable)
+        {
+            sb.Append(path).Append("=<").Append(t.Name).Append(">\n");
+            return;
+        }
+
         if (!t.IsValueType)
         {
             if (visited.TryGetValue(v, out var first)) { sb.Append(path).Append("=ref:").Append(first).Append('\n'); return; }

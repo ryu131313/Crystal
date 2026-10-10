@@ -36,6 +36,21 @@ public class FixtureTests
         }
         var target = FixtureDir(Envir.Version);
         var dir = NewTempFolder("fixture");
+        if (Environment.GetEnvironmentVariable("MIR2_WRITE_FIXTURE_ORACLE_ONLY") == "1")
+        {
+            // Re-dump the oracle of the committed fixture files (e.g. after an Oracle format change), without rewriting them.
+            File.Copy(Path.Combine(target, "Server.MirDB"), Path.Combine(dir, "Server.MirDB"));
+            File.Copy(Path.Combine(target, "Server.MirADB"), Path.Combine(dir, "Server.MirADB"));
+            InFolder(dir, () =>
+            {
+                Assert.True(LoadAll());
+                File.WriteAllText(Path.Combine(target, "oracle.txt"), Oracle.Dump(Envir.Main));
+                return 0;
+            });
+            Directory.Delete(dir, true);
+            _out.WriteLine("oracle rewritten: " + target);
+            return;
+        }
         InFolder(dir, () =>
         {
             EnsureBuffInfo();
@@ -93,6 +108,29 @@ public class FixtureTests
             var gen2 = ReadFiles();
             Assert.True(gen1.accounts.AsSpan().SequenceEqual(gen2.accounts));
             Assert.True(gen1.db.AsSpan().SequenceEqual(gen2.db));
+            return 0;
+        });
+        Directory.Delete(dir, true);
+    }
+
+    /// <summary>
+    /// Roadmap P4 gate: the v118 fixture was written by the net8 build after a load+save. Loading and saving it on the
+    /// current runtime must reproduce it byte for byte (no runtime-dependent serialisation).
+    /// </summary>
+    [Fact]
+    public void V118_fixture_resaves_byte_identically_on_this_runtime()
+    {
+        var src = FixtureDir(118);
+        var dir = NewTempFolder("resave118");
+        File.Copy(Path.Combine(src, "Server.MirDB"), Path.Combine(dir, "Server.MirDB"));
+        File.Copy(Path.Combine(src, "Server.MirADB"), Path.Combine(dir, "Server.MirADB"));
+        InFolder(dir, () =>
+        {
+            Assert.True(LoadAll());
+            Assert.Equal(118, Envir.LoadVersion);
+            SaveAll();
+            Assert.True(File.ReadAllBytes(Path.Combine(src, "Server.MirDB")).AsSpan().SequenceEqual(File.ReadAllBytes(Envir.DatabasePath)), "Server.MirDB differs from the net8-written fixture");
+            Assert.True(File.ReadAllBytes(Path.Combine(src, "Server.MirADB")).AsSpan().SequenceEqual(File.ReadAllBytes(Envir.AccountPath)), "Server.MirADB differs from the net8-written fixture");
             return 0;
         });
         Directory.Delete(dir, true);

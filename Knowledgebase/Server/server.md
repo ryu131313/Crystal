@@ -28,10 +28,10 @@ You are a **Principal .NET Game Server Architect** working on **Crystal** — th
 
 | Project | File | Type / TFM | Output |
 |---|---|---|---|
-| **Server.Library** | `Server/Server.Library.csproj` | Library, `net8.0`, `Nullable=disable`, `ImplicitUsings=enable`; package `log4net 3.3.0`; `InternalsVisibleTo Server.WebAdmin.Tests` | `Server/bin` (safe to build) |
-| **Server** (host) | `Server.MirForms/Server.csproj` | `WinExe`, `net8.0-windows7.0`, WinForms; refs Server.Library, Shared, `Components/CustomFormControl.dll`, `Components/Microsoft.VisualBasic.PowerPacks.Vs.dll` | **`BaseOutputPath ..\Build\Server\` → `Build\Server\Debug\` = the user's LIVE run folder** |
-| Shared | `Shared/Shared.csproj` | Library, `net8.0` | `Shared/bin` |
-| Tests | `Server.WebAdmin.Tests/` | xUnit 2.9.2, `net8.0`; refs Server.Library + Shared only | own bin (safe) |
+| **Server.Library** | `Server/Server.Library.csproj` | Library, `net10.0` (`$(ServerTfm)`, roadmap P4), `Nullable=disable`, `ImplicitUsings=enable`; package `log4net 3.3.0`; `InternalsVisibleTo Server.WebAdmin.Tests` | `Server/bin` (safe to build) |
+| **Server** (host) | `Server.MirForms/Server.csproj` | `WinExe`, `net10.0-windows7.0` (`$(ServerWinTfm)`), WinForms; refs Server.Library, Shared, `Components/CustomFormControl.dll`, `Components/Microsoft.VisualBasic.PowerPacks.Vs.dll` | **`BaseOutputPath ..\Build\Server\` → `Build\Server\Debug\` = the user's LIVE run folder** |
+| Shared | `Shared/Shared.csproj` | Library, `net8.0` (`$(SharedTfm)`; stays net8 until the client moves, roadmap C5) | `Shared/bin` |
+| Tests | `Server.WebAdmin.Tests/` | xUnit 2.9.2, `net10.0`; refs Server.Library + Shared only | own bin (safe) |
 
 All game logic lives in `Server.Library`. `Server.MirForms` holds `Program.cs`, `SMain.cs`, the editor forms, `log4net.config`, `Localization/*.json` and `wwwroot/`. Namespaces: `Server`, `Server.MirEnvir`, `Server.MirObjects`, `Server.MirDatabase`, `Server.MirNetwork`, `Server.WebAdmin`. Packet aliases: `using C = ClientPackets; using S = ServerPackets;`.
 
@@ -456,8 +456,8 @@ Crystal keeps plain `List<T>` on `Envir` (`AccountList`, `CharacterList`, `ItemI
 
 ## 4. CODE STYLE & PATTERNS
 
-### 4.1 .NET 8 constraints & conventions
-- `net8.0` (Library/Shared/tests) and `net8.0-windows7.0` (host), AnyCPU, SDK-style, `Nullable=disable`, `ImplicitUsings=enable`. No DI container: singletons are `Envir.Main`, `Envir.Edit`, `Settings`, `MessageQueue.Instance`, `WebAdminHost`, `WebAdminGame`, `WebAdminSessions.Store`. Don't add `Microsoft.Extensions.*`, ILogger, Serilog/NLog.
+### 4.1 .NET 10 constraints & conventions
+- `net10.0` (Library/tests), `net8.0` (Shared, consumed by the net8 client too) and `net10.0-windows7.0` (host), set centrally in `Directory.Build.props`, `LangVersion` pinned to 12; AnyCPU, SDK-style, `Nullable=disable`, `ImplicitUsings=enable`. No DI container: singletons are `Envir.Main`, `Envir.Edit`, `Settings`, `MessageQueue.Instance`, `WebAdminHost`, `WebAdminGame`, `WebAdminSessions.Store`. Don't add `Microsoft.Extensions.*`, ILogger, Serilog/NLog.
 - Most classes expose `protected static Envir Envir => Envir.Main` and `MessageQueue => MessageQueue.Instance`.
 - Naming: PascalCase types/methods/public fields; match the surrounding file for private/protected fields (Crystal mixes `master`, `_target`, `brownTime`). Comment *why* (thread boundary, timing, wire/DB compatibility), not what. Keep UTF-8 BOM and line endings as found.
 - New user-facing server text: `ServerTextKeys` member + English default in `GameLanguage.ServerTextMap` (`Shared/Language.cs`); add the key to `Server.MirForms/Localization/English.json` and a translation to `Chinese.json` (copied to output always; a run-folder JSON whose key count differs is rewritten at start, and missing keys fall back to English); log with `GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.X, args)`. Web admin uses literal `[WebAdmin]` text.
@@ -641,7 +641,7 @@ Expose tick cost (ms per `Process`, rolling max), queue depth, entity count vs c
   dotnet build C:\Mir2\Server.MirForms\Server.csproj -o <scratchpad>\server-build
   dotnet build C:\Mir2\Client\Client.csproj -o <scratchpad>\client-build     (after Shared changes)
   ```
-- Runtime: .NET 8 Desktop runtime; files `Server.exe`, `Server.dll`, `Server.Library.dll`, `Shared.dll`, `log4net.dll`, `CustomFormControl.dll`, PowerPacks. `Components\CustomFormControl.dll` is the prebuilt copy Server references; rebuilding `Controls/FixedListViewControl` does not update it.
+- Runtime: .NET 10 Desktop Runtime x64 (since roadmap P4; the prebuilt net472 `CustomFormControl.dll` and CLR2 VB PowerPacks load and render on it, smoke-tested 2026-10-10); files `Server.exe`, `Server.dll`, `Server.Library.dll`, `Shared.dll`, `log4net.dll`, `CustomFormControl.dll`, PowerPacks. `Components\CustomFormControl.dll` is the prebuilt copy Server references; rebuilding `Controls/FixedListViewControl` does not update it.
 - Test servers run from a scratch folder that holds BOTH the built output (`-o <scratch>`) and a **copy** of the data (startup creates missing drop files; saves write `Back Up\`), with cwd = that same folder. The game resolves data relative to the cwd; the web admin resolves scripts, `admins.dat`, `Logs\WebAdmin`, the log viewer and `wwwroot` relative to the exe folder (`AppContext.BaseDirectory`). Never run an exe from `Build\` against scratch data, or the reverse.
 
 ### 5.5 Tests
