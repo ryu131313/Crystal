@@ -128,6 +128,8 @@ AllowNewCharacter=True
 AllowStartGame=True
 [WebAdmin]
 Enabled=False
+[Diag]
+LogLoopProfile=True
 "@
 Set-Content -Path (Join-Path $configs 'Setup.ini') -Value $ini -Encoding ASCII
 
