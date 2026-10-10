@@ -123,22 +123,38 @@ namespace Client.MirNetwork
             if (dataRead == 0)
             {
                 Disconnect();
+                return; // roadmap C1: it used to carry on with the queues Disconnect had just cleared
             }
+
+            var receiveList = _receiveList;
+            var temp = _rawData;
+            if (receiveList == null || temp == null) return;
 
             byte[] rawBytes = result.AsyncState as byte[];
 
-            byte[] temp = _rawData;
-            _rawData = new byte[dataRead + temp.Length];
-            Buffer.BlockCopy(temp, 0, _rawData, 0, temp.Length);
-            Buffer.BlockCopy(rawBytes, 0, _rawData, temp.Length, dataRead);
+            var raw = new byte[dataRead + temp.Length];
+            Buffer.BlockCopy(temp, 0, raw, 0, temp.Length);
+            Buffer.BlockCopy(rawBytes, 0, raw, temp.Length, dataRead);
 
             Packet p;
             List<byte> data = new List<byte>();
 
-            while ((p = Packet.ReceivePacket(_rawData, out _rawData)) != null)
+            try
             {
-                data.AddRange(p.GetPacketBytes());
-                _receiveList.Enqueue(p);
+                while ((p = Packet.ReceivePacket(raw, out raw)) != null)
+                {
+                    data.AddRange(p.GetPacketBytes());
+                    receiveList.Enqueue(p);
+                }
+                _rawData = raw;
+            }
+            catch (Exception ex)
+            {
+                // roadmap C1: a malformed or newer-protocol packet threw InvalidDataException on this socket thread,
+                // which is unhandled there and killed the whole client. Log it and drop the connection instead.
+                CMain.SaveError("Network: undecodable packet from the server, disconnecting: " + ex);
+                Disconnect();
+                return;
             }
 
             CMain.BytesReceived += data.Count;

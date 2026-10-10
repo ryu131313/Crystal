@@ -36,6 +36,10 @@ namespace Client
                 if (RuntimePolicyHelper.LegacyV2RuntimeEnabledSuccessfully == true) { }
 
                 Packet.IsServer = false;
+
+                // roadmap C1: record unhandled exceptions (e.g. on the socket thread) in Error.txt before the process dies.
+                AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+                    CMain.SaveError("Unhandled exception" + (e.IsTerminating ? " (terminating)" : "") + ": " + e.ExceptionObject);
                 Settings.Load();
 
                 Application.EnableVisualStyles();

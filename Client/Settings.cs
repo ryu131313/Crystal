@@ -214,6 +214,7 @@ namespace Client
             MouseClip = Reader.ReadBoolean("Graphics", "MouseClip", MouseClip);
             TopMost = Reader.ReadBoolean("Graphics", "AlwaysOnTop", TopMost);
             FPSCap = Reader.ReadBoolean("Graphics", "FPSCap", FPSCap);
+            MaxFPS = Math.Max(10, Reader.ReadInt32("Graphics", "MaxFPS", MaxFPS)); // roadmap C1: was never read
             Resolution = Reader.ReadInt32("Graphics", "Resolution", Resolution);
             DebugMode = Reader.ReadBoolean("Graphics", "DebugMode", DebugMode);
             UseMouseCursors = Reader.ReadBoolean("Graphics", "UseMouseCursors", UseMouseCursors);
@@ -247,7 +248,7 @@ namespace Client
             SkillBar = Reader.ReadBoolean("Game", "SkillBar", SkillBar);
             //SkillSet = Reader.ReadBoolean("Game", "SkillSet", SkillSet);
             Effect = Reader.ReadBoolean("Game", "Effect", Effect);
-            LevelEffect = Reader.ReadBoolean("Game", "LevelEffect", Effect);
+            LevelEffect = Reader.ReadBoolean("Game", "LevelEffect", LevelEffect); // roadmap C1: defaulted to Effect
             DropView = Reader.ReadBoolean("Game", "DropView", DropView);
             NameView = Reader.ReadBoolean("Game", "NameView", NameView);
             HPView = Reader.ReadBoolean("Game", "HPMPView", HPView);
@@ -340,6 +341,9 @@ namespace Client
             Reader.Write("Graphics", "MouseClip", MouseClip);
             Reader.Write("Graphics", "AlwaysOnTop", TopMost);
             Reader.Write("Graphics", "FPSCap", FPSCap);
+            Reader.Write("Graphics", "MaxFPS", MaxFPS);
+            Reader.Write("Logs", "LogErrors", LogErrors); // roadmap C1: [Logs] was load-only
+            Reader.Write("Logs", "LogChat", LogChat);
             Reader.Write("Graphics", "Resolution", Resolution);
             Reader.Write("Graphics", "DebugMode", DebugMode);
             Reader.Write("Graphics", "UseMouseCursors", UseMouseCursors);
@@ -368,7 +372,7 @@ namespace Client
             Reader.Write("Game", "TargetDead", TargetDead);
             Reader.Write("Game", "HighlightTarget", HighlightTarget);
             Reader.Write("Game", "ExpandedBuffWindow", ExpandedBuffWindow);
-            Reader.Write("Game", "ExpandedHeroBuffWindow", ExpandedBuffWindow);
+            Reader.Write("Game", "ExpandedHeroBuffWindow", ExpandedHeroBuffWindow); // roadmap C1: saved ExpandedBuffWindow
             Reader.Write("Game", "DuraWindow", DuraView);
             Reader.Write("Game", "DisplayBodyName", DisplayBodyName);
             Reader.Write("Game", "NewMove", NewMove);

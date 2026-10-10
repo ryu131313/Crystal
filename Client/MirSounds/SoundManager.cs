@@ -110,8 +110,11 @@ namespace Client.MirSounds
                 var sound = LoopProvider.TryCreate(index, _indexList[index], MusicVol, loop);
                 if (sound != null)
                 {
-                    _loopingSounds.Add(index, sound);
-                    _loopingSounds[index].Play(Vol);
+                    // roadmap C1: replaying a looping sound threw on the duplicate key (Add); restart it instead.
+                    if (_loopingSounds.TryGetValue(index, out var previous))
+                        previous.Stop();
+                    _loopingSounds[index] = sound;
+                    sound.Play(Vol);
                 }
             }
             
@@ -119,9 +122,10 @@ namespace Client.MirSounds
 
         public static void StopSound(int index)
         {
-            if (_loopingSounds.ContainsKey(index))
+            if (_loopingSounds.TryGetValue(index, out var sound))
             {
-                _loopingSounds[index].Stop();
+                sound.Stop();
+                _loopingSounds.Remove(index); // roadmap C1: stopped entries used to stay in the dictionary
             }
         }
 
@@ -218,7 +222,7 @@ namespace Client.MirSounds
                     }
                 }
 
-                keysToRemove.ForEach(key => { _loopingSounds.Remove(key); });
+                keysToRemove.ForEach(key => { _loopingSounds[key].Stop(); _loopingSounds.Remove(key); }); // dispose, not just forget (roadmap C1)
             }
         }
 

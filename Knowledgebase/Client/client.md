@@ -363,9 +363,9 @@ Hot path = anything reached from `UpdateEnviroment` (every spin) or `RenderEnvir
 
 - `CMain.SaveError` doesn't check `Settings.LogErrors` itself (~12 callers gate on it, the rest don't), writes one CWD-relative `.\Error.txt` forever (no date, no dedupe).
 - `Network.cs` catch blocks (`BeginReceive`, `EndReceive`, `BeginSend`, `SendData`) disconnect or swallow without logging.
-- `Network.ReceiveData`: on `dataRead == 0` calls `Disconnect()` but does **not return**, then continues with `_receiveList == null`.
+- ~~`Network.ReceiveData` continued after `Disconnect()`; malformed packets threw on the socket thread~~ — **fixed 2026-10-10 (C1)**: returns after disconnect, decodes inside a try (logs to `Error.txt` and disconnects), and `Program.Main` logs unhandled exceptions to `Error.txt`.
 - `CMain_KeyUp` calls `Program.Form.CreateScreenShot()` **outside** its try block → an I/O failure escapes to WinForms.
-- `CMain_KeyDown/KeyUp`: `Enum.Parse(typeof(Keys), GetKey(TargetSpellLockOn))` is outside the try; a modifier binding makes `GetKey` return `"Ctrl + X"`, so every key press throws an unhandled exception.
+- ~~`CMain_KeyDown/KeyUp` `Enum.Parse` on a modifier binding~~ — **fixed 2026-10-10 (C1)** (`IsBoundKey`, never throws). Original note: `Enum.Parse(typeof(Keys), GetKey(TargetSpellLockOn))` was outside the try; a modifier binding makes `GetKey` return `"Ctrl + X"`, so every key press throws an unhandled exception.
 - `GameScene.ProcessPacket` handlers mostly deref `User`/`MapControl` without guards (rely on server packet order).
 - `GameLanguage.LoadClientLanguage` swallows all exceptions (`catch { }`).
 
@@ -410,14 +410,14 @@ Hot path = anything reached from `UpdateEnviroment` (every spin) or `RenderEnvir
 
 #### Known defects (found 2026-10-08, not fixed)
 
-- **`Settings.MaxFPS` is not in the ini.** Commit f7ed8f3c ("change max fps to use config setting") made `IsDrawTime` read `Settings.MaxFPS`, but `Settings.Load/Save` never read/write it — the cap is always 100.
-- **`LevelEffect` loads with the wrong default**: `Reader.ReadBoolean("Game", "LevelEffect", Effect)` (`Settings.cs` ~L250).
-- **`ExpandedHeroBuffWindow` saves the wrong variable**: `Reader.Write("Game", "ExpandedHeroBuffWindow", ExpandedBuffWindow)` (`Settings.cs` ~L371).
-- **`[Logs] LogErrors`/`LogChat`** are read in `Load()` but never written by `Save()`. `LogChat` is unused. `LogErrors` is checked by ~12 callers (`if (Settings.LogErrors) CMain.SaveError(...)`) but not inside `SaveError`.
+- ~~**`Settings.MaxFPS` is not in the ini.**~~ **Fixed 2026-10-10 (roadmap C1):** `[Graphics] MaxFPS` is read (min 10) and saved. Commit f7ed8f3c ("change max fps to use config setting") made `IsDrawTime` read `Settings.MaxFPS`, but `Settings.Load/Save` never read/write it — the cap is always 100.
+- ~~**`LevelEffect` loads with the wrong default**~~ (fixed 2026-10-10, C1): `Reader.ReadBoolean("Game", "LevelEffect", Effect)` (`Settings.cs` ~L250).
+- ~~**`ExpandedHeroBuffWindow` saves the wrong variable**~~ (fixed 2026-10-10, C1): `Reader.Write("Game", "ExpandedHeroBuffWindow", ExpandedBuffWindow)` (`Settings.cs` ~L371).
+- **`[Logs] LogErrors`/`LogChat`** are now also written by `Save()` (fixed 2026-10-10, C1). `LogChat` is unused. `LogErrors` is checked by ~12 callers (`if (Settings.LogErrors) CMain.SaveError(...)`) but not inside `SaveError`.
 - **`S.RefineCancel`** has a class and a `GameScene` handler but no `GetServerPacket` case (only the `ClientPacketIds` one) — dead.
 - **`C.PurchaseGuildTerritory` has no `GetClientPacket` case** in `Shared/Packet.cs`; `GuildTerritoryDialog .cs` (filename has a space) sends it, so the server discards that connection's receive buffer and its handler is unreachable.
 - **Client version check is weak:** `LoginScene.SendVersion` hashes `Application.ExecutablePath` — on .NET 8 that is the `Client.exe` apphost stub, not `Client.dll`, so a code-only rebuild likely produces the same hash (inference, unverified). The server's default `VersionPath` is `.\Mir2.Exe`, which doesn't match `Client.exe`. Never treat a passing version check as proof of matching `Shared` builds.
-- **`SoundManager.PlaySound(index, loop: true)`** does `_loopingSounds.Add` (throws on a duplicate key); `StopSound` disposes but doesn't remove; `CheckSoundTimeOut` removes loop entries without disposing. **Live:** `ElementsEffect` (`Effect.cs` ~L275/296) passes `loop: true` for the user's own type-3/4 elemental orbs (`GameScene.cs` ~L5582); a repeat for the same orb before the 30 s timeout check throws `ArgumentException` from `_loopingSounds.Add` into the `Application_Idle` catch.
+- ~~Looping-sound duplicate key / leaks~~ — **fixed 2026-10-10 (C1)**: replay restarts the loop, `StopSound` removes, timeout cleanup disposes. Original note: **`SoundManager.PlaySound(index, loop: true)`** did `_loopingSounds.Add` (throws on a duplicate key); `StopSound` disposes but doesn't remove; `CheckSoundTimeOut` removes loop entries without disposing. **Live:** `ElementsEffect` (`Effect.cs` ~L275/296) passes `loop: true` for the user's own type-3/4 elemental orbs (`GameScene.cs` ~L5582); a repeat for the same orb before the 30 s timeout check throws `ArgumentException` from `_loopingSounds.Add` into the `Application_Idle` catch.
 - `SelectScene` overwrites the user's `Settings.Resolution` with the server cap when lower, and that is saved on exit.
 
 ---

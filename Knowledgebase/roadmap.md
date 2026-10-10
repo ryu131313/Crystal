@@ -440,7 +440,7 @@ Later decisions are listed per phase in the phase notes. **Answered 2026-10-09:*
 | P7 SQLite system data | Not started | — | — |
 | P8 Security | Not started | — | — |
 | P9 Optimisation | Not started | — | — |
-| C1 Client fixes + goldens | Not started | — | — |
+| C1 Client fixes + goldens | Fixes + shaders done 2026-10-10; goldens/frame profiler pending decision #8 | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
 | C2 Launcher release | Not started | — | — |
 | C3 Render seam | Not started | — | — |
 | C4 D3D11 | Not started | — | — |

@@ -140,7 +140,7 @@ namespace Client
 
             if (!String.IsNullOrEmpty(InputKeys.GetKey(KeybindOptions.TargetSpellLockOn)))
             {
-                SpellTargetLock = e.KeyCode == (Keys)Enum.Parse(typeof(Keys), InputKeys.GetKey(KeybindOptions.TargetSpellLockOn), true);
+                SpellTargetLock = IsBoundKey(e.KeyCode, InputKeys.GetKey(KeybindOptions.TargetSpellLockOn)); // roadmap C1: Enum.Parse threw on "Ctrl + X" bindings
             }
             else
             {
@@ -193,7 +193,7 @@ namespace Client
 
             if (!String.IsNullOrEmpty(InputKeys.GetKey(KeybindOptions.TargetSpellLockOn)))
             {
-                SpellTargetLock = e.KeyCode == (Keys)Enum.Parse(typeof(Keys), InputKeys.GetKey(KeybindOptions.TargetSpellLockOn), true);
+                SpellTargetLock = IsBoundKey(e.KeyCode, InputKeys.GetKey(KeybindOptions.TargetSpellLockOn)); // roadmap C1: Enum.Parse threw on "Ctrl + X" bindings
             }
             else
             {
@@ -627,6 +627,18 @@ namespace Client
                     image.Save(Path.Combine(path, string.Format("Image {0}.png", count)), ImageFormat.Png);
                 }
             }
+        }
+
+        /// <summary>
+        /// True when <paramref name="key"/> is the key part of <paramref name="binding"/> ("X" or "Ctrl + X"). Never throws:
+        /// the old Enum.Parse outside the input try/catch crashed on every key press when the binding had a modifier.
+        /// </summary>
+        private static bool IsBoundKey(Keys key, string binding)
+        {
+            if (string.IsNullOrEmpty(binding)) return false;
+            var plus = binding.LastIndexOf('+');
+            var keyName = (plus >= 0 ? binding.Substring(plus + 1) : binding).Trim();
+            return Enum.TryParse(keyName, true, out Keys bound) && key == bound;
         }
 
         public static void SaveError(string ex)
