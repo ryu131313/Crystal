@@ -16,7 +16,7 @@
     <ServerWinTfm>net10.0-windows7.0</ServerWinTfm>
     <SharedTfm>net8.0</SharedTfm>
     <ClientTfm>net8.0-windows7.0</ClientTfm>
-    <ToolsTfm>net8.0-windows7.0</ToolsTfm>
+    <ToolsTfm>net10.0-windows7.0</ToolsTfm>
     <LangVersion>12</LangVersion>
   </PropertyGroup>
 </Project>

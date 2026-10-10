@@ -2209,6 +2209,7 @@ namespace Server.MirEnvir
                             try { SaveGuilds(); } catch (Exception ex) { WorldErrors.Record("SaveGuilds", ex); }
                             try { SaveGoods(); } catch (Exception ex) { WorldErrors.Record("SaveGoods", ex); }
                             try { SaveConquests(); } catch (Exception ex) { WorldErrors.Record("SaveConquests", ex); }
+                            BackupRetention.RunInBackground(); // no-op unless [Backup] RetentionEnabled
                         }
 
                         if (Time >= userTime)

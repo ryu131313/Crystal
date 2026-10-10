@@ -345,6 +345,10 @@ namespace Server
         public static long GroupInviteDelay { get; internal set; } = 2000;
         public static long TradeDelay { get; internal set; } = 2000;
 
+        //Backup retention (roadmap P5): off by default because it deletes files
+        public static bool BackupRetentionEnabled = false;
+        public static int BackupKeepAllHours = 48, BackupKeepHourlyDays = 14, BackupKeepDailyDays = 90;
+
         //Archive Settings
         public static int ArchiveInactiveCharacterAfterMonths = 12;
         public static int ArchiveDeletedCharacterAfterMonths = 1;
@@ -557,6 +561,11 @@ namespace Server
             //Archive
             ArchiveInactiveCharacterAfterMonths = Math.Max(1, Reader.ReadInt32("Archive", "InactiveCharacterMonths", ArchiveInactiveCharacterAfterMonths));
             ArchiveDeletedCharacterAfterMonths = Math.Max(1, Reader.ReadInt32("Archive", "DeletedCharacterMonths", ArchiveDeletedCharacterAfterMonths));
+
+            BackupRetentionEnabled = Reader.ReadBoolean("Backup", "RetentionEnabled", BackupRetentionEnabled);
+            BackupKeepAllHours = Math.Max(1, Reader.ReadInt32("Backup", "KeepAllHours", BackupKeepAllHours));
+            BackupKeepHourlyDays = Math.Max(1, Reader.ReadInt32("Backup", "KeepHourlyDays", BackupKeepHourlyDays));
+            BackupKeepDailyDays = Math.Max(1, Reader.ReadInt32("Backup", "KeepDailyDays", BackupKeepDailyDays));
 
             if (!Directory.Exists(EnvirPath))
                 Directory.CreateDirectory(EnvirPath);
@@ -853,6 +862,11 @@ namespace Server
             //Archive
             Reader.Write("Archive", "InactiveCharacterMonths", ArchiveInactiveCharacterAfterMonths);
             Reader.Write("Archive", "DeletedCharacterMonths", ArchiveDeletedCharacterAfterMonths);
+
+            Reader.Write("Backup", "RetentionEnabled", BackupRetentionEnabled);
+            Reader.Write("Backup", "KeepAllHours", BackupKeepAllHours);
+            Reader.Write("Backup", "KeepHourlyDays", BackupKeepHourlyDays);
+            Reader.Write("Backup", "KeepDailyDays", BackupKeepDailyDays);
 
             Reader.Write("Game", "TeleportToNPCCost", TeleportToNPCCost);
 

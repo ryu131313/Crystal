@@ -38,6 +38,10 @@
 | D20 | Zero-character accounts are **kept** at load (decision #14 recommendation). | No more silent data loss. Reversible if you prefer pruning (it should be an explicit job). |
 | D21 | `@LOGIN` is **not removed** (decision #12 recommended removing it). Instead it refuses while `GMPassword` is still the public default `C#Mir 4.0`, and logs the attempt. | Closes the security hole without taking away a GM workflow you might use. Removing it entirely is still on the table for P8. |
 | D22 | `Settings.Save` asymmetry (GMPassword/MaxPacket/MonsterRecall never written): **not changed**. | Latent: the web admin writes those keys directly and re-writes staged values after the exit save. Changing `Save()` without the web admin flags could clobber staged edits. Left for a dedicated change. |
+| D23 | **Backup retention** implemented but **off by default**. The `[Backup]` keys are `RetentionEnabled=False`, `KeepAllHours=48`, `KeepHourlyDays=14` and `KeepDailyDays=90` (the decision #13 recommendation). They are editable in the web admin Config page (Database group). It runs after each save, on a background task, and only touches files named `Accounts/Database yyyy-MM-dd HH-mm-ss.bak`. The newest file is always kept. Logs are not pruned yet. | It deletes files and the decision is still yours: turn it on when happy. |
+| D24 | Tools retargeted to net10 (`ToolsTfm`). Dropped the redundant `System.Security.Cryptography.ProtectedData` package (NU1510: in-box on net10). AutoPatcherAdmin V1, the legacy HttpServer and PatcherWebSite were **not deleted**. | "Delete if unused" needs your confirmation (decision #15). |
+| D25 | CI: `.github/workflows/verify.yml` runs `tools/verify.ps1` on windows-latest, **manual trigger only**. | Private repo: Windows runner minutes cost money. Add a push trigger when you want it. |
+| D26 | Found and fixed a bug in my own `tools/verify.ps1`: `-Only A,B` through `powershell -File` arrived as one string, so nothing was built. Earlier `-Only` runs (P2, P5 part 1) only ran the tests. The full verify runs after P3/P4/P5 did build every project, and Server.MirForms didn't change in between, so nothing slipped through. | It now splits commas and refuses unknown keys. |
 | D4 | Decision #3 (move build output off `Build\`) **not done**. It is still open and changes your VS F5 folder. | Your call. Until then, `verify.ps1` is the safe path. |
 
 ## Progress by phase
@@ -107,5 +111,10 @@
   - zero-character accounts kept (D20);
   - `@LOGIN` default-password guard (D21).
 - **Tests:** 17 persistence tests (3 new side-file tests); all suites green.
+- **Also done (part 2):**
+  - backup retention, off by default (D23);
+  - tools on net10 (D24);
+  - manual CI workflow (D25);
+  - verify.ps1 `-Only` fix (D26).
 - **Isolation fault injection** needs a running world. It is covered when the StressClient/scratch-server soak exists (P6); until then it is code-reviewed only.
 - Background items: still to do (guild/goods/conquest oracle, model tests, X1 review, packet-mutation audit).

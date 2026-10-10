@@ -264,6 +264,10 @@ namespace Server.WebAdmin
             const string D = GroupDatabase;
             Add(D, "Database", "SaveDelay", "SaveDelay", I32, "Save interval (min)", "Minutes between automatic saves of accounts, database, guilds and goods. Takes effect after the next save.", min: 1, max: 1440);
             Add(D, "Database", "CredxGold", "CredxGold", I16, "Credit to gold rate", "Gold price multiplier for game shop items bought with gold (GoldPrice = 1000 × rate).", min: 0);
+            Add(D, "Backup", "RetentionEnabled", "BackupRetentionEnabled", B, "Prune old backups", "Delete old files from the Back Up accounts and database folders after each save (keeps all recent, then hourly, then daily copies). Off by default: it deletes files.");
+            Add(D, "Backup", "KeepAllHours", "BackupKeepAllHours", I32, "Keep every backup for (hours)", "Every backup younger than this is kept.", min: 1, max: 8760);
+            Add(D, "Backup", "KeepHourlyDays", "BackupKeepHourlyDays", I32, "Keep hourly backups for (days)", "After the keep-all window, the newest backup of each hour is kept for this many days.", min: 1, max: 3650);
+            Add(D, "Backup", "KeepDailyDays", "BackupKeepDailyDays", I32, "Keep daily backups for (days)", "After the hourly window, the newest backup of each day is kept for this many days; older backups are deleted.", min: 1, max: 3650);
 
             // ---- Rates & drops ------------------------------------------------------------------------------------
             const string R = GroupRates;

@@ -1,0 +1,21 @@
+# Roadmap P5: compile + test gate. Manual trigger only for now (private repo: Windows runner minutes cost money).
+# To run it on every push, add:  push: { branches: [ FuckingAround ] }  under `on:`.
+# It never builds the .sln and never writes Build\ (tools/verify.ps1 builds each project to %TEMP%).
+name: verify
+
+on:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Build every project to scratch and run all test projects
+        shell: pwsh
+        run: ./tools/verify.ps1 -Scratch "$env:RUNNER_TEMP\mir2-verify"

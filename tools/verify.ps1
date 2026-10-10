@@ -55,6 +55,14 @@ $TestProjects = @(
     'Server.Persistence.Tests\Server.Persistence.Tests.csproj'
 )
 
+# `powershell -File verify.ps1 -Only A,B` passes one string "A,B": split it, and refuse unknown keys.
+$Only = @($Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+$unknown = @($Only | Where-Object { -not $Projects.Contains($_) })
+if ($unknown.Count -gt 0) {
+    Write-Error "Unknown -Only key(s): $($unknown -join ', '). Valid: $($Projects.Keys -join ', ')"
+    exit 2
+}
+
 $failed = @()
 foreach ($key in $Projects.Keys) {
     if ($Only.Count -gt 0 -and $Only -notcontains $key) { continue }
