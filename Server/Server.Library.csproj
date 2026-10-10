@@ -23,6 +23,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Server.WebAdmin.Tests" />
     <InternalsVisibleTo Include="Server.Persistence.Tests" />
+    <InternalsVisibleTo Include="MirDbExport" />
   </ItemGroup>
 
 </Project>
