@@ -47,6 +47,8 @@ $Projects = [ordered]@{
     'AutoPatcherAdmin'   = 'AutoPatcherAdmin\AutoPatcherAdmin.csproj'
     'AutoPatcherAdminV2' = 'AutoPatcherAdminV2\AutoPatcherAdminV2.csproj'
     'MirDbExport'        = 'tools\MirDbExport\MirDbExport.csproj'
+    'StressClient'       = 'StressClient\StressClient.csproj'
+    'ScratchWorld'       = 'tools\scratch-world\ScratchWorld.csproj'
 }
 
 # Test projects build to their own bin\ (safe) and are run with `dotnet test`.

@@ -59,3 +59,17 @@ Protected paths (never overwritten or deleted by the script):
 - [ ] Check free disk space and prune `Back Up\`, **keeping at least the last 48 h** of `Back Up\Accounts` and `Back Up\Database`.
 - [ ] Use full process restarts, not the in-process reboot (stale guilds), until roadmap P5 ships.
 - [ ] Use one editor surface at a time (web admin *or* WinForms).
+
+## 6. Scratch server and bot runs (roadmap P6)
+
+For load tests only; never on the live server or its folders. Details: `Knowledgebase/StressClient/stressclient.md`.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File C:\Mir2\tools\start-scratch-server.ps1 -Port 17000 -Reset   # builds to %TEMP%\mir2-p6-server, synthetic world, load-test Setup.ini
+dotnet build C:\Mir2\StressClient\StressClient.csproj
+C:\Mir2\StressClient\bin\Debug\net10.0\StressClient.exe --port 17000 --bots 200 --ramp 20 --duration 60
+powershell -ExecutionPolicy Bypass -File C:\Mir2\tools\stop-scratch-server.ps1                      # stops only the PID it started
+```
+- Use ports 17000-17999. The scratch `Setup.ini` sets `[LoadTest] ExemptLoopback=True`, `CheckVersion=False`, `EnforceDBChecks=False`, `AllowStartGame=True` and `[WebAdmin] Enabled=False`: **never copy it to a real server.**
+- Server.exe always binds the hard-coded status port 3100. Stop the scratch server before (re)starting the live server on the same machine.
+- After a run, check `%TEMP%\mir2-p6-server\run\Logs\Server\` for `[World] Isolated error` / `FATAL` and `run\Logs\Crash\`.

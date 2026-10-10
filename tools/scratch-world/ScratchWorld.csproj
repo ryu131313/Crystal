@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Scratch world generator (roadmap P6). Writes a synthetic walkable .map plus a Server.MirDB
+    (one map, a StartPoint safe zone, two monster types with respawns, a few start items) into
+    a folder you name, using Server.Library's real models and Envir.SaveDB.
+    For scratch / load-test servers only. Builds to its own bin\ (never Build\).
+    Usage: see Program.cs or tools\start-scratch-server.ps1 (it builds and runs this tool).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(ServerTfm)</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>ScratchWorld</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Server\Server.Library.csproj" />
+    <ProjectReference Include="..\..\Shared\Shared.csproj" />
+  </ItemGroup>
+
+</Project>
