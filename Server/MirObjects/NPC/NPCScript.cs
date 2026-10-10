@@ -1252,6 +1252,12 @@ namespace Server.MirObjects
                 break;
             }
 
+            if (recipe == null) // X1-07: no matching recipe dereferenced null (world stop)
+            {
+                player.Enqueue(p);
+                return;
+            }
+
             UserItem goods = recipe.Item;
 
             if (goods == null || count == 0 || count > goods.Info.StackSize)
@@ -1279,7 +1285,7 @@ namespace Server.MirObjects
 
                     if (usedSlots.Contains(slot)) continue;
 
-                    if (slot < 0 || slot > player.Info.Inventory.Length) continue;
+                    if (slot < 0 || slot >= player.Info.Inventory.Length) continue; // X1-08: was > (off by one)
 
                     UserItem item = player.Info.Inventory[slot];
 
@@ -1317,7 +1323,7 @@ namespace Server.MirObjects
 
                     if (usedSlots.Contains(slot)) continue;
 
-                    if (slot < 0 || slot > player.Info.Inventory.Length) continue;
+                    if (slot < 0 || slot >= player.Info.Inventory.Length) continue; // X1-08: was > (off by one)
 
                     UserItem item = player.Info.Inventory[slot];
 
@@ -1380,7 +1386,7 @@ namespace Server.MirObjects
 
                     if (usedSlots2.Contains(slot)) continue;
 
-                    if (slot < 0 || slot > player.Info.Inventory.Length) continue;
+                    if (slot < 0 || slot >= player.Info.Inventory.Length) continue; // X1-08: was > (off by one)
 
                     UserItem item = player.Info.Inventory[slot];
 
@@ -1405,7 +1411,7 @@ namespace Server.MirObjects
 
                     if (usedSlots2.Contains(slot)) continue;
 
-                    if (slot < 0 || slot > player.Info.Inventory.Length) continue;
+                    if (slot < 0 || slot >= player.Info.Inventory.Length) continue; // X1-08: was > (off by one)
 
                     UserItem item = player.Info.Inventory[slot];
 

@@ -1009,6 +1009,7 @@ namespace Server.MirObjects
         }
         public void CheckMapInfo(MapInfo mapInfo)
         {
+            if (mapInfo == null) return; // X1-06: C.RequestMapInfo with an unknown index passed null here
             if (!Connection.WorldMapSetupSent)
             {
                 Enqueue(new S.WorldMapSetupInfo { Setup = Settings.WorldMapSetup, TeleportToNPCCost = Settings.TeleportToNPCCost });
@@ -6495,6 +6496,13 @@ namespace Server.MirObjects
         {
             S.MergeItem p = new S.MergeItem { GridFrom = gridFrom, GridTo = gridTo, IDFrom = fromID, IDTo = toID, Success = false };
 
+            // X1-10: merging a stack into itself doubled it (item duplication).
+            if (gridFrom == gridTo && fromID == toID)
+            {
+                Enqueue(p);
+                return;
+            }
+
             UserItem[] arrayFrom;
 
             switch (gridFrom)
@@ -8348,6 +8356,7 @@ namespace Server.MirObjects
         public void MarketPage(int page)
         {
             if (Dead || Envir.Time < SearchTime) return;
+            if (page < 0 || page > int.MaxValue / 10) return; // X1-02: negative/overflowing page indexed Search[] (world stop)
 
             if (MarketPanelType != MarketPanelType.GameShop)
             {
@@ -9697,7 +9706,7 @@ namespace Server.MirObjects
 
         public void ChangeHero(int index)
         {
-            if (Info.Heroes.Length <= index) return;
+            if (index < 0 || Info.Heroes.Length <= index) return; // X1-04: negative index (after despawning the hero) stopped the world
             bool respawn = Info.HeroSpawned;
 
             if (Hero != null)
@@ -10462,7 +10471,7 @@ namespace Server.MirObjects
 
             List<ClientGTMap> tempList = new List<ClientGTMap>();
 
-            if (page < 0) return;
+            if (page < 0 || page > Envir.GTMapList.Count / 7) return; // X1-03: page * 7 overflowed into a negative index
 
             var max = Math.Min(Envir.GTMapList.Count, (page + 1) * 7);
             for (int i = page * 7; i < max; i++)
@@ -11276,6 +11285,7 @@ namespace Server.MirObjects
             if (CurrentQuests.Exists(e => e.Index == index)) return; //e.Info.NpcIndex == npcIndex && 
 
             QuestInfo info = Envir.QuestInfoList.FirstOrDefault(d => d.Index == index);
+            if (info == null) return; // X1-05: unknown quest index dereferenced null
 
             NPCObject npc = null;
 
@@ -14134,7 +14144,8 @@ namespace Server.MirObjects
         {
             var packet = new S.DepositRentalItem { From = from, To = to, Success = false };
 
-            if (ItemRentalItemLocked)
+            // X1-09: depositing without a rental partner led to a null ItemRentalPartner in ItemRentalLockItem (world stop).
+            if (ItemRentalPartner == null || ItemRentalItemLocked)
             {
                 Enqueue(packet);
                 return;
@@ -14316,6 +14327,12 @@ namespace Server.MirObjects
         {
             S.ItemRentalLock p = new S.ItemRentalLock { Success = false, GoldLocked = false, ItemLocked = false };
 
+            if (ItemRentalPartner == null) // X1-09
+            {
+                Enqueue(p);
+                return;
+            }
+
             if (ItemRentalFeeAmount > 0)
             {
                 ItemRentalFeeLocked = true;
@@ -14336,6 +14353,12 @@ namespace Server.MirObjects
         public void ItemRentalLockItem()
         {
             S.ItemRentalLock p = new S.ItemRentalLock { Success = false, GoldLocked = false, ItemLocked = false };
+
+            if (ItemRentalPartner == null) // X1-09
+            {
+                Enqueue(p);
+                return;
+            }
 
             if (ItemRentalDepositedItem != null)
             {

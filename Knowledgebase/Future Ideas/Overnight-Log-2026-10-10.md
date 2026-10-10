@@ -42,6 +42,7 @@
 | D24 | Tools retargeted to net10 (`ToolsTfm`). Dropped the redundant `System.Security.Cryptography.ProtectedData` package (NU1510: in-box on net10). AutoPatcherAdmin V1, the legacy HttpServer and PatcherWebSite were **not deleted**. | "Delete if unused" needs your confirmation (decision #15). |
 | D25 | CI: `.github/workflows/verify.yml` runs `tools/verify.ps1` on windows-latest, **manual trigger only**. | Private repo: Windows runner minutes cost money. Add a push trigger when you want it. |
 | D26 | Found and fixed a bug in my own `tools/verify.ps1`: `-Only A,B` through `powershell -File` arrived as one string, so nothing was built. Earlier `-Only` runs (P2, P5 part 1) only ran the tests. The full verify runs after P3/P4/P5 did build every project, and Server.MirForms didn't change in between, so nothing slipped through. | It now splits commas and refuses unknown keys. |
+| D27 | Fixed **all 10 X1 Criticals** now rather than waiting for P8: X1-01 to X1-09 were one-packet world stops (P5 territory) and X1-10 is an item dupe. Each is a guard clause marked `// X1-NN`. Choices: `ChangeHero` still allows index 0; `RetrieveRentalItem` does **not** require a partner, so a stranded deposit can always be taken back; `MarketPage` rejects `page < 0` or a page whose `*10` would overflow. | Small, reviewable fixes. P5 isolation already turns them into single-client disconnects, but the dupe needed closing immediately. No automated tests: there is no handler-level harness yet (that comes with the StressClient in P6). |
 | D4 | Decision #3 (move build output off `Build\`) **not done**. It is still open and changes your VS F5 folder. | Your call. Until then, `verify.ps1` is the safe path. |
 
 ## Progress by phase
@@ -116,5 +117,6 @@
   - tools on net10 (D24);
   - manual CI workflow (D25);
   - verify.ps1 `-Only` fix (D26).
+- **X1 review done** (`Future Ideas/X1-Security-Review.md`, 30 findings) and **all 10 Criticals fixed** (D27). The packet-mutation audit verdict is "safe to cache bytes per instance" (`Future Ideas/Packet-Mutation-Audit.md`).
 - **Isolation fault injection** needs a running world. It is covered when the StressClient/scratch-server soak exists (P6); until then it is code-reviewed only.
 - Background items: still to do (guild/goods/conquest oracle, model tests, X1 review, packet-mutation audit).

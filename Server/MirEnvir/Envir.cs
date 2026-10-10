@@ -5534,7 +5534,7 @@ namespace Server.MirEnvir
 
         public void GetRanking(MirConnection con, byte RankType, int RankIndex, bool OnlineOnly)
         {
-            if (RankType > 6) return;
+            if (RankType > RankClass.Length || RankType >= OnlineRankingCount.Length) return; // X1-01: RankType 6 indexed RankClass[5] (world stop)
             List<RankCharacterInfo> listings = RankType == 0 ? RankTop : RankClass[RankType - 1];
 
             if (RankIndex >= listings.Count || RankIndex < 0) return;

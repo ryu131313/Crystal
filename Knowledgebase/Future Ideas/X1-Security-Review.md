@@ -1,6 +1,7 @@
 # X1 — Server security and crash review (roadmap P1 background)
 
-> **Status:** Review only. Nothing here is fixed. Written 2026-10-10 against branch `FuckingAround`, HEAD `36e422aa`.
+> **Status:** X1-01 to X1-10 (all Criticals) **fixed 2026-10-10** in the overnight run: guard clauses, each marked `// X1-NN` in source. Highs, Mediums and Lows are still open (roadmap P8; X1-15 and X1-27 need C5).
+> Originally review only. Written 2026-10-10 against branch `FuckingAround`, HEAD `36e422aa`.
 > **Scope:** `Shared/ClientPackets.cs` `ReadPacket` lengths; `Server/MirNetwork/MirConnection.cs`; client-reachable `PlayerObject`/`HumanObject`/`NPCScript`/`GuildObject` paths; economy paths; the MirCraft web admin (`Server/WebAdmin/**`); the legacy `Server/Utils/HttpServer.cs`.
 > **Triage targets:** **P5** = crash-the-world / isolation. **P8** = server security. **C5** = needs a `Shared/` or protocol change.
 > **Line numbers** are from HEAD `36e422aa`. Other agents were editing during the review (commit `0d8b56d7` moved `Envir.cs` by about 90 lines), so search by method name if a line has moved.
@@ -15,16 +16,16 @@
 
 | ID | Sev | Area | One-line | Triage |
 |---|---|---|---|---|
-| X1-01 | **Critical** | Rankings | `C.GetRanking{RankType=6}` → `RankClass[5]` IndexOutOfRange → world stop (also reachable in Observer stage) | P5 |
-| X1-02 | **Critical** | Market | `C.MarketPage{Page=-1}` after `C.MarketSearch{MarketType=GameShop}` (no NPC needed), or `Page=214748365` → `Search[negative]` → world stop | P5 |
-| X1-03 | **Critical** | Guild territory | `C.GuildTerritoryPage{Page=306783379}` → `page*7` overflows → `GTMapList[negative]` → world stop | P5 |
-| X1-04 | **Critical** | Heroes | `C.ChangeHero{ListIndex=-1}` → `Info.Heroes[-1]` → world stop (despawns the hero first) | P5 |
-| X1-05 | **Critical** | Quests | `C.AcceptQuest{QuestIndex=<unknown>}` → `info.NpcIndex` on null → world stop | P5 |
-| X1-06 | **Critical** | World map | `C.RequestMapInfo{MapIndex=<unknown>}` → `CheckMapInfo(null)` → `mapInfo.Index` NRE → world stop | P5 |
-| X1-07 | **Critical** | Crafting | `C.CraftItem{UniqueID=<no recipe>}` while any NPC dialog is open → `recipe.Item` NRE → world stop | P5 |
-| X1-08 | **Critical** | Crafting | `C.CraftItem` with `Slots=[Inventory.Length]` → off-by-one `slot > Length` → IndexOutOfRange → world stop (needs a recipe NPC) | P5 |
-| X1-09 | **Critical** | Item rental | `C.DepositRentalItem` with no rental partner, then `C.ItemRentalLockItem` → `ItemRentalPartner.Enqueue` NRE → world stop | P5 |
-| X1-10 | **Critical** | Items (dupe) | `C.MergeItem` with `IDFrom == IDTo` on a stack of more than half its stack size → the stack becomes full. Infinite item duplication | P8 |
+| X1-01 | **Critical** (fixed) | Rankings | `C.GetRanking{RankType=6}` → `RankClass[5]` IndexOutOfRange → world stop (also reachable in Observer stage) | P5 |
+| X1-02 | **Critical** (fixed) | Market | `C.MarketPage{Page=-1}` after `C.MarketSearch{MarketType=GameShop}` (no NPC needed), or `Page=214748365` → `Search[negative]` → world stop | P5 |
+| X1-03 | **Critical** (fixed) | Guild territory | `C.GuildTerritoryPage{Page=306783379}` → `page*7` overflows → `GTMapList[negative]` → world stop | P5 |
+| X1-04 | **Critical** (fixed) | Heroes | `C.ChangeHero{ListIndex=-1}` → `Info.Heroes[-1]` → world stop (despawns the hero first) | P5 |
+| X1-05 | **Critical** (fixed) | Quests | `C.AcceptQuest{QuestIndex=<unknown>}` → `info.NpcIndex` on null → world stop | P5 |
+| X1-06 | **Critical** (fixed) | World map | `C.RequestMapInfo{MapIndex=<unknown>}` → `CheckMapInfo(null)` → `mapInfo.Index` NRE → world stop | P5 |
+| X1-07 | **Critical** (fixed) | Crafting | `C.CraftItem{UniqueID=<no recipe>}` while any NPC dialog is open → `recipe.Item` NRE → world stop | P5 |
+| X1-08 | **Critical** (fixed) | Crafting | `C.CraftItem` with `Slots=[Inventory.Length]` → off-by-one `slot > Length` → IndexOutOfRange → world stop (needs a recipe NPC) | P5 |
+| X1-09 | **Critical** (fixed) | Item rental | `C.DepositRentalItem` with no rental partner, then `C.ItemRentalLockItem` → `ItemRentalPartner.Enqueue` NRE → world stop | P5 |
+| X1-10 | **Critical** (fixed) | Items (dupe) | `C.MergeItem` with `IDFrom == IDTo` on a stack of more than half its stack size → the stack becomes full. Infinite item duplication | P8 |
 | X1-11 | High | Game shop | Purchase counters are read by `Info.Index` and written by `GIndex`: stock limits never apply, and `+=` on a missing key can throw `KeyNotFoundException` (world stop, data-dependent) | P5/P8 |
 | X1-12 | High | Flood / DoS | Walk/Run/Turn/Attack/Magic packets that arrive "too early" go into `_retryList` with no cap and are re-run **every loop pass**. One logged-in client can queue ~80k per 5 s and stall the game thread | P8 |
 | X1-13 | High | Item rental (scam) | `ConfirmItemRental` proceeds when **either** side is locked (`&&` should be `||`), and a deposit change does not unlock the partner. The lender can bait-and-switch the item after the renter locks the fee | P8 |
