@@ -225,6 +225,8 @@ namespace Server.WebAdmin
                 "When an iteration has nothing to do, the game loop waits up to 1 ms (woken early by network and admin activity) instead of spinning a CPU core.");
             Add(N, "Optimisation", "MobThreadOnePass", "MobThreadOnePass", B, "Mob threads: one pass per tick",
                 "Monster threads walk their list once per tick and then wait, instead of re-walking it for ~10 ms. Only matters with Multithreaded on.");
+            Add(N, "Optimisation", "EncodeOnce", "EncodeOnce", B, "Encode shared packets once",
+                "A packet sent to many players in the same connection pass (movement, chat, effects) is encoded once and the bytes are reused, instead of being encoded again for every recipient.");
             Add(N, "Diag", "LogLoopProfile", "LogLoopProfile", B, "Log loop profile",
                 "Write one [Diag] Loop line per second to the Debug log (per-phase ms, iterations, packets, GC). The numbers are always on the dashboard status.");
             Add(N, "Network", "StartHTTPService", "StartHTTPService", B, "Legacy HTTP service",

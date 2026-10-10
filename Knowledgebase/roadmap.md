@@ -439,7 +439,7 @@ Later decisions are listed per phase in the phase notes. **Answered 2026-10-09:*
 | P6 Measurement | Not started | — | — |
 | P7 SQLite system data | Not started | — | — |
 | P8 Security | Not started | — | — |
-| P9 Optimisation | Not started | — | — |
+| P9 Optimisation | Started 2026-10-10 | P9-01 encode-once (`Future Optimisation/P9-01-EncodeOnce.md`) | Gate: quiet-machine rerun + 2 h soak |
 | C1 Client fixes + goldens | Fixes + shaders done 2026-10-10; goldens/frame profiler pending decision #8 | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
 | C2 Launcher release | Hashes + removed-files + path checks done 2026-10-10; runtime detection, host, V1 pending | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
 | C3 Render seam | Not started | — | — |

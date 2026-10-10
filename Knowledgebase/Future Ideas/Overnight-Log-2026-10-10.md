@@ -53,6 +53,7 @@
 | D35 | Fixed two server issues the bot runs found: (1) `ReceiveData` returned before `EndReceive` once disconnected, so an aborted receive became an unobserved task exception and a crash file on every disconnect storm; the accept callbacks had the same shape on shutdown. (2) The status port was hard-coded to 3100 and always on; it is now `[Network] StatusPortEnabled` / `StatusPort`, and the scratch profile turns it off. | Found by measurement, as intended. |
 | D36 | **P7 exporter + independent verifier** (background agent, reviewed and committed): `tools/MirDbExport`, 16 tests, 0 mismatches on the v118 fixture. **Key finding:** `Envir.RespawnTick` (RespawnTimer: base rate, tick counter, options) is saved in Server.MirDB but not in the web admin registry, so a SQLite store of record must add tables for it. Microsoft.Data.Sqlite 9.0.0 pulls a SQLitePCLRaw with an advisory (NU1903): fine for an offline tool, but pin a newer bundle before the store-of-record step. | P7 step 1 only. The storage seam, shadow mode and flip need your live data and a burn-in. |
 | D37 | **P8 password hashing:** `Crypto.cs` changed under your approved override. v1 is unchanged byte for byte (tested against the original algorithm). v2 is PBKDF2-SHA256 at 100k iterations, stored as `v2$...` in the same field, and is **always verified** but **only written when `[Security] PasswordHashV2=True` (default off)**, so verification ships before any v2 write. The **login password check now runs on a worker thread** and continues on the game thread via the admin queue (`CompleteLogin`). It re-checks the connection, the stage, a password change and a ban; `LoginPending` stops parallel attempts. Accounts upgrade v1 to v2 on their next successful login once the flag is on. **Before turning v2 on:** move NewAccount, ChangePassword and the storage-password checks off the game thread too; they are synchronous and only cheap while hashes are v1. | P8 order: off-thread verification before a slower hash. |
+| D38 | **P9-01 encode-once** (server-only, `[Optimisation] EncodeOnce`, default on): a packet sent to many players in one connection pass is encoded once. Measured at 500 bots: **allocation 135 → 45 MB/s** in every run, with a lower worst iteration and 0 decode errors. The CPU gain (−37 % in the first pair) **could not be confirmed** because the desktop got busy during the second pair. A sampled guard logs any mutate-after-send, and an independent review was clean. Details and table: `Future Optimisation/P9-01-EncodeOnce.md`. | Started P9 with the server-only item: the roadmap says `Shared` items wait for C5, and this one needs no `Shared` change. **Rerun the A/B on a quiet machine** before quoting a CPU number. |
 | D4 | Decision #3 (move build output off `Build\`) **not done**. It is still open and changes your VS F5 folder. | Your call. Until then, `verify.ps1` is the safe path. |
 
 ## Progress by phase
@@ -116,8 +117,12 @@
 
 ### C2 — integrity part done (code); runtime detection / host / V1 pending (D32)
 
+### P9 — started
+- P9-01 encode-once is done and measured (D38). The next candidates are listed in `Future Optimisation/P9-01-EncodeOnce.md`.
+- The gate is not met yet: 2 h soak, 500 bots at ≤50 % of baseline busy, p99 < 50 ms on a quiet machine.
+
 ### P8 — hashing + off-thread login done (code); v2 writes off by default
-- See D37. `Server.Persistence.Tests/CryptoTests.cs`: v1 matches the original algorithm byte for byte, v2 round-trips, wrong passwords and garbage stored values fail, `NeedsUpgrade` follows the flag. 26 persistence tests green.
+- See D37. `Server.Persistence.Tests/CryptoTests.cs`: v1 matches the original algorithm byte for byte, v2 round-trips, wrong passwords and an empty stored hash fail, `NeedsUpgrade` follows the flag. 26 persistence tests green.
 - **Not done:** NewAccount / ChangePassword / storage-password hashing still run on the game thread (cheap with v1; must move before `PasswordHashV2=True`). X1-15 goes with C5, X1-17 needs a design decision, X1-20 is yours.
 
 ### P6 — tools and loop work done; baseline recorded

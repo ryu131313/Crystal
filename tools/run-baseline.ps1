@@ -13,12 +13,18 @@
 .PARAMETER Seconds    Measurement window per scenario. Default 60.
 .PARAMETER Bots       Bot counts to run. Default 50,200,500.
 .PARAMETER Port       Scratch port. Default 17000.
+.PARAMETER ExtraIni   Setup.ini lines added to every scenario (A/B runs), e.g. '[Optimisation]','EncodeOnce=False'.
+.PARAMETER NoIdle     Skip the two idle scenarios.
+.PARAMETER Label      Text added to the report heading.
 #>
 param(
     [string]$Out = '',
     [int]$Seconds = 60,
     [int[]]$Bots = @(50, 200, 500),
-    [int]$Port = 17000
+    [int]$Port = 17000,
+    [string[]]$ExtraIni = @(),
+    [switch]$NoIdle,
+    [string]$Label = ''
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
@@ -69,7 +75,7 @@ $results = @()
 function Run-Scenario([string]$name, [bool]$mt, [int]$bots) {
     & powershell -NoProfile -ExecutionPolicy Bypass -File $stop 2>$null | Out-Null
     $reset = $script:results.Count -eq 0
-    $startParams = @{ Port = $Port; Multithreaded = $mt }
+    $startParams = @{ Port = $Port; Multithreaded = $mt; ExtraIni = $ExtraIni }
     if ($reset) { $startParams.Reset = $true } else { $startParams.NoBuild = $true }
     & $start @startParams | Out-Null   # same session: "exit" in the script only ends that script
     if ($LASTEXITCODE -ne 0) { throw "scratch server failed to start for $name" }
@@ -99,8 +105,10 @@ function Run-Scenario([string]$name, [bool]$mt, [int]$bots) {
 }
 
 try {
-    Run-Scenario 'idle, Multithreaded on' $true 0
-    Run-Scenario 'idle, Multithreaded off' $false 0
+    if (-not $NoIdle) {
+        Run-Scenario 'idle, Multithreaded on' $true 0
+        Run-Scenario 'idle, Multithreaded off' $false 0
+    }
     foreach ($b in $Bots) { Run-Scenario "$b bots, Multithreaded on" $true $b }
 }
 finally {
@@ -108,7 +116,8 @@ finally {
 }
 
 $sb = New-Object System.Text.StringBuilder
-[void]$sb.AppendLine("# Server baseline (roadmap P6) - $(Get-Date -Format 'yyyy-MM-dd HH:mm')")
+[void]$sb.AppendLine("# Server baseline (roadmap P6) - $(Get-Date -Format 'yyyy-MM-dd HH:mm')$(if ($Label) { ' - ' + $Label })")
+if ($ExtraIni.Count -gt 0) { [void]$sb.AppendLine(''); [void]$sb.AppendLine("Extra Setup.ini: ``$($ExtraIni -join ' ')``") }
 [void]$sb.AppendLine('')
 [void]$sb.AppendLine("> Scratch server (synthetic 200x200 map, tools/scratch-world), net10, idle park on, MobThreadOnePass on, ThreadLimit 2. Window $Seconds s per scenario. CPU is % of ONE core over the window. Bots and server share this machine. Produced by ``tools/run-baseline.ps1``.")
 [void]$sb.AppendLine('')

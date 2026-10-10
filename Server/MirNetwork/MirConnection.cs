@@ -271,6 +271,49 @@ namespace Server.MirNetwork
                 c.Enqueue(p);
         }
 
+        /// <summary>
+        /// Encode-once cache (roadmap P9): bytes of packets already encoded during the current connection pass, keyed by
+        /// instance. Game thread only: filled lazily in <see cref="Process"/> (never in <see cref="Enqueue"/>, which mob
+        /// threads call) and cleared by <see cref="EndEncodePass"/> after each pass. Safe per Future Ideas/Packet-Mutation-Audit.md:
+        /// no server code mutates a packet after its first send.
+        /// </summary>
+        private static readonly Dictionary<Packet, byte[]> EncodedThisPass = new Dictionary<Packet, byte[]>(ReferenceEqualityComparer.Instance);
+
+        /// <summary>Drops the encode-once cache. Called by the game loop after every connection pass.</summary>
+        internal static void EndEncodePass() => EncodedThisPass.Clear();
+
+        private static byte[] Encode(Packet p)
+        {
+            if (!Settings.EncodeOnce) return ToBytes(p);
+            if (!EncodedThisPass.TryGetValue(p, out var bytes))
+            {
+                bytes = ToBytes(p);
+                EncodedThisPass[p] = bytes;
+            }
+            else if (++_encodeHits % EncodeCheckEvery == 0)
+                CheckNotMutated(p, bytes);
+            return bytes;
+        }
+
+        // Guard for the audit's "no mutate-after-send" condition (a frozen flag on Packet would be a Shared change, so it waits
+        // for roadmap C5): one cache hit in EncodeCheckEvery is re-encoded and compared; a mismatch is logged once per packet type.
+        private const int EncodeCheckEvery = 256;
+        private static long _encodeHits;
+        private static readonly HashSet<short> MutatedPacketsLogged = new HashSet<short>();
+
+        private static void CheckNotMutated(Packet p, byte[] cached)
+        {
+            if (ToBytes(p).AsSpan().SequenceEqual(cached)) return;
+            if (MutatedPacketsLogged.Add(p.Index))
+                MessageQueue.Enqueue($"[Optimisation] EncodeOnce: {p.GetType().Name} changed after its first send in a pass; later recipients got the first bytes. Fix the sender, or set [Optimisation] EncodeOnce=False.");
+        }
+
+        private static byte[] ToBytes(Packet p)
+        {
+            var e = p.GetPacketBytes();
+            return e as byte[] ?? e.ToArray();
+        }
+
         public void Process()
         {
             if (_client == null || !_client.Connected)
@@ -320,7 +363,7 @@ namespace Server.MirNetwork
             {
                 Packet p;
                 if (!_sendList.TryDequeue(out p) || p == null) continue;
-                data.AddRange(p.GetPacketBytes());
+                data.AddRange(Encode(p));
                 sent++;
             }
 

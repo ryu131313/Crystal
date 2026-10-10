@@ -26,6 +26,7 @@
 .PARAMETER Reset     Regenerate the world and delete accounts, logs and backups in <Scratch>\run.
 .PARAMETER NoBuild   Reuse the existing <Scratch>\build output.
 .PARAMETER Multithreaded  [General] Multithreaded (default True, as on a real server).
+.PARAMETER ExtraIni  Lines appended to Setup.ini (e.g. '[Optimisation]','EncodeOnce=False') for A/B runs.
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File tools\start-scratch-server.ps1 -Port 17000 -Reset
@@ -39,7 +40,8 @@ param(
     [switch]$Reset,
     [switch]$NoBuild,
     [bool]$Multithreaded = $true,
-    [int]$StartTimeoutSeconds = 90
+    [int]$StartTimeoutSeconds = 90,
+    [string[]]$ExtraIni = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -131,6 +133,7 @@ Enabled=False
 [Diag]
 LogLoopProfile=True
 "@
+if ($ExtraIni.Count -gt 0) { $ini = $ini + "`r`n" + ($ExtraIni -join "`r`n") }
 Set-Content -Path (Join-Path $configs 'Setup.ini') -Value $ini -Encoding ASCII
 
 # ---- start ----

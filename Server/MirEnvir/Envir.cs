@@ -2096,6 +2096,7 @@ namespace Server.MirEnvir
                                         IsolateConnection(connection);
                                     }
                                 }
+                                MirConnection.EndEncodePass(); // roadmap P9: encoded bytes live for one pass only
                             }
 
                             lock (StatusConnections)
@@ -3907,6 +3908,7 @@ namespace Server.MirEnvir
 
                 for (var i = Connections.Count - 1; i >= 0; i--)
                     Connections[i].Process();
+                MirConnection.EndEncodePass();
 
                 Thread.Sleep(1);
             }
