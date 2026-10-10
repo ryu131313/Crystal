@@ -60,6 +60,10 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Shared.Tests", "Shared.Test
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Server.Persistence.Tests", "Server.Persistence.Tests\Server.Persistence.Tests.csproj", "{5EEBBA63-E760-44A9-89D5-8BD0AA759F60}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MirDbExport", "tools\MirDbExport\MirDbExport.csproj", "{05A31BD3-76B5-4473-A0A6-F38DE9069A23}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MirDbExport.Tests", "tools\MirDbExport.Tests\MirDbExport.Tests.csproj", "{5F36066C-5FA0-4134-ADCA-9D76EC4E6DC6}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -118,6 +122,14 @@ Global
 		{5EEBBA63-E760-44A9-89D5-8BD0AA759F60}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5EEBBA63-E760-44A9-89D5-8BD0AA759F60}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{5EEBBA63-E760-44A9-89D5-8BD0AA759F60}.Release|Any CPU.Build.0 = Release|Any CPU
+		{05A31BD3-76B5-4473-A0A6-F38DE9069A23}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{05A31BD3-76B5-4473-A0A6-F38DE9069A23}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{05A31BD3-76B5-4473-A0A6-F38DE9069A23}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{05A31BD3-76B5-4473-A0A6-F38DE9069A23}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5F36066C-5FA0-4134-ADCA-9D76EC4E6DC6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5F36066C-5FA0-4134-ADCA-9D76EC4E6DC6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5F36066C-5FA0-4134-ADCA-9D76EC4E6DC6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5F36066C-5FA0-4134-ADCA-9D76EC4E6DC6}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

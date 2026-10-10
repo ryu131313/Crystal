@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Roadmap P7 step 1: READ-ONLY SQLite exporter of Server.MirDB plus an INDEPENDENT verifier.
+    The source folder is only read: Server.MirDB is copied to a temp working folder and loaded
+    there into Envir.Edit with the real load code. Output goes to the .db you name (written as
+    <out>.tmp, then moved into place). Builds to its own bin\ (never Build\).
+    Usage: MirDbExport export|verify|gaps ... (see Program.cs or Knowledgebase\Future Ideas\P7-SQLite-Export.md).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(ServerTfm)</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>MirDbExport</AssemblyName>
+    <RootNamespace>MirDbExport</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Server\Server.Library.csproj" />
+    <ProjectReference Include="..\..\Shared\Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="MirDbExport.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -46,13 +46,15 @@ $Projects = [ordered]@{
     'LibraryViewer'      = 'LibraryViewer\LibraryViewer.csproj'
     'AutoPatcherAdmin'   = 'AutoPatcherAdmin\AutoPatcherAdmin.csproj'
     'AutoPatcherAdminV2' = 'AutoPatcherAdminV2\AutoPatcherAdminV2.csproj'
+    'MirDbExport'        = 'tools\MirDbExport\MirDbExport.csproj'
 }
 
 # Test projects build to their own bin\ (safe) and are run with `dotnet test`.
 $TestProjects = @(
     'Server.WebAdmin.Tests\Server.WebAdmin.Tests.csproj',
     'Shared.Tests\Shared.Tests.csproj',
-    'Server.Persistence.Tests\Server.Persistence.Tests.csproj'
+    'Server.Persistence.Tests\Server.Persistence.Tests.csproj',
+    'tools\MirDbExport.Tests\MirDbExport.Tests.csproj'
 )
 
 # `powershell -File verify.ps1 -Only A,B` passes one string "A,B": split it, and refuse unknown keys.
