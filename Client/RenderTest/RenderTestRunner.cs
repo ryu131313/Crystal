@@ -3,10 +3,9 @@ using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using Client.MirControls;
 using Client.MirGraphics;
+using Client.MirGraphics.Rendering;
 using Client.MirObjects;
 using SlimDX;
-using SlimDX.Direct3D9;
-using Blend = SlimDX.Direct3D9.Blend;
 
 namespace Client.RenderTest
 {
@@ -179,20 +178,15 @@ namespace Client.RenderTest
             return list;
         }
 
-        private static Texture _floorRt;
-        private static Surface _floorSurface;
+        private static RenderTexture _floorRt;
 
         private static void DrawFloorScenario()
         {
             // Floor into its own render target first, then blit: the MapControl FloorTexture pattern.
-            if (_floorRt == null)
-            {
-                _floorRt = new Texture(DXManager.Device, Width, Height, 1, Usage.RenderTarget, Format.A8R8G8B8, Pool.Default);
-                _floorSurface = _floorRt.GetSurfaceLevel(0);
-            }
-            Surface old = DXManager.CurrentSurface;
-            DXManager.SetSurface(_floorSurface);
-            DXManager.Device.Clear(ClearFlags.Target, Color.Empty, 0, 0);
+            if (_floorRt == null) _floorRt = DXManager.CreateRenderTarget(Width, Height);
+            RenderTexture old = DXManager.CurrentSurface;
+            DXManager.SetSurface(_floorRt);
+            DXManager.Clear(Color.Empty);
             DrawMapTiles(false);
             DXManager.SetSurface(old);
             DXManager.Draw(_floorRt, new Rectangle(0, 0, Width, Height), Vector3.Zero, Color.White);
@@ -294,8 +288,7 @@ namespace Client.RenderTest
             }
         }
 
-        private static Texture _lightRt;
-        private static Surface _lightSurface;
+        private static RenderTexture _lightRt;
 
         private static void DrawLightsScenario()
         {
@@ -303,18 +296,13 @@ namespace Client.RenderTest
             if (DXManager.Lights == null || DXManager.Lights.Count == 0) return;
 
             // Same sequence as MapControl.DrawLights (raw states included).
-            if (_lightRt == null)
-            {
-                _lightRt = new Texture(DXManager.Device, Width, Height, 1, Usage.RenderTarget, Format.A8R8G8B8, Pool.Default);
-                _lightSurface = _lightRt.GetSurfaceLevel(0);
-            }
-            Surface old = DXManager.CurrentSurface;
-            DXManager.SetSurface(_lightSurface);
-            DXManager.Device.Clear(ClearFlags.Target, Color.FromArgb(255, 20, 20, 20), 0, 0);
+            if (_lightRt == null) _lightRt = DXManager.CreateRenderTarget(Width, Height);
+            RenderTexture old = DXManager.CurrentSurface;
+            DXManager.SetSurface(_lightRt);
+            DXManager.Clear(Color.FromArgb(255, 20, 20, 20));
 
             DXManager.SetBlend(true);
-            DXManager.Device.SetRenderState(RenderState.SourceBlend, Blend.SourceAlpha);
-            DXManager.Device.SetRenderState(RenderState.DestinationBlend, Blend.One);
+            DXManager.SetLightAdditiveBlend();
             Color[] tints = { Color.White, Color.FromArgb(255, 255, 220, 160), Color.FromArgb(255, 120, 160, 255), Color.FromArgb(255, 255, 80, 80) };
             for (int i = 0; i < 8; i++)
             {
@@ -325,11 +313,9 @@ namespace Client.RenderTest
             DXManager.SetBlend(false);
             DXManager.SetSurface(old);
 
-            DXManager.Device.SetRenderState(RenderState.SourceBlend, Blend.Zero);
-            DXManager.Device.SetRenderState(RenderState.DestinationBlend, Blend.SourceColor);
+            DXManager.SetLightMultiplyBlend();
             DXManager.Draw(_lightRt, new Rectangle(0, 0, Width, Height), Vector3.Zero, Color.White);
-            DXManager.Sprite.End();
-            DXManager.Sprite.Begin(SpriteFlags.AlphaBlend);
+            DXManager.RestartSpriteAlphaBlend();
         }
 
         private static void DrawScaledScenario()
@@ -414,9 +400,7 @@ namespace Client.RenderTest
 
         // ------------------------------------------------------------------ run
 
-        private static Texture _target;
-        private static Surface _targetSurface;
-        private static Surface _readback;
+        private static RenderTexture _target;
 
         /// <summary>Runs the scenarios (and the benchmark) and returns the process exit code.</summary>
         public static int Run()
@@ -427,11 +411,9 @@ namespace Client.RenderTest
                 var sw = Stopwatch.StartNew();
                 while (!Libraries.Loaded && sw.ElapsedMilliseconds < 180000) Thread.Sleep(20); // test mode only, never in the game loop
                 if (!Libraries.Loaded) { Log("FATAL libraries did not load"); return 2; }
-                Log($"backend D3D9 (pre-seam) libraries loaded in {sw.ElapsedMilliseconds} ms");
+                Log($"backend {DXManager.RendererType} (configured {Settings.Renderer}) libraries loaded in {sw.ElapsedMilliseconds} ms");
 
-                _target = new Texture(DXManager.Device, Width, Height, 1, Usage.RenderTarget, Format.A8R8G8B8, Pool.Default);
-                _targetSurface = _target.GetSurfaceLevel(0);
-                _readback = Surface.CreateOffscreenPlain(DXManager.Device, Width, Height, Format.A8R8G8B8, Pool.SystemMemory);
+                _target = DXManager.CreateRenderTarget(Width, Height);
 
                 var scenarios = BuildScenarios();
                 foreach (var s in scenarios)
@@ -439,7 +421,7 @@ namespace Client.RenderTest
                     // Render twice so first-use texture uploads cannot influence the captured frame.
                     RenderScenario(s, toTarget: true);
                     RenderScenario(s, toTarget: true);
-                    var bytes = Capture();
+                    var bytes = DXManager.Backend.CaptureRenderTarget(_target);
                     File.WriteAllBytes(Path.Combine(OutDir, s.Name + ".bgra"), bytes);
                     SavePng(bytes, Path.Combine(OutDir, s.Name + ".png"));
                     Log($"{s.Name} captured sha256={Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes))[..16]}");
@@ -454,7 +436,7 @@ namespace Client.RenderTest
                         {
                             long t0 = Stopwatch.GetTimestamp();
                             RenderScenario(s, toTarget: false);
-                            DXManager.Device.Present();
+                            DXManager.Present();
                             times[i] = (Stopwatch.GetTimestamp() - t0) * 1000.0 / Stopwatch.Frequency;
                         }
                         Array.Sort(times);
@@ -471,18 +453,18 @@ namespace Client.RenderTest
             finally
             {
                 try { File.WriteAllLines(Path.Combine(OutDir, "rendertest.log"), _log); } catch { }
-                _readback?.Dispose(); _targetSurface?.Dispose(); _target?.Dispose();
-                _floorSurface?.Dispose(); _floorRt?.Dispose(); _lightSurface?.Dispose(); _lightRt?.Dispose();
+                _target?.Dispose(); _floorRt?.Dispose(); _lightRt?.Dispose();
             }
         }
 
         private static void RenderScenario(Scenario s, bool toTarget)
         {
-            DXManager.Device.Clear(ClearFlags.Target, Color.Black, 0, 0);
-            DXManager.Device.BeginScene();
-            DXManager.Sprite.Begin(SpriteFlags.AlphaBlend);
-            DXManager.SetSurface(toTarget ? _targetSurface : DXManager.MainSurface);
-            if (toTarget) DXManager.Device.Clear(ClearFlags.Target, Color.Black, 0, 0);
+            DXManager.BeginFrame();
+            if (toTarget)
+            {
+                DXManager.SetSurface(_target);
+                DXManager.Clear(Color.Black);
+            }
 
             s.Draw();
 
@@ -490,19 +472,7 @@ namespace Client.RenderTest
             DXManager.SetBlend(false);
             DXManager.SetGrayscale(false);
             DXManager.SetSurface(DXManager.MainSurface);
-            DXManager.Sprite.End();
-            DXManager.Device.EndScene();
-        }
-
-        private static byte[] Capture()
-        {
-            DXManager.Device.GetRenderTargetData(_targetSurface, _readback);
-            var rect = _readback.LockRectangle(LockFlags.ReadOnly);
-            var bytes = new byte[Width * Height * 4];
-            for (int y = 0; y < Height; y++)
-                Marshal.Copy(rect.Data.DataPointer + y * rect.Pitch, bytes, y * Width * 4, Width * 4);
-            _readback.UnlockRectangle();
-            return bytes;
+            DXManager.EndFrame();
         }
 
         private static void SavePng(byte[] bgra, string path)

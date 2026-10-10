@@ -1,25 +1,26 @@
-﻿using System.Drawing.Drawing2D;
+using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using Client.MirControls;
+using Client.MirGraphics.Rendering;
 using Client.MirScenes;
 using SlimDX;
-using SlimDX.Direct3D9;
-using Blend = SlimDX.Direct3D9.Blend;
 
 namespace Client.MirGraphics
 {
+    /// <summary>
+    /// Static graphics façade. Since roadmap C3 every device call goes through <see cref="Backend"/> (D3D9 or D3D11,
+    /// [Graphics] Renderer); the state logic below is unchanged from the SlimDX-only version, including its quirks,
+    /// because the golden render tests require identical output. Game code uses these helpers, never a backend.
+    /// </summary>
     class DXManager
     {
         public static List<MImage> TextureList = new List<MImage>();
         public static List<MirControl> ControlList = new List<MirControl>();
 
-        public static Device Device;
-        public static Sprite Sprite;
-        public static Line Line;
+        public static IRenderBackend Backend;
 
-        public static Surface CurrentSurface;
-        public static Surface MainSurface;
-        public static PresentParameters Parameters;
+        public static RenderTexture CurrentSurface;
+        public static RenderTexture MainSurface;
         public static bool DeviceLost;
         public static float Opacity = 1F;
         public static bool Blending;
@@ -27,16 +28,11 @@ namespace Client.MirGraphics
         public static BlendMode BlendingMode;
 
 
-        public static Texture RadarTexture;
-        public static List<Texture> Lights = new List<Texture>();
-        public static Texture PoisonDotBackground;
+        public static RenderTexture RadarTexture;
+        public static List<RenderTexture> Lights = new List<RenderTexture>();
+        public static RenderTexture PoisonDotBackground;
 
-        public static Texture FloorTexture, LightTexture;
-        public static Surface FloorSurface, LightSurface;
-
-        public static PixelShader GrayScalePixelShader;
-        public static PixelShader NormalPixelShader;
-        public static PixelShader MagicPixelShader;
+        public static RenderTexture FloorTexture, LightTexture;
 
         public static bool GrayScale;
 
@@ -55,96 +51,51 @@ namespace Client.MirGraphics
             new Point(925,703)
         };
 
+        public static RendererType RendererType => Backend?.Type ?? Settings.Renderer;
+
         public static void Create()
         {
-            Parameters = new PresentParameters
+            Backend = Settings.Renderer == RendererType.D3D11 ? new D3D11Backend() : new D3D9Backend();
+            try
             {
-                BackBufferFormat = Format.X8R8G8B8,
-                PresentFlags = PresentFlags.LockableBackBuffer,
-                BackBufferWidth = Settings.ScreenWidth,
-                BackBufferHeight = Settings.ScreenHeight,
-                SwapEffect = SwapEffect.Discard,
-                PresentationInterval = Settings.FPSCap ? PresentInterval.One : PresentInterval.Immediate,
-                Windowed = !Settings.FullScreen,
-            };
-
-
-            Direct3D d3d = new Direct3D();
-
-            Capabilities devCaps = d3d.GetDeviceCaps(0, DeviceType.Hardware);
-            DeviceType devType = DeviceType.Reference;
-            CreateFlags devFlags = CreateFlags.HardwareVertexProcessing;
-
-            if (devCaps.VertexShaderVersion.Major >= 2 && devCaps.PixelShaderVersion.Major >= 2)
-                devType = DeviceType.Hardware;
-
-            if ((devCaps.DeviceCaps & DeviceCaps.HWTransformAndLight) != 0)
-                devFlags = CreateFlags.HardwareVertexProcessing;
-
-
-            if ((devCaps.DeviceCaps & DeviceCaps.PureDevice) != 0)
-                devFlags |= CreateFlags.PureDevice;
-
-
-            Device = new Device(d3d, d3d.Adapters.DefaultAdapter.Adapter, devType, Program.Form.Handle, devFlags, Parameters);
-
-            Device.SetDialogBoxMode(true);
+                Backend.Create(Program.Form.Handle, Settings.ScreenWidth, Settings.ScreenHeight, !Settings.FullScreen, Settings.FPSCap);
+            }
+            catch (Exception ex) when (Settings.Renderer == RendererType.D3D11)
+            {
+                // D3D11 is opt-in during roadmap C4: fall back to D3D9 for this run rather than leaving the client without a device.
+                CMain.SaveError("D3D11 backend failed to start, falling back to D3D9: " + ex);
+                try { Backend.Dispose(); } catch { }
+                Backend = new D3D9Backend();
+                Backend.Create(Program.Form.Handle, Settings.ScreenWidth, Settings.ScreenHeight, !Settings.FullScreen, Settings.FPSCap);
+            }
 
             LoadTextures();
-            LoadPixelsShaders();
-        }
-
-        private static unsafe void LoadPixelsShaders()
-        {
-            var shaderNormalPath = Settings.ShadersPath + "normal.ps";
-            var shaderGrayScalePath = Settings.ShadersPath + "grayscale.ps";
-            var shaderMagicPath = Settings.ShadersPath + "magic.ps";
-
-            if (System.IO.File.Exists(shaderNormalPath))
-            {
-                using (var gs = ShaderBytecode.AssembleFromFile(shaderNormalPath, ShaderFlags.None))
-                    NormalPixelShader = new PixelShader(Device, gs);
-            }
-            if (System.IO.File.Exists(shaderGrayScalePath))
-            {
-                using (var gs = ShaderBytecode.AssembleFromFile(shaderGrayScalePath, ShaderFlags.None))
-                    GrayScalePixelShader = new PixelShader(Device, gs);
-            }
-            if (System.IO.File.Exists(shaderMagicPath))
-            {
-                using (var gs = ShaderBytecode.AssembleFromFile(shaderMagicPath, ShaderFlags.None))
-                    MagicPixelShader = new PixelShader(Device, gs);
-            }
         }
 
         private static unsafe void LoadTextures()
         {
-            Sprite = new Sprite(Device);
-            Line = new Line(Device) { Width = 1F };
-
-            MainSurface = Device.GetBackBuffer(0, 0);
+            MainSurface = Backend.BackBuffer;
             CurrentSurface = MainSurface;
-            Device.SetRenderTarget(0, MainSurface);
 
             if (RadarTexture == null || RadarTexture.Disposed)
             {
-                RadarTexture = new Texture(Device, 2, 2, 1, Usage.None, Format.A8R8G8B8, Pool.Managed);
+                RadarTexture = Backend.CreateTexture(2, 2);
 
-                DataRectangle stream = RadarTexture.LockRectangle(0, LockFlags.Discard);
-                using (Bitmap image = new Bitmap(2, 2, 8, PixelFormat.Format32bppArgb, stream.Data.DataPointer))
+                byte* data = Backend.LockTexture(RadarTexture);
+                using (Bitmap image = new Bitmap(2, 2, 8, PixelFormat.Format32bppArgb, (IntPtr)data))
                 using (Graphics graphics = Graphics.FromImage(image))
                     graphics.Clear(Color.White);
-                RadarTexture.UnlockRectangle(0);
+                Backend.UnlockTexture(RadarTexture);
             }
             if (PoisonDotBackground == null || PoisonDotBackground.Disposed)
             {
-                PoisonDotBackground = new Texture(Device, 5, 5, 1, Usage.None, Format.A8R8G8B8, Pool.Managed);
+                PoisonDotBackground = Backend.CreateTexture(5, 5);
 
-                DataRectangle stream = PoisonDotBackground.LockRectangle(0, LockFlags.Discard);
-                using (Bitmap image = new Bitmap(5, 5, 20, PixelFormat.Format32bppArgb, stream.Data.DataPointer))
+                byte* data = Backend.LockTexture(PoisonDotBackground);
+                using (Bitmap image = new Bitmap(5, 5, 20, PixelFormat.Format32bppArgb, (IntPtr)data))
                 using (Graphics graphics = Graphics.FromImage(image))
                     graphics.Clear(Color.White);
-                PoisonDotBackground.UnlockRectangle(0);
+                Backend.UnlockTexture(PoisonDotBackground);
             }
             CreateLights();
         }
@@ -164,10 +115,10 @@ namespace Client.MirGraphics
                 int width = LightSizes[i].X;
                 int height = LightSizes[i].Y;
 
-                Texture light = new Texture(Device, width, height, 1, Usage.None, Format.A8R8G8B8, Pool.Managed);
+                RenderTexture light = Backend.CreateTexture(width, height);
 
-                DataRectangle stream = light.LockRectangle(0, LockFlags.Discard);
-                using (Bitmap image = new Bitmap(width, height, width * 4, PixelFormat.Format32bppArgb, stream.Data.DataPointer))
+                byte* data = Backend.LockTexture(light);
+                using (Bitmap image = new Bitmap(width, height, width * 4, PixelFormat.Format32bppArgb, (IntPtr)data))
                 {
                     using (Graphics graphics = Graphics.FromImage(image))
                     {
@@ -210,20 +161,94 @@ namespace Client.MirGraphics
                     }
                 }
 
-                light.UnlockRectangle(0);
+                Backend.UnlockTexture(light);
                 //light.Disposing += (o, e) => Lights.Remove(light);
                 Lights.Add(light);
             }
         }
 
-        public static void SetSurface(Surface surface)
+        // ------------------------------------------------------------------ resources (roadmap C3 helpers)
+
+        /// <summary>A CPU-written BGRA texture (sprites, text). Write it between <see cref="LockTexture"/>/<see cref="UnlockTexture"/>.</summary>
+        public static RenderTexture CreateTexture(int width, int height) => Backend.CreateTexture(width, height);
+
+        /// <summary>A render target. Must be a control texture registered in <see cref="ControlList"/> or a DXManager static released in CleanUp.</summary>
+        public static RenderTexture CreateRenderTarget(int width, int height) => Backend.CreateRenderTarget(width, height);
+
+        /// <summary>Pointer to the texture's BGRA pixels, row pitch Width * 4. Always pair with <see cref="UnlockTexture"/>.</summary>
+        public static unsafe byte* LockTexture(RenderTexture texture) => Backend.LockTexture(texture);
+
+        public static void UnlockTexture(RenderTexture texture) => Backend.UnlockTexture(texture);
+
+        // ------------------------------------------------------------------ frame
+
+        /// <summary>Start of a frame: clear, begin scene, begin the sprite (AlphaBlend) and target the back buffer.</summary>
+        public static void BeginFrame()
+        {
+            Backend.Clear(Color.Black);
+            Backend.BeginScene();
+            Backend.SpriteBegin(true);
+            SetSurface(MainSurface);
+        }
+
+        /// <summary>End of a frame before Present: end the sprite and the scene.</summary>
+        public static void EndFrame()
+        {
+            Backend.SpriteEnd();
+            Backend.EndScene();
+        }
+
+        public static void Present() => Backend.Present();
+
+        /// <summary>Clears the current render target.</summary>
+        public static void Clear(Color colour) => Backend.Clear(colour);
+
+        /// <summary>Draws the queued sprites now (ID3DXSprite.Flush). Every state helper already flushes.</summary>
+        public static void Flush() => Backend.SpriteFlush();
+
+        public static void SetSpriteTransform(SlimDX.Matrix transform) => Backend.SetSpriteTransform(transform);
+
+        /// <summary>1-pixel line strip through <paramref name="points"/> (control borders). Flushes the sprite first.</summary>
+        public static void DrawLines(Vector2[] points, Color colour)
+        {
+            Backend.SpriteFlush();
+            Backend.DrawLines(points, colour);
+        }
+
+        /// <summary>MapControl.DrawLights: lights add into the light map (SourceAlpha, One). Call after SetBlend(true).</summary>
+        public static void SetLightAdditiveBlend()
+        {
+            Backend.SetSourceBlend(RenderBlend.SourceAlpha);
+            Backend.SetDestinationBlend(RenderBlend.One);
+        }
+
+        /// <summary>MapControl.DrawLights: the light map multiplies the scene (Zero, SourceColor). Undo with <see cref="RestartSpriteAlphaBlend"/>.</summary>
+        public static void SetLightMultiplyBlend()
+        {
+            Backend.SetSourceBlend(RenderBlend.Zero);
+            Backend.SetDestinationBlend(RenderBlend.SourceColor);
+        }
+
+        /// <summary>Ends and restarts the sprite in AlphaBlend mode, restoring the default sprite states.</summary>
+        public static void RestartSpriteAlphaBlend()
+        {
+            Backend.SpriteEnd();
+            Backend.SpriteBegin(true);
+        }
+
+        public static bool IsDeviceLostException(Exception exception) => Backend != null && Backend.IsDeviceLostException(exception);
+
+        /// <summary>The back buffer as a bitmap (screenshots).</summary>
+        public static Bitmap CaptureBackBuffer() => Backend.CaptureBackBuffer();
+
+        public static void SetSurface(RenderTexture surface)
         {
             if (CurrentSurface == surface)
                 return;
 
-            Sprite.Flush();
+            Backend.SpriteFlush();
             CurrentSurface = surface;
-            Device.SetRenderTarget(0, surface);
+            Backend.SetRenderTarget(surface);
         }
         public static void SetGrayscale(bool value)
         {
@@ -231,27 +256,27 @@ namespace Client.MirGraphics
 
             if (value == true)
             {
-                if (Device.PixelShader == GrayScalePixelShader) return;
-                Sprite.Flush();
-                Device.PixelShader = GrayScalePixelShader;
+                if (Backend.IsPixelShaderActive(PixelShaderKind.Grayscale)) return;
+                Backend.SpriteFlush();
+                Backend.SetPixelShader(PixelShaderKind.Grayscale);
             }
             else
             {
-                if (Device.PixelShader == null) return;
-                Sprite.Flush();
-                Device.PixelShader = null;
+                if (Backend.IsPixelShaderActive(PixelShaderKind.None)) return;
+                Backend.SpriteFlush();
+                Backend.SetPixelShader(PixelShaderKind.None);
             }
         }
 
-        public static void DrawOpaque(Texture texture, Rectangle? sourceRect, Vector3? position, Color4 color, float opacity)
+        public static void DrawOpaque(RenderTexture texture, Rectangle? sourceRect, Vector3? position, Color4 color, float opacity)
         {
             color.Alpha = opacity;
             Draw(texture, sourceRect, position, color);
         }
 
-        public static void Draw(Texture texture, Rectangle? sourceRect, Vector3? position, Color4 color)
+        public static void Draw(RenderTexture texture, Rectangle? sourceRect, Vector3? position, Color4 color)
         {
-            Sprite.Draw(texture, sourceRect, Vector3.Zero, position, color);
+            Backend.SpriteDraw(texture, sourceRect, position, color);
             CMain.DPSCounter++;
         }
 
@@ -259,17 +284,15 @@ namespace Client.MirGraphics
         {
             try
             {
-                Result result = DXManager.Device.TestCooperativeLevel();
+                DeviceStatus status = Backend.TestCooperativeLevel();
 
-                if (result.Code == ResultCode.DeviceLost.Code) return;
+                if (status == DeviceStatus.Lost) return;
 
-                if (result.Code == ResultCode.DeviceNotReset.Code)
+                if (status == DeviceStatus.NotReset)
                 {
                     DXManager.ResetDevice();
                     return;
                 }
-
-                if (result.Code != ResultCode.Success.Code) return;
 
                 DXManager.DeviceLost = false;
             }
@@ -283,72 +306,46 @@ namespace Client.MirGraphics
             DXManager.CleanUp();
             DXManager.DeviceLost = true;
 
-            if (DXManager.Parameters == null) return;
+            if (DXManager.Backend == null) return;
 
             Size clientSize = Program.Form.ClientSize;
 
             if (clientSize.Width == 0 || clientSize.Height == 0) return;
 
-            DXManager.Parameters.Windowed = !Settings.FullScreen;
-            DXManager.Parameters.BackBufferWidth = clientSize.Width;
-            DXManager.Parameters.BackBufferHeight = clientSize.Height;
-            DXManager.Parameters.PresentationInterval = Settings.FPSCap ? PresentInterval.Default : PresentInterval.Immediate;
-            DXManager.Device.Reset(DXManager.Parameters);
+            DXManager.Backend.Reset(clientSize.Width, clientSize.Height, !Settings.FullScreen, Settings.FPSCap);
 
             DXManager.LoadTextures();
         }
 
         public static void AttemptRecovery()
         {
-            try
-            {
-                Sprite.End();
-            }
-            catch
-            {
-            }
-
-            try
-            {
-                Device.EndScene();
-            }
-            catch
-            {
-            }
-
-            try
-            {
-                MainSurface = Device.GetBackBuffer(0, 0);
-                CurrentSurface = MainSurface;
-                Device.SetRenderTarget(0, MainSurface);
-            }
-            catch
-            {
-            }
+            Backend.Recover();
+            MainSurface = Backend.BackBuffer;
+            CurrentSurface = MainSurface;
         }
         public static void SetOpacity(float opacity)
         {
             if (Opacity == opacity)
                 return;
 
-            Sprite.Flush();
-            Device.SetRenderState(RenderState.AlphaBlendEnable, true);
+            Backend.SpriteFlush();
+            Backend.SetAlphaBlendEnable(true);
             if (opacity >= 1 || opacity < 0)
             {
-                Device.SetRenderState(RenderState.SourceBlend, SlimDX.Direct3D9.Blend.SourceAlpha);
-                Device.SetRenderState(RenderState.DestinationBlend, SlimDX.Direct3D9.Blend.InverseSourceAlpha);
-                Device.SetRenderState(RenderState.SourceBlendAlpha, Blend.One);
-                Device.SetRenderState(RenderState.BlendFactor, Color.FromArgb(255, 255, 255, 255).ToArgb());
+                Backend.SetSourceBlend(RenderBlend.SourceAlpha);
+                Backend.SetDestinationBlend(RenderBlend.InverseSourceAlpha);
+                Backend.SetSourceBlendAlpha(RenderBlend.One);
+                Backend.SetBlendFactor(Color.FromArgb(255, 255, 255, 255));
             }
             else
             {
-                Device.SetRenderState(RenderState.SourceBlend, Blend.BlendFactor);
-                Device.SetRenderState(RenderState.DestinationBlend, Blend.InverseBlendFactor);
-                Device.SetRenderState(RenderState.SourceBlendAlpha, Blend.SourceAlpha);
-                Device.SetRenderState(RenderState.BlendFactor, Color.FromArgb((byte)(255 * opacity), (byte)(255 * opacity), (byte)(255 * opacity), (byte)(255 * opacity)).ToArgb());
+                Backend.SetSourceBlend(RenderBlend.BlendFactor);
+                Backend.SetDestinationBlend(RenderBlend.InverseBlendFactor);
+                Backend.SetSourceBlendAlpha(RenderBlend.SourceAlpha);
+                Backend.SetBlendFactor(Color.FromArgb((byte)(255 * opacity), (byte)(255 * opacity), (byte)(255 * opacity), (byte)(255 * opacity)));
             }
             Opacity = opacity;
-            Sprite.Flush();
+            Backend.SpriteFlush();
         }
         public static void SetBlend(bool value, float rate = 1F, BlendMode mode = BlendMode.NORMAL)
         {
@@ -358,71 +355,68 @@ namespace Client.MirGraphics
             BlendingRate = rate;
             BlendingMode = mode;
 
-            Sprite.Flush();
+            Backend.SpriteFlush();
 
-            Sprite.End();
+            Backend.SpriteEnd();
 
             if (Blending)
             {
-                Sprite.Begin(SpriteFlags.DoNotSaveState);
-                Device.SetRenderState(RenderState.AlphaBlendEnable, true);
+                Backend.SpriteBegin(false);
+                Backend.SetAlphaBlendEnable(true);
 
                 switch (BlendingMode)
                 {
                     case BlendMode.INVLIGHT:
-                        Device.SetRenderState(RenderState.BlendOperation, BlendOperation.Add);
-                        Device.SetRenderState(RenderState.SourceBlend, Blend.BlendFactor);
-                        Device.SetRenderState(RenderState.DestinationBlend, Blend.InverseSourceColor);
+                        Backend.SetBlendOperationAdd();
+                        Backend.SetSourceBlend(RenderBlend.BlendFactor);
+                        Backend.SetDestinationBlend(RenderBlend.InverseSourceColor);
                         break;
                     default:
-                        Device.SetRenderState(RenderState.SourceBlend, Blend.SourceAlpha);
-                        Device.SetRenderState(RenderState.DestinationBlend, Blend.One);
+                        Backend.SetSourceBlend(RenderBlend.SourceAlpha);
+                        Backend.SetDestinationBlend(RenderBlend.One);
                         break;
                 }
 
-                Device.SetRenderState(RenderState.BlendFactor, Color.FromArgb((byte)(255 * BlendingRate), (byte)(255 * BlendingRate),
-                                                                (byte)(255 * BlendingRate), (byte)(255 * BlendingRate)).ToArgb());
+                Backend.SetBlendFactor(Color.FromArgb((byte)(255 * BlendingRate), (byte)(255 * BlendingRate),
+                                                      (byte)(255 * BlendingRate), (byte)(255 * BlendingRate)));
             }
             else
-                Sprite.Begin(SpriteFlags.AlphaBlend);
+                Backend.SpriteBegin(true);
 
-            Device.SetRenderTarget(0, CurrentSurface);
+            Backend.SetRenderTarget(CurrentSurface);
         }
 
         public static void SetNormal(float blend, Color tintcolor)
         {
-            if (Device.PixelShader == NormalPixelShader)
+            if (Backend.IsPixelShaderActive(PixelShaderKind.Normal))
                 return;
 
-            Sprite.Flush();
-            Device.PixelShader = NormalPixelShader;
-            Device.SetPixelShaderConstant(0, new Vector4[] { new Vector4(1.0F, 1.0F, 1.0F, blend) });
-            Device.SetPixelShaderConstant(1, new Vector4[] { new Vector4(tintcolor.R / 255, tintcolor.G / 255, tintcolor.B / 255, 1.0F) });
-            Sprite.Flush();
+            Backend.SpriteFlush();
+            Backend.SetPixelShader(PixelShaderKind.Normal);
+            Backend.SetPixelShaderConstants(new Vector4(1.0F, 1.0F, 1.0F, blend), new Vector4(tintcolor.R / 255, tintcolor.G / 255, tintcolor.B / 255, 1.0F));
+            Backend.SpriteFlush();
         }
 
         public static void SetGrayscale(float blend, Color tintcolor)
         {
-            if (Device.PixelShader == GrayScalePixelShader)
+            if (Backend.IsPixelShaderActive(PixelShaderKind.Grayscale))
                 return;
 
-            Sprite.Flush();
-            Device.PixelShader = GrayScalePixelShader;
-            Device.SetPixelShaderConstant(0, new Vector4[] { new Vector4(1.0F, 1.0F, 1.0F, blend) });
-            Device.SetPixelShaderConstant(1, new Vector4[] { new Vector4(tintcolor.R / 255, tintcolor.G / 255, tintcolor.B / 255, 1.0F) });
-            Sprite.Flush();
+            Backend.SpriteFlush();
+            Backend.SetPixelShader(PixelShaderKind.Grayscale);
+            Backend.SetPixelShaderConstants(new Vector4(1.0F, 1.0F, 1.0F, blend), new Vector4(tintcolor.R / 255, tintcolor.G / 255, tintcolor.B / 255, 1.0F));
+            Backend.SpriteFlush();
         }
 
         public static void SetBlendMagic(float blend, Color tintcolor)
         {
-            if (Device.PixelShader == MagicPixelShader || MagicPixelShader == null)
+            if (Backend.IsPixelShaderActive(PixelShaderKind.Magic) || !Backend.IsPixelShaderAvailable(PixelShaderKind.Magic))
                 return;
 
-            Sprite.Flush();
-            Device.PixelShader = MagicPixelShader;
-            Device.SetPixelShaderConstant(0, new Vector4[] { new Vector4(1.0F, 1.0F, 1.0F, blend) });
-            Device.SetPixelShaderConstant(1, new Vector4[] { new Vector4(tintcolor.R / 255, tintcolor.G / 255, tintcolor.B / 255, 1.0F) });
-            Sprite.Flush();
+            Backend.SpriteFlush();
+            Backend.SetPixelShader(PixelShaderKind.Magic);
+            Backend.SetPixelShaderConstants(new Vector4(1.0F, 1.0F, 1.0F, blend), new Vector4(tintcolor.R / 255, tintcolor.G / 255, tintcolor.B / 255, 1.0F));
+            Backend.SpriteFlush();
         }
 
         public static void Clean()
@@ -461,35 +455,9 @@ namespace Client.MirGraphics
 
         private static void CleanUp()
         {
-            if (Sprite != null)
-            {
-                if (!Sprite.Disposed)
-                {
-                    Sprite.Dispose();
-                }
-
-                Sprite = null;
-            }
-
-            if (Line != null)
-            {
-                if (!Line.Disposed)
-                {
-                    Line.Dispose();
-                }
-
-                Line = null;
-            }
-
-            if (CurrentSurface != null)
-            {
-                if (!CurrentSurface.Disposed)
-                {
-                    CurrentSurface.Dispose();
-                }
-
-                CurrentSurface = null;
-            }
+            // The back buffer belongs to the backend (released in Backend.Reset/Dispose); only forget it here.
+            CurrentSurface = null;
+            MainSurface = null;
 
             if (PoisonDotBackground != null)
             {
@@ -519,13 +487,6 @@ namespace Client.MirGraphics
                 }
 
                 DXManager.FloorTexture = null;
-
-                if (DXManager.FloorSurface != null && !DXManager.FloorSurface.Disposed)
-                {
-                    DXManager.FloorSurface.Dispose();
-                }
-
-                DXManager.FloorSurface = null;
             }
 
             if (LightTexture != null)
@@ -534,13 +495,6 @@ namespace Client.MirGraphics
                     LightTexture.Dispose();
 
                 DXManager.LightTexture = null;
-
-                if (DXManager.LightSurface != null && !DXManager.LightSurface.Disposed)
-                {
-                    DXManager.LightSurface.Dispose();
-                }
-
-                DXManager.LightSurface = null;
             }
 
             if (Lights != null)
@@ -579,12 +533,8 @@ namespace Client.MirGraphics
         {
             CleanUp();
 
-            Device?.Direct3D?.Dispose();
-            Device?.Dispose();
-
-            NormalPixelShader?.Dispose();
-            GrayScalePixelShader?.Dispose();
-            MagicPixelShader?.Dispose();
+            Backend?.Dispose();
+            Backend = null;
         }
     }
 }

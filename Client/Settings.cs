@@ -1,4 +1,5 @@
-﻿using Client.MirSounds;
+﻿using Client.MirGraphics.Rendering;
+using Client.MirSounds;
 
 namespace Client
 {
@@ -75,6 +76,7 @@ namespace Client
 
         public static bool FPSCap = true;
         public static int MaxFPS = 100;
+        public static RendererType Renderer = RendererType.D3D9; // [Graphics] Renderer: D3D9 (default) or D3D11 (roadmap C4)
         public static int Resolution = 1024;
         public static bool DebugMode = false;
 
@@ -215,6 +217,7 @@ namespace Client
             TopMost = Reader.ReadBoolean("Graphics", "AlwaysOnTop", TopMost);
             FPSCap = Reader.ReadBoolean("Graphics", "FPSCap", FPSCap);
             MaxFPS = Math.Max(10, Reader.ReadInt32("Graphics", "MaxFPS", MaxFPS)); // roadmap C1: was never read
+            Renderer = Enum.TryParse(Reader.ReadString("Graphics", "Renderer", Renderer.ToString()), true, out RendererType renderer) ? renderer : RendererType.D3D9;
             Resolution = Reader.ReadInt32("Graphics", "Resolution", Resolution);
             DebugMode = Reader.ReadBoolean("Graphics", "DebugMode", DebugMode);
             UseMouseCursors = Reader.ReadBoolean("Graphics", "UseMouseCursors", UseMouseCursors);
@@ -342,6 +345,7 @@ namespace Client
             Reader.Write("Graphics", "AlwaysOnTop", TopMost);
             Reader.Write("Graphics", "FPSCap", FPSCap);
             Reader.Write("Graphics", "MaxFPS", MaxFPS);
+            Reader.Write("Graphics", "Renderer", Renderer.ToString());
             Reader.Write("Logs", "LogErrors", LogErrors); // roadmap C1: [Logs] was load-only
             Reader.Write("Logs", "LogChat", LogChat);
             Reader.Write("Graphics", "Resolution", Resolution);

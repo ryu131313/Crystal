@@ -6,7 +6,6 @@ using Client.MirGraphics;
 using Client.MirNetwork;
 using Client.MirObjects;
 using Client.MirSounds;
-using SlimDX.Direct3D9;
 using C = ClientPackets;
 using Font = System.Drawing.Font;
 

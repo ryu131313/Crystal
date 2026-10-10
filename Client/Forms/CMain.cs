@@ -10,7 +10,6 @@ using Client.MirGraphics;
 using Client.MirNetwork;
 using Client.MirScenes;
 using Client.MirSounds;
-using SlimDX.Direct3D9;
 using SlimDX.Windows;
 using Font = System.Drawing.Font;
 
@@ -405,21 +404,17 @@ namespace Client
                 }
 
                 long frameStart = FrameProfiler.Now();
-                DXManager.Device.Clear(ClearFlags.Target, Color.Black, 0, 0);
-                DXManager.Device.BeginScene();
-                DXManager.Sprite.Begin(SpriteFlags.AlphaBlend);
-                DXManager.SetSurface(DXManager.MainSurface);
+                DXManager.BeginFrame();
 
                 if (MirScene.ActiveScene != null)
                     MirScene.ActiveScene.Draw();
 
-                DXManager.Sprite.End();
-                DXManager.Device.EndScene();
+                DXManager.EndFrame();
                 long presentStart = FrameProfiler.Now();
-                DXManager.Device.Present();
+                DXManager.Present();
                 FrameProfiler.AddFrame(frameStart, presentStart);
             }
-            catch (Direct3D9Exception ex)
+            catch (Exception ex) when (DXManager.IsDeviceLostException(ex))
             {
                 DXManager.DeviceLost = true;
                 SaveError(ex.ToString());
@@ -591,8 +586,6 @@ namespace Client
 
             Program.Form.TopMost = Settings.FullScreen;
 
-            DXManager.Parameters.Windowed = !Settings.FullScreen;
-
             Program.Form.ClientSize = new Size(Settings.ScreenWidth, Settings.ScreenHeight);
 
             DXManager.ResetDevice();
@@ -614,11 +607,8 @@ namespace Client
                 Now.ToShortDateString(),
                 Now.TimeOfDay);
 
-            Surface backbuffer = DXManager.Device.GetBackBuffer(0, 0);
-
-            using (var stream = Surface.ToStream(backbuffer, ImageFileFormat.Png))
             {
-                Bitmap image = new Bitmap(stream);
+                Bitmap image = DXManager.CaptureBackBuffer();
 
                 using (Graphics graphics = Graphics.FromImage(image))
                 {
@@ -680,8 +670,8 @@ namespace Client
             Settings.ScreenHeight = height;
             Program.Form.ClientSize = new Size(width, height);
 
-            DXManager.Device.Clear(ClearFlags.Target, Color.Black, 0, 0);
-            DXManager.Device.Present();
+            DXManager.Clear(Color.Black);
+            DXManager.Present();
             DXManager.ResetDevice();
 
             if (!Settings.FullScreen)

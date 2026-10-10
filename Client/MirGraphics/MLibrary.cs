@@ -1,5 +1,5 @@
-﻿using SlimDX;
-using SlimDX.Direct3D9;
+﻿using Client.MirGraphics.Rendering;
+using SlimDX;
 using System.IO.Compression;
 using Frame = Client.MirObjects.Frame;
 using Client.MirObjects;
@@ -767,10 +767,10 @@ namespace Client.MirGraphics
             float scaleY = (float)size.Height / mi.Height;
 
             Matrix matrix = Matrix.Scaling(scaleX, scaleY, 0);
-            DXManager.Sprite.Transform = matrix;
+            DXManager.SetSpriteTransform(matrix);
             DXManager.Draw(mi.Image, new Rectangle(0, 0, mi.Width, mi.Height), new Vector3((float)point.X / scaleX, (float)point.Y / scaleY, 0.0F), Color.White); 
 
-            DXManager.Sprite.Transform = Matrix.Identity;
+            DXManager.SetSpriteTransform(Matrix.Identity);
 
             mi.CleanTime = CMain.Time + Settings.CleanDelay;
         }
@@ -864,12 +864,12 @@ namespace Client.MirGraphics
         public int Length;
 
         public bool TextureValid;
-        public Texture Image;
+        public RenderTexture Image;
         //layer 2:
         public short MaskWidth, MaskHeight, MaskX, MaskY;
         public int MaskLength;
 
-        public Texture MaskImage;
+        public RenderTexture MaskImage;
         public Boolean HasMask;
 
         public long CleanTime;
@@ -907,14 +907,13 @@ namespace Client.MirGraphics
             int w = Width;// + (4 - Width % 4) % 4;
             int h = Height;// + (4 - Height % 4) % 4;
 
-            Image = new Texture(DXManager.Device, w, h, 1, Usage.None, Format.A8R8G8B8, Pool.Managed);
-            DataRectangle stream = Image.LockRectangle(0, LockFlags.Discard);
-            Data = (byte*)stream.Data.DataPointer;
+            Image = DXManager.CreateTexture(w, h);
+            Data = DXManager.LockTexture(Image);
 
-            DecompressImage(reader.ReadBytes(Length), stream.Data);
+            using (var stream = new UnmanagedMemoryStream(Data, (long)w * h * 4, (long)w * h * 4, FileAccess.Write))
+                DecompressImage(reader.ReadBytes(Length), stream);
 
-            stream.Data.Dispose();
-            Image.UnlockRectangle(0);
+            DXManager.UnlockTexture(Image);
 
             if (HasMask)
             {
@@ -922,13 +921,13 @@ namespace Client.MirGraphics
                 w = Width;// + (4 - Width % 4) % 4;
                 h = Height;// + (4 - Height % 4) % 4;
 
-                MaskImage = new Texture(DXManager.Device, w, h, 1, Usage.None, Format.A8R8G8B8, Pool.Managed);
-                stream = MaskImage.LockRectangle(0, LockFlags.Discard);
+                MaskImage = DXManager.CreateTexture(w, h);
+                byte* mask = DXManager.LockTexture(MaskImage);
 
-                DecompressImage(reader.ReadBytes(Length), stream.Data);
+                using (var stream = new UnmanagedMemoryStream(mask, (long)w * h * 4, (long)w * h * 4, FileAccess.Write))
+                    DecompressImage(reader.ReadBytes(Length), stream);
 
-                stream.Data.Dispose();
-                MaskImage.UnlockRectangle(0);
+                DXManager.UnlockTexture(MaskImage);
             }
 
             DXManager.TextureList.Add(this);

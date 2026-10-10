@@ -1,7 +1,7 @@
 ﻿using Client.MirGraphics;
 using Client.MirSounds;
+using Client.MirGraphics.Rendering;
 using SlimDX;
-using SlimDX.Direct3D9;
 
 namespace Client.MirControls
 {
@@ -114,7 +114,7 @@ namespace Client.MirControls
 
         #region Control Texture
         public long CleanTime;
-        protected Texture ControlTexture;
+        protected RenderTexture ControlTexture;
         protected internal bool TextureValid;
         private bool _drawControlTexture;
         protected Size TextureSize;
@@ -134,18 +134,16 @@ namespace Client.MirControls
             if (ControlTexture == null || ControlTexture.Disposed)
             {
                 DXManager.ControlList.Add(this);
-                ControlTexture = new Texture(DXManager.Device, Size.Width, Size.Height, 1, Usage.RenderTarget, Format.A8R8G8B8, Pool.Default);
+                ControlTexture = DXManager.CreateRenderTarget(Size.Width, Size.Height);
                 TextureSize = Size;
             }
 
-            Surface oldSurface = DXManager.CurrentSurface;
-            Surface surface = ControlTexture.GetSurfaceLevel(0);
-            DXManager.SetSurface(surface);
-            DXManager.Device.Clear(ClearFlags.Target, BackColour, 0, 0);
+            RenderTexture oldSurface = DXManager.CurrentSurface;
+            DXManager.SetSurface(ControlTexture);
+            DXManager.Clear(BackColour);
             DXManager.SetSurface(oldSurface);
 
             TextureValid = true;
-            surface.Dispose();
         }
 
         internal void DisposeTexture()
@@ -739,8 +737,7 @@ namespace Client.MirControls
         {
             if (!Border || BorderInfo == null)
                 return;
-            DXManager.Sprite.Flush();
-            DXManager.Line.Draw(BorderInfo, _borderColour);
+            DXManager.DrawLines(BorderInfo, _borderColour);
         }
         protected void AfterDrawControl()
         {

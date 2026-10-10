@@ -3,8 +3,8 @@ using Client.MirGraphics;
 using Client.MirNetwork;
 using Client.MirObjects;
 using Client.MirSounds;
+using Client.MirGraphics.Rendering;
 using SlimDX;
-using SlimDX.Direct3D9;
 using Font = System.Drawing.Font;
 using S = ServerPackets;
 using C = ClientPackets;
@@ -10560,14 +10560,13 @@ namespace Client.MirScenes
             if (ControlTexture == null || ControlTexture.Disposed)
             {
                 DXManager.ControlList.Add(this);
-                ControlTexture = new Texture(DXManager.Device, Size.Width, Size.Height, 1, Usage.RenderTarget, Format.A8R8G8B8, Pool.Default);
+                ControlTexture = DXManager.CreateRenderTarget(Size.Width, Size.Height);
                 TextureSize = Size;
             }
 
-            Surface oldSurface = DXManager.CurrentSurface;
-            Surface surface = ControlTexture.GetSurfaceLevel(0);
-            DXManager.SetSurface(surface);
-            DXManager.Device.Clear(ClearFlags.Target, BackColour, 0, 0);
+            RenderTexture oldSurface = DXManager.CurrentSurface;
+            DXManager.SetSurface(ControlTexture);
+            DXManager.Clear(BackColour);
 
             DrawBackground();
 
@@ -10629,7 +10628,6 @@ namespace Client.MirScenes
                 MapObject.User.DrawName();
 
             DXManager.SetSurface(oldSurface);
-            surface.Dispose();
             TextureValid = true;
 
         }
@@ -10659,13 +10657,12 @@ namespace Client.MirScenes
         {
             if (DXManager.FloorTexture == null || DXManager.FloorTexture.Disposed)
             {
-                DXManager.FloorTexture = new Texture(DXManager.Device, Settings.ScreenWidth, Settings.ScreenHeight, 1, Usage.RenderTarget, Format.A8R8G8B8, Pool.Default);
-                DXManager.FloorSurface = DXManager.FloorTexture.GetSurfaceLevel(0);
+                DXManager.FloorTexture = DXManager.CreateRenderTarget(Settings.ScreenWidth, Settings.ScreenHeight);
             }
 
-            Surface oldSurface = DXManager.CurrentSurface;
-            DXManager.SetSurface(DXManager.FloorSurface);
-            DXManager.Device.Clear(ClearFlags.Target, Color.Empty, 0, 0);
+            RenderTexture oldSurface = DXManager.CurrentSurface;
+            DXManager.SetSurface(DXManager.FloorTexture);
+            DXManager.Clear(Color.Empty);
 
 
             int startX = User.Movement.X - ViewRangeX;
@@ -10945,7 +10942,7 @@ namespace Client.MirScenes
                 }
             }
 
-            DXManager.Sprite.Flush();
+            DXManager.Flush();
             float oldOpacity = DXManager.Opacity;
             DXManager.SetOpacity(0.4F);
 
@@ -11027,12 +11024,11 @@ namespace Client.MirScenes
 
             if (DXManager.LightTexture == null || DXManager.LightTexture.Disposed)
             {
-                DXManager.LightTexture = new Texture(DXManager.Device, Settings.ScreenWidth, Settings.ScreenHeight, 1, Usage.RenderTarget, Format.A8R8G8B8, Pool.Default);
-                DXManager.LightSurface = DXManager.LightTexture.GetSurfaceLevel(0);
+                DXManager.LightTexture = DXManager.CreateRenderTarget(Settings.ScreenWidth, Settings.ScreenHeight);
             }
 
-            Surface oldSurface = DXManager.CurrentSurface;
-            DXManager.SetSurface(DXManager.LightSurface);
+            RenderTexture oldSurface = DXManager.CurrentSurface;
+            DXManager.SetSurface(DXManager.LightTexture);
 
             #region Night Lights
             Color darkness;
@@ -11076,15 +11072,14 @@ namespace Client.MirScenes
                 darkness = GetBlindLight(darkness);
             }
 
-            DXManager.Device.Clear(ClearFlags.Target, darkness, 0, 0);
+            DXManager.Clear(darkness);
 
             #endregion
 
             int light;
             Point p;
             DXManager.SetBlend(true);
-            DXManager.Device.SetRenderState(RenderState.SourceBlend, Blend.SourceAlpha);
-            DXManager.Device.SetRenderState(RenderState.DestinationBlend, Blend.One);
+            DXManager.SetLightAdditiveBlend();
 
             #region Object Lights (Player/Mob/NPC)
             foreach (var ob in Objects.Values)
@@ -11264,13 +11259,11 @@ namespace Client.MirScenes
             DXManager.SetBlend(false);
             DXManager.SetSurface(oldSurface);
 
-            DXManager.Device.SetRenderState(RenderState.SourceBlend, Blend.Zero);
-            DXManager.Device.SetRenderState(RenderState.DestinationBlend, Blend.SourceColor);
+            DXManager.SetLightMultiplyBlend();
 
             DXManager.Draw(DXManager.LightTexture, new Rectangle(0, 0, Settings.ScreenWidth, Settings.ScreenHeight), Vector3.Zero, Color.White);
 
-            DXManager.Sprite.End();
-            DXManager.Sprite.Begin(SpriteFlags.AlphaBlend);
+            DXManager.RestartSpriteAlphaBlend();
         }
 
         private static void OnMouseClick(object sender, EventArgs e)
