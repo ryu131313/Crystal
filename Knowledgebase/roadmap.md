@@ -435,7 +435,7 @@ Later decisions are listed per phase in the phase notes. **Answered 2026-10-09:*
 | P2 Crash-safe saves | Code done 2026-10-10 (deploy + 48 h watch pending) | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
 | P3 BinaryFormatter / v118 | Code done 2026-10-10 (deploy + 72 h watch pending, after P2) | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
 | P4 Server .NET 10 | Code done 2026-10-10 (deploy after P3 + 7-day watch pending) | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
-| P5 Safety net | Not started | — | — |
+| P5 Safety net | Code done 2026-10-10 (deploy + 7-day watch pending; runtime fault injection waits for P6 soak) | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
 | P6 Measurement | Not started | — | — |
 | P7 SQLite system data | Not started | — | — |
 | P8 Security | Not started | — | — |

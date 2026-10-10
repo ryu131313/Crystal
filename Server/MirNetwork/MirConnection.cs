@@ -186,6 +186,7 @@ namespace Server.MirNetwork
                     receiveList.Enqueue(p);
 
                 _rawData = raw;
+                Envir.WakeLoop(); // a parked game loop picks the packets up within ~1 ms at most (roadmap P6)
             }
             catch
             {
@@ -274,6 +275,7 @@ namespace Server.MirNetwork
 
                 TimeOutTime = Envir.Time + Settings.TimeOut;
                 LastPacketIndex = p.Index; // identity for isolated-error logs (roadmap P5)
+                LoopProfiler.CountPacketIn();
                 ProcessPacket(p);
 
                 if (_receiveList == null)
@@ -292,14 +294,17 @@ namespace Server.MirNetwork
             if (_sendList == null || _sendList.Count <= 0) return;
 
             List<byte> data = new List<byte>();
+            var sent = 0;
 
             while (!_sendList.IsEmpty)
             {
                 Packet p;
                 if (!_sendList.TryDequeue(out p) || p == null) continue;
                 data.AddRange(p.GetPacketBytes());
+                sent++;
             }
 
+            LoopProfiler.CountPacketsOut(sent, data.Count);
             BeginSend(data);
         }
         private void ProcessPacket(Packet p)

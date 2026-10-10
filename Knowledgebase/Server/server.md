@@ -229,7 +229,7 @@ Every path is relative to the **process cwd** (`Path.Combine(".", ...)`); `Progr
 
 | Location | Issue |
 |---|---|
-| `Envir.WorkLoop` | Busy spin, no idle wait (`Thread.Sleep(1)` commented out); `Map.Process` for every map every iteration |
+| `Envir.WorkLoop` | ~~Busy spin~~ (idle park since roadmap P6); `Map.Process` for every map every iteration |
 | `MirConnection.Process` | `new List<byte>()` + `AddRange(p.GetPacketBytes())` + `ToArray()` per flush |
 | `MirConnection` queues | `_sendList`/`_retryList` uncapped; `MaxPacket` limits socket reads per 5 s, not queued packets |
 | `PlayerObject.Broadcast` | `Array.Exists` lambda capturing `p` (closure per broadcast) + `foreach` over `Observers` |
@@ -282,7 +282,7 @@ Crystal keeps plain `List<T>` on `Envir` (`AccountList`, `CharacterList`, `ItemI
 - **NEVER** change `Settings.Multithreaded` / `Settings.ThreadLimit` while an `Envir` exists — `MobThreads` is sized once; stage to ini and restart the process.
 - **NEVER** mutate a shared collection from two threads; the only sanctioned cross-thread write is `lock (Connections) Connections.Add` in the accept callback.
 - **NEVER** call `SaveDB`, `BeginSaveAccounts`, `SaveAccounts`, `SaveGuilds` from HTTP/UI threads while the world runs — use `Envir.Main.RequestSaveNow()`. `SaveAccounts()` off-thread only when the world is fully stopped.
-- **NEVER** add blocking I/O, `Thread.Sleep` or waits on the game thread.
+- **NEVER** add blocking I/O, `Thread.Sleep` or waits on the game thread. **Sole exception (roadmap P6, approved 2026-10-09):** the WorkLoop idle park, `_loopSignal.WaitOne(1)` at the end of an iteration that took < 1 ms, guarded by `[Optimisation] IdlePark` and woken by `Envir.WakeLoop()` from receive, accept and `QueueAdminAction`. Anything new that must wake the loop calls `WakeLoop()`; nothing else may wait.
 - **NEVER** read `DateTime.Now`/`DateTime.UtcNow` in game logic: use `Envir.Time` for timers and `Envir.Now` (UTC-based) for calendar values, cached in a local inside loops.
 - **NEVER** call `Envir.Stop()` / `Reboot()` on the game thread (Stop busy-waits for that thread).
 - **NEVER** take `lock (Connections)` while holding `AccountLock` (the loop holds `Connections` across packet handling and `Disconnect` takes `AccountLock` inside it). **NEVER** take `EditLock` on the game thread or while holding `AccountLock` (use `Monitor.TryEnter` and degrade).

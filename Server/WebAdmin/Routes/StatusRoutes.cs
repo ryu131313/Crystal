@@ -88,6 +88,7 @@ namespace Server.WebAdmin.Routes
                 isolatedErrors = WorldErrors.Count,
                 recentIsolatedErrors = WorldErrors.Recent(),
                 accountSaveFailures = Envir.AccountSaveFailures,
+                loopProfile = LoopProfiler.Last, // roadmap P6: last one-second window (null until the world has run 1 s)
             });
         }
     }

@@ -2059,7 +2059,9 @@ namespace Server.MirEnvir
                 {
                     while (Running)
                     {
+                        LoopProfiler.BeginIteration();
                         Time = Stopwatch.ElapsedMilliseconds;
+                        if (!_timerResolutionSet) { TimerResolution.Begin(); _timerResolutionSet = true; }
 
                         if (Time >= processTime)
                         {
@@ -2068,6 +2070,7 @@ namespace Server.MirEnvir
                             processCount = 0;
                             processRealCount = 0;
                             processTime = Time + 1000;
+                            LoopProfiler.Publish();
                         }
 
                         if (conTime != Time)
@@ -2105,6 +2108,8 @@ namespace Server.MirEnvir
                         }
 
 
+                        LoopProfiler.Mark(LoopProfiler.Phase.Connections);
+
                         if (current == null)
                             current = Objects.First;
 
@@ -2132,6 +2137,7 @@ namespace Server.MirEnvir
                             //run the first loop in the main thread so the main thread automaticaly 'halts' until the other threads are finished
                             ThreadLoop(MobThreads[0]);
                         }
+                        LoopProfiler.Mark(LoopProfiler.Phase.MobBarrier);
 
                         var TheEnd = false;
                         var Start = Stopwatch.ElapsedMilliseconds;
@@ -2165,6 +2171,7 @@ namespace Server.MirEnvir
                             }
                             current = next;
                         }
+                        LoopProfiler.Mark(LoopProfiler.Phase.Objects);
 
                         for (var i = 0; i < MapList.Count; i++)
                         {
@@ -2177,6 +2184,8 @@ namespace Server.MirEnvir
                                 WorldErrors.Record("Map.Process " + (MapList[i].Info?.FileName ?? "?"), ex);
                             }
                         }
+
+                        LoopProfiler.Mark(LoopProfiler.Phase.Maps);
 
                         try
                         {
@@ -2196,7 +2205,10 @@ namespace Server.MirEnvir
                             WorldErrors.Record("Envir.Process", ex);
                         }
 
+                        LoopProfiler.Mark(LoopProfiler.Phase.EnvirProcess);
+
                         DrainAdminActions();
+                        LoopProfiler.Mark(LoopProfiler.Phase.AdminDrain);
 
                         if (Time >= saveTime || _saveNowRequested)
                         {
@@ -2211,6 +2223,7 @@ namespace Server.MirEnvir
                             try { SaveConquests(); } catch (Exception ex) { WorldErrors.Record("SaveConquests", ex); }
                             BackupRetention.RunInBackground(); // no-op unless [Backup] RetentionEnabled
                         }
+                        LoopProfiler.Mark(LoopProfiler.Phase.Saves);
 
                         if (Time >= userTime)
                         {
@@ -2232,8 +2245,13 @@ namespace Server.MirEnvir
                             });
                         }
 
-                        //   if (Players.Count == 0) Thread.Sleep(1);
-                        //   GC.Collect();
+                        LoopProfiler.EndIteration();
+
+                        // Idle park (roadmap P6; overrides server.md 3.2 "no waits on the game thread", approved 2026-10-09):
+                        // when this iteration did almost nothing, wait at most 1 ms instead of spinning a core. Network
+                        // receive, accept and admin actions wake the loop early (WakeLoop), so latency stays <= ~1 ms.
+                        if (Settings.IdlePark && Stopwatch.ElapsedMilliseconds - Time < 1)
+                            _loopSignal.WaitOne(1);
                     }
                 }
                 catch (Exception ex)
@@ -2255,6 +2273,8 @@ namespace Server.MirEnvir
                 }
 
                 CloseAdminQueue();
+                TimerResolution.End();
+                _timerResolutionSet = false;
 
                 StopNetwork();
                 StopEnvir();
@@ -2287,6 +2307,7 @@ namespace Server.MirEnvir
             try
             {
                 var stopping = false;
+                var passComplete = false; // roadmap P6: sub-threads stop after one full pass instead of re-walking until EndTime
                 if (Info._current == null)
                     Info._current = Info.ObjectsList.First;
                 stopping = Info._current == null;
@@ -2294,7 +2315,10 @@ namespace Server.MirEnvir
                 while (Running)
                 {
                     if (Info._current == null)
+                    {
                         Info._current = Info.ObjectsList.First;
+                        if (Info._current == null) passComplete = true; // empty list: nothing to walk
+                    }
                     else
                     {
                         var next = Info._current.Next;
@@ -2302,6 +2326,7 @@ namespace Server.MirEnvir
                         //if we reach the end of our list > go back to the top (since we are running threaded, we dont want the system to sit there for xxms doing nothing)
                         if (Info._current == Info.ObjectsList.Last)
                         {
+                            passComplete = true;
                             next = Info.ObjectsList.First;
                             Info.LastRunTime = (Info.LastRunTime + (Time - Info.StartTime)) / 2;
                             //Info.LastRunTime = (Time - Info.StartTime) /*> 0 ? (Time - Info.StartTime) : Info.LastRunTime */;
@@ -2345,7 +2370,11 @@ namespace Server.MirEnvir
                         return;
                     }
 
-                    if (Stopwatch.ElapsedMilliseconds <= Info.EndTime || !Running) continue;
+                    if (!Running) continue;
+                    // One pass per tick (roadmap P6, [Optimisation] MobThreadOnePass): the old behaviour re-walked the list until
+                    // EndTime (Time + 10 ms) every tick, keeping each mob thread and the game thread's barrier busy at idle.
+                    if (!(Settings.MobThreadOnePass && passComplete) && Stopwatch.ElapsedMilliseconds <= Info.EndTime) continue;
+                    passComplete = false;
                     Info.Stop = true;
                     lock (_locker)
                     {
@@ -3516,6 +3545,7 @@ namespace Server.MirEnvir
                 _adminActions.Enqueue((action, dropped));
             }
 
+            WakeLoop();
             return true;
         }
 
@@ -3628,6 +3658,12 @@ namespace Server.MirEnvir
                 Start();
             }).Start();
         }
+
+        private readonly AutoResetEvent _loopSignal = new AutoResetEvent(false);
+        private bool _timerResolutionSet;
+
+        /// <summary>Wakes a parked WorkLoop (roadmap P6). Safe from any thread; cheap when the loop is not parked.</summary>
+        public void WakeLoop() => _loopSignal.Set();
 
         public void UpdateIPBlock(string ipAddress, TimeSpan value)
         {
@@ -3943,6 +3979,7 @@ namespace Server.MirEnvir
                             connected = true;
                             lock (Connections)
                                 Connections.Add(tempConnection);
+                            WakeLoop();
                         }
                     }
                 }

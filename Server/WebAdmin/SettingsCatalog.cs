@@ -216,6 +216,12 @@ namespace Server.WebAdmin
                 "SCRATCH SERVERS ONLY. Exempts 127.x / ::1 from IP blocks, Max connections per IP and the per-IP account/character limits so a local bot fleet can connect. Never enable behind a reverse proxy: every player would look like loopback.");
             Add(N, "LoadTest", "LoopbackMaxPacket", "LoadTestLoopbackMaxPacket", I32, "Load test: loopback packet limit",
                 "Flood limit for loopback connections when the exemption is on (0 = same as Max packets per interval).", min: 0);
+            Add(N, "Optimisation", "IdlePark", "IdlePark", B, "Idle game loop",
+                "When an iteration has nothing to do, the game loop waits up to 1 ms (woken early by network and admin activity) instead of spinning a CPU core.");
+            Add(N, "Optimisation", "MobThreadOnePass", "MobThreadOnePass", B, "Mob threads: one pass per tick",
+                "Monster threads walk their list once per tick and then wait, instead of re-walking it for ~10 ms. Only matters with Multithreaded on.");
+            Add(N, "Diag", "LogLoopProfile", "LogLoopProfile", B, "Log loop profile",
+                "Write one [Diag] Loop line per second to the Debug log (per-phase ms, iterations, packets, GC). The numbers are always on the dashboard status.");
             Add(N, "Network", "StartHTTPService", "StartHTTPService", B, "Legacy HTTP service",
                 "Start Crystal's small HTTP service (new account / name list / broadcast URLs) with the world.",
                 SettingRestart.World);
