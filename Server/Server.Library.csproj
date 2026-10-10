@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Server.WebAdmin.Tests" />
+    <InternalsVisibleTo Include="Server.Persistence.Tests" />
   </ItemGroup>
 
 </Project>
