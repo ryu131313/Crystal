@@ -1,7 +1,7 @@
 # StressClient and the scratch server (roadmap P6)
 
 > **What:** headless load-test bots (`StressClient\`) plus a synthetic world generator (`tools\scratch-world\`) and start/stop scripts (`tools\start-scratch-server.ps1`, `tools\stop-scratch-server.ps1`) for a **scratch** `Server.exe`.
-> **Status:** MVP written 2026-10-10. Not in `Legend of Mir.sln` yet and not in `tools\verify.ps1` (add both when it is committed).
+> **Status:** committed 2026-10-10; in `Legend of Mir.sln` and `tools\verify.ps1` (key `StressClient`). Baseline/regression: `tools\run-baseline.ps1`; stability soak: `tools\run-soak.ps1` (§8).
 > **Safety:** scratch only. Never point the bots at a live server, and never copy the load-test `Setup.ini` to a real server.
 
 ---
@@ -39,7 +39,7 @@ Check a run: `run\Logs\Server\Server (dd-MM-yyyy).log` must have no `[World] Iso
 ## 3. The synthetic world
 
 - **Map:** the oldest Crystal format (`Map.FindType` → 0, `LoadMapCellsv0`): a 52-byte header (`Int16` width, `Int16` height, rest zero), then 12 zero bytes per cell, column-major. All-zero cells are walkable floor, no doors, no lights. The width's low byte must not be 0x00/0x0D/0x0F/0x10/0x15 (other formats' signatures); the generator checks this.
-- **Server.MirDB:** written by the real `Envir.Main.SaveDB()` with cwd = the output folder (`Envir` paths are cwd-relative). One map `scratch0` with a `StartPoint` safe zone (size 5) in the centre; `ScratchHen` (AI 1, Deer: wanders, 40 HP) and `ScratchOma` (AI 0, 120 HP) respawning across the map; start items `WoodenSword` (DC 2-5), `BaseDress(M)`, `(HP)DrugSmall`, plus `Gold` and `BlackIronOre`.
+- **Server.MirDB:** written by the real `Envir.Main.SaveDB()` with cwd = the output folder (`Envir` paths are cwd-relative). One map `scratch0` (or `--maps N` / start-script `-Maps N`: `scratch0..N-1`, each with its own start point; new characters pick a random start point, so bots spread across maps) with a `StartPoint` safe zone (size 5) in the centre; `ScratchHen` (AI 1, Deer: wanders, 40 HP) and `ScratchOma` (AI 0, 120 HP) respawning across the map; start items `WoodenSword` (DC 2-5), `BaseDress(M)`, `(HP)DrugSmall`, plus `Gold` and `BlackIronOre`.
 - `EnforceDBChecks=False` is required: the world has none of the ~50 special monsters `Envir.CanStartEnvir` otherwise demands.
 
 ## 4. The load-test profile (`run\Configs\Setup.ini`)
@@ -84,11 +84,17 @@ Identities are deterministic: account `<prefix><index:D5>` (e.g. `sb00042`), cha
 
 Not the P6 baseline matrix (that needs the idle park first; roadmap P6).
 
-**Server finding (not fixed, reported):** at mass disconnect `Server.exe` logged `FATAL TaskScheduler.UnobservedTaskException` (`SocketException 995`) and wrote `Logs\Crash\crash-*.txt`. Cause: `MirConnection.ReceiveData` returns on `!Connected` **before** calling `EndReceive`, so the aborted receive's exception is never observed. Harmless to the world, but it fills `Logs\Crash`. Fix: call `EndReceive` (in the existing try/catch) before the `Connected` check.
+**Server finding (fixed 2026-10-10, commit b7670b45):** at mass disconnect `Server.exe` logged `FATAL TaskScheduler.UnobservedTaskException` (`SocketException 995`) and wrote `Logs\Crash\crash-*.txt`. Cause: `MirConnection.ReceiveData` returns on `!Connected` **before** calling `EndReceive`, so the aborted receive's exception is never observed. Harmless to the world, but it fills `Logs\Crash`. Fix: call `EndReceive` (in the existing try/catch) before the `Connected` check.
 
 ## 7. Known limits
 
-- Bots are all Warriors on one map; no spells, no NPCs, no trading, no chat.
+- Bots are all Warriors; no spells, no NPCs, no trading, no chat, no guilds, no observers, no heroes. They stay on the map they start on (no teleports); `map entries` in the summary shows the spread.
 - RTT is KeepAlive only (game-loop latency plus loopback), not per-action latency.
 - `kills` counts monsters whose death the bot saw after it attacked them last; shared kills are under-counted.
 - The bots' address is 127.0.0.1, so a real-network test needs the server bound elsewhere and **no** `ExemptLoopback` benefit: expect per-IP limits.
+
+## 8. Baseline, A/B and soak scripts
+
+- `tools\run-baseline.ps1`: idle (Multithreaded on/off) plus 50/200/500 bots, 60 s windows; markdown report with the `[Diag] Loop` averages. `-Bots`, `-NoIdle`, `-ExtraIni '[Section]','Key=Value'` for A/B of an `[Optimisation]` switch, `-Label`, `-Out`.
+- `tools\run-soak.ps1`: fresh world with `-Maps` maps, `-Bots` bots for `-Minutes`. It samples the server every `-SampleSeconds` (CPU, working set, private bytes, handles, threads) into a CSV next to the report, and reports the memory slope after a 10-minute warm-up, the first vs last 10 minutes of the loop profile, isolated errors, FATAL lines, crash files, EncodeOnce warnings and the bot summary. Defaults: 300 bots, 4 maps, 60 min.
+- Results live in `Knowledgebase\Future Optimisation\` (`Baseline-*.md`, `Soak-*.md`, `P9-NN-*.md`). CPU figures are only comparable on a quiet machine; memory, handles, errors and bot results hold regardless.
