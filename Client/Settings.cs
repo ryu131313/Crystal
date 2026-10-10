@@ -76,7 +76,7 @@ namespace Client
 
         public static bool FPSCap = true;
         public static int MaxFPS = 100;
-        public static RendererType Renderer = RendererType.D3D9; // [Graphics] Renderer: D3D9 (default) or D3D11 (roadmap C4)
+        public static RendererType Renderer = RendererType.D3D11; // [Graphics] Renderer: D3D11 (default since roadmap C4 QA, falls back to D3D9 if it cannot start) or D3D9
         public static int Resolution = 1024;
         public static bool DebugMode = false;
 
@@ -217,7 +217,7 @@ namespace Client
             TopMost = Reader.ReadBoolean("Graphics", "AlwaysOnTop", TopMost);
             FPSCap = Reader.ReadBoolean("Graphics", "FPSCap", FPSCap);
             MaxFPS = Math.Max(10, Reader.ReadInt32("Graphics", "MaxFPS", MaxFPS)); // roadmap C1: was never read
-            Renderer = Enum.TryParse(Reader.ReadString("Graphics", "Renderer", Renderer.ToString()), true, out RendererType renderer) ? renderer : RendererType.D3D9;
+            Renderer = Enum.TryParse(Reader.ReadString("Graphics", "Renderer", Renderer.ToString()), true, out RendererType renderer) ? renderer : RendererType.D3D11;
             Resolution = Reader.ReadInt32("Graphics", "Resolution", Resolution);
             DebugMode = Reader.ReadBoolean("Graphics", "DebugMode", DebugMode);
             UseMouseCursors = Reader.ReadBoolean("Graphics", "UseMouseCursors", UseMouseCursors);

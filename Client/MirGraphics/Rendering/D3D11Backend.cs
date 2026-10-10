@@ -91,6 +91,7 @@ namespace Client.MirGraphics.Rendering
 
         private IntPtr _hwnd;
         private bool _vsync;
+        private bool _windowed = true;
         private ID3D11Device _device;
         private ID3D11DeviceContext _context;
         private IDXGISwapChain1 _swapChain;
@@ -141,6 +142,7 @@ namespace Client.MirGraphics.Rendering
         {
             _hwnd = windowHandle;
             _vsync = vsync;
+            _windowed = windowed;
 
             DeviceCreationFlags flags = DeviceCreationFlags.BgraSupport;
 #if DEBUG
@@ -152,6 +154,10 @@ namespace Client.MirGraphics.Rendering
             // Before the swap chain: if shader compilation fails (d3dcompiler_47 missing...), no flip-model swap chain has
             // been bound to the window yet and the D3D9 fallback gets a clean HWND.
             CreatePipeline();
+
+            // At most one queued frame: D3D9's windowed Discard swap had no extra queue (review: up to 2 frames more input lag).
+            using (IDXGIDevice1 dxgiDevice1 = _device.QueryInterfaceOrNull<IDXGIDevice1>())
+                dxgiDevice1?.SetMaximumFrameLatency(1);
 
             using (IDXGIDevice dxgiDevice = _device.QueryInterface<IDXGIDevice>())
             using (IDXGIAdapter adapter = dxgiDevice.GetAdapter())
@@ -445,6 +451,7 @@ float4 Grayscale_PS(VSOut i) : SV_Target
         public void SetRenderTarget(RenderTexture target)
         {
             Flush();
+            if (target == _target) return; // DXManager.SetBlend re-sets the current target on every call; nothing to rebind
             _target = target;
             BindTarget(target);
         }
@@ -464,7 +471,9 @@ float4 Grayscale_PS(VSOut i) : SV_Target
         {
             Flush();
             KeepLastFrame();
-            PresentFlags flags = !_vsync && _allowTearing ? PresentFlags.AllowTearing : PresentFlags.None;
+            // Tearing only where D3D9 tore too: uncapped fullscreen (D3D9 exclusive + Immediate). Windowed D3D9 was composed by
+            // DWM and never tore, so windowed D3D11 presents without the tearing flag.
+            PresentFlags flags = !_vsync && !_windowed && _allowTearing ? PresentFlags.AllowTearing : PresentFlags.None;
             Result result = _swapChain.Present(_vsync ? 1u : 0u, flags);
             if (result.Code == Vortice.DXGI.ResultCode.DeviceRemoved.Code || result.Code == Vortice.DXGI.ResultCode.DeviceReset.Code)
                 throw new DeviceLostException("D3D11 device removed/reset at Present (0x" + result.Code.ToString("X8") + ")");
@@ -766,6 +775,7 @@ float4 Grayscale_PS(VSOut i) : SV_Target
         public void Reset(int width, int height, bool windowed, bool vsync)
         {
             _vsync = vsync;
+            _windowed = windowed;
             _count = 0;
             Array.Clear(_textures, 0, _textures.Length);
 

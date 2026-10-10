@@ -443,7 +443,7 @@ Later decisions are listed per phase in the phase notes. **Answered 2026-10-09:*
 | C1 Client fixes + goldens | Done 2026-10-10: fixes, shaders, golden harness (15 scenarios, goldens outside git), frame profiler | `Client/D3D11-Parity.md` | — |
 | C2 Launcher release | Hashes + removed-files + path checks done 2026-10-10; runtime detection, host, V1 pending | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
 | C3 Render seam | Done 2026-10-10: `IRenderBackend`, D3D9 backend byte-identical (15/15) | `Client/D3D11-Parity.md` | not shipped |
-| C4 D3D11 | Code done 2026-10-10: Vortice backend, opt-in, golden parity 14/15 identical + 1 waiver, borderless fullscreen; QA checklist + default switch pending | `Client/D3D11-Parity.md` | not shipped |
+| C4 D3D11 | Done 2026-10-10: Vortice backend, golden parity 14/15 identical + 1 waiver, borderless fullscreen, automated QA pass, review fixed; **D3D11 is the default** (D3D9 selectable, automatic fallback). Next: ~2-week default cycle in play, then C5 | `Client/D3D11-Parity.md` | not shipped |
 | C5 Flag-day | Not started | — | — |
 | C6 Polish | Not started | — | — |
 

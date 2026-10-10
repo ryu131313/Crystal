@@ -1,6 +1,6 @@
 # Direct3D 11 backend and golden parity (roadmap C1 / C3 / C4) — 2026-10-10
 
-> Status: **C1, C3 and C4 code are done.** D3D11 is **opt-in** (`[Graphics] Renderer=D3D11` in `Mir2Config.ini`, or `Mir2Test.ini` for Debug builds). Default stays D3D9 until the roadmap's QA cycle (§ "Rollout" below).
+> Status: **C1, C3 and C4 are done.** D3D11 is the **default renderer** (since the automated QA pass, 2026-10-10). `[Graphics] Renderer=D3D9` selects D3D9, and D3D11 falls back to D3D9 by itself if it cannot start. What's left is the roadmap's ~2-week default cycle in real play before C5 removes D3D9/SlimDX.
 
 ## What exists
 
@@ -77,14 +77,43 @@ A read-only review of the seam and both backends found, and this commit fixed:
   - Shaders compile before the swap chain is bound to the window, so a compiler failure leaves a clean window for the D3D9 fallback.
   - Borderless fullscreen is no longer `TopMost`, so Alt+Tab works.
 
-Left as follow-ups:
+Low items, fixed in the follow-up commit:
+- tearing only in uncapped borderless fullscreen, matching D3D9 exclusive + Immediate; windowed D3D11 no longer tears, like D3D9 windowed;
+- `SetMaximumFrameLatency(1)`;
+- `SetRenderTarget` to the current target no longer rebinds.
+
+Originally left as follow-ups:
 - **Low:** tearing when `FPSCap=false` in borderless fullscreen (D3D9 windowed Immediate did not tear); up to ~2 frames more latency with 3 buffers and no frame-latency wait; a render-target rebind on every `SetBlend` (performance only).
 - **Known debt, not new:** `MImage.CreateTexture` leaks on a corrupt `.Lib` retry; the screenshot `Bitmap` is not disposed.
 
+## Automated QA (replaces the manual checklist where a script can drive it)
+
+`tools\rendertest.ps1 -Mode Smoke -Backend D3D11 -Qa -SmokeSeconds 32` drives the real game window through these steps, taking a screenshot after each and checking the back-buffer size, that the frame isn't blank, and that the device isn't lost:
+- resolutions 1024 → 1280×800 → 1366×768 → 1920×1080 → 1024;
+- Alt+Enter into borderless fullscreen;
+- a resolution change while fullscreen;
+- Alt+Enter back to windowed;
+- minimise and restore.
+
+`-Mode Parity -Bench 400` adds three churn rounds: release every texture and render target, reset, and redraw all scenes. It logs process memory around them.
+
+| Check (2026-10-10) | D3D11 | D3D9 |
+|---|---|---|
+| Scripted QA | **PASS**, 9 screenshot checks + 10 actions, 0 `Error.txt` entries | **PASS** (windowed steps; exclusive fullscreen not switched on this desktop) |
+| Mid-run screenshot, then keep rendering | OK | OK (the review's critical bug is fixed) |
+| Churn + 6,000 bench frames | private 357 → 375 (transient) → **357 MB** | 330 → 333 → **329 MB** |
+
+Not automatable here:
+- **Lock screen / TDR (real device loss):** covered by code review and the reset path that S15 exercises.
+- **Live game scene with a server:** its drawing paths are covered by the goldens: floor, objects, lights, grayscale, effects and UI.
+- **Subjective feel**, such as frame pacing on other GPUs.
+
+That is what the default cycle in real play is for.
+
 ## Rollout (roadmap C4)
 
-1. **Now:** opt-in. Testers set `[Graphics] Renderer=D3D11`. If the device fails, the client falls back to D3D9 and logs it.
-2. **QA checklist** (needs a person, not done):
+1. ~~Opt-in~~ → **done: D3D11 is the default** after the automated QA. `[Graphics] Renderer=D3D9` opts out, and a device failure falls back to D3D9 with an `Error.txt` entry.
+2. **QA:** the automated part is done (above). Still worth watching in play, though it no longer blocks:
    - login, select and game scenes;
    - night lighting, effects, death grayscale;
    - Alt+Enter;
@@ -93,5 +122,5 @@ Left as follow-ups:
    - lock screen;
    - screenshots;
    - a long session (memory: the D3D11 CPU texture copies mirror D3D9's managed pool).
-3. **Then:** make D3D11 the default for one ~2-week cycle with D3D9 selectable, then C5 removes D3D9/SlimDX.
+3. **Now:** one ~2-week default cycle with D3D9 selectable; then C5 removes D3D9/SlimDX.
 4. **Ship:** the client patch must include `Vortice.*.dll` and `SharpGen.Runtime*.dll`; they are in the build output.

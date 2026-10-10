@@ -28,6 +28,8 @@ namespace Client.RenderTest
         public static bool SmokeMode { get; private set; }
         public static int SmokeSeconds;
         public static bool SmokeFullScreen;
+        /// <summary>--qa (with --smoke): scripted QA steps on the real window (resolution, Alt+Enter fullscreen, minimise).</summary>
+        public static bool QaMode;
         public static bool CompareMode { get; private set; }
         public static string OutDir = Path.GetFullPath("RenderTestOut");
         public static int BenchFrames;
@@ -59,6 +61,7 @@ namespace Client.RenderTest
                         if (SmokeSeconds <= 0) SmokeSeconds = 10;
                         break;
                     case "--fullscreen": SmokeFullScreen = true; break;
+                    case "--qa": QaMode = true; break;
                     case "--waive":
                         if (i + 1 < args.Length)
                         {
@@ -559,6 +562,17 @@ namespace Client.RenderTest
 
                 if (BenchFrames > 0)
                 {
+                    long memBefore = System.Diagnostics.Process.GetCurrentProcess().PrivateMemorySize64;
+                    for (int round = 0; round < 3; round++)
+                    {
+                        // Churn: release every library/control texture and the harness targets, then rebuild (as Clean + ResetDevice do in play).
+                        ResetDevice();
+                        foreach (var s in scenarios) { RenderScenario(s, toTarget: true); }
+                    }
+                    GC.Collect(); GC.WaitForPendingFinalizers();
+                    long memAfterChurn = System.Diagnostics.Process.GetCurrentProcess().PrivateMemorySize64;
+                    Log($"churn 3 rounds of reset + all scenarios: private {memBefore / (1024 * 1024)} MB -> {memAfterChurn / (1024 * 1024)} MB");
+
                     foreach (var s in scenarios)
                     {
                         var times = new double[BenchFrames];
@@ -572,6 +586,8 @@ namespace Client.RenderTest
                         Array.Sort(times);
                         Log($"bench {s.Name} frames={BenchFrames} avg={times.Average():0.000}ms p50={times[BenchFrames / 2]:0.000}ms p99={times[Math.Min(BenchFrames - 1, BenchFrames * 99 / 100)]:0.000}ms max={times[^1]:0.000}ms");
                     }
+                    GC.Collect(); GC.WaitForPendingFinalizers();
+                    Log($"after bench: private {System.Diagnostics.Process.GetCurrentProcess().PrivateMemorySize64 / (1024 * 1024)} MB");
                 }
                 return 0;
             }
@@ -619,6 +635,99 @@ namespace Client.RenderTest
 
         public static bool MidSmokeDone;
 
+        // ------------------------------------------------------------------ scripted QA (roadmap C4)
+
+        private sealed class QaStep
+        {
+            public long AtMs;
+            public string Name;
+            public Action Act;
+            public Size ExpectBackBuffer;   // screenshot steps only
+        }
+
+        private static List<QaStep> _qaSteps;
+        private static int _qaNext;
+        private static int _qaFailures;
+
+        private static List<QaStep> BuildQaSteps()
+        {
+            bool d3d11 = DXManager.RendererType == RendererType.D3D11;
+            var steps = new List<QaStep>();
+            long t = 2000;
+            void Act(string name, Action act) { steps.Add(new QaStep { AtMs = t, Name = name, Act = act }); t += 1200; }
+            void Shot(string name, Size expect) { steps.Add(new QaStep { AtMs = t, Name = name, ExpectBackBuffer = expect }); t += 800; }
+
+            Shot("01_login_1024", new Size(1024, 768));
+            Act("resolution 1280x800", () => CMain.SetResolution(1280, 800));
+            Shot("02_1280x800", new Size(1280, 800));
+            Act("resolution 1366x768", () => CMain.SetResolution(1366, 768));
+            Shot("03_1366x768", new Size(1366, 768));
+            Act("resolution 1920x1080", () => CMain.SetResolution(1920, 1080));
+            Shot("04_1920x1080", new Size(1920, 1080));
+            Act("resolution 1024x768", () => CMain.SetResolution(1024, 768));
+            Shot("05_back_1024", new Size(1024, 768));
+            if (d3d11)
+            {
+                // Borderless fullscreen only: a D3D9 exclusive-mode switch would change this desktop's display mode.
+                Act("Alt+Enter to fullscreen", CMain.ToggleFullScreen);
+                Shot("06_fullscreen", new Size(1024, 768));
+                Act("resolution 1280x800 in fullscreen", () => CMain.SetResolution(1280, 800));
+                Shot("07_fullscreen_1280x800", new Size(1280, 800));
+                Act("resolution 1024x768 in fullscreen", () => CMain.SetResolution(1024, 768));
+                Act("Alt+Enter to windowed", CMain.ToggleFullScreen);
+                Shot("08_windowed_again", new Size(1024, 768));
+            }
+            Act("minimise", () => Program.Form.WindowState = FormWindowState.Minimized);
+            Act("restore", () => Program.Form.WindowState = FormWindowState.Normal);
+            Shot("09_restored", new Size(1024, 768));
+            return steps;
+        }
+
+        /// <summary>Runs due QA steps from the real game loop (UI thread).</summary>
+        public static void QaTick(long time)
+        {
+            if (_qaSteps == null) _qaSteps = BuildQaSteps();
+            while (_qaNext < _qaSteps.Count && time >= _qaSteps[_qaNext].AtMs)
+            {
+                var step = _qaSteps[_qaNext++];
+                try
+                {
+                    if (step.Act != null)
+                    {
+                        step.Act();
+                        _log.Add($"qa {step.Name}: done (client {Program.Form.ClientSize}, deviceLost={DXManager.DeviceLost})");
+                        continue;
+                    }
+
+                    var size = new Size(DXManager.MainSurface?.Width ?? 0, DXManager.MainSurface?.Height ?? 0);
+                    using var bmp = DXManager.CaptureBackBuffer();
+                    Directory.CreateDirectory(OutDir);
+                    bmp.Save(Path.Combine(OutDir, "qa-" + step.Name + ".png"), ImageFormat.Png);
+                    double mean = MeanBrightness(bmp);
+                    bool ok = size == step.ExpectBackBuffer && bmp.Width == step.ExpectBackBuffer.Width && mean > 10 && !DXManager.DeviceLost;
+                    if (!ok) _qaFailures++;
+                    _log.Add($"qa {step.Name}: {(ok ? "OK" : "FAIL")} backbuffer={size.Width}x{size.Height} image={bmp.Width}x{bmp.Height} mean={mean:0.0} deviceLost={DXManager.DeviceLost}");
+                }
+                catch (Exception ex)
+                {
+                    _qaFailures++;
+                    _log.Add($"qa {step.Name}: FAIL {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+        }
+
+        private static double MeanBrightness(Bitmap bmp)
+        {
+            long sum = 0; int n = 0;
+            for (int y = 0; y < bmp.Height; y += 16)
+                for (int x = 0; x < bmp.Width; x += 16)
+                {
+                    var c = bmp.GetPixel(x, y);
+                    sum += c.R + c.G + c.B; n++;
+                }
+            return n == 0 ? 0 : sum / (3.0 * n);
+        }
+
         /// <summary>Halfway through a smoke run: the in-game screenshot path, after which the loop keeps rendering.</summary>
         public static void MidSmokeScreenshot()
         {
@@ -647,7 +756,14 @@ namespace Client.RenderTest
                 _log.Add($"smoke backend {DXManager.RendererType} (configured {Settings.Renderer}) fullscreen={Settings.FullScreen} borderless={DXManager.UsesBorderlessFullscreen}");
                 _log.Add($"smoke window client={Program.Form.ClientSize} backbuffer={DXManager.MainSurface?.Width}x{DXManager.MainSurface?.Height} scene={Settings.ScreenWidth}x{Settings.ScreenHeight}");
                 _log.Add("smoke frame " + FrameProfiler.Summary + $" fps={CMain.FPS}");
-                Environment.ExitCode = 0;
+                _log.Add($"smoke memory private={System.Diagnostics.Process.GetCurrentProcess().PrivateMemorySize64 / (1024 * 1024)} MB");
+                if (QaMode)
+                {
+                    int pending = (_qaSteps?.Count ?? 0) - _qaNext;
+                    if (pending > 0) { _qaFailures++; _log.Add($"qa FAIL: {pending} steps did not run (raise --smoke seconds)"); }
+                    _log.Add(_qaFailures == 0 ? "qa RESULT: PASS" : $"qa RESULT: FAIL ({_qaFailures})");
+                }
+                Environment.ExitCode = QaMode && _qaFailures > 0 ? 1 : 0;
             }
             catch (Exception ex)
             {

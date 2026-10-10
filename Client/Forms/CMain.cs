@@ -117,7 +117,9 @@ namespace Client
                 while (AppStillIdle)
                 {
                     UpdateTime();
-                    if (RenderTest.RenderTestRunner.SmokeMode && !RenderTest.RenderTestRunner.MidSmokeDone && Time >= RenderTest.RenderTestRunner.SmokeSeconds * 500L)
+                    if (RenderTest.RenderTestRunner.SmokeMode && RenderTest.RenderTestRunner.QaMode)
+                        RenderTest.RenderTestRunner.QaTick(Time); // roadmap C4 scripted QA: resolution / fullscreen / minimise steps
+                    else if (RenderTest.RenderTestRunner.SmokeMode && !RenderTest.RenderTestRunner.MidSmokeDone && Time >= RenderTest.RenderTestRunner.SmokeSeconds * 500L)
                         RenderTest.RenderTestRunner.MidSmokeScreenshot(); // a screenshot mid-run, then keep rendering (review C1)
                     if (RenderTest.RenderTestRunner.SmokeMode && Time >= RenderTest.RenderTestRunner.SmokeSeconds * 1000L)
                     {
@@ -599,7 +601,7 @@ namespace Client
             HintBaseLabel.Location = point;
         }
 
-        private static void ToggleFullScreen()
+        internal static void ToggleFullScreen()
         {
             Settings.FullScreen = !Settings.FullScreen;
 

@@ -24,6 +24,8 @@
 .PARAMETER NoBuild    Reuse the last scratch build.
 .PARAMETER SmokeSeconds  Smoke mode: seconds of the real game loop (login scene) before capture. Default 10.
 .PARAMETER FullScreen    Smoke mode: run fullscreen (D3D11: borderless window over the screen; D3D9: exclusive mode).
+.PARAMETER Qa            Smoke mode: scripted QA (resolution changes, Alt+Enter fullscreen [D3D11], minimise/restore) with
+                         per-step screenshots and checks; needs about -SmokeSeconds 30.
 #>
 param(
     [ValidateSet('Record', 'Compare', 'Parity', 'Run', 'Smoke')][string]$Mode = 'Compare',
@@ -34,7 +36,8 @@ param(
     [string]$DataRoot = '',
     [switch]$NoBuild,
     [int]$SmokeSeconds = 10,
-    [switch]$FullScreen
+    [switch]$FullScreen,
+    [switch]$Qa
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
@@ -92,6 +95,7 @@ New-Item -ItemType Directory -Force $Out | Out-Null
 if ($Mode -eq 'Smoke') {
     $args = @('--smoke', "$SmokeSeconds", '--out', $Out)
     if ($FullScreen) { $args += '--fullscreen' }
+    if ($Qa) { $args += '--qa' }
     $errorFile = Join-Path $run 'Error.txt'
     if (Test-Path $errorFile) { Remove-Item $errorFile -Force }   # scratch copy only; the client writes it in its working folder
     $p = Start-Process -FilePath (Join-Path $run 'Client.exe') -ArgumentList $args -WorkingDirectory $run -PassThru -Wait
