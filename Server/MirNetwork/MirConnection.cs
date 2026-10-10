@@ -31,6 +31,13 @@ namespace Server.MirNetwork
         /// <summary>Index of the packet being (or last) handled; read by WorldErrors.Describe.</summary>
         public short LastPacketIndex = -1;
 
+        /// <summary>X1-12: early movement/attack/magic packets are retried every pass; cap the backlog per connection.</summary>
+        private const int MaxRetryQueue = 64;
+        private void RetryLater(Packet p)
+        {
+            if (_retryList.Count < MaxRetryQueue) _retryList.Enqueue(p); // beyond the cap the packet is dropped, as a slow client would lose it
+        }
+
         private TcpClient _client;
         private ConcurrentQueue<Packet> _receiveList;
         private ConcurrentQueue<Packet> _sendList; 
@@ -190,7 +197,8 @@ namespace Server.MirNetwork
                 return;
             }
 
-            if (_dataCounter > Settings.MaxPacket)
+            var maxPacket = Settings.LoadTestLoopbackMaxPacket > 0 && Envir.IsLoadTestExempt(IPAddress) ? Settings.LoadTestLoopbackMaxPacket : Settings.MaxPacket;
+            if (_dataCounter > maxPacket)
             {
                 Envir.UpdateIPBlock(IPAddress, TimeSpan.FromHours(24));
 
@@ -1168,7 +1176,7 @@ namespace Server.MirNetwork
             if (Stage != GameStage.Game) return;
 
             if (Player.ActionTime > Envir.Time)
-                _retryList.Enqueue(p);
+                RetryLater(p);
             else
                 Player.Turn(p.Direction);
         }
@@ -1177,7 +1185,7 @@ namespace Server.MirNetwork
             if (Stage != GameStage.Game) return;
 
             if (Player.ActionTime > Envir.Time)
-                _retryList.Enqueue(p);
+                RetryLater(p);
             else
                 Player.Walk(p.Direction);
         }
@@ -1186,7 +1194,7 @@ namespace Server.MirNetwork
             if (Stage != GameStage.Game) return;
 
             if (Player.ActionTime > Envir.Time)
-                _retryList.Enqueue(p);
+                RetryLater(p);
             else
                 Player.Run(p.Direction);
         }
@@ -1467,7 +1475,7 @@ namespace Server.MirNetwork
             if (Stage != GameStage.Game) return;
 
             if (!Player.Dead && (Player.ActionTime > Envir.Time || Player.AttackTime > Envir.Time))
-                _retryList.Enqueue(p);
+                RetryLater(p);
             else
                 Player.Attack(p.Direction, p.Spell);
         }
@@ -1476,7 +1484,7 @@ namespace Server.MirNetwork
             if (Stage != GameStage.Game) return;
 
             if (!Player.Dead && (Player.ActionTime > Envir.Time || Player.AttackTime > Envir.Time))
-                _retryList.Enqueue(p);
+                RetryLater(p);
             else
                 Player.RangeAttack(p.Direction, p.TargetLocation, p.TargetID);
         }
@@ -1485,7 +1493,7 @@ namespace Server.MirNetwork
             if (Stage != GameStage.Game) return;
 
             if (!Player.Dead && Player.ActionTime > Envir.Time)
-                _retryList.Enqueue(p);
+                RetryLater(p);
             else
                 Player.Harvest(p.Direction);
         }
@@ -1586,7 +1594,7 @@ namespace Server.MirNetwork
             if (actor.Dead) return;
 
             if (!actor.Dead && (actor.ActionTime > Envir.Time || actor.SpellTime > Envir.Time))
-                _retryList.Enqueue(p);
+                RetryLater(p);
             else
                 actor.BeginMagic(p.Spell, p.Direction, p.TargetID, p.Location, p.SpellTargetLock);
         }

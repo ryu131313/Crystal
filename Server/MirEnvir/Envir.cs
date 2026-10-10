@@ -3631,7 +3631,16 @@ namespace Server.MirEnvir
 
         public void UpdateIPBlock(string ipAddress, TimeSpan value)
         {
+            if (IsLoadTestExempt(ipAddress)) return; // [LoadTest] ExemptLoopback (roadmap P6), scratch servers only
             IPBlocks[ipAddress] = Now.Add(value);
+        }
+
+        /// <summary>True for loopback addresses when [LoadTest] ExemptLoopback is on (off by default).</summary>
+        public static bool IsLoadTestExempt(string ipAddress)
+        {
+            if (!Settings.LoadTestExemptLoopback || string.IsNullOrEmpty(ipAddress)) return false;
+            // "[" is what the IPv4-style Split(':') leaves of an IPv6 endpoint such as [::1]:port (X1-30).
+            return ipAddress.StartsWith("127.", StringComparison.Ordinal) || ipAddress == "::1" || ipAddress == "[";
         }
 
         private void StartEnvir()
@@ -3920,7 +3929,7 @@ namespace Server.MirEnvir
                         count++;
                     }
 
-                    if (count >= Settings.MaxIP)
+                    if (count >= Settings.MaxIP && !IsLoadTestExempt(ipAddress))
                     {
                         UpdateIPBlock(ipAddress, TimeSpan.FromSeconds(Settings.IPBlockSeconds));
 
@@ -3990,7 +3999,7 @@ namespace Server.MirEnvir
 
             if (ConnectionLogs.TryGetValue(c.IPAddress, out MirConnectionLog currentlog))
             {
-                if (currentlog.AccountsMade.Count > 2)
+                if (currentlog.AccountsMade.Count > 2 && !IsLoadTestExempt(c.IPAddress))
                 {
                     IPBlocks[c.IPAddress] = Now.AddHours(24);
                     c.Enqueue(new ServerPackets.NewAccount { Result = 0 });
@@ -4331,7 +4340,7 @@ namespace Server.MirEnvir
 
             if (ConnectionLogs.TryGetValue(c.IPAddress, out MirConnectionLog currentlog))
             {
-                if (currentlog.CharactersMade.Count > 4)
+                if (currentlog.CharactersMade.Count > 4 && !IsLoadTestExempt(c.IPAddress))
                 {
                     IPBlocks[c.IPAddress] = Now.AddHours(24);
                     c.Enqueue(new ServerPackets.NewCharacter { Result = 0 });

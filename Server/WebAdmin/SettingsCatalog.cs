@@ -210,6 +210,12 @@ namespace Server.WebAdmin
             Add(N, "Network", "MaxPacket", "MaxPacket", U16, "Max packets per interval",
                 "Flood protection: a connection that sends more packets than this per processing interval is disconnected.",
                 min: 1, savedBySave: false);
+            Add(N, "Network", "IPBlockSeconds", "IPBlockSeconds", I32, "Reconnect block (s)",
+                "Seconds an IP is blocked after each new connection or after exceeding Max connections per IP.", min: 0, max: 3600);
+            Add(N, "LoadTest", "ExemptLoopback", "LoadTestExemptLoopback", B, "Load test: exempt loopback",
+                "SCRATCH SERVERS ONLY. Exempts 127.x / ::1 from IP blocks, Max connections per IP and the per-IP account/character limits so a local bot fleet can connect. Never enable behind a reverse proxy: every player would look like loopback.");
+            Add(N, "LoadTest", "LoopbackMaxPacket", "LoadTestLoopbackMaxPacket", I32, "Load test: loopback packet limit",
+                "Flood limit for loopback connections when the exemption is on (0 = same as Max packets per interval).", min: 0);
             Add(N, "Network", "StartHTTPService", "StartHTTPService", B, "Legacy HTTP service",
                 "Start Crystal's small HTTP service (new account / name list / broadcast URLs) with the world.",
                 SettingRestart.World);

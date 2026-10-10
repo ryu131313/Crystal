@@ -72,6 +72,10 @@ namespace Server
                              MaxPacket = 50;
 
         public static int IPBlockSeconds = 5;
+        // Load testing (roadmap P6): scratch servers only. Exempts loopback (127.x, ::1) from IP blocks, MaxIP and the
+        // per-IP account/character limits; MaxPacket stays enforced for loopback, optionally at a higher limit.
+        public static bool LoadTestExemptLoopback = false;
+        public static int LoadTestLoopbackMaxPacket = 0; // 0 = use MaxPacket
 
         //HTTP
         public static bool StartHTTPService = false;
@@ -408,6 +412,9 @@ namespace Server
             MaxUser = Reader.ReadUInt16("Network", "MaxUser", MaxUser);
             MaxIP = Reader.ReadUInt16("Network", "MaxIP", MaxIP);
             MaxPacket = Reader.ReadUInt16("Network", "MaxPacket", MaxPacket);
+            IPBlockSeconds = Math.Max(0, Reader.ReadInt32("Network", "IPBlockSeconds", IPBlockSeconds));
+            LoadTestExemptLoopback = Reader.ReadBoolean("LoadTest", "ExemptLoopback", LoadTestExemptLoopback);
+            LoadTestLoopbackMaxPacket = Math.Max(0, Reader.ReadInt32("LoadTest", "LoopbackMaxPacket", LoadTestLoopbackMaxPacket));
 
             //HTTP
             StartHTTPService = Reader.ReadBoolean("Network", "StartHTTPService", StartHTTPService);
@@ -708,6 +715,9 @@ namespace Server
             Reader.Write("Network", "TimeOut", TimeOut);
             Reader.Write("Network", "MaxUser", MaxUser);
             Reader.Write("Network", "MaxIP", MaxIP);
+            Reader.Write("Network", "IPBlockSeconds", IPBlockSeconds);
+            Reader.Write("LoadTest", "ExemptLoopback", LoadTestExemptLoopback);
+            Reader.Write("LoadTest", "LoopbackMaxPacket", LoadTestLoopbackMaxPacket);
 
             //HTTP
             Reader.Write("Network", "StartHTTPService", StartHTTPService);
