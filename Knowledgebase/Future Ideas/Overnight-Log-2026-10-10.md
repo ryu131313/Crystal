@@ -27,6 +27,9 @@
 | D9 | `LoadAccounts` throws (rather than returning false) when it refuses. | Keeps every caller correct with no signature change. `StartNetwork` runs outside the save tail, so a throw means nothing is saved over the data. The web admin restore (`ReloadMainAccounts`) already turns exceptions into "failed". |
 | D10 | Crash handlers live in `Server.Library` (`Server.CrashReporter`) and only hook `AppDomain.UnhandledException` and `TaskScheduler.UnobservedTaskException`. `Application.ThreadException` is left alone. | Observe-only, as P2 requires: the ThreadException hook would change WinForms behaviour. Being in Server.Library means a future headless host reuses it. |
 | D11 | The GM-password fix skips the chat-log line while `GMLogin` is pending; it does not redact it. | Smallest change: that line is only ever the password attempt. |
+| D12 | P3 legacy branch: **skip and reset** (decision #11 recommendation). Pre-v118 BinaryFormatter `Buff.Data` blobs are skipped by length; Concentration's `Interrupted`/`InterruptTime` read back as default (not interrupted). No NRBF package. | No live data to count blobs. The state is a 3-second interrupt flag, so skipping costs nothing and avoids a new dependency. |
+| D13 | Typed `Buff.Data` supports bool/byte/short/int/long/float/double/string/DateTime with an append-only `DataTag` byte. An unsupported value type is skipped on save, logged once, not fatal. | Concentration only uses bool + long. Failing every account save over a buff detail would be worse than losing that detail. |
+| D14 | Committed synthetic **format fixtures** `Server.Persistence.Tests/Fixtures/v117` (written by the v117 code before the change) and `v118`. `.gitattributes` marks them `-text`. | P3 must prove that real v117 files with BinaryFormatter blobs still load, and v117 files can't be produced once the code changes. The v118 fixture serves the same purpose for P7. |
 | D4 | Decision #3 (move build output off `Build\`) **not done**. It is still open and changes your VS F5 folder. | Your call. Until then, `verify.ps1` is the safe path. |
 
 ## Progress by phase
@@ -62,4 +65,15 @@
 - **GM password:** no longer written to the chat log (D11).
 - **Tests:** 7 fault-injection tests in `Server.Persistence.Tests/CrashSafeSaveTests.cs`. All suites green: 828 web admin, 6×2 Shared, 9 persistence.
 - **Old item retired:** the old "process killed mid-save" scenario is covered by the stale-temp-file test. A real kill test needs a live process run, which is part of your deploy watch.
+### P3 — code done; deploy and 72 h watch pending you (after P2's watch)
+- `Envir.Version` 117 → 118.
+- `BuffInfo.cs`: a typed encoding (D13) and a legacy skip branch (D12). Nothing in Server/Client calls BinaryFormatter any more; the Shared helpers stay until C5, so no client patch.
+- `Server.Persistence.Tests` no longer sets `EnableUnsafeBinaryFormatterSerialization`.
+- **Gate tests:**
+  - the v117 fixture loads on v118 with the oracle identical apart from Buff.Data;
+  - the upgraded save is v118 and byte-stable;
+  - typed values round-trip, and an unsupported value is skipped.
+- 13 persistence tests are green.
+- **Rollback reminder:** once v118 is written, only a snapshot restore plus P2 binaries rolls back (Runbook §3).
+
 - Background items: still to do (guild/goods/conquest oracle, model tests, X1 review, packet-mutation audit).

@@ -138,7 +138,7 @@ Shutdown tail: `CloseAdminQueue(); StopNetwork(); StopEnvir() [SaveGoods(true), 
 - Guilds/Goods/Conquests: serialise on the game thread, async `BeginWrite` to `*n`, rename in the completion.
 - **`SystemDataStale`** (fork): once `Envir.Edit.SaveDB()` ran, Main skips its periodic `SaveDB()` until `StartEnvir` (Start/Reboot) clears it — otherwise Main's older in-memory system data would overwrite the editor's save. Main's in-memory system data only reflects Edit changes after a world reboot (exceptions: web `?live=1` monsters, magic sync).
 
-**Versioning:** one number for every file — `Envir.Version = 117`, `MinVersion = 60`, `CustomVersion = 0` (`Envir.cs` ~L55). Writers always write the current version; readers gate on the static `Envir.LoadVersion`/`LoadCustomVersion` (set by `LoadDB`, overwritten by `LoadAccounts`) or on a `version` ctor parameter — follow whichever the class already uses. `LoadDB` refuses `< MinVersion` or `> Version`; `LoadAccounts` checks neither. Shared models (`UserItem`, `ItemInfo`, `Stats`, `ExpireInfo`, `SealedInfo`, `RentalInformation`, ...) default `version = int.MaxValue` → the same ctor reads the **packet** layout (`Awake` has no version parameter; `GameShopItem` uses a separate `(reader, bool packet)` ctor / `Save(writer, packet)` for the wire). **Nothing reads `CustomVersion`**, and by the user's decision nothing should: new fields bump `Version` (§4.3).
+**Versioning:** one number for every file — `Envir.Version = 118`, `MinVersion = 60`, `CustomVersion = 0` (`Envir.cs` ~L55). Writers always write the current version; readers gate on the static `Envir.LoadVersion`/`LoadCustomVersion` (set by `LoadDB`, overwritten by `LoadAccounts`) or on a `version` ctor parameter — follow whichever the class already uses. `LoadDB` refuses `< MinVersion` or `> Version`; since roadmap P2 `LoadAccounts` refuses the same range (throws). v118 (roadmap P3): `Buff.Data` is a typed key/tag/value encoding (`BuffInfo.cs` `DataTag`, append-only byte values); v117 and older BinaryFormatter blobs are skipped on load (Concentration interrupt state resets). **Nothing in Server.Library may call `Functions.SerializeToBytes`/`DeserializeFromBytes` (BinaryFormatter, removed on .NET 9+)**; the Shared helpers are deleted in roadmap C5. Committed format fixtures: `Server.Persistence.Tests/Fixtures/v117`, `v118`. Shared models (`UserItem`, `ItemInfo`, `Stats`, `ExpireInfo`, `SealedInfo`, `RentalInformation`, ...) default `version = int.MaxValue` → the same ctor reads the **packet** layout (`Awake` has no version parameter; `GameShopItem` uses a separate `(reader, bool packet)` ctor / `Save(writer, packet)` for the wire). **Nothing reads `CustomVersion`**, and by the user's decision nothing should: new fields bump `Version` (§4.3).
 
 **Load order** (`StartEnvir` ~L3426 → `StartNetwork`): `LoadDB` (needs `Settings` loaded; `FillMagicInfoList`; GameShop binds to Edit) → `BuffInfo.Load()` → recipes → `MapInfo.CreateMap()` per map → StartItems → `ReloadDrops()` → line messages → Dragon → default/monster/robot NPC scripts → `LoadAccounts` (HeroList before AccountList) → `RaiseAccountsLoaded` → `LoadGuilds` → `LoadConquests` (needs maps and guilds) → `LoadGTInfo` → listeners.
 
@@ -497,9 +497,9 @@ private void MyRequest(C.MyRequest p)
 
 ```csharp
 // Server/MirEnvir/Envir.cs
-public const int Version = 118;                       // bump ONCE per change set (was 117)
+public const int Version = 119;                       // bump ONCE per change set (was 118)
 // Server/MirDatabase/XxxInfo.cs — ctor, appended at the end of the existing reads
-if (Envir.LoadVersion >= 118) NewField = reader.ReadInt32();   // or: if (version >= 118) when the ctor takes a version
+if (Envir.LoadVersion >= 119) NewField = reader.ReadInt32();   // or: if (version >= 119) when the ctor takes a version
 // XxxInfo.Save — appended at the end, unconditionally
 writer.Write(NewField);
 ```

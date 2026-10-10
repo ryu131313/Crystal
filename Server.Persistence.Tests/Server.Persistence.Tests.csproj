@@ -14,9 +14,6 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <RootNamespace>Server.Persistence.Tests</RootNamespace>
-    <!-- Test-only, removed in roadmap P3: lets a non-WinForms process read pre-v118 Buff.Data
-         blobs, which are BinaryFormatter-encoded. -->
-    <EnableUnsafeBinaryFormatterSerialization>true</EnableUnsafeBinaryFormatterSerialization>
   </PropertyGroup>
 
   <ItemGroup>

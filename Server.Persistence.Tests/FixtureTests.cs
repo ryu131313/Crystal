@@ -54,4 +54,47 @@ public class FixtureTests
         Directory.Delete(dir, true);
         _out.WriteLine("fixture written: " + target);
     }
+
+    /// <summary>
+    /// Roadmap P3 gate: the v117 fixture (BinaryFormatter Buff.Data blobs) loads on v118 code without BinaryFormatter.
+    /// Everything except the Concentration buff's Data must be identical to the v117 oracle; the blobs are skipped
+    /// (decision: skip and reset). The upgraded save is v118 and byte-stable.
+    /// </summary>
+    [Fact]
+    public void V117_fixture_upgrades_to_current_version()
+    {
+        var src = FixtureDir(117);
+        var dir = NewTempFolder("upgrade117");
+        File.Copy(Path.Combine(src, "Server.MirDB"), Path.Combine(dir, "Server.MirDB"));
+        File.Copy(Path.Combine(src, "Server.MirADB"), Path.Combine(dir, "Server.MirADB"));
+        var expected = File.ReadAllText(Path.Combine(src, "oracle.txt")).Replace("\r\n", "\n");
+
+        InFolder(dir, () =>
+        {
+            Assert.True(LoadAll(), "v117 fixture failed to load");
+            Assert.Equal(117, Envir.LoadVersion);
+            var upgraded = Oracle.Dump(Envir.Main);
+
+            static string WithoutBuffData(string dump) => string.Join("\n",
+                dump.Split('\n').Where(l => !System.Text.RegularExpressions.Regex.IsMatch(l, @"\.Buffs\[\d+\]\.Data")));
+            Assert.True(WithoutBuffData(expected) == WithoutBuffData(upgraded),
+                "v117 -> v118 changed more than Buff.Data: " + Oracle.FirstDifference(WithoutBuffData(expected), WithoutBuffData(upgraded)));
+            Assert.Contains("Buffs[0].Data.Count=2", expected);
+            Assert.Contains("AccountList[1].Characters[1].Buffs[0].Data.Count=0", upgraded);
+            Assert.Equal(0, CountBuffDataBlobs(Envir.Main));
+
+            SaveAll();
+            Assert.Equal(Envir.Version, BitConverter.ToInt32(File.ReadAllBytes(Envir.AccountPath), 0));
+            Assert.Equal(Envir.Version, BitConverter.ToInt32(File.ReadAllBytes(Envir.DatabasePath), 0));
+            var gen1 = ReadFiles();
+            Assert.True(LoadAll());
+            Assert.Equal(upgraded, Oracle.Dump(Envir.Main));
+            SaveAll();
+            var gen2 = ReadFiles();
+            Assert.True(gen1.accounts.AsSpan().SequenceEqual(gen2.accounts));
+            Assert.True(gen1.db.AsSpan().SequenceEqual(gen2.db));
+            return 0;
+        });
+        Directory.Delete(dir, true);
+    }
 }

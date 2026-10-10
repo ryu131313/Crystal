@@ -433,7 +433,7 @@ Later decisions are listed per phase in the phase notes. **Answered 2026-10-09:*
 | P0 Groundwork | Code done 2026-10-10 (operator steps pending) | `Runbook.md`, `Future Ideas/Overnight-Log-2026-10-10.md` | — |
 | P1 Harness | Done on synthetic data 2026-10-10 (real-data run pending) | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
 | P2 Crash-safe saves | Code done 2026-10-10 (deploy + 48 h watch pending) | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
-| P3 BinaryFormatter / v118 | Not started | — | — |
+| P3 BinaryFormatter / v118 | Code done 2026-10-10 (deploy + 72 h watch pending, after P2) | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
 | P4 Server .NET 10 | Not started | — | — |
 | P5 Safety net | Not started | — | — |
 | P6 Measurement | Not started | — | — |
