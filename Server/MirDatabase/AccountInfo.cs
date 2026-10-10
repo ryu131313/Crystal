@@ -24,7 +24,7 @@ namespace Server.MirDatabase
             set
             {                
                 Salt = Crypto.GenerateSalt();
-                password = Crypto.HashPassword(value, Salt);
+                password = Crypto.CreateHash(value, Salt); // v1, or v2 with [Security] PasswordHashV2 (roadmap P8)
                 
             }
         }
@@ -38,7 +38,7 @@ namespace Server.MirDatabase
             set
             {
                 StorageSalt = Crypto.GenerateSalt();
-                storagePassword = Crypto.HashPassword(value, StorageSalt);
+                storagePassword = Crypto.CreateHash(value, StorageSalt);
             }
         }
 
@@ -289,9 +289,11 @@ namespace Server.MirDatabase
         {
             if (string.IsNullOrEmpty(storagePassword)) return false;
 
-            var hashed = Crypto.HashPassword(rawPassword, StorageSalt);
-            return string.CompareOrdinal(storagePassword, hashed) == 0;
+            return Crypto.Verify(rawPassword, StorageSalt, storagePassword); // v1 or v2 (roadmap P8)
         }
+
+        /// <summary>Replaces the stored login hash with one computed off the game thread (v2 upgrade on login, roadmap P8).</summary>
+        internal void SetPasswordHash(string hash) => password = hash;
 
         public void ClearStoragePassword()
         {

@@ -75,6 +75,7 @@ namespace Server
         // Load testing (roadmap P6): scratch servers only. Exempts loopback (127.x, ::1) from IP blocks, MaxIP and the
         // per-IP account/character limits; MaxPacket stays enforced for loopback, optionally at a higher limit.
         public static bool LoadTestExemptLoopback = false;
+        public static bool PasswordHashV2 = false;      // [Security] PasswordHashV2: write PBKDF2-SHA256 v2 hashes (roadmap P8); v2 is always verified
         public static bool StatusPortEnabled = true;   // [Network] StatusPortEnabled: the plain-text status listener
         public static ushort StatusPort = 3100;        // [Network] StatusPort (was hard-coded 3100)
         // Game-loop pacing and diagnostics (roadmap P6)
@@ -420,6 +421,7 @@ namespace Server
             MaxPacket = Reader.ReadUInt16("Network", "MaxPacket", MaxPacket);
             IPBlockSeconds = Math.Max(0, Reader.ReadInt32("Network", "IPBlockSeconds", IPBlockSeconds));
             StatusPortEnabled = Reader.ReadBoolean("Network", "StatusPortEnabled", StatusPortEnabled);
+            PasswordHashV2 = Reader.ReadBoolean("Security", "PasswordHashV2", PasswordHashV2);
             StatusPort = Reader.ReadUInt16("Network", "StatusPort", StatusPort);
             LoadTestExemptLoopback = Reader.ReadBoolean("LoadTest", "ExemptLoopback", LoadTestExemptLoopback);
             IdlePark = Reader.ReadBoolean("Optimisation", "IdlePark", IdlePark);
@@ -728,6 +730,7 @@ namespace Server
             Reader.Write("Network", "MaxIP", MaxIP);
             Reader.Write("Network", "IPBlockSeconds", IPBlockSeconds);
             Reader.Write("Network", "StatusPortEnabled", StatusPortEnabled);
+            Reader.Write("Security", "PasswordHashV2", PasswordHashV2);
             Reader.Write("Network", "StatusPort", StatusPort);
             Reader.Write("LoadTest", "ExemptLoopback", LoadTestExemptLoopback);
             Reader.Write("Optimisation", "IdlePark", IdlePark);

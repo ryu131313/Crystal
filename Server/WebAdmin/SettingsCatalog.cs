@@ -212,6 +212,8 @@ namespace Server.WebAdmin
                 min: 1, savedBySave: false);
             Add(N, "Network", "IPBlockSeconds", "IPBlockSeconds", I32, "Reconnect block (s)",
                 "Seconds an IP is blocked after each new connection or after exceeding Max connections per IP.", min: 0, max: 3600);
+            Add(N, "Security", "PasswordHashV2", "PasswordHashV2", B, "Stronger password hashes (v2)",
+                "Store new and changed passwords as PBKDF2-SHA256 (100k iterations), and upgrade each account on its next successful login. v1 and v2 are always accepted. Leave off until a build containing v2 verification has been running for a while (rollback safety); see roadmap P8.");
             Add(N, "Network", "StatusPortEnabled", "StatusPortEnabled", B, "Status port",
                 "Plain-text status listener (player count etc.) on the status port. Turn off for scratch servers sharing a machine.", SettingRestart.World);
             Add(N, "Network", "StatusPort", "StatusPort", U16, "Status port number", "TCP port of the status listener (default 3100).", SettingRestart.World, min: 1);

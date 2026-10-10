@@ -33,7 +33,7 @@ namespace Server.WebAdmin
 
             try
             {
-                return string.CompareOrdinal(storedHash, global::Server.Utils.Crypto.HashPassword(password, salt)) == 0;
+                return global::Server.Utils.Crypto.Verify(password, salt, storedHash); // v1 or v2 (roadmap P8); HTTP thread
             }
             catch (Exception)
             {

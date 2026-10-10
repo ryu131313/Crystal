@@ -36,6 +36,8 @@ namespace Server.MirNetwork
 
         /// <summary>X1-19: failed logins on this connection; Envir.Login closes it (and briefly blocks the IP) at the limit.</summary>
         public int FailedLogins;
+        /// <summary>A login password check is running off the game thread (roadmap P8); further C.Login packets are ignored.</summary>
+        public volatile bool LoginPending;
         public const int MaxFailedLogins = 5;
 
         /// <summary>X1-12: early movement/attack/magic packets are retried every pass; cap the backlog per connection.</summary>

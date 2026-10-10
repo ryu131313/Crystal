@@ -4265,8 +4265,7 @@ namespace Server.MirEnvir
             account.BanReason = string.Empty;
             account.ExpiryDate = DateTime.MinValue;
 
-            p.CurrentPassword = Utils.Crypto.HashPassword(p.CurrentPassword, account.Salt);
-            if (string.CompareOrdinal(account.Password, p.CurrentPassword) != 0)
+            if (!Utils.Crypto.Verify(p.CurrentPassword, account.Salt, account.Password)) // v1 or v2 (roadmap P8)
             {
                 c.Enqueue(new ServerPackets.ChangePassword { Result = 5 });
                 return;
@@ -4322,9 +4321,36 @@ namespace Server.MirEnvir
             account.BanReason = string.Empty;
             account.ExpiryDate = DateTime.MinValue;
 
-            p.Password = Utils.Crypto.HashPassword(p.Password, account.Salt);
+            // Roadmap P8: the password check runs on a worker (v2 hashes cost tens of ms) and the rest of the login continues
+            // on the game thread through the admin queue. The worker only gets copies (password, salt, stored hash).
+            if (c.LoginPending) return; // one check at a time per connection
+            c.LoginPending = true;
+            var plain = p.Password;
+            var salt = account.Salt;
+            var stored = account.Password;
+            Task.Run(() =>
+            {
+                var ok = Utils.Crypto.Verify(plain, salt, stored);
+                var upgraded = ok && Utils.Crypto.NeedsUpgrade(stored) ? Utils.Crypto.HashPasswordV2(plain, salt) : null;
+                if (!QueueAdminAction(() => CompleteLogin(c, account, stored, ok, upgraded), null))
+                    c.LoginPending = false; // world stopping: nothing to continue
+            });
+        }
 
-            if (string.CompareOrdinal(account.Password, p.Password) != 0)
+        /// <summary>Game-thread continuation of <see cref="Login"/> after the off-thread password check (roadmap P8).</summary>
+        private void CompleteLogin(MirConnection c, AccountInfo account, string checkedHash, bool passwordOk, string upgradedHash)
+        {
+            c.LoginPending = false;
+            if (!c.Connected || c.Stage != GameStage.Login || c.Account != null) return;   // disconnected or moved on meanwhile
+            if (!ReferenceEquals(account.Password, checkedHash)) passwordOk = false;          // password changed meanwhile: retry
+            if (passwordOk && upgradedHash != null) account.SetPasswordHash(upgradedHash);  // v1 -> v2 on a successful login
+            if (account.Banned && account.ExpiryDate > Now)                                  // banned while the check ran
+            {
+                c.Enqueue(new ServerPackets.LoginBanned { Reason = account.BanReason, ExpiryDate = account.ExpiryDate });
+                return;
+            }
+
+            if (!passwordOk)
             {
                 global::Server.WebAdmin.WebAdminHooks.RaiseLoginAttempt(account.AccountID, c.IPAddress, "bad-password");
 
