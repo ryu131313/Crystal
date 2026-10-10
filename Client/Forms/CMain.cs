@@ -101,12 +101,23 @@ namespace Client
 
         private static void Application_Idle(object sender, EventArgs e)
         {
+            if (RenderTest.RenderTestRunner.Enabled)
+            {
+                // Roadmap C1: one-shot golden render run instead of the game loop.
+                Application.Idle -= Application_Idle;
+                Environment.ExitCode = RenderTest.RenderTestRunner.Run();
+                Program.Form.Close();
+                return;
+            }
+
             try
             {
                 while (AppStillIdle)
                 {
                     UpdateTime();
+                    long updateStart = FrameProfiler.Now();
                     UpdateEnviroment();
+                    FrameProfiler.AddUpdate(updateStart);
 
                     if (IsDrawTime())
                     {
@@ -393,6 +404,7 @@ namespace Client
                     return;
                 }
 
+                long frameStart = FrameProfiler.Now();
                 DXManager.Device.Clear(ClearFlags.Target, Color.Black, 0, 0);
                 DXManager.Device.BeginScene();
                 DXManager.Sprite.Begin(SpriteFlags.AlphaBlend);
@@ -403,7 +415,9 @@ namespace Client
 
                 DXManager.Sprite.End();
                 DXManager.Device.EndScene();
+                long presentStart = FrameProfiler.Now();
                 DXManager.Device.Present();
+                FrameProfiler.AddFrame(frameStart, presentStart);
             }
             catch (Direct3D9Exception ex)
             {
@@ -457,6 +471,8 @@ namespace Client
             }
 
             text += string.Format(", Ping: {0}", PingTime);
+
+            text += ", Frame: " + FrameProfiler.Summary; // roadmap C1 frame profiler (summary rebuilt once per second)
 
             text += string.Format(", Sent: {0}, Received: {1}", Functions.ConvertByteSize(BytesSent), Functions.ConvertByteSize(BytesReceived));
 
@@ -717,7 +733,7 @@ namespace Client
             }
             else
             {
-                Settings.Save();
+                if (!RenderTest.RenderTestRunner.Enabled) Settings.Save();
 
                 DXManager.Dispose();
                 SoundManager.Dispose();

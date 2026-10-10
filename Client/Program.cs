@@ -29,6 +29,14 @@ namespace Client
                 Settings.UseTestConfig = true;
             #endif
 
+            // Roadmap C1: golden render tests. --rendercompare needs no window at all.
+            bool renderTest = RenderTest.RenderTestRunner.ParseArgs(args);
+            if (RenderTest.RenderTestRunner.CompareMode)
+            {
+                Environment.ExitCode = RenderTest.RenderTestRunner.Compare();
+                return;
+            }
+
             try
             {
                 if (UpdatePatcher()) return;
@@ -41,11 +49,12 @@ namespace Client
                 AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
                     CMain.SaveError("Unhandled exception" + (e.IsTerminating ? " (terminating)" : "") + ": " + e.ExceptionObject);
                 Settings.Load();
+                if (renderTest) RenderTest.RenderTestRunner.ApplySettings();
 
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
 
-                CheckResolutionSetting();
+                if (!renderTest) CheckResolutionSetting();
 
                 Launch = false;
                 if (Settings.P_Patcher)
@@ -56,6 +65,7 @@ namespace Client
                 if (Launch)
                     Application.Run(Form = new CMain());
 
+                if (renderTest) return; // test runs never write the user's ini
                 Settings.Save();
 
                 if (Restart)
