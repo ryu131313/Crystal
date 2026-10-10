@@ -293,7 +293,7 @@ namespace Server.MirNetwork
         private const int EncodeCacheTrimAbove = 8192;
         private const int EncodeCacheKeep = 1024;
 
-        private static byte[] Encode(Packet p)
+        internal static byte[] Encode(Packet p)
         {
             if (!Settings.EncodeOnce) return ToBytes(p);
             if (!EncodedThisPass.TryGetValue(p, out var bytes))
@@ -312,11 +312,13 @@ namespace Server.MirNetwork
         private static long _encodeHits;
         private static readonly HashSet<short> MutatedPacketsLogged = new HashSet<short>();
 
-        private static void CheckNotMutated(Packet p, byte[] cached)
+        /// <summary>Returns false (and logs once per packet type) when the packet no longer encodes to the cached bytes.</summary>
+        internal static bool CheckNotMutated(Packet p, byte[] cached)
         {
-            if (ToBytes(p).AsSpan().SequenceEqual(cached)) return;
+            if (ToBytes(p).AsSpan().SequenceEqual(cached)) return true;
             if (MutatedPacketsLogged.Add(p.Index))
                 MessageQueue.Enqueue($"[Optimisation] EncodeOnce: {p.GetType().Name} changed after its first send in a pass; later recipients got the first bytes. Fix the sender, or set [Optimisation] EncodeOnce=False.");
+            return false;
         }
 
         private static byte[] ToBytes(Packet p)

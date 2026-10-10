@@ -5,7 +5,7 @@
 **Safety:**
 - `Future Ideas/Packet-Mutation-Audit.md` found no server code that mutates a packet after its first send. Encoding is lazy and on the game thread (never in `Enqueue`, which mob threads call), as the audit requires.
 - The audit's "frozen packet" condition needs a `Shared` change, so it waits for C5. Until then a sampled guard re-encodes 1 cache hit in 256 and logs `[Optimisation] EncodeOnce: <Packet> changed after its first send` once per packet type. Bot runs logged 0 such lines.
-- The audit's golden tests for guild fan-out and observers are **not written**. The guard and the kill switch cover that gap for now.
+- The audit's golden tests are written (2026-10-10 follow-up), as unit-level tests: `Server.Persistence.Tests/EncodeOnceGoldenTests.cs`. They cover guild fan-out (`GuildStorageItemChange` while a second member takes the item in the same pass), the observer case (`PlayerInspect` with live `Equipment`), and the kill switch. Bot-driven versions would need guild NPCs and an observer flow in StressClient; neither exists yet.
 - An independent read-only review found no correctness issues. Its two Lows are **fixed (2026-10-10 follow-up)**: the shutdown drain now isolates a failing connection like the main loop, and the cache gives back its table (`TrimExcess(1024)`) after a pass with more than 8192 entries.
 
 **Measurements:** 500 bots on one map, scratch server, `tools/run-baseline.ps1 -Bots 500 -NoIdle [-ExtraIni '[Optimisation]','EncodeOnce=False']`, 60 s windows. Bots share the machine, and **the desktop was busy during pair 2** (two msedge processes used ~3.7 cores).
