@@ -53,24 +53,64 @@ namespace Client.MirGraphics
 
         public static RendererType RendererType => Backend?.Type ?? Settings.Renderer;
 
+        /// <summary>
+        /// D3D11 fullscreen is a borderless window covering the screen with a game-sized back buffer that DXGI stretches
+        /// (flip model, no exclusive mode). D3D9 keeps its exclusive fullscreen.
+        /// </summary>
+        public static bool UsesBorderlessFullscreen => Backend?.Type == RendererType.D3D11 && Settings.FullScreen;
+
+        /// <summary>Back-buffer size for a reset: the client area, or the game resolution in borderless fullscreen.</summary>
+        public static Size BackBufferSize => UsesBorderlessFullscreen ? new Size(Settings.ScreenWidth, Settings.ScreenHeight) : Program.Form.ClientSize;
+
+        /// <summary>Window client pixels → game pixels (identity unless the scene is stretched in borderless fullscreen).</summary>
+        public static Point ClientToScene(Point point)
+        {
+            if (!UsesBorderlessFullscreen) return point;
+            Size client = Program.Form.ClientSize;
+            if (client.Width <= 0 || client.Height <= 0) return point;
+            return new Point(point.X * Settings.ScreenWidth / client.Width, point.Y * Settings.ScreenHeight / client.Height);
+        }
+
+        /// <summary>Sizes the window for the current mode: covers the screen in borderless fullscreen, else the game resolution.</summary>
+        public static void ApplyWindowBounds()
+        {
+            if (UsesBorderlessFullscreen)
+                Program.Form.Bounds = Screen.FromControl(Program.Form).Bounds;
+            else
+                Program.Form.ClientSize = new Size(Settings.ScreenWidth, Settings.ScreenHeight);
+        }
+
         public static void Create()
         {
-            Backend = Settings.Renderer == RendererType.D3D11 ? new D3D11Backend() : new D3D9Backend();
-            try
+            if (Settings.Renderer == RendererType.D3D11)
             {
-                Backend.Create(Program.Form.Handle, Settings.ScreenWidth, Settings.ScreenHeight, !Settings.FullScreen, Settings.FPSCap);
+                try
+                {
+                    Backend = CreateD3D11Backend();
+                    Backend.Create(Program.Form.Handle, Settings.ScreenWidth, Settings.ScreenHeight, !Settings.FullScreen, Settings.FPSCap);
+                }
+                catch (Exception ex)
+                {
+                    // D3D11 is opt-in during roadmap C4: fall back to D3D9 for this run (no device, missing Vortice DLLs, ...)
+                    // rather than leaving the client without a renderer.
+                    CMain.SaveError("D3D11 backend failed to start, falling back to D3D9: " + ex);
+                    try { Backend?.Dispose(); } catch { }
+                    Backend = null;
+                }
             }
-            catch (Exception ex) when (Settings.Renderer == RendererType.D3D11)
+
+            if (Backend == null)
             {
-                // D3D11 is opt-in during roadmap C4: fall back to D3D9 for this run rather than leaving the client without a device.
-                CMain.SaveError("D3D11 backend failed to start, falling back to D3D9: " + ex);
-                try { Backend.Dispose(); } catch { }
                 Backend = new D3D9Backend();
                 Backend.Create(Program.Form.Handle, Settings.ScreenWidth, Settings.ScreenHeight, !Settings.FullScreen, Settings.FPSCap);
             }
 
             LoadTextures();
         }
+
+        // Separate, non-inlined: compiling Create must not need the Vortice assemblies when D3D9 is selected.
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static IRenderBackend CreateD3D11Backend() => new D3D11Backend();
 
         private static unsafe void LoadTextures()
         {
@@ -308,7 +348,7 @@ namespace Client.MirGraphics
 
             if (DXManager.Backend == null) return;
 
-            Size clientSize = Program.Form.ClientSize;
+            Size clientSize = DXManager.BackBufferSize;
 
             if (clientSize.Width == 0 || clientSize.Height == 0) return;
 

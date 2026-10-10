@@ -90,7 +90,10 @@ namespace Client
 
                 DXManager.Create();
                 SoundManager.Create();
-                CenterToScreen();
+                if (DXManager.UsesBorderlessFullscreen)
+                    DXManager.ApplyWindowBounds(); // roadmap C4: D3D11 fullscreen covers the screen; DXGI stretches the scene
+                else
+                    CenterToScreen();
             }
             catch (Exception ex)
             {
@@ -114,6 +117,14 @@ namespace Client
                 while (AppStillIdle)
                 {
                     UpdateTime();
+                    if (RenderTest.RenderTestRunner.SmokeMode && Time >= RenderTest.RenderTestRunner.SmokeSeconds * 1000L)
+                    {
+                        // Roadmap C4 smoke test: the real loop ran for N seconds; capture and close.
+                        RenderTest.RenderTestRunner.FinishSmoke();
+                        Application.Idle -= Application_Idle;
+                        Program.Form.Close();
+                        return;
+                    }
                     long updateStart = FrameProfiler.Now();
                     UpdateEnviroment();
                     FrameProfiler.AddUpdate(updateStart);
@@ -183,12 +194,12 @@ namespace Client
             if (Settings.FullScreen || Settings.MouseClip)
                 Cursor.Clip = Program.Form.RectangleToScreen(Program.Form.ClientRectangle);
 
-            MPoint = Program.Form.PointToClient(Cursor.Position);
+            MPoint = DXManager.ClientToScene(Program.Form.PointToClient(Cursor.Position));
 
             try
             {
                 if (MirScene.ActiveScene != null)
-                    MirScene.ActiveScene.OnMouseMove(e);
+                    MirScene.ActiveScene.OnMouseMove(ToScene(e));
             }
             catch (Exception ex)
             {
@@ -257,7 +268,7 @@ namespace Client
             try
             {
                 if (MirScene.ActiveScene != null)
-                    MirScene.ActiveScene.OnMouseClick(e);
+                    MirScene.ActiveScene.OnMouseClick(ToScene(e));
             }
             catch (Exception ex)
             {
@@ -273,7 +284,7 @@ namespace Client
             try
             {
                 if (MirScene.ActiveScene != null)
-                    MirScene.ActiveScene.OnMouseUp(e);
+                    MirScene.ActiveScene.OnMouseUp(ToScene(e));
             }
             catch (Exception ex)
             {
@@ -300,7 +311,7 @@ namespace Client
             try
             {
                 if (MirScene.ActiveScene != null)
-                    MirScene.ActiveScene.OnMouseDown(e);
+                    MirScene.ActiveScene.OnMouseDown(ToScene(e));
             }
             catch (Exception ex)
             {
@@ -312,7 +323,7 @@ namespace Client
             try
             {
                 if (MirScene.ActiveScene != null)
-                    MirScene.ActiveScene.OnMouseClick(e);
+                    MirScene.ActiveScene.OnMouseClick(ToScene(e));
             }
             catch (Exception ex)
             {
@@ -324,12 +335,20 @@ namespace Client
             try
             {
                 if (MirScene.ActiveScene != null)
-                    MirScene.ActiveScene.OnMouseWheel(e);
+                    MirScene.ActiveScene.OnMouseWheel(ToScene(e));
             }
             catch (Exception ex)
             {
                 SaveError(ex.ToString());
             }
+        }
+
+        /// <summary>Mouse arguments in game pixels (roadmap C4: the D3D11 borderless-fullscreen scene is stretched).</summary>
+        private static MouseEventArgs ToScene(MouseEventArgs e)
+        {
+            if (!DXManager.UsesBorderlessFullscreen) return e;
+            Point p = DXManager.ClientToScene(e.Location);
+            return new MouseEventArgs(e.Button, e.Clicks, p.X, p.Y, e.Delta);
         }
 
         private static void UpdateTime()
@@ -586,7 +605,7 @@ namespace Client
 
             Program.Form.TopMost = Settings.FullScreen;
 
-            Program.Form.ClientSize = new Size(Settings.ScreenWidth, Settings.ScreenHeight);
+            DXManager.ApplyWindowBounds();
 
             DXManager.ResetDevice();
 
@@ -596,7 +615,8 @@ namespace Client
                 GameScene.Scene.TextureValid = false;
             }
 
-            Program.Form.CenterToScreen();
+            if (!DXManager.UsesBorderlessFullscreen)
+                Program.Form.CenterToScreen();
         }
 
         public void CreateScreenShot()
@@ -668,7 +688,7 @@ namespace Client
 
             Settings.ScreenWidth = width;
             Settings.ScreenHeight = height;
-            Program.Form.ClientSize = new Size(width, height);
+            DXManager.ApplyWindowBounds();
 
             DXManager.Clear(Color.Black);
             DXManager.Present();
@@ -723,7 +743,7 @@ namespace Client
             }
             else
             {
-                if (!RenderTest.RenderTestRunner.Enabled) Settings.Save();
+                if (!RenderTest.RenderTestRunner.Enabled && !RenderTest.RenderTestRunner.SmokeMode) Settings.Save();
 
                 DXManager.Dispose();
                 SoundManager.Dispose();

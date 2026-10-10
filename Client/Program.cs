@@ -65,7 +65,7 @@ namespace Client
                 if (Launch)
                     Application.Run(Form = new CMain());
 
-                if (renderTest) return; // test runs never write the user's ini
+                if (renderTest) return; // test and smoke runs never write the user's ini
                 Settings.Save();
 
                 if (Restart)

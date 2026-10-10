@@ -24,11 +24,17 @@ namespace Client.RenderTest
         public const int Width = 1024, Height = 768;
 
         public static bool Enabled { get; private set; }
+        /// <summary>--smoke N: run the real game loop (login scene) for N seconds, then capture and exit.</summary>
+        public static bool SmokeMode { get; private set; }
+        public static int SmokeSeconds;
+        public static bool SmokeFullScreen;
         public static bool CompareMode { get; private set; }
         public static string OutDir = Path.GetFullPath("RenderTestOut");
         public static int BenchFrames;
         public static string CompareA, CompareB;
         public static bool ParityMode;
+        /// <summary>--waive Name:N — a scenario may differ in at most N pixels (documented edge cases only).</summary>
+        public static readonly Dictionary<string, int> Waivers = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
         private static readonly List<string> _log = new List<string>();
 
@@ -47,15 +53,31 @@ namespace Client.RenderTest
                         if (i + 2 < args.Length) { CompareA = args[++i]; CompareB = args[++i]; }
                         break;
                     case "--parity": ParityMode = true; break;
+                    case "--smoke":
+                        SmokeMode = true;
+                        if (i + 1 < args.Length) int.TryParse(args[++i], out SmokeSeconds);
+                        if (SmokeSeconds <= 0) SmokeSeconds = 10;
+                        break;
+                    case "--fullscreen": SmokeFullScreen = true; break;
+                    case "--waive":
+                        if (i + 1 < args.Length)
+                        {
+                            var parts = args[++i].Split(':');
+                            if (parts.Length == 2 && int.TryParse(parts[1], out int n)) Waivers[parts[0]] = n;
+                        }
+                        break;
                 }
             }
-            return Enabled || CompareMode;
+            return Enabled || CompareMode || SmokeMode;
         }
 
         /// <summary>Test-mode settings: applied after Settings.Load, never saved.</summary>
         public static void ApplySettings()
         {
-            Settings.FullScreen = false;
+            // Never reach a real server: port 1 on loopback is always refused (WoOOLcraft and others listen on 7000).
+            Settings.IPAddress = "127.0.0.1";
+            Settings.Port = 1;
+            Settings.FullScreen = SmokeMode && SmokeFullScreen;
             Settings.Borderless = false;
             Settings.FPSCap = false;
             Settings.ScreenWidth = Width;
@@ -76,6 +98,7 @@ namespace Client.RenderTest
         {
             public string Name;
             public Action Draw;
+            public bool ResetFirst;     // DXManager.ResetDevice() before rendering (device reset / swap-chain resize path)
         }
 
         private static List<Scenario> BuildScenarios()
@@ -94,6 +117,9 @@ namespace Client.RenderTest
                 new Scenario { Name = "S10_ui", Draw = DrawUiScenario },
                 new Scenario { Name = "S11_stress_order", Draw = DrawStressScenario },
                 new Scenario { Name = "S12_primitives", Draw = DrawPrimitivesScenario },
+                new Scenario { Name = "S13_state_quirks", Draw = DrawStateQuirksScenario },
+                new Scenario { Name = "S14_render_targets", Draw = DrawRenderTargetsScenario },
+                new Scenario { Name = "S15_after_reset", Draw = DrawAfterResetScenario, ResetFirst = true },
             };
         }
 
@@ -398,6 +424,109 @@ namespace Client.RenderTest
             scene.Dispose();
         }
 
+        private static void DrawStateQuirksScenario()
+        {
+            DrawFloorScenario();
+            var sprites = ValidIndices(Libraries.Prguse, 0, 6);
+            var fx = ValidIndices(Libraries.Magic, 0, 3);
+            if (sprites.Count < 6 || fx.Count < 3) return;
+
+            // 1. Grayscale across a blend switch: SetBlend restarts the sprite (does Begin drop the pixel shader?).
+            DXManager.SetGrayscale(true);
+            Libraries.Prguse.Draw(sprites[0], new Point(10, 10), Color.White, false);
+            Libraries.Magic.DrawBlend(fx[0], new Point(300, 60), Color.White, true, 1F);
+            Libraries.Prguse.Draw(sprites[1], new Point(10, 200), Color.White, false);
+            DXManager.SetGrayscale(false);
+
+            // 2. Opacity + grayscale, then a sprite restart in AlphaBlend mode (End restores the state saved at Begin).
+            DXManager.SetOpacity(0.5F);
+            DXManager.SetGrayscale(true);
+            Libraries.Prguse.Draw(sprites[2], new Point(520, 10), Color.White, false);
+            DXManager.RestartSpriteAlphaBlend();
+            Libraries.Prguse.Draw(sprites[3], new Point(520, 200), Color.White, false);
+            DXManager.SetGrayscale(false);
+            DXManager.SetOpacity(1F);
+
+            // 3. Opacity changed while blending, then blending off.
+            DXManager.SetBlend(true, 0.3F);
+            Libraries.Magic.Draw(fx[1], new Point(100, 420), Color.White, true);
+            DXManager.SetOpacity(0.6F);
+            Libraries.Magic.Draw(fx[2], new Point(400, 420), Color.White, true);
+            DXManager.SetBlend(false);
+            Libraries.Prguse.Draw(sprites[4], new Point(700, 420), Color.White, false);
+            DXManager.SetOpacity(1F);
+
+            // 4. INVLIGHT and additive back to back with different rates.
+            DXManager.SetBlend(true, 0.4F, BlendMode.INVLIGHT);
+            Libraries.Magic.Draw(fx[0], new Point(100, 560), Color.White, true);
+            DXManager.SetBlend(true, 0.9F);
+            Libraries.Magic.Draw(fx[1], new Point(350, 560), Color.White, true);
+            DXManager.SetBlend(true, 0.9F, BlendMode.INVLIGHT);
+            Libraries.Magic.Draw(fx[2], new Point(600, 560), Color.Yellow, true);
+            DXManager.SetBlend(false);
+
+            // 5. Grayscale set inside a DoNotSaveState sprite, then a blend-rate change: End does not restore, so only
+            //    Begin itself can drop the pixel shader (the discriminating case for that D3DX assumption).
+            DXManager.SetBlend(true, 0.5F);
+            DXManager.SetGrayscale(true);
+            Libraries.Magic.Draw(fx[0], new Point(700, 40), Color.White, true);
+            DXManager.SetBlend(true, 0.8F);
+            Libraries.Magic.Draw(fx[1], new Point(850, 40), Color.White, true);
+            DXManager.SetBlend(false);
+            DXManager.SetGrayscale(false);
+        }
+
+        private static RenderTexture _rtA, _rtB;
+
+        private static void DrawRenderTargetsScenario()
+        {
+            var sprites = ValidIndices(Libraries.Prguse, 0, 4);
+            var fx = ValidIndices(Libraries.Magic, 0, 2);
+            if (_rtA == null) { _rtA = DXManager.CreateRenderTarget(300, 200); _rtB = DXManager.CreateRenderTarget(500, 400); }
+
+            RenderTexture old = DXManager.CurrentSurface;
+            // A: translucent clear, sprites, additive effect.
+            DXManager.SetSurface(_rtA);
+            DXManager.Clear(Color.FromArgb(128, 0, 64, 128));
+            if (sprites.Count > 0) Libraries.Prguse.Draw(sprites[0], new Point(-20, -10), Color.White, false);
+            if (fx.Count > 0) Libraries.Magic.DrawBlend(fx[0], new Point(100, 40), Color.White, true, 0.7F);
+            // B: transparent clear, A drawn twice (opaque and with vertex alpha), a sprite on top.
+            DXManager.SetSurface(_rtB);
+            DXManager.Clear(Color.Empty);
+            DXManager.Draw(_rtA, new Rectangle(0, 0, 300, 200), new SlimDX.Vector3(10, 10, 0), Color.White);
+            DXManager.DrawOpaque(_rtA, new Rectangle(50, 50, 200, 100), new SlimDX.Vector3(150, 220, 0), Color.White, 0.5F);
+            if (sprites.Count > 1) Libraries.Prguse.Draw(sprites[1], new Point(200, 100), Color.FromArgb(255, 255, 200, 200), false);
+            // Back to the frame: draw B with SetOpacity, then A with grayscale.
+            DXManager.SetSurface(old);
+            DXManager.Clear(Color.FromArgb(255, 40, 40, 40));
+            DXManager.SetOpacity(0.75F);
+            DXManager.Draw(_rtB, new Rectangle(0, 0, 500, 400), new SlimDX.Vector3(20, 20, 0), Color.White);
+            DXManager.SetOpacity(1F);
+            DXManager.SetGrayscale(true);
+            DXManager.Draw(_rtA, new Rectangle(0, 0, 300, 200), new SlimDX.Vector3(600, 400, 0), Color.White);
+            DXManager.SetGrayscale(false);
+        }
+
+        private static void DrawAfterResetScenario()
+        {
+            // Everything (library textures, lights, control textures) was released and re-created by ResetDevice.
+            DrawLightsScenario();
+            DrawUiScenario();
+        }
+
+        /// <summary>Releases the harness's own render targets, resets the device (D3D9 Reset / D3D11 ResizeBuffers) and recreates them.</summary>
+        private static void ResetDevice()
+        {
+            _target?.Dispose(); _target = null;
+            _floorRt?.Dispose(); _floorRt = null;
+            _lightRt?.Dispose(); _lightRt = null;
+            _rtA?.Dispose(); _rtA = null;
+            _rtB?.Dispose(); _rtB = null;
+            DXManager.ResetDevice();
+            DXManager.DeviceLost = false;
+            _target = DXManager.CreateRenderTarget(Width, Height);
+        }
+
         // ------------------------------------------------------------------ run
 
         private static RenderTexture _target;
@@ -418,6 +547,7 @@ namespace Client.RenderTest
                 var scenarios = BuildScenarios();
                 foreach (var s in scenarios)
                 {
+                    if (s.ResetFirst) ResetDevice();
                     // Render twice so first-use texture uploads cannot influence the captured frame.
                     RenderScenario(s, toTarget: true);
                     RenderScenario(s, toTarget: true);
@@ -453,7 +583,7 @@ namespace Client.RenderTest
             finally
             {
                 try { File.WriteAllLines(Path.Combine(OutDir, "rendertest.log"), _log); } catch { }
-                _target?.Dispose(); _floorRt?.Dispose(); _lightRt?.Dispose();
+                _target?.Dispose(); _floorRt?.Dispose(); _lightRt?.Dispose(); _rtA?.Dispose(); _rtB?.Dispose();
             }
         }
 
@@ -487,6 +617,30 @@ namespace Client.RenderTest
             bmp.Save(path, ImageFormat.Png);
         }
 
+        /// <summary>End of a smoke run (called from the real game loop): capture the back buffer and the frame profile.</summary>
+        public static void FinishSmoke()
+        {
+            try
+            {
+                Directory.CreateDirectory(OutDir);
+                using (var bmp = DXManager.CaptureBackBuffer())
+                    bmp.Save(Path.Combine(OutDir, "smoke.png"), ImageFormat.Png);
+                _log.Add($"smoke backend {DXManager.RendererType} (configured {Settings.Renderer}) fullscreen={Settings.FullScreen} borderless={DXManager.UsesBorderlessFullscreen}");
+                _log.Add($"smoke window client={Program.Form.ClientSize} backbuffer={DXManager.MainSurface?.Width}x{DXManager.MainSurface?.Height} scene={Settings.ScreenWidth}x{Settings.ScreenHeight}");
+                _log.Add("smoke frame " + FrameProfiler.Summary + $" fps={CMain.FPS}");
+                Environment.ExitCode = 0;
+            }
+            catch (Exception ex)
+            {
+                _log.Add("FATAL smoke " + ex);
+                Environment.ExitCode = 2;
+            }
+            finally
+            {
+                try { File.WriteAllLines(Path.Combine(OutDir, "smoke.log"), _log); } catch { }
+            }
+        }
+
         // ------------------------------------------------------------------ compare
 
         /// <summary>
@@ -513,7 +667,7 @@ namespace Client.RenderTest
 
                     if (a.AsSpan().SequenceEqual(b)) { lines.Add($"{name}: IDENTICAL"); continue; }
 
-                    int maxRgb = 0, maxA = 0, over1 = 0, over2 = 0, pixels = a.Length / 4;
+                    int maxRgb = 0, maxA = 0, over1 = 0, over2 = 0, differing = 0, pixels = a.Length / 4;
                     for (int i = 0; i < a.Length; i += 4)
                     {
                         int d = Math.Max(Math.Abs(a[i] - b[i]), Math.Max(Math.Abs(a[i + 1] - b[i + 1]), Math.Abs(a[i + 2] - b[i + 2])));
@@ -521,13 +675,15 @@ namespace Client.RenderTest
                         if (d > maxRgb) maxRgb = d;
                         if (da > maxA) maxA = da;
                         int m = Math.Max(d, da);
+                        if (m > 0) differing++;
                         if (m > 1) over1++;
                         if (m > 2) over2++;
                     }
                     double within1 = 100.0 * (pixels - over1) / pixels;
                     bool pass = ParityMode && maxRgb <= 2 && maxA <= 2 && within1 >= 99.9;
-                    if (!pass) failures++;
-                    lines.Add($"{name}: {(pass ? "PARITY" : "DIFF")} maxRGB={maxRgb} maxA={maxA} pixels>1={over1} pixels>2={over2} within1={within1:0.000}%");
+                    bool waived = !pass && Waivers.TryGetValue(name, out int allowed) && differing <= allowed;
+                    if (!pass && !waived) failures++;
+                    lines.Add($"{name}: {(pass ? "PARITY" : waived ? "WAIVED" : "DIFF")} differing={differing} maxRGB={maxRgb} maxA={maxA} pixels>1={over1} pixels>2={over2} within1={within1:0.000}%");
                 }
                 lines.Add(failures == 0 ? "RESULT: PASS" : $"RESULT: FAIL ({failures})");
                 return failures == 0 ? 0 : 1;

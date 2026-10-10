@@ -22,15 +22,19 @@
 .PARAMETER Bench      Frames per scenario for the frame-time benchmark (0 = off).
 .PARAMETER DataRoot   Client data folder (read only). Default C:\Mir2\Build\Client\Debug.
 .PARAMETER NoBuild    Reuse the last scratch build.
+.PARAMETER SmokeSeconds  Smoke mode: seconds of the real game loop (login scene) before capture. Default 10.
+.PARAMETER FullScreen    Smoke mode: run fullscreen (D3D11: borderless window over the screen; D3D9: exclusive mode).
 #>
 param(
-    [ValidateSet('Record', 'Compare', 'Parity', 'Run')][string]$Mode = 'Compare',
+    [ValidateSet('Record', 'Compare', 'Parity', 'Run', 'Smoke')][string]$Mode = 'Compare',
     [ValidateSet('D3D9', 'D3D11')][string]$Backend = 'D3D9',
     [string]$Goldens = (Join-Path $env:USERPROFILE 'Mir2RenderGoldens\D3D9'),
     [string]$Out = '',
     [int]$Bench = 0,
     [string]$DataRoot = '',
-    [switch]$NoBuild
+    [switch]$NoBuild,
+    [int]$SmokeSeconds = 10,
+    [switch]$FullScreen
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
@@ -85,6 +89,14 @@ foreach ($ini in 'Mir2Test.ini', 'Mir2Config.ini') {
 }
 
 New-Item -ItemType Directory -Force $Out | Out-Null
+if ($Mode -eq 'Smoke') {
+    $args = @('--smoke', "$SmokeSeconds", '--out', $Out)
+    if ($FullScreen) { $args += '--fullscreen' }
+    $p = Start-Process -FilePath (Join-Path $run 'Client.exe') -ArgumentList $args -WorkingDirectory $run -PassThru -Wait
+    Write-Host "smoke exit code $($p.ExitCode) ($Backend) -> $Out"
+    if (Test-Path (Join-Path $Out 'smoke.log')) { Get-Content (Join-Path $Out 'smoke.log') }
+    exit $p.ExitCode
+}
 $args = @('--rendertest', '--out', $Out)
 if ($Bench -gt 0) { $args += @('--bench', "$Bench") }
 $p = Start-Process -FilePath (Join-Path $run 'Client.exe') -ArgumentList $args -WorkingDirectory $run -PassThru -Wait
@@ -94,7 +106,12 @@ if ($p.ExitCode -ne 0) { if (Test-Path (Join-Path $run 'Error.txt')) { Get-Conte
 
 if ($Mode -eq 'Compare' -or $Mode -eq 'Parity') {
     $cargs = @('--rendercompare', $Goldens, $Out)
-    if ($Mode -eq 'Parity') { $cargs += '--parity' }
+    if ($Mode -eq 'Parity') {
+        $cargs += '--parity'
+        # Documented waivers (Knowledgebase/Client/D3D11-Parity.md): S14 magnifies render-target content through the
+        # D3DX projection-at-Begin quirk (never happens in the game) and 2 pixels on that edge tie under the fill rule.
+        $cargs += @('--waive', 'S14_render_targets:4')
+    }
     $c = Start-Process -FilePath (Join-Path $run 'Client.exe') -ArgumentList $cargs -WorkingDirectory $run -PassThru -Wait
     Get-Content (Join-Path $Out 'compare.txt')
     exit $c.ExitCode
