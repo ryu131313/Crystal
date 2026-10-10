@@ -20,6 +20,8 @@ internal sealed class Metrics
     public long AccountsCreated, CharactersCreated, Logins, GamesEntered, BotsReachedGame;
     public long Walks, Turns, Attacks, Blocked, MonstersSeen, Kills, Deaths, Revives, Throttled, Equips;
     public long KeepAliveRttTotalMs, KeepAliveRttCount;
+    /// <summary>S.MapInformation received, by map file name (one per game entry or map change): shows how bots spread over maps.</summary>
+    public readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> MapEntries = new();
 
     public static void Inc(ref long field) => Interlocked.Increment(ref field);
     public static void Add(ref long field, long value) => Interlocked.Add(ref field, value);

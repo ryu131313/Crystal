@@ -237,6 +237,10 @@ internal sealed class Bot
                 Send(new C.ClientVersion { VersionHash = new byte[16] });
                 break;
 
+            case S.MapInformation mi:
+                _m.MapEntries.AddOrUpdate(mi.FileName ?? "?", 1, (_, n) => n + 1);
+                break;
+
             case S.ClientVersion v:
                 if (v.Result != 1) { Fail("wrong client version (set [General] CheckVersion=False on the scratch server)"); break; }
                 SendLogin();

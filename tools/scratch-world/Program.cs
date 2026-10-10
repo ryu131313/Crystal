@@ -22,6 +22,7 @@ internal static class Program
         string outDir = null;
         string mapName = "scratch0";
         int size = 200;
+        int maps = 1;
         bool force = false;
 
         for (int i = 0; i < args.Length; i++)
@@ -31,6 +32,7 @@ internal static class Program
                 case "--out": outDir = args[++i]; break;
                 case "--size": size = int.Parse(args[++i]); break;
                 case "--map": mapName = args[++i]; break;
+                case "--maps": maps = int.Parse(args[++i]); break;
                 case "--force": force = true; break;
                 default:
                     Console.Error.WriteLine($"Unknown argument '{args[i]}'.");
@@ -40,6 +42,7 @@ internal static class Program
 
         if (string.IsNullOrWhiteSpace(outDir)) return Usage();
         if (size < 50 || size > 1000) { Console.Error.WriteLine("--size must be 50..1000"); return 2; }
+        if (maps < 1 || maps > 20) { Console.Error.WriteLine("--maps must be 1..20"); return 2; }
 
         outDir = Path.GetFullPath(outDir);
         var repoBuild = FindRepoBuildFolder();
@@ -57,9 +60,17 @@ internal static class Program
         }
 
         Directory.CreateDirectory(Path.Combine(outDir, "Maps"));
-        var mapPath = Path.Combine(outDir, "Maps", mapName + ".map");
-        File.WriteAllBytes(mapPath, BuildMapV0(size, size));
-        Console.WriteLine($"Wrote {mapPath} ({size}x{size}, walkable)");
+        // Map 0 keeps the --map name; extra maps are <name minus trailing digits><n> (scratch1, scratch2, ...). Each has a
+        // start point, and new characters pick a random start point, so bots spread across maps.
+        var mapNames = new string[maps];
+        var stem = mapName.TrimEnd('0', '1', '2', '3', '4', '5', '6', '7', '8', '9');
+        for (int m = 0; m < maps; m++)
+        {
+            mapNames[m] = m == 0 ? mapName : stem + m;
+            var mapPath = Path.Combine(outDir, "Maps", mapNames[m] + ".map");
+            File.WriteAllBytes(mapPath, BuildMapV0(size, size));
+            Console.WriteLine($"Wrote {mapPath} ({size}x{size}, walkable)");
+        }
 
         var old = Environment.CurrentDirectory;
         Directory.SetCurrentDirectory(outDir);
@@ -73,11 +84,11 @@ internal static class Program
             }
 
             var e = Envir.Main;
-            Populate(e, mapName, size);
+            Populate(e, mapNames, size);
             e.SaveDB();
             Console.WriteLine($"Wrote {Path.Combine(outDir, "Server.MirDB")} (version {Envir.Version}): " +
-                              $"{e.MapInfoList.Count} map, {e.MonsterInfoList.Count} monsters, {e.ItemInfoList.Count} items, " +
-                              $"{e.MapInfoList[0].Respawns.Count} respawns");
+                              $"{e.MapInfoList.Count} map(s), {e.MonsterInfoList.Count} monsters, {e.ItemInfoList.Count} items, " +
+                              $"{e.MapInfoList.Sum(m => m.Respawns.Count)} respawns");
         }
         finally
         {
@@ -89,7 +100,7 @@ internal static class Program
 
     private static int Usage()
     {
-        Console.Error.WriteLine("Usage: ScratchWorld --out <scratch folder> [--size 200] [--map scratch0] [--force]");
+        Console.Error.WriteLine("Usage: ScratchWorld --out <scratch folder> [--size 200] [--map scratch0] [--maps 1] [--force]");
         return 2;
     }
 
@@ -116,19 +127,22 @@ internal static class Program
         return bytes;
     }
 
-    private static void Populate(Envir e, string mapName, int size)
+    private static void Populate(Envir e, string[] mapNames, int size)
     {
         var centre = new Point(size / 2, size / 2);
 
-        e.MapIndex = 1; e.ItemIndex = 5; e.MonsterIndex = 2; e.NPCIndex = 0; e.QuestIndex = 0; e.GameshopIndex = 0; e.RespawnIndex = 2;
+        e.MapIndex = mapNames.Length; e.ItemIndex = 5; e.MonsterIndex = 2; e.NPCIndex = 0; e.QuestIndex = 0; e.GameshopIndex = 0; e.RespawnIndex = 2 * mapNames.Length;
 
-        var map = new MapInfo { Index = 1, FileName = mapName, Title = "Scratch Plains", Light = LightSetting.Day };
-        map.SafeZones.Add(new SafeZoneInfo { Info = map, Location = centre, Size = 5, StartPoint = true });
         int spread = Math.Max(10, size / 2 - 10);
-        // Passive "hen" (AI 1 = Deer: wanders, never attacks) and an aggressive melee mob (AI 0 = base MonsterObject).
-        map.Respawns.Add(new RespawnInfo { MonsterIndex = 1, Location = centre, Count = (ushort)Math.Max(20, size / 2), Spread = (ushort)spread, Delay = 1, RespawnIndex = 1 });
-        map.Respawns.Add(new RespawnInfo { MonsterIndex = 2, Location = centre, Count = (ushort)Math.Max(10, size / 5), Spread = (ushort)spread, Delay = 1, RespawnIndex = 2 });
-        e.MapInfoList.Add(map);
+        for (int m = 0; m < mapNames.Length; m++)
+        {
+            var map = new MapInfo { Index = m + 1, FileName = mapNames[m], Title = m == 0 ? "Scratch Plains" : "Scratch Plains " + m, Light = LightSetting.Day };
+            map.SafeZones.Add(new SafeZoneInfo { Info = map, Location = centre, Size = 5, StartPoint = true });
+            // Passive "hen" (AI 1 = Deer: wanders, never attacks) and an aggressive melee mob (AI 0 = base MonsterObject).
+            map.Respawns.Add(new RespawnInfo { MonsterIndex = 1, Location = centre, Count = (ushort)Math.Max(20, size / 2), Spread = (ushort)spread, Delay = 1, RespawnIndex = 2 * m + 1 });
+            map.Respawns.Add(new RespawnInfo { MonsterIndex = 2, Location = centre, Count = (ushort)Math.Max(10, size / 5), Spread = (ushort)spread, Delay = 1, RespawnIndex = 2 * m + 2 });
+            e.MapInfoList.Add(map);
+        }
 
         var sword = new ItemInfo { Index = 1, Name = "WoodenSword", Type = ItemType.Weapon, Shape = 1, Durability = 5000, Price = 100, StackSize = 1, StartItem = true };
         sword.Stats[Stat.MinDC] = 2; sword.Stats[Stat.MaxDC] = 5;

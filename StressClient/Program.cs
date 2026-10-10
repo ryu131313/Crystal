@@ -106,6 +106,7 @@ internal static class Program
         Console.WriteLine($"packets sent        {s.PacketsSent} ({s.PacketsSent / secs:0}/s, {s.Sends} socket writes, {s.Throttled} throttled ticks)");
         Console.WriteLine($"packets received    {s.PacketsReceived} ({s.PacketsReceived / secs:0}/s, {s.BytesReceived / 1024.0 / secs:0.0} KB/s)");
         Console.WriteLine($"behaviour           walks {s.Walks}  turns {s.Turns}  attacks {s.Attacks}  blocked {s.Blocked}  monsters seen {Interlocked.Read(ref m.MonstersSeen)}  kills {s.Kills}  deaths {s.Deaths}  revives {Interlocked.Read(ref m.Revives)}  equips {Interlocked.Read(ref m.Equips)}");
+        Console.WriteLine($"map entries         {string.Join("  ", m.MapEntries.OrderBy(kv => kv.Key).Select(kv => kv.Key + "=" + kv.Value))}");
         Console.WriteLine($"keepalive rtt       {(double.IsNaN(avgRtt) ? "-" : avgRtt.ToString("0.0"))} ms avg over {s.RttCount} samples");
         Console.WriteLine($"problems            errors {s.Errors}  decode errors {s.DecodeErrors}  unknown packets {s.UnknownPackets}  refused {s.Refused}  disconnects {s.Disconnects}  login timeouts {s.LoginTimeouts}  reconnects {Interlocked.Read(ref m.Reconnects)}");
 

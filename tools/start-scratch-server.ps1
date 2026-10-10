@@ -23,6 +23,7 @@
 .PARAMETER MaxUser   [Network] MaxUser. Default 600.
 .PARAMETER LoopbackMaxPacket  [LoadTest] LoopbackMaxPacket (receives per 5 s per connection). Default 400.
 .PARAMETER MapSize   Synthetic map width/height. Default 200.
+.PARAMETER Maps      Number of synthetic maps (1-20), each with a start point. Default 1. Takes effect with -Reset.
 .PARAMETER Reset     Regenerate the world and delete accounts, logs and backups in <Scratch>\run.
 .PARAMETER NoBuild   Reuse the existing <Scratch>\build output.
 .PARAMETER Multithreaded  [General] Multithreaded (default True, as on a real server).
@@ -37,6 +38,7 @@ param(
     [int]$MaxUser = 600,
     [int]$LoopbackMaxPacket = 400,
     [int]$MapSize = 200,
+    [ValidateRange(1, 20)][int]$Maps = 1,
     [switch]$Reset,
     [switch]$NoBuild,
     [bool]$Multithreaded = $true,
@@ -97,7 +99,7 @@ if ($Reset) {
 if ($LASTEXITCODE -ge 8) { Write-Error "robocopy failed ($LASTEXITCODE)"; exit 1 }
 
 if (-not (Test-Path (Join-Path $runDir 'Server.MirDB'))) {
-    & $generator --out $runDir --size $MapSize --force
+    & $generator --out $runDir --size $MapSize --maps $Maps --force
     if ($LASTEXITCODE -ne 0) { Write-Error 'World generation failed.'; exit 1 }
 }
 
