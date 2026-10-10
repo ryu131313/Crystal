@@ -33,8 +33,8 @@
 | X1-15 | High | Pre-login decode | `C.ClientVersion` `ReadBytes(ReadInt32())`, `C.CraftItem` `new int[ReadInt32()]` and `C.ReportIssue` `ReadBytes(ReadInt32())` allocate an attacker-chosen size (up to 2 GB / 8 GB) on the IOCP thread before login | C5 |
 | X1-16 | Medium (fixed) | Chat commands | `@SETTIMER` has no GM check. A player can create any personal timer, which makes script `CHECKTIMER` checks pass and grows `Envir.Timers` without bound | P8 |
 | X1-17 | Medium | Guild ranks | The `GuildObject.ChangeRank` authority comparison is inverted. An officer with `CanChangeRank` can move or demote **leaders** but cannot manage juniors | P8 |
-| X1-18 | Medium | Connections | Pre-login connections live forever on `KeepAlive`. 10 IPs × `MaxIP`=5 fill `MaxUser`=50, and then the accept loop parks an IOCP thread (`while (Count >= MaxUser) Sleep(1)`) | P8 |
-| X1-19 | Medium | Login | Anyone can lock any account for 2 min with 6 bad passwords, repeatable forever. Login attempts per connection are not rate-limited, which allows password spraying | P8 |
+| X1-18 | Medium (fixed) | Connections | Pre-login connections live forever on `KeepAlive`. 10 IPs × `MaxIP`=5 fill `MaxUser`=50, and then the accept loop parks an IOCP thread (`while (Count >= MaxUser) Sleep(1)`) | P8 |
+| X1-19 | Medium (fixed) | Login | Anyone can lock any account for 2 min with 6 bad passwords, repeatable forever. Login attempts per connection are not rate-limited, which allows password spraying | P8 |
 | X1-20 | Medium | Legacy HTTP | `HttpServer` `/addnamelist?fileName=` does `Path.Combine(NameListPath, fileName)` with no confinement. A GET from a browser on the server box passes the trusted-IP check (opt-in service, off by default) | P8 |
 | X1-21 | Low (fixed) | Login / select | `C.StartGame` does not check `CharacterInfo.Deleted`, so deleted characters can still be played until they are archived | P8 |
 | X1-22 | Low (fixed) | Map spam | `C.DropGold{Amount=0}` is allowed, also while dead and on `NoThrowItem` maps. It spawns free 0-gold `ItemObject`s | P8 |

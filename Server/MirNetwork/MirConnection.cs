@@ -31,6 +31,13 @@ namespace Server.MirNetwork
         /// <summary>Index of the packet being (or last) handled; read by WorldErrors.Describe.</summary>
         public short LastPacketIndex = -1;
 
+        /// <summary>X1-18: how long a connection may stay connected without logging in.</summary>
+        private const long PreLoginLimitMs = 5 * 60 * 1000;
+
+        /// <summary>X1-19: failed logins on this connection; Envir.Login closes it (and briefly blocks the IP) at the limit.</summary>
+        public int FailedLogins;
+        public const int MaxFailedLogins = 5;
+
         /// <summary>X1-12: early movement/attack/magic packets are retried every pass; cap the backlog per connection.</summary>
         private const int MaxRetryQueue = 64;
         private void RetryLater(Packet p)
@@ -286,6 +293,13 @@ namespace Server.MirNetwork
                 _receiveList.Enqueue(_retryList.Dequeue());
 
             if (Envir.Time > TimeOutTime)
+            {
+                Disconnect(21);
+                return;
+            }
+
+            // X1-18: a connection that never logs in used to stay forever on KeepAlives, so a few IPs could fill MaxUser.
+            if ((Stage == GameStage.None || Stage == GameStage.Login) && Envir.Time > TimeConnected + PreLoginLimitMs)
             {
                 Disconnect(21);
                 return;

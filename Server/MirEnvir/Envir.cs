@@ -3711,6 +3711,18 @@ namespace Server.MirEnvir
             }
         }
 
+        /// <summary>
+        /// X1-19: per-connection login throttle. After MirConnection.MaxFailedLogins failures the connection is closed and the
+        /// IP blocked for a minute (UpdateIPBlock honours the load-test loopback exemption), so password spraying and account
+        /// lock-out spam run at a few attempts per minute per IP instead of many per packet read.
+        /// </summary>
+        private void CountFailedLogin(MirConnection c)
+        {
+            if (++c.FailedLogins < MirConnection.MaxFailedLogins) return;
+            UpdateIPBlock(c.IPAddress, TimeSpan.FromMinutes(1));
+            c.Disconnecting = true;
+        }
+
         /// <summary>True for loopback addresses when [LoadTest] ExemptLoopback is on (off by default).</summary>
         public static bool IsLoadTestExempt(string ipAddress)
         {
@@ -4280,6 +4292,7 @@ namespace Server.MirEnvir
             {
                 global::Server.WebAdmin.WebAdminHooks.RaiseLoginAttempt(p.AccountID, c.IPAddress, "no-account");
                 c.Enqueue(new ServerPackets.Login { Result = 3 });
+                CountFailedLogin(c);
                 return;
             }
 
@@ -4321,6 +4334,7 @@ namespace Server.MirEnvir
                 }
 
                 c.Enqueue(new ServerPackets.Login { Result = 4 });
+                CountFailedLogin(c);
                 return;
             }
             account.WrongPasswordCount = 0;
