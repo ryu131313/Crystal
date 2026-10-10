@@ -47,6 +47,7 @@
 | D29 | **C1 client fixes done (code), not shipped.** Socket-thread decode errors are caught (logged to Error.txt, then disconnect) instead of killing the process; `ReceiveData` returns after disconnect; the keybind parse never throws (key part of "Ctrl + X" bindings compared); looping-sound replay restarts and stop/timeout dispose and remove; settings `MaxFPS` (new `[Graphics] MaxFPS`, min 10), `LevelEffect` default, `ExpandedHeroBuffWindow` save and `[Logs]` save fixed; client `AppDomain.UnhandledException` writes Error.txt. **These ship to players with the C2 launcher release** (roadmap C2). | No Shared change, so no server coupling. |
 | D30 | Shaders copied (read-only) from `Build\Client\Debug\Data\Shaders` into `Client/Shaders/` as reference: `grayscale.ps` (ps_1_2, the only live shader) and the unused `shadow_ps.glsl`. `normal.ps`/`magic.ps` don't exist, which confirms those paths are dead. Not added to any build item. | You allowed reading the client folder. The C4 port needs the source. |
 | D31 | `--rendertest` golden harness and frame profiler (rest of C1) **not started**. | It needs GPU runs from a scratch client build, plus decision #8 (may agents run the client on this GPU?), which is still open. |
+| D32 | **C2 launcher integrity (code), backward compatible.** `PList.gz` gains an optional trailing section (`PatchListExtension`: magic "PLTX", per-file SHA-256 of the uncompressed file, cumulative removed-files list). AutoPatcherAdminV2 writes it. The new launcher verifies a hash before writing a file, rejects rooted/`..`/drive paths, and deletes only listed removed files (never inis, Error.txt or Screenshots, never a file still shipped). Old launchers read count + records and ignore the rest; a throwaway check confirmed this. | The format can't break existing installs. **Not done:** .NET 10 runtime detection (needs a new `ClientTextKeys` string, which is a Shared change, so it's batched); the HTTPS default host (I don't know your patch host, and changing upstream's mirfiles default without a host to test is pointless); retiring AutoPatcherAdmin V1 (decision #15). V1 does not write the section, so lists published with V1 have no hashes. |
 | D4 | Decision #3 (move build output off `Build\`) **not done**. It is still open and changes your VS F5 folder. | Your call. Until then, `verify.ps1` is the safe path. |
 
 ## Progress by phase
@@ -107,6 +108,8 @@
 
 ### C1 — client fixes and shaders done (code); goldens and frame profiler pending decision #8
 - See D29 to D31. The client builds clean.
+
+### C2 — integrity part done (code); runtime detection / host / V1 pending (D32)
 
 ### P5 — in progress
 - **Done:**

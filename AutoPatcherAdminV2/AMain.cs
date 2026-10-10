@@ -430,8 +430,15 @@ namespace AutoPatcherAdmin
                 {
                     OldList.Add(new FileInformation(reader));
                 }
+
+                _oldRemovedFiles = new List<string>();
+                if (PatchListExtension.TryRead(reader, count, out _, out var removed))
+                    _oldRemovedFiles = removed;
             }
         }
+
+        /// <summary>The removed-files list of the PList currently on the host (roadmap C2).</summary>
+        private List<string> _oldRemovedFiles = new List<string>();
 
         private static string CombineRemotePath(string rootPath, string fileName)
         {
@@ -451,6 +458,21 @@ namespace AutoPatcherAdmin
             {
                 NewList[i].Save(writer);
             }
+
+            // roadmap C2 trailing section: SHA-256 of each local (uncompressed) file, and a cumulative removed-files list
+            // (files an earlier list shipped that are no longer published), so players who skip a release still clean up.
+            var hashes = new List<byte[]>(NewList.Count);
+            foreach (var info in NewList)
+            {
+                var local = Path.Combine(Settings.Client, info.FileName);
+                hashes.Add(File.Exists(local) ? System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(local)) : null);
+            }
+            var current = new HashSet<string>(NewList.Select(f => f.FileName), StringComparer.OrdinalIgnoreCase);
+            var removed = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in _oldRemovedFiles) if (!current.Contains(r)) removed.Add(r);
+            foreach (var old in OldList ?? new List<FileInformation>()) if (!current.Contains(old.FileName)) removed.Add(old.FileName);
+            removed.Remove(PatchFileName);
+            PatchListExtension.Write(writer, hashes, removed);
 
             return stream.ToArray();
         }
@@ -2224,6 +2246,67 @@ namespace AutoPatcherAdmin
             writer.Write(Length);
             writer.Write(Compressed);
             writer.Write(Creation.ToBinary());
+        }
+    }
+
+    /// <summary>
+    /// Optional trailing section of PList.gz (roadmap C2), written after the counted FileInformation records. Old launchers
+    /// read the count and the records and ignore anything after them, so the format stays backward compatible.
+    /// Layout: int32 Magic, int32 Version, int32 count + per record (byte length 0|32, SHA-256 of the uncompressed file),
+    /// int32 count + string per removed file (files a previous list shipped that players should delete).
+    /// Keep this class identical in Client/Utils/FileHelper.cs and AutoPatcherAdminV2/AMain.cs.
+    /// </summary>
+    public static class PatchListExtension
+    {
+        public const int Magic = 0x58544C50; // "PLTX"
+        public const int Version = 1;
+
+        public static void Write(BinaryWriter writer, IReadOnlyList<byte[]> hashes, IReadOnlyCollection<string> removed)
+        {
+            writer.Write(Magic);
+            writer.Write(Version);
+            writer.Write(hashes.Count);
+            foreach (var h in hashes)
+            {
+                if (h == null || h.Length != 32) { writer.Write((byte)0); continue; }
+                writer.Write((byte)32);
+                writer.Write(h);
+            }
+            writer.Write(removed.Count);
+            foreach (var r in removed) writer.Write(r);
+        }
+
+        /// <summary>Reads the section if present (stream positioned after the records). Returns false when absent.</summary>
+        public static bool TryRead(BinaryReader reader, int recordCount, out byte[][] hashes, out List<string> removed)
+        {
+            hashes = null; removed = new List<string>();
+            var s = reader.BaseStream;
+            if (s.Length - s.Position < 12) return false;
+            if (reader.ReadInt32() != Magic) return false;
+            if (reader.ReadInt32() < 1) return false;
+            var n = reader.ReadInt32();
+            if (n != recordCount || n < 0) return false;
+            hashes = new byte[n][];
+            for (var i = 0; i < n; i++)
+            {
+                var len = reader.ReadByte();
+                if (len == 32) hashes[i] = reader.ReadBytes(32);
+                else if (len != 0) return false;
+            }
+            var r = reader.ReadInt32();
+            for (var i = 0; i < r; i++) removed.Add(reader.ReadString());
+            return true;
+        }
+
+        /// <summary>True for a safe relative file name: not rooted, no "..", no drive or stream separators.</summary>
+        public static bool IsSafeRelativePath(string fileName)
+        {
+            if (string.IsNullOrWhiteSpace(fileName)) return false;
+            var f = fileName.Replace('/', '\\');
+            if (Path.IsPathRooted(f) || f.Contains(':')) return false;
+            foreach (var part in f.Split('\\'))
+                if (part == "..") return false;
+            return true;
         }
     }
 }

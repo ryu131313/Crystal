@@ -107,6 +107,7 @@ namespace Launcher
             {
                 Completed = true;
 
+                RemoveListedFiles();
                 CleanUp();
                 return;
             }
@@ -170,7 +171,47 @@ namespace Launcher
 
                 for (int i = 0; i < count; i++)
                 {
-                    OldList.Add(new FileInformation(reader));
+                    var info = new FileInformation(reader);
+                    if (!PatchListExtension.IsSafeRelativePath(info.FileName))
+                    {
+                        SaveError("Patch list entry rejected (unsafe path): " + info.FileName); // roadmap C2
+                        continue;
+                    }
+                    OldList.Add(info);
+                }
+
+                // roadmap C2: optional hashes + removed-files list after the records (old lists simply don't have it)
+                RemovedFiles = new List<string>();
+                if (count == OldList.Count && PatchListExtension.TryRead(reader, count, out var hashes, out var removed))
+                {
+                    for (int i = 0; i < count; i++) OldList[i].Sha256 = hashes[i];
+                    RemovedFiles = removed;
+                }
+            }
+        }
+
+        /// <summary>Files the patch list says players should delete (roadmap C2).</summary>
+        private List<string> RemovedFiles = new List<string>();
+
+        private static readonly string[] NeverRemove = { "Mir2Config.ini", "Mir2Test.ini", "KeyBinds.ini", "Error.txt" };
+
+        /// <summary>Deletes only the files the patch list marks as removed, never user files or anything outside the client.</summary>
+        private void RemoveListedFiles()
+        {
+            foreach (var name in RemovedFiles)
+            {
+                try
+                {
+                    if (!PatchListExtension.IsSafeRelativePath(name)) continue;
+                    if (NeverRemove.Any(n => string.Equals(Path.GetFileName(name), n, StringComparison.OrdinalIgnoreCase))) continue;
+                    if (name.Replace('/', '\\').StartsWith("Screenshots\\", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (OldList.Any(f => string.Equals(f.FileName, name, StringComparison.OrdinalIgnoreCase))) continue; // still shipped
+                    var path = Path.Combine(Settings.P_Client, name);
+                    if (File.Exists(path)) File.Delete(path);
+                }
+                catch (Exception ex)
+                {
+                    SaveError("Could not remove " + name + ": " + ex.Message);
                 }
             }
         }
@@ -251,6 +292,10 @@ namespace Launcher
                     {
                         data = Functions.DecompressBytes(data);
                     }
+
+                    // roadmap C2: verify before replacing anything (a truncated or tampered download never overwrites a file)
+                    if (info.Sha256 != null && !System.Security.Cryptography.SHA256.HashData(data).AsSpan().SequenceEqual(info.Sha256))
+                        throw new InvalidDataException(info.FileName + " failed its SHA-256 check; not installed.");
 
                     var fileNameOut = Settings.P_Client + info.FileName;
                     var dirName = Path.GetDirectoryName(fileNameOut);
