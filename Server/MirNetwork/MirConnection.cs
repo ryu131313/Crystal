@@ -830,6 +830,31 @@ namespace Server.MirNetwork
             if (_client != null) _client.Client.Dispose();
             _client = null;
         }
+        /// <summary>
+        /// Last-resort cleanup after Disconnect threw part-way (roadmap P5 isolation, review M1): detaches the account so a
+        /// new login is not blocked by this connection, and closes the socket. Never throws.
+        /// </summary>
+        public void ForceClose()
+        {
+            try
+            {
+                Connected = false;
+                Stage = GameStage.Disconnected;
+                lock (Envir.AccountLock)
+                {
+                    if (Account != null && Account.Connection == this)
+                        Account.Connection = null;
+                }
+                Account = null;
+                _client?.Client?.Dispose();
+                _client = null;
+            }
+            catch (Exception ex)
+            {
+                MessageQueue.Enqueue(ex);
+            }
+        }
+
         public void SendDisconnect(byte reason)
         {
             if (!Connected)

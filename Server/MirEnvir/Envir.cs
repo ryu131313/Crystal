@@ -138,7 +138,7 @@ namespace Server.MirEnvir
         public int GuildCount; //This shouldn't be needed?? -> remove in the future
 
         //Live Info
-        public bool Saving = false;
+        public volatile bool Saving; // written by EndSaveAccounts on an IO thread (review, roadmap P5)
         public List<Map> MapList = new List<Map>();
         public List<SafeZoneInfo> StartPoints = new List<SafeZoneInfo>();
         public List<ItemInfo> StartItems = new List<ItemInfo>();
@@ -2061,7 +2061,7 @@ namespace Server.MirEnvir
                     {
                         LoopProfiler.BeginIteration();
                         Time = Stopwatch.ElapsedMilliseconds;
-                        if (!_timerResolutionSet) { TimerResolution.Begin(); _timerResolutionSet = true; }
+                        if (!_timerResolutionSet && Settings.IdlePark) { TimerResolution.Begin(); _timerResolutionSet = true; }
 
                         if (Time >= processTime)
                         {
@@ -2127,7 +2127,7 @@ namespace Server.MirEnvir
 
                                 if (Info.Dead) continue; // ended on an unexpected exception (roadmap P5)
                                 if (!Info.Stop) continue;
-                                Info.EndTime = Time + 10;
+                                Info.EndTime = Stopwatch.ElapsedMilliseconds + 10; // review M2: was Time + 10 (tick start)
                                 Info.Stop = false;
                             }
                             lock (_locker)
@@ -2296,6 +2296,8 @@ namespace Server.MirEnvir
             }
 
             CloseAdminQueue();
+            TimerResolution.End(); // also after a crashed loop (review)
+            _timerResolutionSet = false;
             global::Server.WebAdmin.WebAdminHooks.RaiseWorldStopped();
 
             _thread = null;
@@ -2309,6 +2311,9 @@ namespace Server.MirEnvir
             {
                 var stopping = false;
                 var passComplete = false; // roadmap P6: sub-threads stop after one full pass instead of re-walking until EndTime
+                // Review H1: the game thread's own list also needs a pass/time rule, otherwise it walks only as many monsters
+                // as it loops while the (now quick) sub-threads finish, i.e. almost none.
+                var ownDeadline = Stopwatch.ElapsedMilliseconds + 10;
                 if (Info._current == null)
                     Info._current = Info.ObjectsList.First;
                 stopping = Info._current == null;
@@ -2367,6 +2372,7 @@ namespace Server.MirEnvir
                             }
                         }
                         if (!stopping) continue;
+                        if (Settings.MobThreadOnePass && !passComplete && Stopwatch.ElapsedMilliseconds <= ownDeadline) continue;
                         Info.Stop = stopping;
                         return;
                     }
@@ -2415,6 +2421,7 @@ namespace Server.MirEnvir
             {
                 WorldErrors.Record("disconnect after isolated error, " + WorldErrors.Describe(connection), ex);
                 Connections.Remove(connection);
+                connection.ForceClose(); // review M1: release the account and socket so the player can log in again
             }
         }
 
@@ -2811,11 +2818,10 @@ namespace Server.MirEnvir
             var refreshing = false;
             if (GuildRefreshNeeded == true) //resaves with new indexing if a guild is deleted.
             {
-                refreshing = true;
+                refreshing = true; // GuildRefreshNeeded is cleared only after every write below was started (review M3)
                 // Crash-safe (roadmap P5): the old code deleted every .mgd first, so a crash before the async writes finished
                 // lost guilds. Now every guild is rewritten (each file swapped atomically) and the surplus files (index >=
                 // count; LoadGuilds never reads them) are pruned only after all of those writes have succeeded.
-                GuildRefreshNeeded = false;
                 forced = true; //triggers a full resave of all guilds
                 Interlocked.Exchange(ref _guildRefreshFailed, 0);
                 Interlocked.Exchange(ref _guildRefreshPending, GuildList.Count);
@@ -2843,6 +2849,8 @@ namespace Server.MirEnvir
                     fStream.BeginWrite(data, 0, data.Length, EndSaveGuildsAsync, new SideFileSave(fStream, refreshing));
                 }
             }
+
+            if (refreshing) GuildRefreshNeeded = false; // an exception above leaves it set, so the next save retries the re-index
         }
         private void EndSaveGuildsAsync(IAsyncResult result)
         {

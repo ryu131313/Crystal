@@ -226,7 +226,7 @@ C:\Mir2\
 
 | Subsystem | Model | Async in hot path? |
 |---|---|---|
-| **Server game thread** | `Envir.WorkLoop` (one thread, no sleep): all packet handling, players, pets, NPCs, maps, saves, admin-action drain | **No** |
+| **Server game thread** | `Envir.WorkLoop` (one thread; idle park of at most 1 ms when idle, roadmap P6): all packet handling, players, pets, NPCs, maps, saves, admin-action drain | **No** |
 | **Server mob threads** | `Envir.ThreadLoop` on `MobThreads[1..ThreadLimit-1]` when `Settings.Multithreaded` (default true); `MobThreads[0]` runs on the game thread; barrier via `Monitor.PulseAll(_locker)`; AI of `Master == null` monsters only | **No** — and no locks, no global/cross-map mutation, `Envir.Random` only |
 | **Server network** | APM accept/receive (IOCP) → `ConcurrentQueue<Packet>` per `MirConnection`; drained by `MirConnection.Process()` on the game thread | No (decode + enqueue only) |
 | **Server WinForms** | `SMain` UI thread; editors work on `Envir.Edit`. Existing forms (e.g. `Account/Market.cs`, `InterfaceTimer`) touch `Envir.Main` directly — Known debt; new/changed form code reaches the live world only via `Envir.Main.QueueAdminAction` (server.md §4.11) | n/a (UI) |

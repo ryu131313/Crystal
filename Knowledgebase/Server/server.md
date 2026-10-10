@@ -79,7 +79,7 @@ There is **no** Crystal save thread, log thread, network-sender thread or editor
 
 Setup: `Time = Stopwatch.ElapsedMilliseconds`; `saveTime = Time + Settings.SaveDelay * Minute`; create `MobThread`s; `StartEnvir()`; `CanStartEnvir()`; start mob threads; `StartNetwork()` (LoadAccounts → LoadGuilds → LoadConquests → LoadGTInfo → listeners); optional `HttpServer`; `OpenAdminQueue()`; `RaiseWorldStarted()`.
 
-Each `while (Running)` iteration — **no sleep** (`Thread.Sleep(1)` is commented out, one core pegged):
+Each `while (Running)` iteration (since roadmap P6: an iteration that took < 1 ms ends with the idle park `_loopSignal.WaitOne(1)`, `[Optimisation] IdlePark`; mob threads do one pass per tick with `[Optimisation] MobThreadOnePass`, and the game thread's own mob list has a full-pass-or-10 ms rule; every phase is timed by `LoopProfiler`):
 
 1. `Time = Stopwatch.ElapsedMilliseconds`; once/sec roll `LastCount`/`LastRealCount`.
 2. At most once per ms (`conTime != Time`): `AdjustLights()`; **`lock (Connections)`** reverse loop `Connections[i].Process()` (every packet handler runs here, inside the lock); then `lock (StatusConnections)`.
@@ -327,7 +327,7 @@ Crystal keeps plain `List<T>` on `Envir` (`AccountList`, `CharacterList`, `ItemI
 |---|---|---|
 | Object `Process` / DelayedAction / map / `Envir.Process` block throws | Catch locally, log with identity, leave the object/feature in a safe state; world keeps running | **One try around the whole `while (Running)`** (~L2058–2205): `SendDisconnect(3)` to everyone, log `InnerWorkloopErrorLine`, shutdown tail with saves. **The world stops**; `Running` stays true (`Start()` becomes a no-op until `Stop()`). |
 | Packet handler throws | Validate first; catch → disconnect that client only | Same as above — any handler exception stops the world |
-| Monster AI throws on a mob thread | Must never happen | `ThreadLoop` catch logs `ThreadLoopError` and **exits that thread with `Stop == false`** → game thread waits in `ThreadLoop(MobThreads[0])` forever → **silent world hang**. On thread 0 the exception ends that pass and breaks the barrier: the game thread continues the tick while sub-threads are still processing monsters. |
+| Monster AI throws on a mob thread | Must never happen | Since roadmap P5: per-monster catch inside `ThreadLoop` (the monster is quarantined for `WorldErrors.QuarantineMs`); an exception outside it marks the thread `Dead` and the barrier skips it (its monsters freeze until restart). Still open: an exception in the game thread's own mob pass ends that pass early for one tick. |
 | Malformed packet | Disconnect + IP block | `ReceiveData` catch → `UpdateIPBlock(IP, 24 h)` + disconnect (hard-coded) |
 | Unknown packet ID in `ProcessPacket` | Log | logs `InvalidPacketReceived` (no disconnect) |
 | Socket error | `Disconnecting = true`, cleaned up next `Process` | as required |
