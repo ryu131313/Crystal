@@ -432,14 +432,14 @@ Later decisions are listed per phase in the phase notes. **Answered 2026-10-09:*
 |---|---|---|---|
 | P0 Groundwork | Code done 2026-10-10 (operator steps pending) | `Runbook.md`, `Future Ideas/Overnight-Log-2026-10-10.md` | — |
 | P1 Harness | Done on synthetic data 2026-10-10 (real-data run pending) | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
-| P2 Crash-safe saves | Code done 2026-10-10 (deploy + 48 h watch pending) | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
-| P3 BinaryFormatter / v118 | Code done 2026-10-10 (deploy + 72 h watch pending, after P2) | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
-| P4 Server .NET 10 | Code done 2026-10-10 (deploy after P3 + 7-day watch pending) | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
-| P5 Safety net | Code done 2026-10-10 (deploy + 7-day watch pending; runtime fault injection waits for P6 soak) | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
-| P6 Measurement | Tools, baseline and 60-min 300-bot soak done 2026-10-10 | `Future Optimisation/Baseline-2026-10-10.md`, `Soak-2026-10-10.md`, `tools/run-baseline.ps1`, `tools/run-soak.ps1` | — |
+| P2 Crash-safe saves | Live 2026-10-10 (shipped with P3-P5, watch windows skipped by the user's decision) | `Future Ideas/Overnight-Log-2026-10-10.md` D43 | 2026-10-10 |
+| P3 BinaryFormatter / v118 | Live 2026-10-10; live DB is v118 (rollback = snapshot `D:\Mir2Backups\Server-2026-10-10_17-56-56`) | `Future Ideas/Overnight-Log-2026-10-10.md` D43 | 2026-10-10 |
+| P4 Server .NET 10 | Live 2026-10-10 on .NET 10 Desktop Runtime 10.0.11 | `Future Ideas/Overnight-Log-2026-10-10.md` D43 | 2026-10-10 |
+| P5 Safety net | Live 2026-10-10 (runtime fault injection still open) | `Future Ideas/Overnight-Log-2026-10-10.md` D43 | 2026-10-10 |
+| P6 Measurement | Tools, baseline and 60-min 300-bot soak done 2026-10-10; loop changes live | `Future Optimisation/Baseline-2026-10-10.md`, `Soak-2026-10-10.md`, `tools/run-baseline.ps1`, `tools/run-soak.ps1` | 2026-10-10 |
 | P7 SQLite system data | Step 1 (exporter + verifier) done 2026-10-10; seam/shadow/flip need live data | `Future Ideas/P7-SQLite-Export.md` | — |
-| P8 Security | Code done 2026-10-10 (v2 hashes off by default; X1-17 decision + X1-20 retire decision open) | `Future Ideas/Overnight-Log-2026-10-10.md` D37, D39 | — |
-| P9 Optimisation | Started 2026-10-10 | P9-01 encode-once, P9-02 player process interval (`Future Optimisation/P9-0*.md`) | Gate: quiet-machine rerun + 2 h soak |
+| P8 Security | Live 2026-10-10 (v2 hashes off by default; X1-17 decision + X1-20 retire decision open) | `Future Ideas/Overnight-Log-2026-10-10.md` D37, D39 | 2026-10-10 |
+| P9 Optimisation | Started 2026-10-10; P9-01/02 live | P9-01 encode-once, P9-02 player process interval (`Future Optimisation/P9-0*.md`) | Gate: quiet-machine rerun + 2 h soak |
 | C1 Client fixes + goldens | Fixes + shaders done 2026-10-10; goldens/frame profiler pending decision #8 | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
 | C2 Launcher release | Hashes + removed-files + path checks done 2026-10-10; runtime detection, host, V1 pending | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
 | C3 Render seam | Not started (blocked by C1 goldens) | — | — |
