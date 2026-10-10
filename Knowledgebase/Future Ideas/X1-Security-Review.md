@@ -45,7 +45,7 @@
 | X1-27 | Low (fixed) | Wire values | `MirDirection` from the client is never range-checked (Turn/Walk/Magic `dir`). The server is safe, but invalid values are broadcast to nearby clients (Plausible client crash) | C5 |
 | X1-28 | Low (fixed) | Inspect | `Envir.Inspect(uint)` uses `Players.SingleOrDefault`, which throws if two players match. Only possible with the known duplicate-ObjectID defect (Plausible) | P5 |
 | X1-29 | Low (fixed) | Chat commands | `@CLEARBUFFS` has no GM check: a player can clear all of their own buffs (including script-applied penalties) | P8 |
-| X1-30 | Low | Network | `IPBlocks`/`ConnectionLogs` grow without bound. The IP is `RemoteEndPoint.ToString().Split(':')[0]`, so every IPv6 client shares the key `"["` (one IPv6 offender blocks all of IPv6) | P8 |
+| X1-30 | Low (fixed) | Network | `IPBlocks`/`ConnectionLogs` grow without bound. The IP is `RemoteEndPoint.ToString().Split(':')[0]`, so every IPv6 client shares the key `"["` (one IPv6 offender blocks all of IPv6) | P8 |
 
 Counts: **Critical 10 · High 5 · Medium 5 · Low 10.**
 

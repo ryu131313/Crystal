@@ -87,7 +87,7 @@ namespace Server.MirNetwork
         public MirConnection(int sessionID, TcpClient client)
         {
             SessionID = sessionID;
-            IPAddress = client.Client.RemoteEndPoint.ToString().Split(':')[0];
+            IPAddress = Envir.EndpointIp(client.Client.RemoteEndPoint); // X1-30
 
             Envir.UpdateIPBlock(IPAddress, TimeSpan.FromSeconds(Settings.IPBlockSeconds));
 

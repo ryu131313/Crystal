@@ -2222,6 +2222,7 @@ namespace Server.MirEnvir
                             try { SaveGoods(); } catch (Exception ex) { WorldErrors.Record("SaveGoods", ex); }
                             try { SaveConquests(); } catch (Exception ex) { WorldErrors.Record("SaveConquests", ex); }
                             BackupRetention.RunInBackground(); // no-op unless [Backup] RetentionEnabled
+                            try { PruneIpTables(); } catch (Exception ex) { WorldErrors.Record("PruneIpTables", ex); }
                         }
                         LoopProfiler.Mark(LoopProfiler.Phase.Saves);
 
@@ -3671,6 +3672,37 @@ namespace Server.MirEnvir
             IPBlocks[ipAddress] = Now.Add(value);
         }
 
+        /// <summary>
+        /// The client IP as a string (X1-30). IPv4 (also IPv4-mapped IPv6) gives the same "a.b.c.d" as the old
+        /// RemoteEndPoint.ToString().Split(':')[0]; IPv6 now gives the real address instead of "[" for every client.
+        /// </summary>
+        public static string EndpointIp(System.Net.EndPoint endPoint)
+        {
+            if (endPoint is IPEndPoint ip)
+            {
+                var address = ip.Address.IsIPv4MappedToIPv6 ? ip.Address.MapToIPv4() : ip.Address;
+                return address.ToString();
+            }
+            return endPoint?.ToString() ?? string.Empty;
+        }
+
+        /// <summary>Drops expired IP blocks and empty connection logs (X1-30: both grew for the life of the process).</summary>
+        public void PruneIpTables()
+        {
+            var now = Now;
+            foreach (var pair in IPBlocks)
+                if (pair.Value < now) IPBlocks.TryRemove(pair.Key, out _);
+            foreach (var pair in ConnectionLogs)
+            {
+                var log = pair.Value;
+                for (var i = log.AccountsMade.Count - 1; i >= 0; i--)
+                    if (log.AccountsMade[i] + 60 * 60 * 1000 < Time) log.AccountsMade.RemoveAt(i);
+                for (var i = log.CharactersMade.Count - 1; i >= 0; i--)
+                    if (log.CharactersMade[i] + 60 * 60 * 1000 < Time) log.CharactersMade.RemoveAt(i);
+                if (log.AccountsMade.Count == 0 && log.CharactersMade.Count == 0) ConnectionLogs.TryRemove(pair.Key, out _);
+            }
+        }
+
         /// <summary>True for loopback addresses when [LoadTest] ExemptLoopback is on (off by default).</summary>
         public static bool IsLoadTestExempt(string ipAddress)
         {
@@ -3949,7 +3981,7 @@ namespace Server.MirEnvir
                 var tempTcpClient = _listener.EndAcceptTcpClient(result);
 
                 bool connected = false;
-                var ipAddress = tempTcpClient.Client.RemoteEndPoint.ToString().Split(':')[0];
+                var ipAddress = EndpointIp(tempTcpClient.Client.RemoteEndPoint);
 
                 if (!IPBlocks.TryGetValue(ipAddress, out DateTime banDate) || banDate < Now)
                 {

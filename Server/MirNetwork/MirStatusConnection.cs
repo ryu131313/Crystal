@@ -41,7 +41,7 @@ namespace Server.MirNetwork
         {
             try
             {
-                IPAddress = client.Client.RemoteEndPoint.ToString().Split(':')[0];
+                IPAddress = Envir.EndpointIp(client.Client.RemoteEndPoint); // X1-30
 
                 _client = client;
                 _client.NoDelay = true;
