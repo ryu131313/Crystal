@@ -13,7 +13,7 @@ namespace ClientPackets
 
         protected override void ReadPacket(BinaryReader reader)
         {
-            VersionHash = reader.ReadBytes(reader.ReadInt32());
+            VersionHash = reader.ReadBytes(ReadCount(reader, 1)); // X1-15
         }
         protected override void WritePacket(BinaryWriter writer)
         {
@@ -926,7 +926,7 @@ namespace ClientPackets
             UniqueID = reader.ReadUInt64();
             Count = reader.ReadUInt16();
 
-            Slots = new int[reader.ReadInt32()];
+            Slots = new int[ReadCount(reader, sizeof(int))]; // X1-15
             for (int i = 0; i < Slots.Length; i++)
             {
                 Slots[i] = reader.ReadInt32();
@@ -2487,7 +2487,7 @@ namespace ClientPackets
 
         protected override void ReadPacket(BinaryReader reader)
         {
-            Image = reader.ReadBytes(reader.ReadInt32());
+            Image = reader.ReadBytes(ReadCount(reader, 1)); // X1-15
             ImageSize = reader.ReadInt32();
             ImageChunk = reader.ReadInt32();
         }

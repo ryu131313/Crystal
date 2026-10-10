@@ -86,6 +86,20 @@ public abstract class Packet
     }
 
     protected abstract void ReadPacket(BinaryReader reader);
+
+    /// <summary>
+    /// X1-15: reads an element count and rejects it when it is negative or the elements cannot fit in the bytes left,
+    /// before anything is allocated (a 12-byte packet could otherwise make the receiver allocate gigabytes). Wire format
+    /// unchanged: every count a real sender writes fits.
+    /// </summary>
+    protected static int ReadCount(BinaryReader reader, int elementSize)
+    {
+        var count = reader.ReadInt32();
+        var left = reader.BaseStream.Length - reader.BaseStream.Position;
+        if (count < 0 || (long)count * elementSize > left)
+            throw new InvalidDataException("Element count exceeds packet length.");
+        return count;
+    }
     protected abstract void WritePacket(BinaryWriter writer);
 
     protected virtual byte[] DecompressPacket(byte[] buffer) => Functions.DecompressBytes(buffer);

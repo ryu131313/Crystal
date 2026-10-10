@@ -91,13 +91,22 @@ namespace Server.Library.Utils
             }
             catch (Exception error)
             {
-                WriteResponse(response, "request error: " + error);
+                // X1-20: log the detail, never echo it to the caller.
+                MessageQueue.Instance.Enqueue("[HttpServer] request error: " + error.Message);
+                WriteResponse(response, "request error");
             }
         }      
 
         void AddNameList(string playerName, string fileName)
         {
-            fileName = Path.Combine(Settings.NameListPath, fileName);
+            // X1-20: confine the file to the name-list folder (Path.Combine returns a rooted fileName unchanged, and ".." was
+            // not filtered) and keep the name to one line.
+            if (string.IsNullOrWhiteSpace(playerName) || string.IsNullOrWhiteSpace(fileName) || playerName.IndexOfAny(new[] { '\r', '\n' }) >= 0)
+                throw new ArgumentException("missing or invalid id/fileName");
+            var root = Path.GetFullPath(Settings.NameListPath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            fileName = Path.GetFullPath(Path.Combine(root, fileName));
+            if (!fileName.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("fileName outside the name-list folder");
             var sDirectory = Path.GetDirectoryName(fileName);
             Directory.CreateDirectory(sDirectory ?? throw new InvalidOperationException());
             if (!File.Exists(fileName))

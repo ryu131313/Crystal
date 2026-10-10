@@ -135,6 +135,22 @@ public class PacketProtocolTests
         Assert.Throws<EndOfStreamException>(() => Read(new ServerPackets.ChatItemStats(), bytes));
     }
 
+    /// <summary>X1-15: a count larger than the bytes left is rejected before anything is allocated.</summary>
+    [Fact]
+    public void Oversized_element_counts_are_rejected_before_allocation()
+    {
+        var huge = BitConverter.GetBytes(0x7FFFFFC0);
+        Assert.Throws<InvalidDataException>(() => Read(new ClientPackets.ClientVersion(), huge));
+        Assert.Throws<InvalidDataException>(() => Read(new ClientPackets.ReportIssue(), huge));
+        var craft = new byte[8 + 2].Concat(BitConverter.GetBytes(0x1FFFFFFF)).ToArray();
+        Assert.Throws<InvalidDataException>(() => Read(new ClientPackets.CraftItem(), craft));
+        Assert.Throws<InvalidDataException>(() => Read(new ClientPackets.ClientVersion(), BitConverter.GetBytes(-1)));
+
+        // a count that fits still reads
+        var ok = BitConverter.GetBytes(3).Concat(new byte[] { 1, 2, 3 }).ToArray();
+        Assert.Equal(ok.Length, Read(new ClientPackets.ClientVersion(), ok));
+    }
+
     // Raise only with a reason; lower it whenever the filler improves.
     private const int KnownFixtureGapBudget = 0;
 
