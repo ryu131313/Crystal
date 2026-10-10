@@ -436,13 +436,13 @@ Later decisions are listed per phase in the phase notes. **Answered 2026-10-09:*
 | P3 BinaryFormatter / v118 | Code done 2026-10-10 (deploy + 72 h watch pending, after P2) | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
 | P4 Server .NET 10 | Code done 2026-10-10 (deploy after P3 + 7-day watch pending) | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
 | P5 Safety net | Code done 2026-10-10 (deploy + 7-day watch pending; runtime fault injection waits for P6 soak) | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
-| P6 Measurement | Not started | — | — |
-| P7 SQLite system data | Not started | — | — |
-| P8 Security | Not started | — | — |
+| P6 Measurement | Tools + baseline done 2026-10-10 (60-min soak pending) | `Future Optimisation/Baseline-2026-10-10.md`, `tools/run-baseline.ps1` | — |
+| P7 SQLite system data | Step 1 (exporter + verifier) done 2026-10-10; seam/shadow/flip need live data | `Future Ideas/P7-SQLite-Export.md` | — |
+| P8 Security | Code done 2026-10-10 (v2 hashes off by default; X1-15/17/20 open) | `Future Ideas/Overnight-Log-2026-10-10.md` D37, D39 | — |
 | P9 Optimisation | Started 2026-10-10 | P9-01 encode-once (`Future Optimisation/P9-01-EncodeOnce.md`) | Gate: quiet-machine rerun + 2 h soak |
 | C1 Client fixes + goldens | Fixes + shaders done 2026-10-10; goldens/frame profiler pending decision #8 | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
 | C2 Launcher release | Hashes + removed-files + path checks done 2026-10-10; runtime detection, host, V1 pending | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
-| C3 Render seam | Not started | — | — |
+| C3 Render seam | Not started (blocked by C1 goldens) | — | — |
 | C4 D3D11 | Not started | — | — |
 | C5 Flag-day | Not started | — | — |
 | C6 Polish | Not started | — | — |

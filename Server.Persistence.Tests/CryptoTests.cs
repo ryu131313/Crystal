@@ -50,4 +50,37 @@ public class CryptoTests
         });
         Directory.Delete(dir, true);
     }
+
+    [Fact]
+    public void Storage_password_stays_v1_and_prehashed_accounts_keep_their_hash()
+    {
+        var dir = NewTempFolder("crypto-acct");
+        InFolder(dir, () =>
+        {
+            var old = Settings.PasswordHashV2;
+            try
+            {
+                Settings.PasswordHashV2 = true;
+                var salt = Crypto.GenerateSalt();
+                var hash = Crypto.HashPasswordV2("pw12345", salt);
+                var account = new Server.MirDatabase.AccountInfo(new ClientPackets.NewAccount { AccountID = "acct1", Password = "ignored", EMailAddress = "", UserName = "", SecretQuestion = "", SecretAnswer = "" }, salt, hash);
+                Assert.Same(hash, account.Password);
+                Assert.Same(salt, account.Salt);
+                Assert.True(Crypto.Verify("pw12345", account.Salt, account.Password));
+
+                account.StoragePassword = "store1";
+                Assert.False(Crypto.IsV2(account.StoragePassword)); // storage passwords stay v1 even with v2 on
+                Assert.True(account.ValidateStoragePassword("store1"));
+                Assert.False(account.ValidateStoragePassword("store2"));
+
+                var newSalt = Crypto.GenerateSalt();
+                account.SetPasswordHash(newSalt, Crypto.CreateHash("newpw1", newSalt));
+                Assert.True(Crypto.IsV2(account.Password));
+                Assert.True(Crypto.Verify("newpw1", account.Salt, account.Password));
+            }
+            finally { Settings.PasswordHashV2 = old; }
+            return 0;
+        });
+        Directory.Delete(dir, true);
+    }
 }

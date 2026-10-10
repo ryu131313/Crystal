@@ -38,7 +38,9 @@ namespace Server.MirDatabase
             set
             {
                 StorageSalt = Crypto.GenerateSalt();
-                storagePassword = Crypto.CreateHash(value, StorageSalt);
+                // Always v1 (roadmap P8): storage passwords are checked synchronously inside game-thread handlers, so a slow
+                // v2 hash would stall the world. Crypto.Verify still accepts v2 if one ever appears.
+                storagePassword = Crypto.HashPassword(value, StorageSalt);
             }
         }
 
@@ -87,6 +89,21 @@ namespace Server.MirDatabase
             AccountID = p.AccountID;
 
             Password = p.Password;
+            UserName = p.UserName;
+            SecretQuestion = p.SecretQuestion;
+            SecretAnswer = p.SecretAnswer;
+            EMailAddress = p.EMailAddress;
+
+            BirthDate = p.BirthDate;
+            CreationDate = Envir.Now;
+        }
+        /// <summary>New account whose login hash was computed off the game thread (v2, roadmap P8).</summary>
+        internal AccountInfo(C.NewAccount p, byte[] salt, string passwordHash)
+        {
+            AccountID = p.AccountID;
+
+            Salt = salt;
+            password = passwordHash;
             UserName = p.UserName;
             SecretQuestion = p.SecretQuestion;
             SecretAnswer = p.SecretAnswer;
@@ -294,6 +311,13 @@ namespace Server.MirDatabase
 
         /// <summary>Replaces the stored login hash with one computed off the game thread (v2 upgrade on login, roadmap P8).</summary>
         internal void SetPasswordHash(string hash) => password = hash;
+
+        /// <summary>Replaces the salt and login hash with ones computed off the game thread (password change, roadmap P8).</summary>
+        internal void SetPasswordHash(byte[] salt, string hash)
+        {
+            Salt = salt;
+            password = hash;
+        }
 
         public void ClearStoragePassword()
         {

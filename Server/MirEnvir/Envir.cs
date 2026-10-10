@@ -4157,6 +4157,22 @@ namespace Server.MirEnvir
                 return;
             }
 
+            if (Settings.PasswordHashV2)
+            {
+                // Roadmap P8: a v2 hash costs tens of ms, so hash on a worker and add the account on the game thread.
+                if (c.LoginPending) return;
+                c.LoginPending = true;
+                var plain = p.Password;
+                Task.Run(() =>
+                {
+                    var salt = Utils.Crypto.GenerateSalt();
+                    var hash = Utils.Crypto.HashPasswordV2(plain, salt);
+                    if (!QueueAdminAction(() => CompleteNewAccount(p, c, salt, hash), null))
+                        c.LoginPending = false;
+                });
+                return;
+            }
+
             lock (AccountLock)
             {
                 if (AccountExists(p.AccountID))
@@ -4168,6 +4184,25 @@ namespace Server.MirEnvir
                 AccountList.Add(new AccountInfo(p) { Index = ++NextAccountID, CreationIP = c.IPAddress });
 
 
+                c.Enqueue(new ServerPackets.NewAccount { Result = 8 });
+            }
+        }
+
+        /// <summary>Game-thread continuation of <see cref="NewAccount"/> after the off-thread v2 hash (roadmap P8).</summary>
+        private void CompleteNewAccount(ClientPackets.NewAccount p, MirConnection c, byte[] salt, string hash)
+        {
+            c.LoginPending = false;
+            if (!c.Connected) return;
+
+            lock (AccountLock)
+            {
+                if (AccountExists(p.AccountID)) // created by someone else meanwhile
+                {
+                    c.Enqueue(new ServerPackets.NewAccount { Result = 7 });
+                    return;
+                }
+
+                AccountList.Add(new AccountInfo(p, salt, hash) { Index = ++NextAccountID, CreationIP = c.IPAddress });
                 c.Enqueue(new ServerPackets.NewAccount { Result = 8 });
             }
         }
@@ -4267,6 +4302,26 @@ namespace Server.MirEnvir
             account.BanReason = string.Empty;
             account.ExpiryDate = DateTime.MinValue;
 
+            if (Settings.PasswordHashV2 || Utils.Crypto.IsV2(account.Password))
+            {
+                // Roadmap P8: a v2 check or hash costs tens of ms, so both run on a worker; the result is applied on the game thread.
+                if (c.LoginPending) return;
+                c.LoginPending = true;
+                var current = p.CurrentPassword;
+                var next = p.NewPassword;
+                var salt = account.Salt;
+                var stored = account.Password;
+                Task.Run(() =>
+                {
+                    var ok = Utils.Crypto.Verify(current, salt, stored);
+                    var newSalt = ok ? Utils.Crypto.GenerateSalt() : null;
+                    var newHash = ok ? Utils.Crypto.CreateHash(next, newSalt) : null;
+                    if (!QueueAdminAction(() => CompleteChangePassword(c, account, stored, newSalt, newHash), null))
+                        c.LoginPending = false;
+                });
+                return;
+            }
+
             if (!Utils.Crypto.Verify(p.CurrentPassword, account.Salt, account.Password)) // v1 or v2 (roadmap P8)
             {
                 c.Enqueue(new ServerPackets.ChangePassword { Result = 5 });
@@ -4274,6 +4329,24 @@ namespace Server.MirEnvir
             }
 
             account.Password = p.NewPassword;
+            account.RequirePasswordChange = false;
+            c.Enqueue(new ServerPackets.ChangePassword { Result = 6 });
+        }
+
+        /// <summary>Game-thread continuation of <see cref="ChangePassword"/> after the off-thread check and hash (roadmap P8).</summary>
+        private void CompleteChangePassword(MirConnection c, AccountInfo account, string checkedHash, byte[] newSalt, string newHash)
+        {
+            c.LoginPending = false;
+            if (!c.Connected) return;
+
+            // Wrong current password, or the password changed meanwhile (another client, web admin): refuse, the client may retry.
+            if (newHash == null || !ReferenceEquals(account.Password, checkedHash))
+            {
+                c.Enqueue(new ServerPackets.ChangePassword { Result = 5 });
+                return;
+            }
+
+            account.SetPasswordHash(newSalt, newHash);
             account.RequirePasswordChange = false;
             c.Enqueue(new ServerPackets.ChangePassword { Result = 6 });
         }

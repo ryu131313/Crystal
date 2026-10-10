@@ -54,7 +54,26 @@
 | D36 | **P7 exporter + independent verifier** (background agent, reviewed and committed): `tools/MirDbExport`, 16 tests, 0 mismatches on the v118 fixture. **Key finding:** `Envir.RespawnTick` (RespawnTimer: base rate, tick counter, options) is saved in Server.MirDB but not in the web admin registry, so a SQLite store of record must add tables for it. Microsoft.Data.Sqlite 9.0.0 pulls a SQLitePCLRaw with an advisory (NU1903): fine for an offline tool, but pin a newer bundle before the store-of-record step. | P7 step 1 only. The storage seam, shadow mode and flip need your live data and a burn-in. |
 | D37 | **P8 password hashing:** `Crypto.cs` changed under your approved override. v1 is unchanged byte for byte (tested against the original algorithm). v2 is PBKDF2-SHA256 at 100k iterations, stored as `v2$...` in the same field, and is **always verified** but **only written when `[Security] PasswordHashV2=True` (default off)**, so verification ships before any v2 write. The **login password check now runs on a worker thread** and continues on the game thread via the admin queue (`CompleteLogin`). It re-checks the connection, the stage, a password change and a ban; `LoginPending` stops parallel attempts. Accounts upgrade v1 to v2 on their next successful login once the flag is on. **Before turning v2 on:** move NewAccount, ChangePassword and the storage-password checks off the game thread too; they are synchronous and only cheap while hashes are v1. | P8 order: off-thread verification before a slower hash. |
 | D38 | **P9-01 encode-once** (server-only, `[Optimisation] EncodeOnce`, default on): a packet sent to many players in one connection pass is encoded once. Measured at 500 bots: **allocation 135 → 45 MB/s** in every run, with a lower worst iteration and 0 decode errors. The CPU gain (−37 % in the first pair) **could not be confirmed** because the desktop got busy during the second pair. A sampled guard logs any mutate-after-send, and an independent review was clean. Details and table: `Future Optimisation/P9-01-EncodeOnce.md`. | Started P9 with the server-only item: the roadmap says `Shared` items wait for C5, and this one needs no `Shared` change. **Rerun the A/B on a quiet machine** before quoting a CPU number. |
+| D39 | **P8 remaining hash sites.** With v2 on, NewAccount and ChangePassword now hash and verify on a worker and finish on the game thread (`CompleteNewAccount` / `CompleteChangePassword`). They re-check that the account doesn't exist yet and that the password hasn't changed meanwhile. With v2 off, behaviour is unchanged. **Storage passwords always use v1:** their checks sit inside many synchronous game-thread handlers, and they are a second factor behind the login. The web admin's set-password goes through `RunAsync` on the game thread and costs one v2 hash per admin action, which I accepted as rare. The legacy `HttpServer` NewAccount runs on its own thread (Known debt). **Verified:** a 200-bot run with `PasswordHashV2=True` created 200 v2 accounts, all logged in, 0 errors, worst iteration 15.9 ms. | This clears the P8 precondition for turning v2 on. Turning it on is still your call (rollback note in D37). |
 | D4 | Decision #3 (move build output off `Build\`) **not done**. It is still open and changes your VS F5 folder. | Your call. Until then, `verify.ps1` is the safe path. |
+
+## Every phase at the end of the night (done, or skipped with the reason)
+| Phase | State | Why it stopped there / what unblocks it |
+|---|---|---|
+| P0 | Code done | Operator steps are yours (Runbook §5). |
+| P1 | Done on synthetic data | A real-data run needs a copy of your DBs (decision #4). |
+| P2, P3, P4 | Code done | **Skipped: deploys and watch windows are user-run only**, one per deploy, in order (roadmap §6). |
+| P5 | Code done | Deploy + 7-day watch are yours. Lows from the threading review are documented (D33). |
+| P6 | Tools + baseline done | **Skipped:** the 60-minute 500-bot soak (needs a quiet machine and your attention) and the admin synthetic-load card (the StressClient covers it). |
+| P7 | Step 1 done (exporter + verifier) | **Skipped:** the storage seam, shadow mode and flip need your live data and weeks of burn-in (roadmap §4). |
+| P8 | Code done (v2 hashes off by default) | **Skipped:** X1-15 belongs to C5 (TLS); X1-17 needs a design decision; X1-20 is your decision. Turning v2 on is your call. |
+| P9 | P9-01 done and measured | **Skipped:** further items need a quiet machine for honest numbers (D38); `Shared` items wait for C5. The gate is unmet. |
+| C1 | Fixes + shaders done | **Skipped:** goldens and the frame profiler. Decision #8 still has only my recommended answer (run `--rendertest` on this GPU from scratch builds), and recording goldens needs a seated, visible GPU session I can't verify unattended. |
+| C2 | Integrity done | **Skipped:** .NET 10 runtime detection (a `Shared` string, batched with C5); the HTTPS host (I don't know your patch host); retiring V1 (decision #15). |
+| C3 | Not started | **Skipped: blocked by the C1 goldens.** Its gate is "goldens byte-identical", so it can't be verified without them. |
+| C4 | Not started | **Skipped: needs C3.** |
+| C5 | Not started | **Skipped: needs C4** plus a coordinated client + server flag-day deploy. |
+| C6 | Not started | **Skipped: needs C5 and the P9 gate.** |
 
 ## Progress by phase
 ### P0 — done (code parts)
@@ -121,9 +140,10 @@
 - P9-01 encode-once is done and measured (D38). The next candidates are listed in `Future Optimisation/P9-01-EncodeOnce.md`.
 - The gate is not met yet: 2 h soak, 500 bots at ≤50 % of baseline busy, p99 < 50 ms on a quiet machine.
 
-### P8 — hashing + off-thread login done (code); v2 writes off by default
+### P8 — hashing + all off-thread password paths done (code); v2 writes off by default
 - See D37. `Server.Persistence.Tests/CryptoTests.cs`: v1 matches the original algorithm byte for byte, v2 round-trips, wrong passwords and an empty stored hash fail, `NeedsUpgrade` follows the flag. 26 persistence tests green.
-- **Not done:** NewAccount / ChangePassword / storage-password hashing still run on the game thread (cheap with v1; must move before `PasswordHashV2=True`). X1-15 goes with C5, X1-17 needs a design decision, X1-20 is yours.
+- NewAccount and ChangePassword are off the game thread when v2 is involved, and storage passwords stay v1 (D39). 27 persistence tests are green. The 200-bot v2 run passed.
+- **Not done:** X1-15 goes with C5, X1-17 needs a design decision, X1-20 is yours.
 
 ### P6 — tools and loop work done; baseline recorded
 - Profiler, idle park, one-pass mob threads, load knobs, retry cap, StressClient, scratch world and the baseline script (`tools/run-baseline.ps1`) are done.
