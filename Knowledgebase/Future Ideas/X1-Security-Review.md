@@ -39,7 +39,7 @@
 | X1-21 | Low (fixed) | Login / select | `C.StartGame` does not check `CharacterInfo.Deleted`, so deleted characters can still be played until they are archived | P8 |
 | X1-22 | Low (fixed) | Map spam | `C.DropGold{Amount=0}` is allowed, also while dead and on `NoThrowItem` maps. It spawns free 0-gold `ItemObject`s | P8 |
 | X1-23 | Low (fixed) | Items | `RemoveSlotItem` clears the socket/mount slot **before** checking the target cell. If the cell is occupied, the item is destroyed | P5 |
-| X1-24 | Low | Mail | `SendMail` removes items from the inventory one by one and then `return`s on a later `NoMail`/`DontTrade` item. Earlier items and the stamp are lost | P5 |
+| X1-24 | Low (fixed) | Mail | `SendMail` removes items from the inventory one by one and then `return`s on a later `NoMail`/`DontTrade` item. Earlier items and the stamp are lost | P5 |
 | X1-25 | Low (fixed) | Items | A Strongbox `UseItem` consumes the box twice, and when the stack was 1 it can wipe the reward placed in the freed slot | P5 |
 | X1-26 | Low (fixed) | Doors | `C.Opendoor` has no range check, so any door on the current map can be opened remotely | P8 |
 | X1-27 | Low (fixed) | Wire values | `MirDirection` from the client is never range-checked (Turn/Walk/Magic `dir`). The server is safe, but invalid values are broadcast to nearby clients (Plausible client crash) | C5 |

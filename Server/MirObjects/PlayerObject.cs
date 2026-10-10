@@ -11808,7 +11808,9 @@ namespace Server.MirObjects
                 return;
             }
 
-            //Validate user has stamp
+            // X1-24: validate everything first, then commit (server.md 3.3). The stamp used to be consumed and items removed
+            // one by one before a later item could fail the bind checks and return, losing what was already taken.
+            int stampSlot = -1;
             if (stamped)
             {
                 for (int i = 0; i < Info.Inventory.Length; i++)
@@ -11817,19 +11819,15 @@ namespace Server.MirObjects
 
                     if (item == null || item.Info.Type != ItemType.Nothing || item.Info.Shape != 1 || item.Count < 1) continue;
 
-                    hasStamp = true;
-
-                    if (item.Count > 1) item.Count--;
-                    else Info.Inventory[i] = null;
-
-                    Enqueue(new S.DeleteItem { UniqueID = item.UniqueID, Count = 1 });
+                    stampSlot = i;
                     break;
                 }
             }
+            hasStamp = stampSlot >= 0;
 
-            List<UserItem> giftItems = new List<UserItem>();
-
-            for (int j = 0; j < (hasStamp ? 5 : 1); j++)
+            if (items == null) items = Array.Empty<ulong>();
+            var giftSlots = new List<int>();
+            for (int j = 0; j < (hasStamp ? 5 : 1) && j < items.Length; j++)
             {
                 if (items[j] < 1) continue;
 
@@ -11837,32 +11835,38 @@ namespace Server.MirObjects
                 {
                     UserItem item = Info.Inventory[i];
 
-                    if (item == null || items[j] != item.UniqueID) continue;
+                    if (item == null || items[j] != item.UniqueID || giftSlots.Contains(i)) continue;
 
-                    if (item.Info.Bind.HasFlag(BindMode.DontTrade))
-                    {
-                        ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.CannotBeMailed), item.FriendlyName), ChatType.System);
-                        return;
-                    }
-
-                    if (item.Info.Bind.HasFlag(BindMode.NoMail))
+                    if (item.Info.Bind.HasFlag(BindMode.DontTrade) || item.Info.Bind.HasFlag(BindMode.NoMail) ||
+                        (item.RentalInformation != null && item.RentalInformation.BindingFlags.HasFlag(BindMode.DontTrade)))
                     {
                         ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.CannotBeMailed), item.FriendlyName), ChatType.System);
                         Enqueue(new S.MailSent { Result = -1 });
                         return;
                     }
 
-                    if (item.RentalInformation != null && item.RentalInformation.BindingFlags.HasFlag(BindMode.DontTrade))
-                    {
-                        ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.CannotBeMailed), item.FriendlyName), ChatType.System);
-                        return;
-                    }
-
-                    giftItems.Add(item);
-
-                    Info.Inventory[i] = null;
-                    Enqueue(new S.DeleteItem { UniqueID = item.UniqueID, Count = item.Count });
+                    giftSlots.Add(i);
                 }
+            }
+
+            // commit: stamp, then items
+            if (hasStamp)
+            {
+                UserItem stamp = Info.Inventory[stampSlot];
+                if (stamp.Count > 1) stamp.Count--;
+                else Info.Inventory[stampSlot] = null;
+
+                Enqueue(new S.DeleteItem { UniqueID = stamp.UniqueID, Count = 1 });
+            }
+
+            List<UserItem> giftItems = new List<UserItem>();
+            foreach (var i in giftSlots)
+            {
+                UserItem item = Info.Inventory[i];
+                if (item == null) continue; // the stamp slot emptied above (a stamp can't be a gift: it has its own UniqueID)
+                giftItems.Add(item);
+                Info.Inventory[i] = null;
+                Enqueue(new S.DeleteItem { UniqueID = item.UniqueID, Count = item.Count });
             }
 
             if (totalGold > 0)
