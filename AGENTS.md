@@ -74,9 +74,9 @@ Solution folders: `Utils` (AutoPatcherAdmin, AutoPatcherAdminV2, LibraryEditor, 
 | | |
 |--|--|
 | **Paths** | `Server/`, `Server.MirForms/`, `Server.WebAdmin.Tests/`, server use of `Shared/` |
-| **Hot path** | Game thread `Envir.WorkLoop` (busy loop) + monster worker threads `Envir.ThreadLoop` when `Settings.Multithreaded` (default `true`, `ThreadLimit=2`) — no async, no locks, no LINQ per tick |
+| **Hot path** | Game thread `Envir.WorkLoop` (idle park ≤ 1 ms when idle, roadmap P6) + monster worker threads `Envir.ThreadLoop` when `Settings.Multithreaded` (default `true`, `ThreadLimit=2`) — no async, no locks, no LINQ per tick |
 | **Persistence** | `Server.MirDB`, `Server.MirADB`, `Guilds\*.mgd`, `Envir\Goods\*.msd`, `Conquests\*.mcd`, `Back Up\` (all cwd-relative) |
-| **Networking** | TCP binary packets, `[Network] Port=7000`; status port 3100 (hard-coded; upstream master uses 3000); web admin `HttpListener` 5680; legacy `HttpServer` 5679 (opt-in) |
+| **Networking** | TCP binary packets, `[Network] Port=7000`; status port `[Network] StatusPort` (default 3100; upstream master uses 3000); web admin `HttpListener` 5680; legacy `HttpServer` 5679 (opt-in) |
 
 **Agent persona:** Principal .NET Game **Server** Architect — thread ownership (game thread + mob threads), GC, tick latency, DB-format safety.
 
@@ -262,10 +262,12 @@ Server details: `server.md` §2.3, §3.2. Client details: `client.md` §2.1, §3
 | `Knowledgebase/Client/client.md` | **Written 2026-10-08** — Crystal client, rendering, UI, assets |
 | `Knowledgebase/roadmap.md` | **Proposed 2026-10-08** — ordered modernisation plan (.NET 10, SQLite, server optimisation, DX11 client track), phase gates, rule overrides (⚠), open decisions, status table. Check it before starting any modernisation phase; per-phase mechanics and evidence are in `Future Ideas/Roadmap-Phase-Notes.md` |
 | `Knowledgebase/PatchHost/` | Empty placeholder (Crystal has no PatchHost project; patching = AutoPatcherAdmin(V2) + client `AMain`) |
-| `Knowledgebase/StressClient/` | Empty placeholder (Crystal has no StressClient project) |
+| `Knowledgebase/StressClient/` | `stressclient.md` (2026-10-10): the bot load generator, scratch servers, the baseline script |
 | `Knowledgebase/Websites/` | Empty placeholder (web admin rules live in `server.md` §2.7 / §3.7 / §4.10 + `Server/WebAdmin/README.md`) |
-| `Knowledgebase/Future Ideas/` | `Roadmap-Phase-Notes.md` (2026-10-08: per-phase notes for `roadmap.md`); per-phase design notes go here when a phase starts |
-| `Knowledgebase/Future Optimisation/`, `Knowledgebase/Archived and Completed/` | Empty placeholders (optimisation analyses / finished plans go here) |
+| `Knowledgebase/Future Ideas/` | `Roadmap-Phase-Notes.md` (per-phase notes for `roadmap.md`), the overnight decisions log (`Overnight-Log-2026-10-10.md`, D1–D39+), `X1-Security-Review.md`, `Packet-Mutation-Audit.md`, `Review-P2-P6-Threading.md`, `P7-SQLite-Export.md` |
+| `Knowledgebase/Future Optimisation/` | Baselines (`Baseline-2026-10-10.md`) and one file per measured P9 change (`P9-NN-*.md`) |
+| `Knowledgebase/Archived and Completed/` | Empty placeholder (finished plans go here) |
+| `Knowledgebase/Runbook.md` | Deploy, rollback, restore, operator mitigations, scratch servers, turning on v2 hashes |
 
 The WoOOLcraft knowledgebase (`C:\WoOOLcraft\Knowledgebase`) describes a different codebase: never follow its paths, classes, packet IDs or rules as Crystal guidance. Read it only as design inspiration, and only when the user asks.
 

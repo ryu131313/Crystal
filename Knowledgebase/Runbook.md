@@ -73,3 +73,17 @@ powershell -ExecutionPolicy Bypass -File C:\Mir2\tools\stop-scratch-server.ps1  
 - Use ports 17000-17999. The scratch `Setup.ini` sets `[LoadTest] ExemptLoopback=True`, `CheckVersion=False`, `EnforceDBChecks=False`, `AllowStartGame=True` and `[WebAdmin] Enabled=False`: **never copy it to a real server.**
 - The scratch profile sets `[Network] StatusPortEnabled=False`, so the status port (3100 by default, now configurable) stays free for the live server.
 - After a run, check `%TEMP%\mir2-p6-server\run\Logs\Server\` for `[World] Isolated error` / `FATAL` and `run\Logs\Crash\`.
+- Baseline / regression: `powershell -ExecutionPolicy Bypass -File C:\Mir2\tools\run-baseline.ps1` (idle + 50/200/500 bots, ~10 min, writes `Knowledgebase\Future Optimisation\Baseline-<date>.md`). A/B a switch with `-Bots 500 -NoIdle -ExtraIni '[Optimisation]','EncodeOnce=False' -Out <file>`. CPU numbers are only comparable on a quiet machine (close browsers, chat apps).
+
+## 7. Turning on v2 password hashes (roadmap P8)
+
+`[Security] PasswordHashV2` (default `False`) makes the server store new and changed login passwords as PBKDF2-SHA256 (100k iterations, `v2$...`), and upgrade each account on its next successful login. Every build since commit `94443e51` **verifies** both v1 and v2; only the flag decides what is **written**.
+
+1. **Precondition:** the live build already contains v2 verification and has run long enough that you won't roll back past it. **A build older than `94443e51` cannot log in an account once it holds a v2 hash.** Rolling back after that point means restoring `Server.MirADB` from before the switch, or living with those accounts locked out.
+2. Turn it on from the web admin settings page ("Stronger password hashes (v2)"), or in `Configs\Setup.ini` with the server stopped (`[Security]` `PasswordHashV2=True`; remember `Settings.Save()` rewrites the file at exit).
+3. What to expect:
+   - **Off the game thread:** login, new-account and password-change hashing all run on workers. A 200-bot scratch run with v2 on showed a worst loop iteration of 15.9 ms.
+   - **Web admin:** setting a password costs one v2 hash on the game thread per admin action (tens of ms).
+   - **Storage passwords** stay v1 by design.
+4. Check: after a few logins, the count of `v2$` hashes grows. The web admin account page shows the accounts; a scratch copy of `Server.MirADB` can be checked with `Select-String -Pattern 'v2\$'`.
+5. To stop writing v2: set the flag back to `False`. Existing v2 hashes keep working.

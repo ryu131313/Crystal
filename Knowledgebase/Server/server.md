@@ -65,10 +65,12 @@ Server.MirForms/Program.cs  Main [STAThread]   (does NOT set the cwd)
 | **Game thread** (WorkLoop) | `Envir.Start()` `new Thread(WorkLoop){IsBackground=true}` | DB load, accounts/guilds load, tick loop, **all packet handling**, players, pets, NPCs, items, spells, maps, `Envir.Process`, admin-action drain, saves, final shutdown save. Owner of world state. |
 | **Mob threads** 1..`ThreadLimit-1` | `WorkLoop` start, only if `Settings.Multithreaded` | `ThreadLoop(MobThreads[j])`: AI of monsters with `Master == null` in that thread's `ObjectsList`. `MobThreads[0]` runs **on the game thread**. |
 | **IOCP / thread pool** | `TcpListener.BeginAcceptTcpClient`, `MirConnection.BeginReceive` | Accept → `new MirConnection` + `lock (Connections) Connections.Add`; receive → decode → `ConcurrentQueue<Packet> _receiveList` |
-| **Status port** | `StartNetwork`, **hard-coded port 3100** | `MirStatusConnection` (max 5), ASCII status line every 10 s |
+| **Status port** | `StartNetwork`, `[Network] StatusPort` (default 3100), off with `StatusPortEnabled=False` (since 2026-10-10) | `MirStatusConnection` (max 5), ASCII status line every 10 s |
 | **Legacy HTTP** | `Server/Utils/HttpServer.cs` if `Settings.StartHTTPService` | `/newaccount` → `Envir.Main.HTTPNewAccount` mutates `AccountList`/`NextAccountID` from the HTTP thread (takes `AccountLock`, but the game thread reads `AccountList` without it — unsafe); `/broadcast` → `Envir.Main.Broadcast` **directly from the HTTP thread** (unsafe) |
 | **Web admin** | `WebAdminHost.Start` (`HttpListener`, `Task.Run` accept loop, per-request tasks, `SemaphoreSlim` 32) | Admin REST; marshals world work via `WebAdminGame.RunAsync` → `Envir.QueueAdminAction` |
-| **Async file IO** | `FileStream.BeginWrite` in `BeginSaveAccounts`, `SaveGuilds`, `SaveGoods`, `SaveConquests` | Rename `*n` temp → final; `EndSaveAccounts` clears `Saving` |
+| **Async file IO** | `FileStream.BeginWrite` in `BeginSaveAccounts`, `SaveGuilds`, `SaveGoods`, `SaveConquests` | `File.Replace` of the `*n` temp → final (`CompleteSideFileSave`, `EndSaveAccounts`); `EndSaveAccounts` clears `Saving` |
+| **Password workers** (roadmap P8) | `Task.Run` in `Envir.Login`, and in `NewAccount` / `ChangePassword` when a v2 hash is involved | Only the hash or verify, on copies (password, salt, stored hash); the rest continues on the game thread through `QueueAdminAction` (`CompleteLogin`, `CompleteNewAccount`, `CompleteChangePassword`). `MirConnection.LoginPending` allows one at a time per connection |
+| **Backup retention** (roadmap P5) | `BackupRetention.RunInBackground()` after a save, only with `[Backup] RetentionEnabled` (default off) | Prunes `Back Up\` files only |
 | Reboot / web start-stop | `Envir.Reboot()`; `ServerControlRoutes` `Task.Run` | `Stop(); Start();` off the game thread |
 | Web admin timers/tasks | `System.Threading.Timer`: `WebAdminStatusSampler` (5 s), `WebAdminMaintenance` countdown (1 s → `KickNonAdmins`), `ServerControlRoutes` restart countdown (1 s); `Task.Run`: `WebAdminLoginLog.FlushLoop`, `WebAdminAdmins` persist | Thread-pool threads; world work must go through `WebAdminGame.Post/RunAsync` |
 | Editor import | `ItemInfoFormNew` CSV import `await Task.Run` | Off the UI thread, on `Envir.Edit` data |
@@ -114,7 +116,8 @@ Shutdown tail: `CloseAdminQueue(); StopNetwork(); StopEnvir() [SaveGoods(true), 
 **Stages** (`enum GameStage { None, Login, Select, Game, Observer, Disconnected }`, server-only in `MirConnection.cs`): None →(`C.ClientVersion` OK)→ Login →(`Envir.Login`)→ Select →(`StartGame` → `PlayerObject.StartGame`)→ Game; `LogOut` → Select; `AddObserver` → Observer.
 
 **Receive path:** `ReceiveData` (IOCP) → `Packet.ReceivePacket` → `_receiveList`. Unknown ID → factory null → **the connection's whole buffer is discarded**, no log. Any `ReadPacket` exception → `InvalidDataException` → `Envir.UpdateIPBlock(IP, 24 h)` + disconnect. Flood guard: more than `Settings.MaxPacket` (50) socket **reads** per 5 s → 24 h IP block. Every accept sets a `Settings.IPBlockSeconds` (5 s) IP block; more than `Settings.MaxIP` (5) connections per IP is refused.
-**Process path (game thread):** drain `_receiveList` → `ProcessPacket` (resets `TimeOutTime = Time + Settings.TimeOut`, 10 s) → re-enqueue `_retryList` (movement/attack/magic retried while `Player.ActionTime > Envir.Time`) → timeout → flush `_sendList` into one `BeginSend`.
+**Process path (game thread):** drain `_receiveList` → `ProcessPacket` (resets `TimeOutTime = Time + Settings.TimeOut`, 10 s) → re-enqueue `_retryList` (movement/attack/magic retried while `Player.ActionTime > Envir.Time`; capped at 64) → timeout, and the pre-login limit (5 min in stage None/Login) → flush `_sendList` into one `BeginSend`. **Encode-once** (roadmap P9, `[Optimisation] EncodeOnce`, default on): bytes are cached per packet instance for one connection pass (`MirConnection.EncodedThisPass`, cleared by `EndEncodePass` after every pass), so a packet broadcast to N players is encoded once. **Consequence: never change a packet after you have enqueued it.** A sampled guard logs `[Optimisation] EncodeOnce: <Packet> changed after its first send`.
+**Login:** the password check runs off the game thread (see §2.3, Password workers). Failed logins are counted per connection (1-minute IP block after repeated failures). `[General] GMPassword` must not stay at the default (`@LOGIN` refuses it).
 **Send:** `MirConnection.Enqueue(Packet)` is queue-safe from any thread and mirrors every `Observable` packet (default **true**) to `Observers`. `PlayerObject.Broadcast` also forwards only `BroadcastObservePackets` to observers. `HeroObject.Enqueue` is a **whitelist** (AddBuff, RemoveBuff, PauseBuff, MagicDelay, MagicLeveled, DeleteItem, UseItem); anything else a hero enqueues is dropped.
 **Per-connection info caches:** `SentItemInfo`, `SentMonsterInfo`, `SentNPCInfo`, `SentQuestInfo`, ... — `CheckItemInfo`/`CheckItem` send `S.NewItemInfo` once per connection.
 **Version check:** first packet `C.ClientVersion` (MD5 of the client exe) vs `Settings.VersionHashes` from `[General] VersionPath` (default `.\Mir2.Exe`), only if `CheckVersion`. The client hashes `Application.ExecutablePath` (`LoginScene.cs`), i.e. the `Client.exe` apphost, which does not contain the managed code — the check is not proof that client and server share a `Shared.dll`. `VersionPath` is comma-separated. **Trap:** if no listed file exists, `VersionHashes` is empty and with `CheckVersion=True` every client is refused (reason 10); the default `.\Mir2.Exe` does not match `Client.exe`.
@@ -130,19 +133,20 @@ Shutdown tail: `CloseAdminQueue(); StopNetwork(); StopEnvir() [SaveGoods(true), 
 | `.\Envir\Goods\{npcIndex}.msd` | `SaveGoods` | sentinel 9999 + version |
 | `.\Conquests\{Index}.mcd` | `SaveConquests`/`LoadConquests` | **No version header** |
 | `.\Archive\*.MirCA` | archived characters | Version + CharacterInfo |
-| `.\Back Up\Database\*.bak`, `.\Back Up\Accounts\*.bak` | every periodic save | **Never pruned** |
+| `.\Back Up\Database\*.bak`, `.\Back Up\Accounts\*.bak` | every periodic save | Never pruned unless `[Backup] RetentionEnabled=True` (default off; `KeepAllHours`, `KeepHourlyDays`, `KeepDailyDays`; `Server/MirEnvir/BackupRetention.cs`) |
 
 **Save mechanics (all on the game thread):**
-- `SaveDB()` — fully synchronous: copy `Server.MirDB` → `Back Up\Database\Database yyyy-MM-dd HH-mm-ss.bak`, then `File.Create` in place (not atomic). Ends `if (this == Edit) _systemDataStale = true`.
-- `BeginSaveAccounts()` — serialise into a `MemoryStream` on the game thread, **move** the live `Server.MirADB` into `Back Up\Accounts\`, async-write `Server.MirADBn`; `EndSaveAccounts` (IO thread) renames via an `o` temp and clears `Saving`. Between the move and the rename no `Server.MirADB` exists (recover from `Server.MirADBn` or the newest `.bak`). `SaveAccounts()` (sync, shutdown/stopped-world only) spins `while (Saving) Thread.Sleep(1)`.
-- Guilds/Goods/Conquests: serialise on the game thread, async `BeginWrite` to `*n`, rename in the completion.
+- `SaveDB()` (crash-safe since roadmap P2): synchronous; writes a complete `Server.MirDBn`, then `File.Replace` into `Server.MirDB`, with the previous file becoming `Back Up\Database\Database yyyy-MM-dd HH-mm-ss.bak`. A failure mid-write leaves the last good file. Ends `if (this == Edit) _systemDataStale = true`.
+- `BeginSaveAccounts()` (crash-safe since P2): serialise into a `MemoryStream` on the game thread, async-write `Server.MirADBn`; `EndSaveAccounts` (IO thread) does `File.Replace` (the previous file becomes the `Back Up\Accounts\` .bak), resets `Saving` in `finally`, and counts failures (`Envir.AccountSaveFailures`, on `/status`). The live `Server.MirADB` always exists. `SaveAccounts()` (sync, shutdown/stopped-world only) waits for `Saving` at most 30 s.
+- Guilds/Goods/Conquests: serialise on the game thread, async `BeginWrite` to `*n`, `File.Replace` in the completion (`CompleteSideFileSave`). The guild refresh no longer deletes files first; surplus guild files are pruned only after every write succeeded (`PruneSurplusGuildFiles`).
+- **Fail closed (P2):** `LoadDB`/`LoadAccounts` refuse to create an empty DB when backups or temp files show prior data (`HasPriorDataEvidence`); `StartEnvir` throws when `LoadDB` fails. Restore steps: `Knowledgebase/Runbook.md`.
 - **`SystemDataStale`** (fork): once `Envir.Edit.SaveDB()` ran, Main skips its periodic `SaveDB()` until `StartEnvir` (Start/Reboot) clears it — otherwise Main's older in-memory system data would overwrite the editor's save. Main's in-memory system data only reflects Edit changes after a world reboot (exceptions: web `?live=1` monsters, magic sync).
 
 **Versioning:** one number for every file — `Envir.Version = 118`, `MinVersion = 60`, `CustomVersion = 0` (`Envir.cs` ~L55). Writers always write the current version; readers gate on the static `Envir.LoadVersion`/`LoadCustomVersion` (set by `LoadDB`, overwritten by `LoadAccounts`) or on a `version` ctor parameter — follow whichever the class already uses. `LoadDB` refuses `< MinVersion` or `> Version`; since roadmap P2 `LoadAccounts` refuses the same range (throws). v118 (roadmap P3): `Buff.Data` is a typed key/tag/value encoding (`BuffInfo.cs` `DataTag`, append-only byte values); v117 and older BinaryFormatter blobs are skipped on load (Concentration interrupt state resets). **Nothing in Server.Library may call `Functions.SerializeToBytes`/`DeserializeFromBytes` (BinaryFormatter, removed on .NET 9+)**; the Shared helpers are deleted in roadmap C5. Committed format fixtures: `Server.Persistence.Tests/Fixtures/v117`, `v118`. Shared models (`UserItem`, `ItemInfo`, `Stats`, `ExpireInfo`, `SealedInfo`, `RentalInformation`, ...) default `version = int.MaxValue` → the same ctor reads the **packet** layout (`Awake` has no version parameter; `GameShopItem` uses a separate `(reader, bool packet)` ctor / `Save(writer, packet)` for the wire). **Nothing reads `CustomVersion`**, and by the user's decision nothing should: new fields bump `Version` (§4.3).
 
 **Load order** (`StartEnvir` ~L3426 → `StartNetwork`): `LoadDB` (needs `Settings` loaded; `FillMagicInfoList`; GameShop binds to Edit) → `BuffInfo.Load()` → recipes → `MapInfo.CreateMap()` per map → StartItems → `ReloadDrops()` → line messages → Dragon → default/monster/robot NPC scripts → `LoadAccounts` (HeroList before AccountList) → `RaiseAccountsLoaded` → `LoadGuilds` → `LoadConquests` (needs maps and guilds) → `LoadGTInfo` → listeners.
 
-**Silent data loss on load** (persisted by the next save = permanent): `UserItem`s whose `ItemIndex` no longer exists are dropped everywhere (inventory, equipment, storage, guild storage, auctions); `UserMagic`/`UserIntelligentCreature`/`QuestProgressInfo` with no info are skipped; characters past `ArchiveDeletedCharacterAfterMonths` (1) / `ArchiveInactiveCharacterAfterMonths` (12) move to `.\Archive`; **every account except the first in list order with zero characters is dropped** (`LoadAccounts`, `if (i > 0 && NextAccount.Characters.Count == 0) continue;`).
+**Silent data loss on load** (persisted by the next save = permanent): `UserItem`s whose `ItemIndex` no longer exists are dropped everywhere (inventory, equipment, storage, guild storage, auctions); `UserMagic`/`UserIntelligentCreature`/`QuestProgressInfo` with no info are skipped; characters past `ArchiveDeletedCharacterAfterMonths` (1) / `ArchiveInactiveCharacterAfterMonths` (12) move to `.\Archive`; ~~every account except the first with zero characters is dropped~~ (fixed 2026-10-10, roadmap P5: zero-character accounts are kept).
 
 ### 2.7 Embedded HTTP — MirCraft web admin (+ legacy HttpServer)
 
@@ -181,6 +185,7 @@ Every path is relative to the **process cwd** (`Path.Combine(".", ...)`); `Progr
 
 - `Settings` (`Server/Settings.cs`) is a static class of public fields read from every thread without synchronisation. `Settings.Load()` reads `Configs\Setup.ini` sections General, Network, WebAdmin, Permission, Optional, Database, Game, ... then the per-system ini files, then `.\Localization\<Language>.json`.
 - **`Settings.Save()` rewrites `Setup.ini` from the statics** at every process exit and from `ConfigForm.FormClosed` (always, even on cancel) → manual edits made while the server runs are lost. Edit ini files with the server stopped.
+- Settings added by the roadmap (all also on the web admin settings page): `[Network] StatusPort` (3100) / `StatusPortEnabled` (true); `[Optimisation] IdlePark` (true), `MobThreadOnePass` (true), `EncodeOnce` (true), the kill switches for the P6/P9 loop changes; `[Diag] LogLoopProfile` (false, writes a `[Diag] Loop` line to the Debug log every few seconds); `[Security] PasswordHashV2` (false; see the Runbook before turning it on); `[Backup] RetentionEnabled` (false) + keep windows; `[LoadTest] ExemptLoopback` (false) / `LoopbackMaxPacket`, **scratch servers only**.
 - Defaults worth knowing: `Port 7000`, `TimeOut 10000`, `MaxUser 50`, `MaxIP 5`, `MaxPacket 50`, `IPBlockSeconds 5`, `RelogDelay 50`, `SaveDelay 5` (min), `Multithreaded true`, `ThreadLimit 2`, `MonsterProcessWhenAlone false`, `CheckVersion true`, `GMPassword "C#Mir 4.0"`.
 - `ReloadDrops` → `DropInfo.Load(..., createIfNotExists: true)` **creates template drop files** for every monster without one: starting a server against a data folder mutates it.
 
@@ -439,7 +444,6 @@ Crystal keeps plain `List<T>` on `Envir` (`AccountList`, `CharacterList`, `ItemI
 
 #### Known debt — existing breaches
 - `GameDataRoutes.ApplyLiveMonsters` returns `"Live apply failed: " + ex.Message` (~L329).
-- `WebAdminAuth.VerifyPassword` compares with `string.CompareOrdinal` (not constant-time; rate limits mitigate).
 
 ### 3.8 Known defects (found 2026-10-08, not fixed)
 - **`C.PurchaseGuildTerritory`** has a class, a client sender and a server handler (`MirConnection.PurchaseGuildTerritory`) but **no `GetClientPacket` case** → never received, and the rest of that read buffer is dropped.
@@ -450,7 +454,7 @@ Crystal keeps plain `List<T>` on `Envir` (`AccountList`, `CharacterList`, `ItemI
 - **Drop lines ignore the numerator**: `2/10` behaves as `1/10` (`parts[0].Substring(2)` in `DropInfo`). First failed `DropItem` aborts the remaining drops.
 - ~~Zero-character accounts dropped at load; stale `Envir.Guilds` after an in-process restart~~ — **fixed 2026-10-10 (roadmap P5)**: accounts are kept (decision #14); `LoadGuilds` clears `Envir.Guilds` first.
 - ~~Disconnect/receive race → 24 h IP block~~ — **fixed 2026-10-10 (roadmap P5)**: `ReceiveData` works on locals and returns quietly once `Disconnect` has nulled the queues.
-- Status port **3100** is hard-coded (not in Setup.ini).
+- ~~Status port 3100 hard-coded~~ — **fixed 2026-10-10**: `[Network] StatusPort` / `StatusPortEnabled`.
 
 ---
 
@@ -614,7 +618,11 @@ Forms expose `public Envir Envir => SMain.EditEnvir;`, mutate the Edit lists on 
 | Web admin | `Routes/StatusRoutes.cs`, `DashboardRoutes.cs`, `WebAdminStatusSampler.cs` (5 s), `WebAdminHostMetrics.cs` | Dashboard tiles, 1 h/6 h/24 h history, cycle delay, log viewer, audit |
 | Ban diagnostics | `MirConnection._lastPackets` (`FixedSizedQueue`, 10) | Last packet types logged on a flood ban |
 
-No `Errors.txt`, no loop profiler, no per-packet diagnostics (contrast WoOOLcraft).
+| Loop profiler (roadmap P6) | `Server/MirEnvir/LoopProfiler.cs`; `loopProfile` on the web admin `/status` JSON; `[Diag] LogLoopProfile` | Per-second iterations, busy %, ms per phase (conn, mob, obj, maps, envir, admin, saves, park), packets and bytes in/out, allocation, max iteration |
+| Isolated errors (roadmap P5) | `Server/MirEnvir/WorldErrors.cs`; `isolatedErrors` / `recentIsolatedErrors` on `/status`; `[World] Isolated error` lines in the Server log | One failing connection or object is disconnected or quarantined instead of stopping the world |
+| Crash files (roadmap P2) | `Server/CrashReporter.cs` → `Logs\Crash\crash-*.txt` next to the exe | Unhandled and unobserved-task exceptions |
+
+No `Errors.txt` and no per-packet diagnostics (contrast WoOOLcraft). Baseline numbers and the regression script: `Knowledgebase/Future Optimisation/`, `tools/run-baseline.ps1`.
 
 ### 5.2 Logging Rules
 
@@ -648,7 +656,9 @@ Expose tick cost (ms per `Process`, rolling max), queue depth, entity count vs c
 ```
 dotnet test C:\Mir2\Server.WebAdmin.Tests\Server.WebAdmin.Tests.csproj
 ```
-Safe (references Server.Library + Shared only, writes nothing to `Build\`). Tests that change statics (hooks, `LoginGate`, `WebAdminGame.World`, admins, pending, audit, Settings) go in `[Collection(WebAdminGlobalsCollection.Name)]` (`GameBridgeTests.cs`) and restore them; read `Settings` only via reflection metadata (its static ctor opens `Configs\Setup.ini`). `GameDataFrontendTests` needs the repo layout. There are no game-logic tests.
+Also `Shared.Tests` (packet factory cases, round trips, append-only `packet-manifest.txt`), `Server.Persistence.Tests` (DB byte harness, oracle, v117/v118 fixtures, crash-safe saves, crypto) and `tools/MirDbExport.Tests`. `powershell -ExecutionPolicy Bypass -File tools\verify.ps1` builds every project to `%TEMP%` and runs all of them. Load tests: `tools/start-scratch-server.ps1` + StressClient, or `tools/run-baseline.ps1` (`Knowledgebase/StressClient/stressclient.md`).
+
+Web admin tests are safe (they reference Server.Library + Shared only and write nothing to `Build\`). Tests that change statics (hooks, `LoginGate`, `WebAdminGame.World`, admins, pending, audit, Settings) go in `[Collection(WebAdminGlobalsCollection.Name)]` (`GameBridgeTests.cs`) and restore them; read `Settings` only via reflection metadata (its static ctor opens `Configs\Setup.ini`). `GameDataFrontendTests` needs the repo layout. There are no game-logic tests.
 
 ### 5.6 Deployment Checklist (agent-verifiable)
 - [ ] Built with `-o <scratch>`; nothing under `Build\` modified.
