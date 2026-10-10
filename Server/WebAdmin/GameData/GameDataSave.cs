@@ -6,7 +6,7 @@ namespace Server.WebAdmin.GameData
     /// <summary>
     /// The one way the web admin writes Server.MirDB from the editor copy (Envir.Edit) or re-reads it into that copy.
     /// <para>
-    /// Server.MirDB has another writer: Main's periodic SaveDB() on the game thread (File.Copy + File.Create with FileShare.None), which
+    /// Server.MirDB has another writer: Main's periodic SaveDB() on the game thread (temp file + File.Replace since roadmap P2), which
     /// stops the world when it throws. Any open handle at that moment (an Edit.SaveDB / Edit.LoadDB on an HTTP thread) makes it throw, and
     /// Main's save can likewise make an Edit save fail. So the file IO is serialised with Main:
     /// </para>

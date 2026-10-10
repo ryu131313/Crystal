@@ -351,8 +351,8 @@ Crystal keeps plain `List<T>` on `Envir` (`AccountList`, `CharacterList`, `ItemI
 - **ALWAYS** prefer early `return` in handlers.
 
 #### Known debt — existing breaches
-- No per-object or per-connection isolation anywhere (`MapObject.Process`, `MirConnection.Process/ProcessPacket` have no try/catch); no unhandled-exception handler in `Program.Main`.
-- Silent swallows: `EndSaveAccounts`, `EndSaveGuildsAsync`, `EndSaveGoodsAsync`, `EndSaveConquestsAsync`, `SendData`.
+- No per-object or per-connection isolation anywhere (`MapObject.Process`, `MirConnection.Process/ProcessPacket` have no try/catch). Since roadmap P2, `Program.Main` installs `Server.CrashReporter` (observe-only `AppDomain.UnhandledException` + `TaskScheduler.UnobservedTaskException` → `Logs\Crash\crash-*.txt` next to the exe + Server log); `Application.ThreadException` is intentionally not hooked.
+- Silent swallows: `EndSaveGuildsAsync`, `EndSaveGoodsAsync`, `EndSaveConquestsAsync`, `SendData` (`EndSaveAccounts` now logs and counts failures in `Envir.AccountSaveFailures`, roadmap P2).
 - Throwing members used by design: `GetBuffInfo` throws `NotImplementedException` for an unregistered `BuffType`; `MonsterObject.CompleteDeath` throws `NotImplementedException`; `Spawned()`/`Despawn()` throw `InvalidOperationException` on double calls; NPC script parser throws on unknown `#WORD`.
 
 ### 3.4 Persistence & Data Format
@@ -378,8 +378,8 @@ Crystal keeps plain `List<T>` on `Envir` (`AccountList`, `CharacterList`, `ItemI
 - **ALWAYS** call `WebAdminPending.Add(area, description, adminName)` after web writes that Main only reloads at world start.
 
 #### Known debt — existing breaches
-- `SaveDB` truncates in place (not atomic); `BeginSaveAccounts` leaves a window with no `Server.MirADB`; backups never pruned.
-- `LoadAccounts` has no version-range check; `Conquests\*.mcd` has no header; GTMap block written but not read.
+- ~~`SaveDB` truncates in place; `BeginSaveAccounts` leaves a window with no `Server.MirADB`~~ — **fixed 2026-10-10 (roadmap P2)**: both write a temp file (`Server.MirDBn` / `Server.MirADBn`) and swap it in with `File.Replace` (the previous file becomes the `Back Up\` copy); accounts are serialised to memory before any file is touched; `LoadDB`/`LoadAccounts` refuse to create an empty DB when backups or temp files exist, `LoadAccounts` refuses versions outside `MinVersion..Version`, and `StartEnvir` throws when Main's `LoadDB` fails. Still open: backups never pruned.
+- `Conquests\*.mcd` has no header; GTMap block written but not read. Guild/goods/conquest async saves still use the n/o `File.Move` pattern and swallow errors (roadmap P5).
 - `Envir.BindGameShop` binds Main's `GameShopItem.Info` to `Envir.Edit.ItemInfoList` objects (cross-instance references; requires Edit loaded first).
 - `UserItem.Slots` writes `Slots[i] == null` and reads `if (reader.ReadBoolean()) continue;` (inverted vs every other nullable) — consistent, don't "fix" one side.
 

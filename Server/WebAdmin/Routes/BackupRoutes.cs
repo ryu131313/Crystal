@@ -218,7 +218,7 @@ namespace Server.WebAdmin.Routes
         }
 
         /// <summary>
-        /// Server.MirDB is rewritten in place (File.Create, FileShare.None) by Main's periodic SaveDB() on the game thread and by
+        /// Server.MirDB is replaced (temp file + File.Replace since roadmap P2) by Main's periodic SaveDB() on the game thread and by
         /// Envir.Edit.SaveDB() under EditLock: an extra open handle at that moment makes the save throw (and Main's WorkLoop stops the
         /// world). So the header is only read when no game loop exists and EditLock is free; otherwise the last known version is reported.
         /// </summary>
@@ -299,7 +299,7 @@ namespace Server.WebAdmin.Routes
         }
 
         /// <summary>
-        /// Reads Server.MirDB for a backup. Two writers rewrite it in place with File.Create (FileShare.None), and an extra open handle
+        /// Reads Server.MirDB for a backup. Two writers replace it (temp file + File.Replace since roadmap P2), and an extra open handle
         /// makes either save throw: Envir.Edit.SaveDB() (web saves hold EditLock) and Main's periodic SaveDB() on the game thread (which
         /// stops the world when it throws). So EditLock is held here on a worker thread, never on the game thread, and the read itself
         /// runs inline when Main cannot save (no game loop, or SystemDataStale makes the loop skip SaveDB). Otherwise only the file read

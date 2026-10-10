@@ -17,6 +17,8 @@ namespace Server.MirForms
             var logRepository = LogManager.GetRepository(Assembly.GetEntryAssembly());
             log4net.Config.XmlConfigurator.Configure(logRepository, new FileInfo("log4net.config"));
 
+            CrashReporter.Install();
+
             try
             {
                 Settings.Load();

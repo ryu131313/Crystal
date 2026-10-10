@@ -1897,7 +1897,9 @@ namespace Server.MirObjects
         {
             if (string.IsNullOrEmpty(message)) return;
 
-            MessageQueue.EnqueueChat(string.Format("{0}: {1}", Name, message));
+            // Never write the @LOGIN password reply to the chat log (roadmap P2): it is checked below, before any logging.
+            if (!GMLogin)
+                MessageQueue.EnqueueChat(string.Format("{0}: {1}", Name, message));
 
             if (GMLogin)
             {

@@ -2451,20 +2451,12 @@ namespace Server.MirEnvir
 
         public void SaveDB()
         {
-            if (File.Exists(DatabasePath))
-            {
-                if (!Directory.Exists(DatabaseBackUpPath)) Directory.CreateDirectory(DatabaseBackUpPath);
+            // Crash-safe save (roadmap P2): write a complete temp file, then swap it in with File.Replace, which also
+            // moves the previous file into Back Up\Database. Server.MirDB is never truncated in place, so a crash or an
+            // exception mid-write leaves the last good file (and a stale Server.MirDBn) instead of a half-written DB.
+            var tempPath = DatabasePath + "n";
 
-                var fileName =
-                    $"Database {Now.Year:0000}-{Now.Month:00}-{Now.Day:00} {Now.Hour:00}-{Now.Minute:00}-{Now.Second:00}.bak";
-
-                var backupFile = Path.Combine(DatabaseBackUpPath, fileName);
-
-                if (File.Exists(backupFile)) File.Delete(backupFile);
-                File.Copy(DatabasePath, backupFile);
-            }
-
-            using (var stream = File.Create(DatabasePath))
+            using (var stream = File.Create(tempPath))
             using (var writer = new BinaryWriter(stream))
             {
                 writer.Write(Version);
@@ -2518,6 +2510,23 @@ namespace Server.MirEnvir
                     GTMapList[i].Save(writer);
             }
 
+            if (File.Exists(DatabasePath))
+            {
+                if (!Directory.Exists(DatabaseBackUpPath)) Directory.CreateDirectory(DatabaseBackUpPath);
+
+                var fileName =
+                    $"Database {Now.Year:0000}-{Now.Month:00}-{Now.Day:00} {Now.Hour:00}-{Now.Minute:00}-{Now.Second:00}.bak";
+
+                var backupFile = Path.Combine(DatabaseBackUpPath, fileName);
+
+                if (File.Exists(backupFile)) File.Delete(backupFile);
+                File.Replace(tempPath, DatabasePath, backupFile);
+            }
+            else
+            {
+                File.Move(tempPath, DatabasePath);
+            }
+
             //WebAdmin: once the Edit envir has written Server.MirDB, Main's in-memory system data is stale until it reloads.
             if (this == Edit) _systemDataStale = true;
         }
@@ -2565,23 +2574,57 @@ namespace Server.MirEnvir
 
         public void SaveAccounts()
         {
-            while (Saving)
+            // Saving is always reset by EndSaveAccounts (roadmap P2); the bound only guards against a write that never completes.
+            var waitStart = Stopwatch.ElapsedMilliseconds;
+            while (Saving && Stopwatch.ElapsedMilliseconds - waitStart < AccountSaveWaitLimitMs)
                 Thread.Sleep(1);
+            if (Saving)
+                MessageQueue.Enqueue($"[Save] The previous account save did not finish within {AccountSaveWaitLimitMs / 1000} s; saving accounts anyway.");
 
             try
             {
                 using (var stream = File.Create(AccountPath + "n"))
                     SaveAccounts(stream);
-                if (File.Exists(AccountPath))
-                    File.Move(AccountPath, AccountPath + "o");
-                File.Move(AccountPath + "n", AccountPath);
-                if (File.Exists(AccountPath + "o"))
-                    File.Delete(AccountPath + "o");
+                ReplaceAccountsFile(AccountPath + "n", null);
             }
             catch (Exception ex)
             {
+                Interlocked.Increment(ref _accountSaveFailures);
                 MessageQueue.Enqueue(ex);
             }
+        }
+
+        private const int AccountSaveWaitLimitMs = 30000;
+        private static int _accountSaveFailures;
+
+        /// <summary>Account saves that failed since the process started (each is logged). Read from any thread.</summary>
+        public static int AccountSaveFailures => Volatile.Read(ref _accountSaveFailures);
+
+        /// <summary>
+        /// Swaps a completely written temp file in as Server.MirADB. File.Replace is atomic on the same volume, so a
+        /// Server.MirADB exists at every instant; the previous file becomes <paramref name="backupFile"/> when given.
+        /// </summary>
+        private static void ReplaceAccountsFile(string tempPath, string backupFile)
+        {
+            if (File.Exists(AccountPath))
+            {
+                if (backupFile != null && File.Exists(backupFile)) File.Delete(backupFile);
+                File.Replace(tempPath, AccountPath, backupFile);
+            }
+            else
+            {
+                File.Move(tempPath, AccountPath);
+            }
+        }
+
+        /// <summary>
+        /// True when a missing live file is more likely lost than new: temp files from a save, or backups, exist.
+        /// Used to refuse creating an empty database over data that should be restored instead (roadmap P2).
+        /// </summary>
+        private static bool HasPriorDataEvidence(string livePath, string backupDir)
+        {
+            if (File.Exists(livePath + "n") || File.Exists(livePath + "o")) return true;
+            return Directory.Exists(backupDir) && Directory.EnumerateFiles(backupDir, "*.bak").Any();
         }
 
         private void SaveAccounts(Stream stream)
@@ -2785,55 +2828,85 @@ namespace Server.MirEnvir
             }
         }
 
+        /// <summary>
+        /// Periodic account save (game thread). Crash-safe since roadmap P2: accounts are serialised to memory first, so a
+        /// serialisation exception leaves Server.MirADB untouched and Saving false; the bytes are then written to
+        /// Server.MirADBn asynchronously and swapped in by EndSaveAccounts with File.Replace, which moves the previous file
+        /// into Back Up\Accounts. Previously the live file was moved to Back Up first, leaving a window with no Server.MirADB.
+        /// </summary>
         public void BeginSaveAccounts()
         {
             if (Saving) return;
 
             Saving = true;
 
+            byte[] data;
+            try
+            {
+                using (var mStream = new MemoryStream())
+                {
+                    SaveAccounts(mStream);
+                    data = mStream.ToArray();
+                }
+            }
+            catch (Exception ex)
+            {
+                Saving = false;
+                Interlocked.Increment(ref _accountSaveFailures);
+                MessageQueue.Enqueue(ex);
+                return;
+            }
 
-            using (var mStream = new MemoryStream())
+            string backupFile = null;
+            FileStream fStream = null;
+            try
             {
                 if (File.Exists(AccountPath))
                 {
                     if (!Directory.Exists(AccountsBackUpPath)) Directory.CreateDirectory(AccountsBackUpPath);
-                    var fileName =
-                        $"Accounts {Now.Year:0000}-{Now.Month:00}-{Now.Day:00} {Now.Hour:00}-{Now.Minute:00}-{Now.Second:00}.bak";
-                    if (File.Exists(Path.Combine(AccountsBackUpPath, fileName))) File.Delete(Path.Combine(AccountsBackUpPath, fileName));
-                    File.Move(AccountPath, Path.Combine(AccountsBackUpPath, fileName));
+                    backupFile = Path.Combine(AccountsBackUpPath,
+                        $"Accounts {Now.Year:0000}-{Now.Month:00}-{Now.Day:00} {Now.Hour:00}-{Now.Minute:00}-{Now.Second:00}.bak");
                 }
 
-                SaveAccounts(mStream);
-                var fStream = new FileStream(AccountPath + "n", FileMode.Create);
-
-                var data = mStream.ToArray();
-                fStream.BeginWrite(data, 0, data.Length, EndSaveAccounts, fStream);
+                fStream = new FileStream(AccountPath + "n", FileMode.Create);
+                fStream.BeginWrite(data, 0, data.Length, EndSaveAccounts, new AccountSaveState(fStream, backupFile));
+            }
+            catch (Exception ex)
+            {
+                fStream?.Dispose();
+                Saving = false;
+                Interlocked.Increment(ref _accountSaveFailures);
+                MessageQueue.Enqueue(ex);
             }
         }
 
+        private sealed class AccountSaveState
+        {
+            public readonly FileStream Stream;
+            public readonly string BackupFile;
+            public AccountSaveState(FileStream stream, string backupFile) { Stream = stream; BackupFile = backupFile; }
+        }
+
+        // Runs on an IO completion thread: touches only the files and the Saving flag.
         private void EndSaveAccounts(IAsyncResult result)
         {
-            var fStream = result.AsyncState as FileStream;
+            var state = (AccountSaveState)result.AsyncState;
             try
             {
-                if (fStream != null)
-                {
-                    var oldfilename = fStream.Name.Substring(0, fStream.Name.Length - 1);
-                    var newfilename = fStream.Name;
-                    fStream.EndWrite(result);
-                    fStream.Dispose();
-                    if (File.Exists(oldfilename))
-                        File.Move(oldfilename, oldfilename + "o");
-                    File.Move(newfilename, oldfilename);
-                    if (File.Exists(oldfilename + "o"))
-                        File.Delete(oldfilename + "o");
-                }
+                state.Stream.EndWrite(result);
+                state.Stream.Dispose();
+                ReplaceAccountsFile(AccountPath + "n", state.BackupFile);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Interlocked.Increment(ref _accountSaveFailures);
+                MessageQueue.Enqueue(ex);
             }
-
-            Saving = false;
+            finally
+            {
+                state.Stream.Dispose();
+                Saving = false;
+            }
         }
 
         public bool LoadDB()
@@ -2842,6 +2915,13 @@ namespace Server.MirEnvir
             {
                 if (!File.Exists(DatabasePath))
                 {
+                    if (HasPriorDataEvidence(DatabasePath, DatabaseBackUpPath))
+                    {
+                        // Fail closed (roadmap P2): a missing Server.MirDB next to backups/temp files means data was lost, not
+                        // that this is a new server. Creating an empty DB here would let the next save bury the real one.
+                        MessageQueue.Enqueue("[Load] Server.MirDB is missing but Back Up\\Database or Server.MirDBn exists. Refusing to create an empty database: restore the newest backup (Knowledgebase/Runbook.md).");
+                        return false;
+                    }
                     SaveDB();
                 }
 
@@ -2980,6 +3060,11 @@ namespace Server.MirEnvir
             {
                 if (!File.Exists(AccountPath))
                 {
+                    // Fail closed (roadmap P2): never create an empty accounts DB over one that should be restored.
+                    // Throwing keeps the world from starting (StartNetwork runs before the save tail) and makes a web
+                    // admin restore report failure.
+                    if (HasPriorDataEvidence(AccountPath, AccountsBackUpPath))
+                        throw new InvalidOperationException("[Load] Server.MirADB is missing but Back Up\\Accounts or Server.MirADBn/o exists. Refusing to create an empty accounts database: restore the newest backup (Knowledgebase/Runbook.md).");
                     SaveAccounts();
                 }
 
@@ -2988,6 +3073,9 @@ namespace Server.MirEnvir
                 {
                     LoadVersion = reader.ReadInt32();
                     LoadCustomVersion = reader.ReadInt32();
+
+                    if (LoadVersion < MinVersion || LoadVersion > Version)
+                        throw new InvalidOperationException($"[Load] Server.MirADB version {LoadVersion} is outside the supported range {MinVersion}-{Version}. Refusing to load it (a newer file would be misread and then overwritten).");
                     NextAccountID = reader.ReadInt32();
                     NextCharacterID = reader.ReadInt32();
                     NextUserItemID = reader.ReadUInt64();
@@ -3437,7 +3525,9 @@ namespace Server.MirEnvir
 
             if (this == Main) _systemDataStale = false;
 
-            LoadDB();
+            // Fail closed (roadmap P2): never run the world on empty or half-loaded system data.
+            if (!LoadDB())
+                throw new InvalidOperationException("[Load] Server.MirDB could not be loaded (see the message above); the world will not start.");
 
             BuffInfoList.Clear();
             foreach (var buff in BuffInfo.Load())
