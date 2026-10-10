@@ -1,0 +1,22 @@
+<Project>
+  <!--
+    Central target frameworks and language version (roadmap P0).
+    Change a TFM here, never in individual .csproj files.
+    - ServerTfm:    Server.Library and the server-side test projects
+    - ServerWinTfm: Server.exe (WinForms host)
+    - SharedTfm:    Shared (consumed by BOTH server and client: keep it on the
+                    lowest TFM of any consumer, see roadmap.md P4 / C5)
+    - ClientTfm:    Client.exe
+    - ToolsTfm:     LibraryEditor, LibraryViewer, AutoPatcherAdmin(V2), CustomFormControl
+    LangVersion is pinned so a TFM bump never silently changes C# semantics.
+    No output-path properties here on purpose: each project keeps its own.
+  -->
+  <PropertyGroup>
+    <ServerTfm>net8.0</ServerTfm>
+    <ServerWinTfm>net8.0-windows7.0</ServerWinTfm>
+    <SharedTfm>net8.0</SharedTfm>
+    <ClientTfm>net8.0-windows7.0</ClientTfm>
+    <ToolsTfm>net8.0-windows7.0</ToolsTfm>
+    <LangVersion>12</LangVersion>
+  </PropertyGroup>
+</Project>

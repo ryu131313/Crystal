@@ -185,7 +185,8 @@ Also: ≤ 65 535 bytes per packet; private server packets `Observable => false`;
 - **ALWAYS** run `dotnet test C:\Mir2\Server.WebAdmin.Tests\Server.WebAdmin.Tests.csproj` after changing `Server/WebAdmin`, `Envir` web hooks or `wwwroot` (safe: writes nothing to `Build\`).
 - **NEVER** expect source edits in `Controls/FixedListViewControl` to reach `Server.exe` — it references the checked-in `Components\CustomFormControl.dll` (LibraryEditor/LibraryViewer do build the source, into `Components\Debug\`).
 - **NEVER** switch Client or LibraryEditor off `x64` (native deps: SlimDX, `NativeSquish_x64.dll`).
-- Prereqs (`dotnet-upgrade.txt`): Windows, VS 2022 17.8+ / .NET 8 SDK; .NET 8 runtime for the client. There is no CI and no `Directory.Build.props`. This machine builds with .NET SDK 10.0.400 (no `global.json`; projects still target `net8.0`/`net8.0-windows7.0`) — do not add a `global.json` or retarget.
+- Prereqs (`dotnet-upgrade.txt`): Windows, VS 2022 17.8+ / .NET 8 SDK; .NET 8 runtime for the client. There is no CI. TFMs and `LangVersion` (12) are centralised in the root `Directory.Build.props` (`ServerTfm`, `ServerWinTfm`, `SharedTfm`, `ClientTfm`, `ToolsTfm`) — change a TFM there, never in a `.csproj`. This machine builds with .NET SDK 10.0.400 (no `global.json`) — do not add a `global.json`; retargeting happens only in the roadmap phases that schedule it (P4 server, P5 tools, C5 client/Shared; approved 2026-10-09).
+- **ALWAYS** prefer `powershell -ExecutionPolicy Bypass -File tools\verify.ps1 [-Only <keys>] [-NoTests]` for compile + test checks: it builds every project to `%TEMP%\mir2-verify\<key>` and refuses `Build\`. Deploys use `tools\deploy-with-backup.ps1` and are **user-run only** (`Knowledgebase/Runbook.md`).
 
 ---
 
