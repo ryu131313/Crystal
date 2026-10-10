@@ -61,3 +61,6 @@
 #*.PDF   diff=astextplain
 #*.rtf   diff=astextplain
 #*.RTF   diff=astextplain
+
+# Committed format fixtures: keep bytes exact (roadmap P3)
+Server.Persistence.Tests/Fixtures/** -text

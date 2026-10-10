@@ -14,9 +14,11 @@ internal static class SyntheticWorld
 {
     public const int ZeroCharacterAccountsBeyondFirst = 1; // expected to be dropped by LoadAccounts
 
-    public static void Populate(Envir e)
+    /// <param name="fixedNow">Fixed clock for committed fixtures. A far-future date keeps characters from ever
+    /// aging into the archive rules (AccountInfo ctor archives on LastLoginDate + Settings months).</param>
+    public static void Populate(Envir e, DateTime? fixedNow = null)
     {
-        var now = DateTime.UtcNow;
+        var now = fixedNow ?? DateTime.UtcNow;
 
         // ---- system data ----
         e.MapIndex = 2; e.ItemIndex = 4; e.MonsterIndex = 2; e.NPCIndex = 1; e.QuestIndex = 1; e.GameshopIndex = 1; e.RespawnIndex = 1;
