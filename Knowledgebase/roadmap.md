@@ -439,7 +439,7 @@ Later decisions are listed per phase in the phase notes. **Answered 2026-10-09:*
 | P6 Measurement | Tools + baseline done 2026-10-10 (60-min soak pending) | `Future Optimisation/Baseline-2026-10-10.md`, `tools/run-baseline.ps1` | — |
 | P7 SQLite system data | Step 1 (exporter + verifier) done 2026-10-10; seam/shadow/flip need live data | `Future Ideas/P7-SQLite-Export.md` | — |
 | P8 Security | Code done 2026-10-10 (v2 hashes off by default; X1-17 decision + X1-20 retire decision open) | `Future Ideas/Overnight-Log-2026-10-10.md` D37, D39 | — |
-| P9 Optimisation | Started 2026-10-10 | P9-01 encode-once (`Future Optimisation/P9-01-EncodeOnce.md`) | Gate: quiet-machine rerun + 2 h soak |
+| P9 Optimisation | Started 2026-10-10 | P9-01 encode-once, P9-02 player process interval (`Future Optimisation/P9-0*.md`) | Gate: quiet-machine rerun + 2 h soak |
 | C1 Client fixes + goldens | Fixes + shaders done 2026-10-10; goldens/frame profiler pending decision #8 | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
 | C2 Launcher release | Hashes + removed-files + path checks done 2026-10-10; runtime detection, host, V1 pending | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
 | C3 Render seam | Not started (blocked by C1 goldens) | — | — |

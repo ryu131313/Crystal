@@ -391,7 +391,21 @@ namespace Server.MirObjects
 
         public override void SetOperateTime()
         {
-            OperateTime = Envir.Time;
+            // Roadmap P9-02: players and heroes used to run Process on every loop iteration (~750/s each). Their timers are
+            // 1 s-scale, so run at most every [Optimisation] HumanProcessMs, but never later than the earliest delayed action
+            // (attack damage, spells, NPC), which keeps their timing exact. The loop runs an object when Time > OperateTime.
+            var interval = Settings.HumanProcessMs;
+            if (interval <= 0)
+            {
+                OperateTime = Envir.Time;
+                return;
+            }
+
+            var next = Envir.Time + interval;
+            for (int i = 0; i < ActionList.Count; i++)
+                if (ActionList[i].Time < next) next = ActionList[i].Time;
+
+            OperateTime = Math.Max(next, Envir.Time) - 1;
         }
         public override void Die() { }
         protected virtual void ProcessBuffs()

@@ -82,6 +82,7 @@ namespace Server
         public static bool IdlePark = true;            // [Optimisation] IdlePark: wait <= 1 ms when an iteration was idle
         public static bool MobThreadOnePass = true;    // [Optimisation] MobThreadOnePass: mob threads do one pass per tick
         public static bool EncodeOnce = true;          // [Optimisation] EncodeOnce: a packet sent to many clients is encoded once per pass (roadmap P9)
+        public static int HumanProcessMs = 10;         // [Optimisation] HumanProcessMs: players/heroes run Process at most every N ms; 0 = every iteration (roadmap P9)
         public static bool LogLoopProfile = false;     // [Diag] LogLoopProfile: one "[Diag] Loop" line per second (Debug log)
         public static int LoadTestLoopbackMaxPacket = 0; // 0 = use MaxPacket
 
@@ -428,6 +429,8 @@ namespace Server
             IdlePark = Reader.ReadBoolean("Optimisation", "IdlePark", IdlePark);
             MobThreadOnePass = Reader.ReadBoolean("Optimisation", "MobThreadOnePass", MobThreadOnePass);
             EncodeOnce = Reader.ReadBoolean("Optimisation", "EncodeOnce", EncodeOnce);
+            HumanProcessMs = Math.Max(0, Reader.ReadInt32("Optimisation", "HumanProcessMs", HumanProcessMs));
+            if (HumanProcessMs > 50) HumanProcessMs = 50;
             LogLoopProfile = Reader.ReadBoolean("Diag", "LogLoopProfile", LogLoopProfile);
             LoadTestLoopbackMaxPacket = Math.Max(0, Reader.ReadInt32("LoadTest", "LoopbackMaxPacket", LoadTestLoopbackMaxPacket));
 
@@ -738,6 +741,7 @@ namespace Server
             Reader.Write("Optimisation", "IdlePark", IdlePark);
             Reader.Write("Optimisation", "MobThreadOnePass", MobThreadOnePass);
             Reader.Write("Optimisation", "EncodeOnce", EncodeOnce);
+            Reader.Write("Optimisation", "HumanProcessMs", HumanProcessMs);
             Reader.Write("Diag", "LogLoopProfile", LogLoopProfile);
             Reader.Write("LoadTest", "LoopbackMaxPacket", LoadTestLoopbackMaxPacket);
 

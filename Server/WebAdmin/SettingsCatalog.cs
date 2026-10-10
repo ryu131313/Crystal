@@ -227,6 +227,8 @@ namespace Server.WebAdmin
                 "Monster threads walk their list once per tick and then wait, instead of re-walking it for ~10 ms. Only matters with Multithreaded on.");
             Add(N, "Optimisation", "EncodeOnce", "EncodeOnce", B, "Encode shared packets once",
                 "A packet sent to many players in the same connection pass (movement, chat, effects) is encoded once and the bytes are reused, instead of being encoded again for every recipient.");
+            Add(N, "Optimisation", "HumanProcessMs", "HumanProcessMs", I32, "Player processing interval (ms)",
+                "Players and heroes run their per-tick housekeeping (buffs, regen, poison, timers) at most every N ms instead of on every loop iteration. Delayed actions (attack damage, spells, NPC actions) still run on time. 0 = every iteration (old behaviour).", min: 0, max: 50);
             Add(N, "Diag", "LogLoopProfile", "LogLoopProfile", B, "Log loop profile",
                 "Write one [Diag] Loop line per second to the Debug log (per-phase ms, iterations, packets, GC). The numbers are always on the dashboard status.");
             Add(N, "Network", "StartHTTPService", "StartHTTPService", B, "Legacy HTTP service",
