@@ -5449,7 +5449,7 @@ namespace Server.MirEnvir
         {
             if (ObjectID == id) return;
 
-            PlayerObject player = Players.SingleOrDefault(x => x.ObjectID == id || x.Pets.Count(y => y.ObjectID == id && y is HumanWizard) > 0);
+            PlayerObject player = Players.FirstOrDefault(x => x.ObjectID == id || x.Pets.Count(y => y.ObjectID == id && y is HumanWizard) > 0);
 
             if (player == null) return;
             Inspect(con, player.Info.Index);

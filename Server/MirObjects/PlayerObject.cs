@@ -2430,6 +2430,7 @@ namespace Server.MirObjects
                         }
                         break;
                     case "CLEARBUFFS":
+                        if (!IsGM) return; // X1-29: any player could clear script/GM penalty buffs
                         foreach (var buff in Buffs)
                         {
                             buff.FlagForRemoval = true;
@@ -4145,6 +4146,7 @@ namespace Server.MirObjects
 
                         break;
                     case "SETTIMER":
+                        if (!IsGM) return; // X1-16: any player could create timers that satisfy script CHECKTIMER
                         if (parts.Length < 4) return;
 
                         string key = parts[1];
@@ -4419,10 +4421,11 @@ namespace Server.MirObjects
                 Teleport(map, coords);
             }
 
-            NPCDelayed = true;
-
+            // X1-14: NPCDelayed skips NPC button validation for the next call, so only set it when that call is made here
+            // (it used to stay set after a page-less TIMERECALL and let the next CallNPC reach any page).
             if (page.Length > 0)
             {
+                NPCDelayed = true;
                 var script = NPCScript.Get(scriptid);
                 script.Call(this, npcid, page.ToUpper());
             }
@@ -5285,6 +5288,12 @@ namespace Server.MirObjects
             }
 
             if (!CanRemoveItem(gridTo, slotTemp)) return;
+
+            if (array[to] != null) // X1-23: the slot used to be cleared first, destroying the item when the target was occupied
+            {
+                Enqueue(p);
+                return;
+            }
 
             temp.Slots[index] = null;
 
@@ -6221,7 +6230,7 @@ namespace Server.MirObjects
                                     Enqueue(p);
                                     StrongboxRewardItem(boxtype);
                                 }
-                                break;
+                                return; // X1-25: "break" fell through to the common tail, consuming the box twice
                             case 26://Wonderdrug
                                 {
                                     if (HasBuff(BuffType.WonderDrug, out _))
@@ -7501,6 +7510,7 @@ namespace Server.MirObjects
         }
         public void DropGold(uint gold)
         {
+            if (gold == 0 || Dead || CurrentMap.Info.NoThrowItem) return; // X1-22
             if (Account.Gold < gold) return;
 
             ItemObject ob = new ItemObject(this, gold);
@@ -7847,6 +7857,7 @@ namespace Server.MirObjects
         public void Opendoor(byte Doorindex)
         {
             //todo: add check for sw doors
+            if (!CurrentMap.IsDoorNear(Doorindex, CurrentLocation, 4)) return; // X1-26: doors could be opened from anywhere on the map
             if (CurrentMap.OpenDoor(Doorindex))
             {
                 Enqueue(new S.Opendoor() { DoorIndex = Doorindex });
@@ -13738,11 +13749,11 @@ namespace Server.MirObjects
 
             if (item.iStock) //Invididual Stock
             {
-                Info.GSpurchases.TryGetValue(item.Info.Index, out purchased);
+                Info.GSpurchases.TryGetValue(item.GIndex, out purchased);
             }
             else //Server Stock
             {
-                Envir.GameshopLog.TryGetValue(item.Info.Index, out purchased);
+                Envir.GameshopLog.TryGetValue(item.GIndex, out purchased);
             }
 
             if (item.Stock - purchased >= 0)
@@ -13791,11 +13802,11 @@ namespace Server.MirObjects
 
                 if (Product.iStock) //Invididual Stock
                 {
-                    Info.GSpurchases.TryGetValue(Product.Info.Index, out purchased);
+                    Info.GSpurchases.TryGetValue(Product.GIndex, out purchased);
                 }
                 else //Server Stock
                 {
-                    Envir.GameshopLog.TryGetValue(Product.Info.Index, out purchased);
+                    Envir.GameshopLog.TryGetValue(Product.GIndex, out purchased);
                 }
 
                 if (Product.Stock - purchased - Quantity >= 0)
@@ -13868,26 +13879,14 @@ namespace Server.MirObjects
 
                 if (Product.iStock && Product.Stock != 0)
                 {
-                    Info.GSpurchases.TryGetValue(Product.Info.Index, out purchased);
-                    if (purchased == 0)
-                    {
-                        Info.GSpurchases[Product.GIndex] = Quantity;
-                    }
-                    else
-                    {
-                        Info.GSpurchases[Product.GIndex] += Quantity;
-                    }
+                    // X1-11: counters were read by Info.Index but written by GIndex, so stock limits never applied and
+                    // "+=" could hit a missing key. GIndex (what was always written) is now used for reads and writes.
+                    Info.GSpurchases.TryGetValue(Product.GIndex, out purchased);
+                    Info.GSpurchases[Product.GIndex] = purchased + Quantity;
                 }
 
-                Envir.GameshopLog.TryGetValue(Product.Info.Index, out purchased);
-                if (purchased == 0)
-                {
-                    Envir.GameshopLog[Product.GIndex] = Quantity;
-                }
-                else
-                {
-                    Envir.GameshopLog[Product.GIndex] += Quantity;
-                }
+                Envir.GameshopLog.TryGetValue(Product.GIndex, out purchased);
+                Envir.GameshopLog[Product.GIndex] = purchased + Quantity;
 
                 if (Product.Stock != 0) GameShopStock(Product);
             }
@@ -13954,11 +13953,11 @@ namespace Server.MirObjects
                 {
                     if (item.iStock) //Individual Stock
                     {
-                        Info.GSpurchases.TryGetValue(item.Info.Index, out purchased);
+                        Info.GSpurchases.TryGetValue(item.GIndex, out purchased);
                     }
                     else //Server Stock
                     {
-                        Envir.GameshopLog.TryGetValue(item.Info.Index, out purchased);
+                        Envir.GameshopLog.TryGetValue(item.GIndex, out purchased);
                     }
 
                     if (item.Stock - purchased >= 0)
@@ -14211,6 +14210,12 @@ namespace Server.MirObjects
         {
             var packet = new S.RetrieveRentalItem { From = from, To = to, Success = false };
 
+            if (ItemRentalItemLocked) // X1-13: a locked deposit cannot be swapped out
+            {
+                Enqueue(packet);
+                return;
+            }
+
             // TODO: Change this check.
             if (from < 0 || from >= 1)
             {
@@ -14431,7 +14436,8 @@ namespace Server.MirObjects
                 return;
             }
 
-            if (!ItemRentalItemLocked && !ItemRentalPartner.ItemRentalFeeLocked)
+            // X1-13: both sides must be locked (was &&, so one lock let the lender swap the item after the renter locked the fee).
+            if (!ItemRentalItemLocked || !ItemRentalPartner.ItemRentalFeeLocked)
                 return;
 
             if (!ItemRentalPartner.CanGainItem(ItemRentalDepositedItem))

@@ -1116,7 +1116,7 @@ namespace Server.MirNetwork
                 info = Account.Characters[i];
                 break;
             }
-            if (info == null)
+            if (info == null || info.Deleted) // X1-21: deleted characters could still be played until archived
             {
                 Enqueue(new S.StartGame { Result = 2 });
                 return;
@@ -1179,6 +1179,7 @@ namespace Server.MirNetwork
         private void Turn(C.Turn p)
         {
             if (Stage != GameStage.Game) return;
+            if (p.Direction > MirDirection.UpLeft) return; // X1-27: never store or broadcast an invalid direction
 
             if (Player.ActionTime > Envir.Time)
                 RetryLater(p);
@@ -1188,6 +1189,7 @@ namespace Server.MirNetwork
         private void Walk(C.Walk p)
         {
             if (Stage != GameStage.Game) return;
+            if (p.Direction > MirDirection.UpLeft) return; // X1-27: never store or broadcast an invalid direction
 
             if (Player.ActionTime > Envir.Time)
                 RetryLater(p);
@@ -1197,6 +1199,7 @@ namespace Server.MirNetwork
         private void Run(C.Run p)
         {
             if (Stage != GameStage.Game) return;
+            if (p.Direction > MirDirection.UpLeft) return; // X1-27: never store or broadcast an invalid direction
 
             if (Player.ActionTime > Envir.Time)
                 RetryLater(p);
@@ -1478,6 +1481,7 @@ namespace Server.MirNetwork
         private void Attack(C.Attack p)
         {
             if (Stage != GameStage.Game) return;
+            if (p.Direction > MirDirection.UpLeft) return; // X1-27: never store or broadcast an invalid direction
 
             if (!Player.Dead && (Player.ActionTime > Envir.Time || Player.AttackTime > Envir.Time))
                 RetryLater(p);
@@ -1591,6 +1595,7 @@ namespace Server.MirNetwork
         private void Magic(C.Magic p)
         {
             if (Stage != GameStage.Game) return;
+            if (p.Direction > MirDirection.UpLeft) return; // X1-27: never store or broadcast an invalid direction
 
             HumanObject actor = Player;
             if (Player.HeroSpawned && p.ObjectID == Player.Hero.ObjectID)

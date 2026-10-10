@@ -70,6 +70,25 @@ namespace Server.MirEnvir
             return false;
         }
 
+        /// <summary>
+        /// True when a cell of door <paramref name="doorIndex"/> lies within <paramref name="range"/> cells of
+        /// <paramref name="location"/> (X1-26: C.Opendoor had no range check). The client asks to open the door of the cell
+        /// it is about to step into (up to a run ahead), so the range allows for that and a little position lag.
+        /// </summary>
+        public bool IsDoorNear(byte doorIndex, Point location, int range)
+        {
+            if (DoorIndex == null) return false;
+            doorIndex = (byte)(doorIndex & 0x7F);
+            for (var x = location.X - range; x <= location.X + range; x++)
+                for (var y = location.Y - range; y <= location.Y + range; y++)
+                {
+                    if (x < 0 || y < 0 || x >= Width || y >= Height) continue;
+                    var door = DoorIndex[x, y];
+                    if (door != null && door.index == doorIndex) return true;
+                }
+            return false;
+        }
+
         private byte FindType(byte[] input)
         {
             //c# custom map format

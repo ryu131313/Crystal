@@ -1,6 +1,6 @@
 # X1 — Server security and crash review (roadmap P1 background)
 
-> **Status:** X1-01 to X1-10 (all Criticals) **fixed 2026-10-10** in the overnight run: guard clauses, each marked `// X1-NN` in source. Highs, Mediums and Lows are still open (roadmap P8; X1-15 and X1-27 need C5).
+> **Status:** X1-01 to X1-10 (all Criticals) **fixed 2026-10-10** in the overnight run: guard clauses, each marked `// X1-NN` in source. Also fixed 2026-10-10: X1-11, 12 (retry cap 64), 13, 14, 16, 21, 22, 23, 25, 26 (door within 4 cells), 27 (server-side direction check), 28, 29. **Still open:** X1-15 (Shared length checks, C5), X1-17 (guild rank authority: needs a design check), X1-18/19 (connection/login throttling), X1-20 (legacy HTTP: retire or confine, your decision), X1-24 (mail half-commit refactor) and X1-30 (IP parsing/pruning).
 > Originally review only. Written 2026-10-10 against branch `FuckingAround`, HEAD `36e422aa`.
 > **Scope:** `Shared/ClientPackets.cs` `ReadPacket` lengths; `Server/MirNetwork/MirConnection.cs`; client-reachable `PlayerObject`/`HumanObject`/`NPCScript`/`GuildObject` paths; economy paths; the MirCraft web admin (`Server/WebAdmin/**`); the legacy `Server/Utils/HttpServer.cs`.
 > **Triage targets:** **P5** = crash-the-world / isolation. **P8** = server security. **C5** = needs a `Shared/` or protocol change.
@@ -26,25 +26,25 @@
 | X1-08 | **Critical** (fixed) | Crafting | `C.CraftItem` with `Slots=[Inventory.Length]` → off-by-one `slot > Length` → IndexOutOfRange → world stop (needs a recipe NPC) | P5 |
 | X1-09 | **Critical** (fixed) | Item rental | `C.DepositRentalItem` with no rental partner, then `C.ItemRentalLockItem` → `ItemRentalPartner.Enqueue` NRE → world stop | P5 |
 | X1-10 | **Critical** (fixed) | Items (dupe) | `C.MergeItem` with `IDFrom == IDTo` on a stack of more than half its stack size → the stack becomes full. Infinite item duplication | P8 |
-| X1-11 | High | Game shop | Purchase counters are read by `Info.Index` and written by `GIndex`: stock limits never apply, and `+=` on a missing key can throw `KeyNotFoundException` (world stop, data-dependent) | P5/P8 |
-| X1-12 | High | Flood / DoS | Walk/Run/Turn/Attack/Magic packets that arrive "too early" go into `_retryList` with no cap and are re-run **every loop pass**. One logged-in client can queue ~80k per 5 s and stall the game thread | P8 |
-| X1-13 | High | Item rental (scam) | `ConfirmItemRental` proceeds when **either** side is locked (`&&` should be `||`), and a deposit change does not unlock the partner. The lender can bait-and-switch the item after the renter locks the fee | P8 |
-| X1-14 | High | NPC scripts | `NPCDelayed` stays `true` after a `TIMERECALL`/`TIMERECALLGROUP` with no page. The next `CallNPC` to **any** NPC in range skips button validation, so the player can call arbitrary script pages (Plausible: depends on scripts) | P8 |
+| X1-11 | High (fixed) | Game shop | Purchase counters are read by `Info.Index` and written by `GIndex`: stock limits never apply, and `+=` on a missing key can throw `KeyNotFoundException` (world stop, data-dependent) | P5/P8 |
+| X1-12 | High (fixed) | Flood / DoS | Walk/Run/Turn/Attack/Magic packets that arrive "too early" go into `_retryList` with no cap and are re-run **every loop pass**. One logged-in client can queue ~80k per 5 s and stall the game thread | P8 |
+| X1-13 | High (fixed) | Item rental (scam) | `ConfirmItemRental` proceeds when **either** side is locked (`&&` should be `||`), and a deposit change does not unlock the partner. The lender can bait-and-switch the item after the renter locks the fee | P8 |
+| X1-14 | High (fixed) | NPC scripts | `NPCDelayed` stays `true` after a `TIMERECALL`/`TIMERECALLGROUP` with no page. The next `CallNPC` to **any** NPC in range skips button validation, so the player can call arbitrary script pages (Plausible: depends on scripts) | P8 |
 | X1-15 | High | Pre-login decode | `C.ClientVersion` `ReadBytes(ReadInt32())`, `C.CraftItem` `new int[ReadInt32()]` and `C.ReportIssue` `ReadBytes(ReadInt32())` allocate an attacker-chosen size (up to 2 GB / 8 GB) on the IOCP thread before login | C5 |
-| X1-16 | Medium | Chat commands | `@SETTIMER` has no GM check. A player can create any personal timer, which makes script `CHECKTIMER` checks pass and grows `Envir.Timers` without bound | P8 |
+| X1-16 | Medium (fixed) | Chat commands | `@SETTIMER` has no GM check. A player can create any personal timer, which makes script `CHECKTIMER` checks pass and grows `Envir.Timers` without bound | P8 |
 | X1-17 | Medium | Guild ranks | The `GuildObject.ChangeRank` authority comparison is inverted. An officer with `CanChangeRank` can move or demote **leaders** but cannot manage juniors | P8 |
 | X1-18 | Medium | Connections | Pre-login connections live forever on `KeepAlive`. 10 IPs × `MaxIP`=5 fill `MaxUser`=50, and then the accept loop parks an IOCP thread (`while (Count >= MaxUser) Sleep(1)`) | P8 |
 | X1-19 | Medium | Login | Anyone can lock any account for 2 min with 6 bad passwords, repeatable forever. Login attempts per connection are not rate-limited, which allows password spraying | P8 |
 | X1-20 | Medium | Legacy HTTP | `HttpServer` `/addnamelist?fileName=` does `Path.Combine(NameListPath, fileName)` with no confinement. A GET from a browser on the server box passes the trusted-IP check (opt-in service, off by default) | P8 |
-| X1-21 | Low | Login / select | `C.StartGame` does not check `CharacterInfo.Deleted`, so deleted characters can still be played until they are archived | P8 |
-| X1-22 | Low | Map spam | `C.DropGold{Amount=0}` is allowed, also while dead and on `NoThrowItem` maps. It spawns free 0-gold `ItemObject`s | P8 |
-| X1-23 | Low | Items | `RemoveSlotItem` clears the socket/mount slot **before** checking the target cell. If the cell is occupied, the item is destroyed | P5 |
+| X1-21 | Low (fixed) | Login / select | `C.StartGame` does not check `CharacterInfo.Deleted`, so deleted characters can still be played until they are archived | P8 |
+| X1-22 | Low (fixed) | Map spam | `C.DropGold{Amount=0}` is allowed, also while dead and on `NoThrowItem` maps. It spawns free 0-gold `ItemObject`s | P8 |
+| X1-23 | Low (fixed) | Items | `RemoveSlotItem` clears the socket/mount slot **before** checking the target cell. If the cell is occupied, the item is destroyed | P5 |
 | X1-24 | Low | Mail | `SendMail` removes items from the inventory one by one and then `return`s on a later `NoMail`/`DontTrade` item. Earlier items and the stamp are lost | P5 |
-| X1-25 | Low | Items | A Strongbox `UseItem` consumes the box twice, and when the stack was 1 it can wipe the reward placed in the freed slot | P5 |
-| X1-26 | Low | Doors | `C.Opendoor` has no range check, so any door on the current map can be opened remotely | P8 |
-| X1-27 | Low | Wire values | `MirDirection` from the client is never range-checked (Turn/Walk/Magic `dir`). The server is safe, but invalid values are broadcast to nearby clients (Plausible client crash) | C5 |
-| X1-28 | Low | Inspect | `Envir.Inspect(uint)` uses `Players.SingleOrDefault`, which throws if two players match. Only possible with the known duplicate-ObjectID defect (Plausible) | P5 |
-| X1-29 | Low | Chat commands | `@CLEARBUFFS` has no GM check: a player can clear all of their own buffs (including script-applied penalties) | P8 |
+| X1-25 | Low (fixed) | Items | A Strongbox `UseItem` consumes the box twice, and when the stack was 1 it can wipe the reward placed in the freed slot | P5 |
+| X1-26 | Low (fixed) | Doors | `C.Opendoor` has no range check, so any door on the current map can be opened remotely | P8 |
+| X1-27 | Low (fixed) | Wire values | `MirDirection` from the client is never range-checked (Turn/Walk/Magic `dir`). The server is safe, but invalid values are broadcast to nearby clients (Plausible client crash) | C5 |
+| X1-28 | Low (fixed) | Inspect | `Envir.Inspect(uint)` uses `Players.SingleOrDefault`, which throws if two players match. Only possible with the known duplicate-ObjectID defect (Plausible) | P5 |
+| X1-29 | Low (fixed) | Chat commands | `@CLEARBUFFS` has no GM check: a player can clear all of their own buffs (including script-applied penalties) | P8 |
 | X1-30 | Low | Network | `IPBlocks`/`ConnectionLogs` grow without bound. The IP is `RemoteEndPoint.ToString().Split(':')[0]`, so every IPv6 client shares the key `"["` (one IPv6 offender blocks all of IPv6) | P8 |
 
 Counts: **Critical 10 · High 5 · Medium 5 · Low 10.**
