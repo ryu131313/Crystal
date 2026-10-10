@@ -351,7 +351,7 @@ Crystal keeps plain `List<T>` on `Envir` (`AccountList`, `CharacterList`, `ItemI
 - **ALWAYS** prefer early `return` in handlers.
 
 #### Known debt — existing breaches
-- No per-object or per-connection isolation anywhere (`MapObject.Process`, `MirConnection.Process/ProcessPacket` have no try/catch). Since roadmap P2, `Program.Main` installs `Server.CrashReporter` (observe-only `AppDomain.UnhandledException` + `TaskScheduler.UnobservedTaskException` → `Logs\Crash\crash-*.txt` next to the exe + Server log); `Application.ThreadException` is intentionally not hooked.
+- ~~No per-object or per-connection isolation~~ — **fixed 2026-10-10 (roadmap P5)**: `WorkLoop` catches per connection (disconnects only that client), per object (players disconnected, others quarantined for `WorldErrors.QuarantineMs`), per `Map.Process`, per `DragonSystem`/`Envir.Process` and per save step; `ThreadLoop` catches per monster. Every isolated error goes through `WorldErrors.Record` (counter, last 20, rate-limited log; exposed by the web admin `/status` JSON as `isolatedErrors`/`recentIsolatedErrors`). **New code still follows the NEVER rules above** — isolation is a safety net, not a licence to throw. Since roadmap P2, `Program.Main` installs `Server.CrashReporter` (observe-only `AppDomain.UnhandledException` + `TaskScheduler.UnobservedTaskException` → `Logs\Crash\crash-*.txt` next to the exe + Server log); `Application.ThreadException` is intentionally not hooked.
 - Silent swallows: `EndSaveGuildsAsync`, `EndSaveGoodsAsync`, `EndSaveConquestsAsync`, `SendData` (`EndSaveAccounts` now logs and counts failures in `Envir.AccountSaveFailures`, roadmap P2).
 - Throwing members used by design: `GetBuffInfo` throws `NotImplementedException` for an unregistered `BuffType`; `MonsterObject.CompleteDeath` throws `NotImplementedException`; `Spawned()`/`Despawn()` throw `InvalidOperationException` on double calls; NPC script parser throws on unknown `#WORD`.
 
@@ -446,10 +446,10 @@ Crystal keeps plain `List<T>` on `Envir` (`AccountList`, `CharacterList`, `ItemI
 - **`S.RefineCancel`** has a class and a client handler but no `GetServerPacket` case and no server sender — dead.
 - **`S.StorageUnlockResult` / `S.StoragePasswordResult`** are private but `Observable` (default true) → mirrored to spectators.
 - **`Settings.Save()` never writes** `[General] GMPassword`, `[Network] MaxPacket`, `[Game] MonsterRecallEnabled/Range/Cooldown` (`Load` reads them) — a change made from WinForms or in code is lost at the next restart. The web admin Config page persists these keys itself (`ConfigRoutes.WriteIni`, `SavedBySettingsSave=false`); otherwise edit `Setup.ini` with the server stopped. `[Game] FishMonster` in Setup.ini is ineffective (Fishing settings own `FishingMonster`; see `Server/WebAdmin/SettingsCatalog.cs`).
-- **Mob-thread exception → world hang** (§3.3); **duplicate ObjectIDs** possible under `Multithreaded` (non-atomic `++_objectID`).
+- ~~Mob-thread exception → world hang; duplicate ObjectIDs~~ — **fixed 2026-10-10 (roadmap P5)**: per-object catch inside `ThreadLoop` (quarantine), a dead thread is skipped by the barrier (`MobThread.Dead`), `Envir.ObjectID` uses `Interlocked.Increment`.
 - **Drop lines ignore the numerator**: `2/10` behaves as `1/10` (`parts[0].Substring(2)` in `DropInfo`). First failed `DropItem` aborts the remaining drops.
-- **Zero-character accounts** (except the first) are dropped at every load; `LoadGuilds` never clears `Envir.Guilds`: after a Reboot the old `GuildObject`s (with the previous run's `GuildInfo`) stay live, the reloaded ones are not added (`GuildObject` ctor `Any` check), and `SaveGuilds` writes the stale `Info` back.
-- Possible race: `Disconnect()` nulls `_receiveList` on the game thread while a receive completes → NRE inside the receive try → 24 h IP block (UNVERIFIED in practice).
+- ~~Zero-character accounts dropped at load; stale `Envir.Guilds` after an in-process restart~~ — **fixed 2026-10-10 (roadmap P5)**: accounts are kept (decision #14); `LoadGuilds` clears `Envir.Guilds` first.
+- ~~Disconnect/receive race → 24 h IP block~~ — **fixed 2026-10-10 (roadmap P5)**: `ReceiveData` works on locals and returns quietly once `Disconnect` has nulled the queues.
 - Status port **3100** is hard-coded (not in Setup.ini).
 
 ---

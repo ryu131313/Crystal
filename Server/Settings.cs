@@ -42,7 +42,8 @@ namespace Server
         public static string VersionPath = Path.Combine(".", "Mir2.Exe");
         public static bool CheckVersion = true;
         public static List<byte[]> VersionHashes;
-        public static string GMPassword = "C#Mir 4.0";
+        public const string DefaultGMPassword = "C#Mir 4.0"; // public upstream default; @LOGIN refuses it (roadmap P5)
+        public static string GMPassword = DefaultGMPassword;
         public static bool Multithreaded = true;
         public static int ThreadLimit = 2;
         public static bool TestServer = false;

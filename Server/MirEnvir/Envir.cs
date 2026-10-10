@@ -24,6 +24,8 @@ namespace Server.MirEnvir
         public LinkedList<MapObject> ObjectsList = new LinkedList<MapObject>();
         public LinkedListNode<MapObject> _current = null;
         public bool Stop = false;
+        /// <summary>Set when the thread ended on an unexpected exception; the barrier then ignores it (roadmap P5).</summary>
+        public volatile bool Dead;
     }
     public class RandomProvider
     {
@@ -89,7 +91,7 @@ namespace Server.MirEnvir
 
 
         private static uint _objectID;
-        public uint ObjectID => ++_objectID;
+        public uint ObjectID => Interlocked.Increment(ref _objectID); // atomic: mob threads create objects too (roadmap P5)
 
         public static int _playerCount;
         public int PlayerCount => Players.Count;
@@ -2078,7 +2080,18 @@ namespace Server.MirEnvir
                             {
                                 for (var i = Connections.Count - 1; i >= 0; i--)
                                 {
-                                    Connections[i].Process();
+                                    if (i >= Connections.Count) continue; // an isolated disconnect below may shrink the list
+                                    var connection = Connections[i];
+                                    // Isolation (roadmap P5): one client's packet or handler exception disconnects that client only.
+                                    try
+                                    {
+                                        connection.Process();
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        WorldErrors.Record(WorldErrors.Describe(connection), ex);
+                                        IsolateConnection(connection);
+                                    }
                                 }
                             }
 
@@ -2107,6 +2120,7 @@ namespace Server.MirEnvir
                             {
                                 var Info = MobThreads[j];
 
+                                if (Info.Dead) continue; // ended on an unexpected exception (roadmap P5)
                                 if (!Info.Stop) continue;
                                 Info.EndTime = Time + 10;
                                 Info.Stop = false;
@@ -2134,8 +2148,18 @@ namespace Server.MirEnvir
                             {
                                 if (Time > current.Value.OperateTime)
                                 {
-                                    current.Value.Process();
-                                    current.Value.SetOperateTime();
+                                    // Isolation (roadmap P5): a throwing object is quarantined, the world keeps running.
+                                    var ob = current.Value;
+                                    try
+                                    {
+                                        ob.Process();
+                                        ob.SetOperateTime();
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        WorldErrors.Record(WorldErrors.Describe(ob), ex);
+                                        IsolateObject(ob);
+                                    }
                                 }
                                 processCount++;
                             }
@@ -2143,11 +2167,34 @@ namespace Server.MirEnvir
                         }
 
                         for (var i = 0; i < MapList.Count; i++)
-                            MapList[i].Process();
+                        {
+                            try
+                            {
+                                MapList[i].Process();
+                            }
+                            catch (Exception ex)
+                            {
+                                WorldErrors.Record("Map.Process " + (MapList[i].Info?.FileName ?? "?"), ex);
+                            }
+                        }
 
-                        DragonSystem?.Process();
+                        try
+                        {
+                            DragonSystem?.Process();
+                        }
+                        catch (Exception ex)
+                        {
+                            WorldErrors.Record("DragonSystem.Process", ex);
+                        }
 
-                        Process();
+                        try
+                        {
+                            Process();
+                        }
+                        catch (Exception ex)
+                        {
+                            WorldErrors.Record("Envir.Process", ex);
+                        }
 
                         DrainAdminActions();
 
@@ -2155,11 +2202,13 @@ namespace Server.MirEnvir
                         {
                             _saveNowRequested = false;
                             saveTime = Time + Settings.SaveDelay * Settings.Minute;
+                            // Each save is isolated (roadmap P5): since P2 a failed save leaves the previous file intact.
                             BeginSaveAccounts();
-                            if (!SystemDataStale) SaveDB(); //WebAdmin: never overwrite newer system data saved by the Edit envir
-                            SaveGuilds();
-                            SaveGoods();
-                            SaveConquests();
+                            try { if (!SystemDataStale) SaveDB(); } //WebAdmin: never overwrite newer system data saved by the Edit envir
+                            catch (Exception ex) { WorldErrors.Record("SaveDB", ex); }
+                            try { SaveGuilds(); } catch (Exception ex) { WorldErrors.Record("SaveGuilds", ex); }
+                            try { SaveGoods(); } catch (Exception ex) { WorldErrors.Record("SaveGoods", ex); }
+                            try { SaveConquests(); } catch (Exception ex) { WorldErrors.Record("SaveConquests", ex); }
                         }
 
                         if (Time >= userTime)
@@ -2261,8 +2310,19 @@ namespace Server.MirEnvir
                         {
                             if (Info._current.Value.Master == null) //since we are running multithreaded, dont allow pets to be processed (unless you constantly move pets into their map appropriate thead)
                             {
-                                Info._current.Value.Process();
-                                Info._current.Value.SetOperateTime();
+                                // Isolation (roadmap P5): a throwing monster is quarantined instead of ending this thread,
+                                // which used to leave Stop == false and hang the game thread in the barrier forever.
+                                var ob = Info._current.Value;
+                                try
+                                {
+                                    ob.Process();
+                                    ob.SetOperateTime();
+                                }
+                                catch (Exception ex)
+                                {
+                                    WorldErrors.Record($"mob thread {Info.Id}: {WorldErrors.Describe(ob)}", ex);
+                                    ob.OperateTime = Time + WorldErrors.QuarantineMs;
+                                }
                             }
                         }
                         Info._current = next;
@@ -2274,7 +2334,7 @@ namespace Server.MirEnvir
                         stopping = true;
                         for (var x = 1; x < MobThreads.Length; x++)
                         {
-                            if (MobThreads[x].Stop == false)
+                            if (MobThreads[x].Stop == false && !MobThreads[x].Dead)
                             {
                                 stopping = false;
                             }
@@ -2297,6 +2357,47 @@ namespace Server.MirEnvir
                 if (ex is ThreadInterruptedException) return;
 
                 MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.ThreadLoopError), ex));
+
+                // An exception outside the per-object catch (roadmap P5): mark the thread dead so the game thread's barrier
+                // (ThreadLoop(MobThreads[0])) stops waiting for it. Its monsters stop moving until a restart; logged loudly.
+                if (Info.Id != 0)
+                {
+                    Info.Dead = true;
+                    Info.Stop = true;
+                    WorldErrors.Record($"mob thread {Info.Id} stopped; its {Info.ObjectsList.Count} monsters are frozen until a restart", ex);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Called after a connection's Process threw (roadmap P5). Disconnects only that client; if the disconnect itself
+        /// throws (corrupted player state), the connection is still removed so it cannot throw every tick.
+        /// Caller holds the Connections lock (game thread).
+        /// </summary>
+        private void IsolateConnection(MirConnection connection)
+        {
+            try
+            {
+                connection.Disconnect(3);
+            }
+            catch (Exception ex)
+            {
+                WorldErrors.Record("disconnect after isolated error, " + WorldErrors.Describe(connection), ex);
+                Connections.Remove(connection);
+            }
+        }
+
+        /// <summary>
+        /// Called after an object's Process threw (roadmap P5). Players are disconnected (their state may be half-updated);
+        /// anything else is quarantined: not processed again for WorldErrors.QuarantineMs.
+        /// </summary>
+        private void IsolateObject(MapObject ob)
+        {
+            ob.OperateTime = Time + WorldErrors.QuarantineMs;
+            if (ob is PlayerObject player && player.Connection != null)
+            {
+                var connection = player.Connection;
+                lock (Connections) IsolateConnection(connection);
             }
         }
 
@@ -2676,15 +2777,19 @@ namespace Server.MirEnvir
         {
             if (!Directory.Exists(Settings.GuildPath)) Directory.CreateDirectory(Settings.GuildPath);
 
-            if (GuildRefreshNeeded == true) //deletes guild files and resaves with new indexing if a guild is deleted.
+            var refreshing = false;
+            if (GuildRefreshNeeded == true) //resaves with new indexing if a guild is deleted.
             {
-                foreach (var guildfile in Directory.GetFiles(Settings.GuildPath, "*.mgd"))
-                {
-                    File.Delete(guildfile);
-                }
-
+                refreshing = true;
+                // Crash-safe (roadmap P5): the old code deleted every .mgd first, so a crash before the async writes finished
+                // lost guilds. Now every guild is rewritten (each file swapped atomically) and the surplus files (index >=
+                // count; LoadGuilds never reads them) are pruned only after all of those writes have succeeded.
                 GuildRefreshNeeded = false;
                 forced = true; //triggers a full resave of all guilds
+                Interlocked.Exchange(ref _guildRefreshFailed, 0);
+                Interlocked.Exchange(ref _guildRefreshPending, GuildList.Count);
+                _guildRefreshKeep = GuildList.Count;
+                if (GuildList.Count == 0) PruneSurplusGuildFiles(0);
             }
 
             for (var i = 0; i < GuildList.Count; i++)
@@ -2704,28 +2809,72 @@ namespace Server.MirEnvir
 					GuildList[i].Save(writer);
                     var fStream = new FileStream(Path.Combine(Settings.GuildPath, i + ".mgdn"), FileMode.Create);
                     var data = mStream.ToArray();
-                    fStream.BeginWrite(data, 0, data.Length, EndSaveGuildsAsync, fStream);
+                    fStream.BeginWrite(data, 0, data.Length, EndSaveGuildsAsync, new SideFileSave(fStream, refreshing));
                 }
             }
         }
         private void EndSaveGuildsAsync(IAsyncResult result)
         {
-            var fStream = result.AsyncState as FileStream;
+            var state = (SideFileSave)result.AsyncState;
+            var ok = CompleteSideFileSave(state.Stream, result);
+            if (!state.CountsTowardRefresh) return;
+            if (!ok) Interlocked.Exchange(ref _guildRefreshFailed, 1);
+            if (Interlocked.Decrement(ref _guildRefreshPending) == 0)
+            {
+                if (Volatile.Read(ref _guildRefreshFailed) == 0) PruneSurplusGuildFiles(_guildRefreshKeep);
+                else MessageQueue.Enqueue("[Save] A guild file failed to save during a full guild resave; surplus guild files were kept.");
+            }
+        }
+
+        private int _guildRefreshPending, _guildRefreshFailed, _guildRefreshKeep;
+
+        private sealed class SideFileSave
+        {
+            public readonly FileStream Stream;
+            public readonly bool CountsTowardRefresh;
+            public SideFileSave(FileStream stream, bool countsTowardRefresh) { Stream = stream; CountsTowardRefresh = countsTowardRefresh; }
+        }
+
+        /// <summary>
+        /// Shared completion for the async guild (.mgd), goods (.msd) and conquest (.mcd) saves (roadmap P5). Runs on an IO
+        /// completion thread and touches only files. The temp file "&lt;name&gt;n" is swapped in with File.Replace, so the
+        /// live file always exists; failures are logged and counted instead of swallowed.
+        /// </summary>
+        internal static bool CompleteSideFileSave(FileStream fStream, IAsyncResult result)
+        {
+            if (fStream == null) return false;
             try
             {
-                if (fStream == null) return;
-                var oldfilename = fStream.Name.Substring(0, fStream.Name.Length - 1);
                 var newfilename = fStream.Name;
+                var oldfilename = newfilename.Substring(0, newfilename.Length - 1);
                 fStream.EndWrite(result);
                 fStream.Dispose();
-                if (File.Exists(oldfilename))
-                    File.Move(oldfilename, oldfilename + "o");
-                File.Move(newfilename, oldfilename);
-                if (File.Exists(oldfilename + "o"))
-                    File.Delete(oldfilename + "o");
+                if (File.Exists(oldfilename)) File.Replace(newfilename, oldfilename, null);
+                else File.Move(newfilename, oldfilename);
+                return true;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                fStream.Dispose();
+                WorldErrors.Record("async save of " + fStream.Name, ex);
+                return false;
+            }
+        }
+
+        /// <summary>Deletes guild files whose index is outside 0..keep-1 (LoadGuilds never reads them).</summary>
+        internal static void PruneSurplusGuildFiles(int keep)
+        {
+            try
+            {
+                foreach (var file in Directory.GetFiles(Settings.GuildPath, "*.mgd"))
+                {
+                    if (int.TryParse(Path.GetFileNameWithoutExtension(file), out var index) && index >= keep)
+                        File.Delete(file);
+                }
+            }
+            catch (Exception ex)
+            {
+                WorldErrors.Record("pruning surplus guild files", ex);
             }
         }
 
@@ -2773,23 +2922,7 @@ namespace Server.MirEnvir
         }
         private void EndSaveGoodsAsync(IAsyncResult result)
         {
-            try
-            {
-                var fStream = result.AsyncState as FileStream;
-                if (fStream == null) return;
-                var oldfilename = fStream.Name.Substring(0, fStream.Name.Length - 1);
-                var newfilename = fStream.Name;
-                fStream.EndWrite(result);
-                fStream.Dispose();
-                if (File.Exists(oldfilename))
-                    File.Move(oldfilename, oldfilename + "o");
-                File.Move(newfilename, oldfilename);
-                if (File.Exists(oldfilename + "o"))
-                    File.Delete(oldfilename + "o");
-            }
-            catch (Exception)
-            {
-            }
+            CompleteSideFileSave(result.AsyncState as FileStream, result);
         }
 
         private void SaveConquests(bool forced = false)
@@ -2809,23 +2942,7 @@ namespace Server.MirEnvir
         }
         private void EndSaveConquestsAsync(IAsyncResult result)
         {
-            var fStream = result.AsyncState as FileStream;
-            try
-            {
-                if (fStream == null) return;
-                var oldfilename = fStream.Name.Substring(0, fStream.Name.Length - 1);
-                var newfilename = fStream.Name;
-                fStream.EndWrite(result);
-                fStream.Dispose();
-                if (File.Exists(oldfilename))
-                    File.Move(oldfilename, oldfilename + "o");
-                File.Move(newfilename, oldfilename);
-                if (File.Exists(oldfilename + "o"))
-                    File.Delete(oldfilename + "o");
-            }
-            catch (Exception)
-            {
-            }
+            CompleteSideFileSave(result.AsyncState as FileStream, result);
         }
 
         /// <summary>
@@ -3105,8 +3222,9 @@ namespace Server.MirEnvir
                     for (var i = 0; i < count; i++)
                     {
                         AccountInfo NextAccount = new AccountInfo(reader);
-                        if (i > 0 && NextAccount.Characters.Count == 0)
-                            continue;
+                        // Accounts with no characters used to be dropped silently here (all but the first), and the next
+                        // save made it permanent. They are kept now (roadmap P5, decision #14); pruning, if wanted, should
+                        // be an explicit and logged maintenance job.
                         AccountList.Add(NextAccount);
                         CharacterList.AddRange(AccountList[TrueAccount].Characters);
                         if (LoadVersion > 98 && LoadVersion < 103)
@@ -3199,6 +3317,10 @@ namespace Server.MirEnvir
                 var count = 0;
 
                 GuildList.Clear();
+                // In-process restarts used to keep the previous run's GuildObjects (StopEnvir never cleared them, and the
+                // GuildObject ctor skips an index that is already listed), so the next SaveGuilds wrote stale guild data over
+                // the freshly loaded files (roadmap P5 known defect).
+                Guilds.Clear();
 
                 for (var i = 0; i < GuildCount; i++)
                 {

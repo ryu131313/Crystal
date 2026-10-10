@@ -84,6 +84,10 @@ namespace Server.WebAdmin.Routes
                 systemDataStale = Envir.SystemDataStale,
                 pendingReboot = pending,
                 sessions = WebAdminSessions.Store.Count,
+                // roadmap P2/P5 health counters (appended; fields are never renamed)
+                isolatedErrors = WorldErrors.Count,
+                recentIsolatedErrors = WorldErrors.Recent(),
+                accountSaveFailures = Envir.AccountSaveFailures,
             });
         }
     }

@@ -12,7 +12,7 @@ namespace Server.Persistence.Tests;
 /// </summary>
 internal static class SyntheticWorld
 {
-    public const int ZeroCharacterAccountsBeyondFirst = 1; // expected to be dropped by LoadAccounts
+    public const int ZeroCharacterAccountsBeyondFirst = 0; // kept since roadmap P5 (were dropped by LoadAccounts before)
 
     /// <param name="fixedNow">Fixed clock for committed fixtures. A far-future date keeps characters from ever
     /// aging into the archive rules (AccountInfo ctor archives on LastLoginDate + Settings months).</param>
@@ -77,7 +77,7 @@ internal static class SyntheticWorld
         acc.Characters.Add(c2);
         e.AccountList.Add(acc);
 
-        e.AccountList.Add(NewAccount(3, "empty2", now)); // zero characters, not index 0: dropped on load
+        e.AccountList.Add(NewAccount(3, "empty2", now)); // zero characters, not index 0: kept since roadmap P5 (was dropped on load)
 
         e.CharacterList.AddRange(acc.Characters);
     }

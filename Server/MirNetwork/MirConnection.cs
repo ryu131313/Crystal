@@ -28,6 +28,8 @@ namespace Server.MirNetwork
         public readonly string IPAddress;
 
         public GameStage Stage;
+        /// <summary>Index of the packet being (or last) handled; read by WorldErrors.Describe.</summary>
+        public short LastPacketIndex = -1;
 
         private TcpClient _client;
         private ConcurrentQueue<Packet> _receiveList;
@@ -156,19 +158,27 @@ namespace Server.MirNetwork
 
             _dataCounter++;
 
+            // Disconnect (game thread) nulls _receiveList/_rawData while this IO thread may still be here: work on locals and
+            // stop quietly once they are gone. Previously the resulting NullReferenceException reached the catch below and
+            // IP-blocked a player for 24 h for disconnecting (roadmap P5 known defect).
+            var receiveList = _receiveList;
+            var temp = _rawData;
+            if (receiveList == null || temp == null) return;
+
             try
             {
                 byte[] rawBytes = result.AsyncState as byte[];
 
-                byte[] temp = _rawData;
-                _rawData = new byte[dataRead + temp.Length];
-                Buffer.BlockCopy(temp, 0, _rawData, 0, temp.Length);
-                Buffer.BlockCopy(rawBytes, 0, _rawData, temp.Length, dataRead);
+                var raw = new byte[dataRead + temp.Length];
+                Buffer.BlockCopy(temp, 0, raw, 0, temp.Length);
+                Buffer.BlockCopy(rawBytes, 0, raw, temp.Length, dataRead);
 
                 Packet p;
 
-                while ((p = Packet.ReceivePacket(_rawData, out _rawData)) != null)
-                    _receiveList.Enqueue(p);
+                while ((p = Packet.ReceivePacket(raw, out raw)) != null)
+                    receiveList.Enqueue(p);
+
+                _rawData = raw;
             }
             catch
             {
@@ -255,6 +265,7 @@ namespace Server.MirNetwork
                 _lastPackets.Enqueue(p);
 
                 TimeOutTime = Envir.Time + Settings.TimeOut;
+                LastPacketIndex = p.Index; // identity for isolated-error logs (roadmap P5)
                 ProcessPacket(p);
 
                 if (_receiveList == null)

@@ -2188,6 +2188,13 @@ namespace Server.MirObjects
                 switch (parts[0].ToUpper())
                 {
                     case "LOGIN":
+                        // The shipped default GM password is public: refuse @LOGIN until the operator changes it (roadmap P5).
+                        if (GMPassword == Settings.DefaultGMPassword)
+                        {
+                            MessageQueue.Enqueue($"[Security] @LOGIN by {Name} refused: [General] GMPassword is still the public default. Change it in the web admin Config page.");
+                            ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.LoginPasswordInvalid), ChatType.System);
+                            return;
+                        }
                         GMLogin = true;
                         ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.EnterGmPassword), ChatType.Hint);
                         return;
