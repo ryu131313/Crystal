@@ -66,6 +66,21 @@ Kill switches for diagnosis only: environment variables `MIR2_D3D11_SAMPLER=poin
 - **Input:** `CMain` maps mouse positions and `MouseEventArgs` through `DXManager.ClientToScene`.
 - **Aspect ratio:** non-4:3 monitors stretch the picture, as a 1024×768 exclusive mode on the same monitor would by default. A letterbox option is a C6 polish item.
 
+## Independent review (2026-10-10) and fixes
+
+A read-only review of the seam and both backends found, and this commit fixed:
+- **Critical (D3D9, default renderer):** the screenshot path disposed the live back buffer. SlimDX returns the same managed `Surface`, so after one PrintScreen every render-target switch threw. Now it never disposes it. Smoke mode takes a mid-run screenshot and keeps rendering to prove it (0 `Error.txt` entries on both backends).
+- **High (D3D11):** a driver reset (TDR) mid-flush left sprites queued, so cleanup re-flushed a dead device forever. The queue is now always emptied, and textures are not flushed on a removed device.
+- **High (D3D11):** a failed re-create or `ResizeBuffers` left the backend half-built while reporting OK. It now reports NotReset, so the reset retries.
+- **Medium (D3D11):**
+  - Screenshots read an undefined flip-discard buffer after Present; now they read a copy taken just before Present.
+  - Shaders compile before the swap chain is bound to the window, so a compiler failure leaves a clean window for the D3D9 fallback.
+  - Borderless fullscreen is no longer `TopMost`, so Alt+Tab works.
+
+Left as follow-ups:
+- **Low:** tearing when `FPSCap=false` in borderless fullscreen (D3D9 windowed Immediate did not tear); up to ~2 frames more latency with 3 buffers and no frame-latency wait; a render-target rebind on every `SetBlend` (performance only).
+- **Known debt, not new:** `MImage.CreateTexture` leaks on a corrupt `.Lib` retry; the screenshot `Bitmap` is not disposed.
+
 ## Rollout (roadmap C4)
 
 1. **Now:** opt-in. Testers set `[Graphics] Renderer=D3D11`. If the device fails, the client falls back to D3D9 and logs it.

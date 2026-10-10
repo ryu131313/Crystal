@@ -92,9 +92,12 @@ New-Item -ItemType Directory -Force $Out | Out-Null
 if ($Mode -eq 'Smoke') {
     $args = @('--smoke', "$SmokeSeconds", '--out', $Out)
     if ($FullScreen) { $args += '--fullscreen' }
+    $errorFile = Join-Path $run 'Error.txt'
+    if (Test-Path $errorFile) { Remove-Item $errorFile -Force }   # scratch copy only; the client writes it in its working folder
     $p = Start-Process -FilePath (Join-Path $run 'Client.exe') -ArgumentList $args -WorkingDirectory $run -PassThru -Wait
     Write-Host "smoke exit code $($p.ExitCode) ($Backend) -> $Out"
     if (Test-Path (Join-Path $Out 'smoke.log')) { Get-Content (Join-Path $Out 'smoke.log') }
+    if (Test-Path $errorFile) { Write-Host 'Error.txt entries:'; Get-Content $errorFile | Select-Object -First 20 } else { Write-Host 'Error.txt: none' }
     exit $p.ExitCode
 }
 $args = @('--rendertest', '--out', $Out)

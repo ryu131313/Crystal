@@ -617,6 +617,25 @@ namespace Client.RenderTest
             bmp.Save(path, ImageFormat.Png);
         }
 
+        public static bool MidSmokeDone;
+
+        /// <summary>Halfway through a smoke run: the in-game screenshot path, after which the loop keeps rendering.</summary>
+        public static void MidSmokeScreenshot()
+        {
+            MidSmokeDone = true;
+            try
+            {
+                Directory.CreateDirectory(OutDir);
+                using (var bmp = DXManager.CaptureBackBuffer())
+                    bmp.Save(Path.Combine(OutDir, "smoke-mid.png"), ImageFormat.Png);
+                _log.Add("smoke mid-run screenshot ok");
+            }
+            catch (Exception ex)
+            {
+                _log.Add("FATAL smoke mid-run screenshot " + ex);
+            }
+        }
+
         /// <summary>End of a smoke run (called from the real game loop): capture the back buffer and the frame profile.</summary>
         public static void FinishSmoke()
         {

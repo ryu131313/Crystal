@@ -117,6 +117,8 @@ namespace Client
                 while (AppStillIdle)
                 {
                     UpdateTime();
+                    if (RenderTest.RenderTestRunner.SmokeMode && !RenderTest.RenderTestRunner.MidSmokeDone && Time >= RenderTest.RenderTestRunner.SmokeSeconds * 500L)
+                        RenderTest.RenderTestRunner.MidSmokeScreenshot(); // a screenshot mid-run, then keep rendering (review C1)
                     if (RenderTest.RenderTestRunner.SmokeMode && Time >= RenderTest.RenderTestRunner.SmokeSeconds * 1000L)
                     {
                         // Roadmap C4 smoke test: the real loop ran for N seconds; capture and close.
@@ -603,7 +605,7 @@ namespace Client
 
             Program.Form.FormBorderStyle = Settings.FullScreen || Settings.Borderless ? FormBorderStyle.None : FormBorderStyle.FixedDialog;
 
-            Program.Form.TopMost = Settings.FullScreen;
+            Program.Form.TopMost = Settings.FullScreen && Settings.Renderer != MirGraphics.Rendering.RendererType.D3D11; // roadmap C4: not for borderless
 
             DXManager.ApplyWindowBounds();
 

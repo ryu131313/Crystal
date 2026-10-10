@@ -259,7 +259,8 @@ namespace Client.MirGraphics.Rendering
 
         public Bitmap CaptureBackBuffer()
         {
-            using (Surface backbuffer = _device.GetBackBuffer(0, 0))
+            // Never dispose this surface: SlimDX hands back the same managed object as the cached back buffer (review C1).
+            Surface backbuffer = SurfaceOf(_backBuffer);
             using (var stream = Surface.ToStream(backbuffer, ImageFileFormat.Png))
             using (var image = new Bitmap(stream))
                 return new Bitmap(image); // detach from the stream (GDI+ needs a stream-backed bitmap's stream kept open)

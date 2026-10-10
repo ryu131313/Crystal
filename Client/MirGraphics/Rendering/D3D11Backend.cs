@@ -108,6 +108,7 @@ namespace Client.MirGraphics.Rendering
         private bool _grayscaleAvailable;
 
         private RenderTexture _backBuffer, _target, _white;
+        private ID3D11Texture2D _lastFrame;   // copy of the back buffer taken just before Present (screenshots)
 
         private DeviceState _state, _saved;
         private bool _hasSaved;
@@ -148,6 +149,10 @@ namespace Client.MirGraphics.Rendering
             FeatureLevel[] levels = { FeatureLevel.Level_11_0, FeatureLevel.Level_10_1, FeatureLevel.Level_10_0 };
             D3D11.D3D11CreateDevice(null, DriverType.Hardware, flags, levels, out _device, out _, out _context).CheckError();
 
+            // Before the swap chain: if shader compilation fails (d3dcompiler_47 missing...), no flip-model swap chain has
+            // been bound to the window yet and the D3D9 fallback gets a clean HWND.
+            CreatePipeline();
+
             using (IDXGIDevice dxgiDevice = _device.QueryInterface<IDXGIDevice>())
             using (IDXGIAdapter adapter = dxgiDevice.GetAdapter())
             using (IDXGIFactory2 factory = adapter.GetParent<IDXGIFactory2>())
@@ -172,7 +177,6 @@ namespace Client.MirGraphics.Rendering
                 factory.MakeWindowAssociation(windowHandle, WindowAssociationFlags.IgnoreAltEnter); // CMain owns Alt+Enter
             }
 
-            CreatePipeline();
             CreateBackBuffer();
             _white = CreateTexture(1, 1);
             byte* w = LockTexture(_white);
@@ -317,6 +321,24 @@ float4 Grayscale_PS(VSOut i) : SV_Target
             _target = _backBuffer;
         }
 
+        private void KeepLastFrame()
+        {
+            using (ID3D11Texture2D buffer = _swapChain.GetBuffer<ID3D11Texture2D>(0))
+            {
+                var desc = buffer.Description;
+                if (_lastFrame == null || _lastFrame.Description.Width != desc.Width || _lastFrame.Description.Height != desc.Height)
+                {
+                    _lastFrame?.Dispose();
+                    desc.BindFlags = BindFlags.None;
+                    desc.Usage = ResourceUsage.Default;
+                    desc.CPUAccessFlags = CpuAccessFlags.None;
+                    desc.MiscFlags = ResourceOptionFlags.None;
+                    _lastFrame = _device.CreateTexture2D(desc);
+                }
+                _context.CopyResource(_lastFrame, buffer);
+            }
+        }
+
         private void ReleaseBackBuffer()
         {
             if (_backBuffer == null) return;
@@ -373,7 +395,8 @@ float4 Grayscale_PS(VSOut i) : SV_Target
         public void DestroyTexture(RenderTexture texture)
         {
             if (texture.Native is not TextureData data) return;
-            if (_count > 0) Flush(); // queued sprites may still reference it (D3DX held a reference)
+            if (_count > 0 && !DeviceRemoved) Flush(); // queued sprites may still reference it (D3DX held a reference)
+            else if (_count > 0) { Array.Clear(_textures, 0, _count); _count = 0; }
             if (_target == texture) { _target = _backBuffer; if (_backBuffer != null) BindTarget(_backBuffer); }
             if (data.Srv != null && data.Srv == _boundSrv) { _context.PSSetShaderResource(0, null); _boundSrv = null; }
             data.Rtv?.Dispose();
@@ -440,6 +463,7 @@ float4 Grayscale_PS(VSOut i) : SV_Target
         public void Present()
         {
             Flush();
+            KeepLastFrame();
             PresentFlags flags = !_vsync && _allowTearing ? PresentFlags.AllowTearing : PresentFlags.None;
             Result result = _swapChain.Present(_vsync ? 1u : 0u, flags);
             if (result.Code == Vortice.DXGI.ResultCode.DeviceRemoved.Code || result.Code == Vortice.DXGI.ResultCode.DeviceReset.Code)
@@ -544,6 +568,20 @@ float4 Grayscale_PS(VSOut i) : SV_Target
         {
             if (_count == 0) return;
 
+            try
+            {
+                FlushQueued();
+            }
+            finally
+            {
+                // Always empty the queue, even when the device was removed mid-flush (TDR), so cleanup and Reset can run.
+                Array.Clear(_textures, 0, _count);
+                _count = 0;
+            }
+        }
+
+        private void FlushQueued()
+        {
             ApplyState(_state);
             BindProjection(_spriteProjectionSize);
 
@@ -577,9 +615,7 @@ float4 Grayscale_PS(VSOut i) : SV_Target
                 start = end;
             }
 
-            Array.Clear(_textures, 0, _count);
             _ringOffset = offset + _count;
-            _count = 0;
         }
 
         private ID3D11SamplerState SamplerFor(bool scaled) => SamplerMode switch
@@ -711,10 +747,20 @@ float4 Grayscale_PS(VSOut i) : SV_Target
 
         // ================================================================ device lost / reset
 
+        private bool DeviceRemoved
+        {
+            get
+            {
+                try { return _device == null || _device.DeviceRemovedReason.Failure; }
+                catch { return true; }
+            }
+        }
+
         public DeviceStatus TestCooperativeLevel()
         {
-            if (_device == null) return DeviceStatus.NotReset;
-            return _device.DeviceRemovedReason.Failure ? DeviceStatus.NotReset : DeviceStatus.Ok;
+            // A failed re-create or ResizeBuffers leaves the backend half-built: report NotReset so ResetDevice retries.
+            if (DeviceRemoved || _swapChain == null || _backBuffer == null) return DeviceStatus.NotReset;
+            return DeviceStatus.Ok;
         }
 
         public void Reset(int width, int height, bool windowed, bool vsync)
@@ -723,7 +769,7 @@ float4 Grayscale_PS(VSOut i) : SV_Target
             _count = 0;
             Array.Clear(_textures, 0, _textures.Length);
 
-            if (_device == null || _device.DeviceRemovedReason.Failure)
+            if (DeviceRemoved || _swapChain == null || _pixelBuffer == null)
             {
                 // TDR / driver reset: the only real device loss in D3D11. Rebuild everything; DXManager re-creates its textures.
                 ReleaseAll();
@@ -798,10 +844,15 @@ float4 Grayscale_PS(VSOut i) : SV_Target
         public Bitmap CaptureBackBuffer()
         {
             byte[] bytes;
-            using (ID3D11Texture2D buffer = _swapChain.GetBuffer<ID3D11Texture2D>(0))
-                bytes = Read(buffer, _backBuffer.Width, _backBuffer.Height);
+            if (_lastFrame != null)
+                bytes = Read(_lastFrame, (int)_lastFrame.Description.Width, (int)_lastFrame.Description.Height);
+            else
+                using (ID3D11Texture2D buffer = _swapChain.GetBuffer<ID3D11Texture2D>(0))
+                    bytes = Read(buffer, _backBuffer.Width, _backBuffer.Height);
+            int width = _lastFrame != null ? (int)_lastFrame.Description.Width : _backBuffer.Width;
+            int height = _lastFrame != null ? (int)_lastFrame.Description.Height : _backBuffer.Height;
             for (int i = 3; i < bytes.Length; i += 4) bytes[i] = 255; // the swap chain ignores alpha
-            var bitmap = new Bitmap(_backBuffer.Width, _backBuffer.Height, PixelFormat.Format32bppArgb);
+            var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb);
             var data = bitmap.LockBits(new Rectangle(0, 0, bitmap.Width, bitmap.Height), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
             for (int y = 0; y < bitmap.Height; y++)
                 Marshal.Copy(bytes, y * bitmap.Width * 4, data.Scan0 + y * data.Stride, bitmap.Width * 4);
@@ -824,7 +875,10 @@ float4 Grayscale_PS(VSOut i) : SV_Target
             {
             }
 
+            _count = 0;
+            Array.Clear(_textures, 0, _textures.Length);
             if (_white != null) { DestroyTexture(_white); _white = null; }
+            _lastFrame?.Dispose(); _lastFrame = null;
             foreach (var blend in _blendStates.Values) blend.Dispose();
             _blendStates.Clear();
             _depthOff?.Dispose(); _rasterizer?.Dispose(); _samplerAnisotropic?.Dispose(); _samplerLinear?.Dispose(); _samplerPoint?.Dispose();
