@@ -3907,7 +3907,20 @@ namespace Server.MirEnvir
                 Time = Stopwatch.ElapsedMilliseconds;
 
                 for (var i = Connections.Count - 1; i >= 0; i--)
-                    Connections[i].Process();
+                {
+                    if (i >= Connections.Count) continue;
+                    var connection = Connections[i];
+                    // Isolation (roadmap P5) also during the shutdown drain: one bad connection must not abort the drain.
+                    try
+                    {
+                        connection.Process();
+                    }
+                    catch (Exception ex)
+                    {
+                        WorldErrors.Record(WorldErrors.Describe(connection), ex);
+                        IsolateConnection(connection);
+                    }
+                }
                 MirConnection.EndEncodePass();
 
                 Thread.Sleep(1);

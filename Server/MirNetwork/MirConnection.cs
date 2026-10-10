@@ -281,7 +281,17 @@ namespace Server.MirNetwork
         private static readonly Dictionary<Packet, byte[]> EncodedThisPass = new Dictionary<Packet, byte[]>(ReferenceEqualityComparer.Instance);
 
         /// <summary>Drops the encode-once cache. Called by the game loop after every connection pass.</summary>
-        internal static void EndEncodePass() => EncodedThisPass.Clear();
+        internal static void EndEncodePass()
+        {
+            if (EncodedThisPass.Count == 0) return;
+            var burst = EncodedThisPass.Count > EncodeCacheTrimAbove;
+            EncodedThisPass.Clear();
+            // Clear costs O(capacity) and capacity never shrinks, so give back the table after a burst (e.g. a server-wide broadcast).
+            if (burst) EncodedThisPass.TrimExcess(EncodeCacheKeep);
+        }
+
+        private const int EncodeCacheTrimAbove = 8192;
+        private const int EncodeCacheKeep = 1024;
 
         private static byte[] Encode(Packet p)
         {
