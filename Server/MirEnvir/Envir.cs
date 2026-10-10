@@ -103,7 +103,7 @@ namespace Server.MirEnvir
 
         private Thread _thread;
         private TcpListener _listener;
-        private bool StatusPortEnabled = true;
+        private static bool StatusPortEnabled => Settings.StatusPortEnabled; // [Network] StatusPortEnabled / StatusPort (roadmap P6)
         public List<MirStatusConnection> StatusConnections = new List<MirStatusConnection>();
         private TcpListener _StatusPort;
         private int _sessionID;
@@ -3857,7 +3857,7 @@ namespace Server.MirEnvir
 
             if (StatusPortEnabled)
             {
-                _StatusPort = new TcpListener(IPAddress.Parse(Settings.IPAddress), 3100);
+                _StatusPort = new TcpListener(IPAddress.Parse(Settings.IPAddress), Settings.StatusPort);
                 _StatusPort.Start();
                 _StatusPort.BeginAcceptTcpClient(StatusConnection, null);
             }
@@ -3989,7 +3989,12 @@ namespace Server.MirEnvir
         {
             try
             {
-                if (!Running || !_listener.Server.IsBound) return;
+                if (!Running || !_listener.Server.IsBound)
+                {
+                    // complete the aborted accept so its exception is observed (no crash file on every world stop)
+                    try { _listener.EndAcceptTcpClient(result)?.Close(); } catch { }
+                    return;
+                }
             }
             catch (Exception e)
             {
@@ -4055,7 +4060,11 @@ namespace Server.MirEnvir
 
         private void StatusConnection(IAsyncResult result)
         {
-            if (!Running || !_StatusPort.Server.IsBound) return;
+            if (!Running || !_StatusPort.Server.IsBound)
+            {
+                try { _StatusPort.EndAcceptTcpClient(result)?.Close(); } catch { }
+                return;
+            }
 
             try
             {

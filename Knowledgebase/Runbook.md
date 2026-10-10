@@ -71,5 +71,5 @@ C:\Mir2\StressClient\bin\Debug\net10.0\StressClient.exe --port 17000 --bots 200 
 powershell -ExecutionPolicy Bypass -File C:\Mir2\tools\stop-scratch-server.ps1                      # stops only the PID it started
 ```
 - Use ports 17000-17999. The scratch `Setup.ini` sets `[LoadTest] ExemptLoopback=True`, `CheckVersion=False`, `EnforceDBChecks=False`, `AllowStartGame=True` and `[WebAdmin] Enabled=False`: **never copy it to a real server.**
-- Server.exe always binds the hard-coded status port 3100. Stop the scratch server before (re)starting the live server on the same machine.
+- The scratch profile sets `[Network] StatusPortEnabled=False`, so the status port (3100 by default, now configurable) stays free for the live server.
 - After a run, check `%TEMP%\mir2-p6-server\run\Logs\Server\` for `[World] Isolated error` / `FATAL` and `run\Logs\Crash\`.

@@ -15,9 +15,8 @@
   allows StartGame for everyone. Never copy this Setup.ini to a real server. The script refuses a
   scratch folder inside the repo's Build\ folder and a port that is already listening.
 
-  Note: Server.exe also binds the hard-coded status port 3100 (Envir.StatusPortEnabled). Only
-  one Crystal server per machine can own it; stop the scratch server before restarting a live
-  server on the same machine.
+  The status listener is turned off ([Network] StatusPortEnabled=False), so a scratch server never
+  competes with a live server for the status port (3100 by default).
 
 .PARAMETER Scratch   Root scratch folder. Default %TEMP%\mir2-p6-server.
 .PARAMETER Port      Game port (use 17000-17999 for scratch). Default 17000.
@@ -70,11 +69,6 @@ if ($busy) {
     Write-Error "Port $Port is already listening (PID $($busy[0].OwningProcess)). Pick another port in 17000-17999."
     exit 3
 }
-$status = Get-NetTCPConnection -State Listen -LocalPort 3100 -ErrorAction SilentlyContinue
-if ($status) {
-    Write-Error "The hard-coded status port 3100 is in use (PID $($status[0].OwningProcess)); Server.exe would fail to start its network. Stop that process first."
-    exit 3
-}
 
 # ---- build ----
 if (-not $NoBuild) {
@@ -116,6 +110,7 @@ EnforceDBChecks=False
 Multithreaded=$mt
 ThreadLimit=2
 [Network]
+StatusPortEnabled=False
 IPAddress=127.0.0.1
 Port=$Port
 MaxUser=$MaxUser

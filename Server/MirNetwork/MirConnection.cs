@@ -46,6 +46,7 @@ namespace Server.MirNetwork
         }
 
         private TcpClient _client;
+        private readonly System.Net.Sockets.Socket _socket;
         private ConcurrentQueue<Packet> _receiveList;
         private ConcurrentQueue<Packet> _sendList; 
         private Queue<Packet> _retryList;
@@ -101,6 +102,7 @@ namespace Server.MirNetwork
             MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.IPAddressConnected), IPAddress));
 
             _client = client;
+            _socket = client.Client; // kept after Disconnect nulls _client, so pending receives can still be completed
             _client.NoDelay = true;
 
             TimeConnected = Envir.Time;
@@ -144,19 +146,21 @@ namespace Server.MirNetwork
 
         private void ReceiveData(IAsyncResult result)
         {
-            if (!Connected) return;
-
             int dataRead;
 
+            // Always complete the receive first, even when already disconnected: an aborted receive whose EndReceive is
+            // never called surfaces later as an unobserved task exception (SocketException 995) and a crash file.
             try
             {
-                dataRead = _client.Client.EndReceive(result);
+                dataRead = _socket.EndReceive(result);
             }
             catch
             {
                 Disconnecting = true;
                 return;
             }
+
+            if (!Connected) return;
 
             if (dataRead == 0)
             {

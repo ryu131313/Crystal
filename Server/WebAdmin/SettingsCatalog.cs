@@ -212,6 +212,9 @@ namespace Server.WebAdmin
                 min: 1, savedBySave: false);
             Add(N, "Network", "IPBlockSeconds", "IPBlockSeconds", I32, "Reconnect block (s)",
                 "Seconds an IP is blocked after each new connection or after exceeding Max connections per IP.", min: 0, max: 3600);
+            Add(N, "Network", "StatusPortEnabled", "StatusPortEnabled", B, "Status port",
+                "Plain-text status listener (player count etc.) on the status port. Turn off for scratch servers sharing a machine.", SettingRestart.World);
+            Add(N, "Network", "StatusPort", "StatusPort", U16, "Status port number", "TCP port of the status listener (default 3100).", SettingRestart.World, min: 1);
             Add(N, "LoadTest", "ExemptLoopback", "LoadTestExemptLoopback", B, "Load test: exempt loopback",
                 "SCRATCH SERVERS ONLY. Exempts 127.x / ::1 from IP blocks, Max connections per IP and the per-IP account/character limits so a local bot fleet can connect. Never enable behind a reverse proxy: every player would look like loopback.");
             Add(N, "LoadTest", "LoopbackMaxPacket", "LoadTestLoopbackMaxPacket", I32, "Load test: loopback packet limit",

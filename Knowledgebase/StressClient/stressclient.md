@@ -55,7 +55,7 @@ Check a run: `run\Logs\Server\Server (dd-MM-yyyy).log` must have no `[World] Iso
 - `[LoadTest] ExemptLoopback=True` exempts 127.x/::1 from the connect IP block, `MaxIP`, and the per-IP account (>2/h) and character (>4/h) 24 h blocks. **Never on a real server**: any local proxy or tunnel would make every player "loopback".
 - `MaxPacket` stays enforced. It counts **socket receives per connection per 5 s window** (not packets); a breach IP-blocks for 24 h. `LoopbackMaxPacket` raises it for loopback only.
 - `CheckVersion=False` because bots send a dummy hash. `AllowStartGame=True` because it defaults to false (admins only).
-- Server.exe also binds the **hard-coded status port 3100**. Only one Crystal server per machine can own it: the start script refuses to start if 3100 is taken, and a live server restarted while a scratch server runs would fail to bind it.
+- The status listener (`[Network] StatusPortEnabled` / `StatusPort`, default on / 3100) is turned **off** in the scratch profile, so a scratch server never blocks a live server from binding it.
 
 ## 5. StressClient
 
