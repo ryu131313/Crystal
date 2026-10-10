@@ -124,9 +124,9 @@ private static void Application_Idle(object sender, EventArgs e)
 | Layer | Technology | Key file |
 |---|---|---|
 | Window | `CMain : SlimDX.Windows.RenderForm`, `Application.Idle` + PeekMessage | `Forms/CMain.cs` |
-| Graphics API | **SlimDX Direct3D 9**, static `DXManager.Device` (no seam; SlimDX types used across MirControls/MirScenes/MirObjects) | `MirGraphics/DXManager.cs` |
-| 2D batching | one D3DX `DXManager.Sprite` (Begin/End per frame) + `DXManager.Line` | `DXManager.cs` |
-| Shaders | ps-assembly files `.\Data\Shaders\normal.ps`, `grayscale.ps`, `magic.ps`, assembled at runtime (`ShaderBytecode.AssembleFromFile`); missing file → shader null | `DXManager.cs` |
+| Graphics API | **Render seam** `IRenderBackend` (roadmap C3) behind the static façade `DXManager`. Backends: **SlimDX Direct3D 9** (default) and **Direct3D 11 via Vortice 3.8.3** (opt-in, `[Graphics] Renderer=D3D11`, roadmap C4), chosen in `DXManager.Create`; D3D11 falls back to D3D9 if it cannot start. Game code uses `RenderTexture` and DXManager helpers only (SlimDX math types Vector2/3, Color4 and Matrix remain until C5). | `MirGraphics/DXManager.cs`, `MirGraphics/Rendering/` |
+| 2D batching | D3D9: one D3DX `Sprite` (Begin/End per frame) + `Line`, inside `D3D9Backend`. D3D11: `D3D11Backend` emulates ID3DXSprite/ID3DXLine exactly (state save/restore at Begin/End, alpha test, anisotropic sampling, projection fixed at Begin, strict FIFO). Proven by goldens: `Knowledgebase/Client/D3D11-Parity.md`. | `Rendering/D3D9Backend.cs`, `Rendering/D3D11Backend.cs` |
+| Shaders | D3D9: ps-assembly files `.\Data\Shaders\normal.ps`, `grayscale.ps`, `magic.ps`, assembled at runtime (`ShaderBytecode.AssembleFromFile`); missing file → shader null. D3D11: HLSL embedded in `D3D11Backend` (modulate + grayscale), compiled at start-up; grayscale enabled only if `grayscale.ps` exists (parity). | `Rendering/` |
 | UI | retained `MirControl` tree; each `DrawControlTexture` control caches itself in a `Pool.Default` render target | `MirControls/MirControl.cs` |
 | Text | GDI `TextRenderer.DrawText` into a locked `Pool.Managed` texture | `MirControls/MirLabel.cs` |
 | Sprites/tiles | `MLibrary` / `MImage` (`.Lib` v2/v3), static registry `Libraries` | `MirGraphics/MLibrary.cs` |
@@ -134,11 +134,11 @@ private static void Application_Idle(object sender, EventArgs e)
 | Lights | 10 GDI+ radial-gradient textures `DXManager.Lights` | `DXManager.cs` |
 | Audio | NAudio 2.2.1 `WaveOutEvent` + `MixingSampleProvider` | `MirSounds/SoundManager.cs` |
 
-**Device:** `DXManager.Create()` — `X8R8G8B8` back buffer sized `Settings.ScreenWidth x ScreenHeight`, `LockableBackBuffer`, `SwapEffect.Discard`, `Windowed = !Settings.FullScreen`, `HardwareVertexProcessing` (+`PureDevice` if capable). **No `CreateFlags.Multithreaded`.** If VS/PS major < 2 the device type falls back to **Reference** (software, unusably slow).
+**Device (D3D9 backend):** `DXManager.Create()` → `D3D9Backend.Create` — `X8R8G8B8` back buffer sized `Settings.ScreenWidth x ScreenHeight`, `LockableBackBuffer`, `SwapEffect.Discard`, `Windowed = !Settings.FullScreen`, `HardwareVertexProcessing` (+`PureDevice` if capable). **No `CreateFlags.Multithreaded`.** If VS/PS major < 2 the device type falls back to **Reference** (software, unusably slow). **D3D11 backend:** hardware device (feature level 11_0/10_1/10_0, BGRA support), flip-discard swap chain (3 buffers, `Scaling.Stretch`, tearing when supported and vsync off). Fullscreen = **borderless window over the screen** with a game-sized back buffer (`DXManager.UsesBorderlessFullscreen`); `CMain` maps mouse input through `DXManager.ClientToScene`.
 
-**State setters (each flushes the sprite batch):** `DXManager.SetSurface(surface)` (no-op if same), `SetOpacity(float)`, `SetBlend(bool, rate, BlendMode)` (does `Sprite.End` + `Sprite.Begin`), `SetGrayscale(...)`, `SetNormal(...)`, `SetBlendMagic(...)`. Draw via `DXManager.Draw(...)` / `DrawOpaque(...)` (increments `CMain.DPSCounter`).
+**State setters (each flushes the sprite batch):** `DXManager.SetSurface(RenderTexture)` (no-op if same), `SetOpacity(float)`, `SetBlend(bool, rate, BlendMode)` (does `Sprite.End` + `Sprite.Begin`), `SetGrayscale(...)`, `SetNormal(...)`, `SetBlendMagic(...)`. Draw via `DXManager.Draw(...)` / `DrawOpaque(...)` (increments `CMain.DPSCounter`).
 
-**Device lost / reset:** `Direct3D9Exception` → `DeviceLost = true` → `AttemptReset()` (`TestCooperativeLevel`; `DeviceNotReset` → `ResetDevice()`). `ResetDevice()` → `CleanUp()` disposes Sprite, Line, surfaces, Floor/Light RTs, Lights, **every MImage texture in `DXManager.TextureList` and every control RT in `DXManager.ControlList`** → `Device.Reset(Parameters)` → `LoadTextures()`. Also called by `ToggleFullScreen()` and `CMain.SetResolution()`. After a reset every sprite re-decodes from disk lazily and every control re-renders (a hitch). D3D9 rule behind this: every `Pool.Default` resource must be released before `Reset`, or `Reset` fails with `InvalidCall`.
+**Device lost / reset:** `DXManager.IsDeviceLostException(ex)` (D3D9: `Direct3D9Exception`; D3D11: device removed/reset) → `DeviceLost = true` → `AttemptReset()` (`TestCooperativeLevel`; `DeviceNotReset` → `ResetDevice()`). `ResetDevice()` → `CleanUp()` disposes Sprite, Line, surfaces, Floor/Light RTs, Lights, **every MImage texture in `DXManager.TextureList` and every control RT in `DXManager.ControlList`** → `Device.Reset(Parameters)` → `LoadTextures()`. Also called by `ToggleFullScreen()` and `CMain.SetResolution()`. After a reset every sprite re-decodes from disk lazily and every control re-renders (a hitch). D3D9 rule behind this: every `Pool.Default` resource must be released before `Reset`, or `Reset` fails with `InvalidCall`.
 
 **Whole-UI scene texture:** `MirScene` has `DrawControlTexture = true` and renders **all** its children into one RT. `MirControl.Redraw()` bubbles to the parent; `MirScene.Redraw()` sets the scene `TextureValid = false`. So **any** Location/Size/Visible/Text/Index change anywhere re-renders every visible UI control next frame (plus GDI rasterisation for changed labels).
 
@@ -321,7 +321,7 @@ Hot path = anything reached from `UpdateEnviroment` (every spin) or `RenderEnvir
 
 - `MonsterObject.Load` indexes `Libraries.Monsters[(ushort)BaseImage]` unguarded (~L208) — a `Monster` value ≥ array length throws **after** the `MapObject` ctor registered the object, leaving a half-built object in `MapControl.Objects`.
 - `MapControl.DrawFloor` indexes `Libraries.MapLibs[cell.BackIndex/MiddleIndex/FrontIndex]` with no range check — an index outside 0-399 throws `IndexOutOfRangeException` every floor rebuild.
-- `MapControl.DrawLights` (`GameScene.cs` ~L11086, ~L11267) sets raw blend render states, never restores them, and calls `Sprite.End/Begin` directly.
+- ~~`MapControl.DrawLights` sets raw blend render states and calls `Sprite.End/Begin` directly~~ — **moved behind helpers 2026-10-10 (roadmap C3)**: `SetLightAdditiveBlend`, `SetLightMultiplyBlend`, `RestartSpriteAlphaBlend` (same states, same order).
 - `DXManager.SetGrayscale(float, Color)` etc.: `tintcolor.R / 255` is integer division → tint components are 0 or 1.
 - `DXManager.AttemptReset` / `AttemptRecovery` swallow exceptions with empty catches.
 - `CleanUp()` disposes `CurrentSurface` but not `MainSurface` separately when they differ (possible back-buffer ref leak; impact unverified).
@@ -654,6 +654,11 @@ No profiler, perf log, packet monitor, ILogger or telemetry exists.
 - `AMain.cs` ~L306 writes `Error.txt` directly with `File.AppendAllText`, bypassing the budget.
 - `Network.Connection` (threadpool) calls `SaveError` off the main thread.
 - Messages carry no subsystem prefix; `Settings.cs` logs `ex.Message` instead of `ex.ToString()`.
+
+### 5.2.1 Golden render tests (roadmap C1/C3/C4)
+- `tools\rendertest.ps1 -Mode Compare -Backend D3D9` (exact, must be IDENTICAL x15) and `-Mode Parity -Backend D3D11` after **any** change under `Client/MirGraphics`, `MirControls` texture code, `MapControl` drawing or the backends. `-Mode Smoke [-FullScreen]` runs the real loop for N seconds. Goldens live in `%USERPROFILE%\Mir2RenderGoldens\D3D9` (outside git). Details and the list of proven D3DX behaviours: `Knowledgebase/Client/D3D11-Parity.md`.
+- **NEVER** re-record goldens to make a failing compare pass; record only after an intended D3D9 change has been reviewed.
+- **NEVER** add `using SlimDX.Direct3D9` or any `Vortice` namespace outside `Client/MirGraphics/Rendering/`; new device features go into `IRenderBackend` (both backends) plus a DXManager helper, and get a golden scenario.
 
 ### 5.3 Deployment Checklist
 

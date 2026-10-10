@@ -440,10 +440,10 @@ Later decisions are listed per phase in the phase notes. **Answered 2026-10-09:*
 | P7 SQLite system data | Step 1 (exporter + verifier) done 2026-10-10; seam/shadow/flip need live data | `Future Ideas/P7-SQLite-Export.md` | — |
 | P8 Security | Live 2026-10-10 (v2 hashes off by default; X1-17 decision + X1-20 retire decision open) | `Future Ideas/Overnight-Log-2026-10-10.md` D37, D39 | 2026-10-10 |
 | P9 Optimisation | Started 2026-10-10; P9-01/02 live | P9-01 encode-once, P9-02 player process interval (`Future Optimisation/P9-0*.md`) | Gate: quiet-machine rerun + 2 h soak |
-| C1 Client fixes + goldens | Fixes + shaders done 2026-10-10; goldens/frame profiler pending decision #8 | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
+| C1 Client fixes + goldens | Done 2026-10-10: fixes, shaders, golden harness (15 scenarios, goldens outside git), frame profiler | `Client/D3D11-Parity.md` | — |
 | C2 Launcher release | Hashes + removed-files + path checks done 2026-10-10; runtime detection, host, V1 pending | `Future Ideas/Overnight-Log-2026-10-10.md` | — |
-| C3 Render seam | Not started (blocked by C1 goldens) | — | — |
-| C4 D3D11 | Not started | — | — |
+| C3 Render seam | Done 2026-10-10: `IRenderBackend`, D3D9 backend byte-identical (15/15) | `Client/D3D11-Parity.md` | not shipped |
+| C4 D3D11 | Code done 2026-10-10: Vortice backend, opt-in, golden parity 14/15 identical + 1 waiver, borderless fullscreen; QA checklist + default switch pending | `Client/D3D11-Parity.md` | not shipped |
 | C5 Flag-day | Not started | — | — |
 | C6 Polish | Not started | — | — |
 

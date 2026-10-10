@@ -39,7 +39,7 @@ All projects are in `Legend of Mir.sln` (configs `Debug|Any CPU` / `Release|Any 
 | **Shared** | `Shared/Shared.csproj` | `Shared.dll` | net8.0 | AnyCPU | `Shared/bin` | Packets, packet-ID enums, all shared enums, `Shared/Data` models, `Language.cs` — **one assembly used by both sides** |
 | **Server.Library** | `Server/Server.Library.csproj` (folder `Server\`) | `Server.Library.dll` | net10.0 (`$(ServerTfm)`) | AnyCPU | `Server/bin` (safe) | **All** game logic: `MirEnvir`, `MirObjects`, `MirDatabase`, `MirNetwork`, `Settings`, the MirCraft web admin backend `Server/WebAdmin` |
 | **Server** | `Server.MirForms/Server.csproj` (folder `Server.MirForms\`) | `Server.exe` | net10.0-windows7.0 (`$(ServerWinTfm)`) WinForms | AnyCPU | **`Build\Server\Debug\` = LIVE run folder** | WinForms host `SMain`, DB editor forms, `wwwroot/` web admin frontend, `log4net.config`, `Localization/*.json` |
-| **Client** | `Client/Client.csproj` | `Client.exe` / `Client.dll` | net8.0-windows7.0 WinForms | **x64** | `Build\Client\Debug\` | Game client: SlimDX Direct3D 9, NAudio, built-in launcher/patcher `AMain` (WebView2) |
+| **Client** | `Client/Client.csproj` | `Client.exe` / `Client.dll` | net8.0-windows7.0 WinForms | **x64** | `Build\Client\Debug\` | Game client: render seam with SlimDX Direct3D 9 (default) or Direct3D 11 via Vortice (opt-in `[Graphics] Renderer=D3D11`), NAudio, built-in launcher/patcher `AMain` (WebView2). Golden render tests: `tools\rendertest.ps1` |
 | **Server.WebAdmin.Tests** | `Server.WebAdmin.Tests/…csproj` | — | net10.0 | AnyCPU | own `bin` (safe) | xUnit 2.9.2; web admin tests (fork-only) |
 | **Shared.Tests** | `Shared.Tests/…csproj` | — | `$(SharedTfm)`;net10.0 | AnyCPU | own `bin` (safe) | Packet safety net: factory cases, round trips, append-only wire manifest `packet-manifest.txt` (roadmap P1) |
 | **Server.Persistence.Tests** | `Server.Persistence.Tests/…csproj` | — | `$(ServerTfm)` | AnyCPU | own `bin` (safe) | DB harness: byte round trip + semantic oracle of `Server.MirDB`/`Server.MirADB` on synthetic data, or on a copy of real data via `MIR2_PERSISTENCE_DATA` (roadmap P1) |
@@ -93,7 +93,7 @@ Solution folders: `Utils` (AutoPatcherAdmin, AutoPatcherAdminV2, LibraryEditor, 
 | **Persistence** | `Mir2Config.ini` (Release) / `Mir2Test.ini` (Debug or `-tc`), `KeyBinds.ini`, `Data\UserData\QuestTracking.ini`, `Error.txt` — no client DB |
 | **Networking** | Static `Network` (APM `TcpClient`), `[Network] UseConfig/IPAddress/Port`, default `127.0.0.1:7000` |
 
-**Agent persona:** Principal .NET Game **Client** Engineer — frame budget, whole-UI texture invalidation, D3D9 device-reset safety. SlimDX Direct3D 9 is called directly (no render seam).
+**Agent persona:** Principal .NET Game **Client** Engineer — frame budget, whole-UI texture invalidation, device-reset safety. All device calls go through `IRenderBackend` (`Client/MirGraphics/Rendering/`, roadmap C3/C4); D3D9 and D3D11 must stay golden-identical (`Knowledgebase/Client/D3D11-Parity.md`).
 
 ---
 
@@ -260,6 +260,7 @@ Server details: `server.md` §2.3, §3.2. Client details: `client.md` §2.1, §3
 |---|---|
 | `Knowledgebase/Server/server.md` | **Written 2026-10-08** — Crystal server, web admin, persistence |
 | `Knowledgebase/Client/client.md` | **Written 2026-10-08** — Crystal client, rendering, UI, assets |
+| `Knowledgebase/Client/D3D11-Parity.md` | **2026-10-10** — render seam, D3D9/D3D11 backends, golden harness, the D3DX behaviours the D3D11 backend reproduces, waivers, rollout |
 | `Knowledgebase/roadmap.md` | **Proposed 2026-10-08** — ordered modernisation plan (.NET 10, SQLite, server optimisation, DX11 client track), phase gates, rule overrides (⚠), open decisions, status table. Check it before starting any modernisation phase; per-phase mechanics and evidence are in `Future Ideas/Roadmap-Phase-Notes.md` |
 | `Knowledgebase/PatchHost/` | Empty placeholder (Crystal has no PatchHost project; patching = AutoPatcherAdmin(V2) + client `AMain`) |
 | `Knowledgebase/StressClient/` | `stressclient.md` (2026-10-10): the bot load generator, scratch servers, the baseline script |
