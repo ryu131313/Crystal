@@ -3,6 +3,7 @@ using Server.MirDatabase;
 using Server.MirEnvir;
 using Server.MirObjects;
 using Server.WebAdmin.GameData;
+using Server.WebAdmin.LiveDb;
 
 namespace Server.WebAdmin.Routes
 {
@@ -155,6 +156,13 @@ namespace Server.WebAdmin.Routes
             var live = req.QueryBool("live") || body.GetBool("live");
             var reason = body.GetString("reason");
 
+            // ?live=1: the LiveDb pipeline (validate all rows, apply, save Server.MirDB, apply the live fields to the running world).
+            if (live && !dryRun)
+            {
+                await PutLive(req, table, rows, noRev, reason).ConfigureAwait(false);
+                return;
+            }
+
             var result = WithEdit(ctx => GameDataEngine.Apply(ctx, table, rows, dryRun, noRev));
 
             if (!dryRun && result.Applied > 0)
@@ -172,14 +180,6 @@ namespace Server.WebAdmin.Routes
                     }, reason);
                 }
             }
-
-            // ?live=1 on monsters always answers with a live block (FEATURES: live:{applied, refreshedMonsters}), even when the
-            // write changed nothing, so the client can tell "nothing to push" from "live apply not attempted".
-            object liveResult = null;
-            if (live && !dryRun && string.Equals(table.Endpoint, "monsters", StringComparison.OrdinalIgnoreCase))
-                liveResult = result.Applied > 0
-                    ? await ApplyLiveMonsters(req, result, reason).ConfigureAwait(false)
-                    : LiveNothingApplied(result);
 
             var status = 200;
             if (!dryRun && result.Applied == 0)
@@ -209,11 +209,19 @@ namespace Server.WebAdmin.Routes
                     : null,
                 pendingReboot = !dryRun && result.Applied > 0,
                 unsavedChanges = GameDataState.Unsaved.Changes,
-                live = liveResult,
             }, status).ConfigureAwait(false);
         }
 
-        /// <summary>Live block for a ?live=1 monsters write that saved no rows (no-op edit, or rejected by conflicts / validation).</summary>
+        private static readonly GameDataWriteResult RejectedMarker = CreateRejectedMarker();
+
+        private static GameDataWriteResult CreateRejectedMarker()
+        {
+            var r = new GameDataWriteResult();
+            r.Conflicts.Add(new { index = 0 });
+            return r;
+        }
+
+        /// <summary>Live block for a ?live=1 write that saved no rows (no-op edit, or rejected by conflicts / validation).</summary>
         internal static object LiveNothingApplied(GameDataWriteResult result)
         {
             var rejected = result != null && (result.Conflicts.Count > 0 || result.Validation.Count > 0);
@@ -230,104 +238,60 @@ namespace Server.WebAdmin.Routes
         }
 
         /// <summary>
-        /// ?live=1 on monsters: pushes the changed live-safe fields (scalars + Stat_*, not Name / DropPath) of EXISTING monsters onto
-        /// Envir.Main's MonsterInfo on the game thread and refreshes every live MonsterObject of those infos (MonsterTunerForm behaviour).
-        /// The Edit envir already holds the change, so the next save + restart keeps it.
+        /// PUT ?live=1 (any table): delegates to the LiveDb engine (<see cref="LiveDbEngine"/>): every row is validated first (one bad row
+        /// rejects the request), the rows are applied to the editor copy, Server.MirDB is saved, and the live columns reach the running
+        /// world (monsters: sweeper refresh + HP clamp, DropPath reload; magic: copied). Other unsaved editor-copy changes are saved with it
+        /// (the legacy flow saves everything at database/save anyway). Works whether or not [LiveDb] Enabled is on: the request opts in.
         /// </summary>
-        private static async Task<object> ApplyLiveMonsters(WebAdminRequest req, GameDataWriteResult result, string reason)
+        private static async Task PutLive(WebAdminRequest req, GameDataTable table, List<JsonElement> rows, bool noRev, string reason)
         {
-            var updates = result.Rows
-                .Where(r => r.Kind == "update")
-                .Select(r => new
-                {
-                    index = r.NewIndex,
-                    values = r.Typed.Where(t => t.Key.LiveSafe).ToList(),
-                    skipped = r.Typed.Where(t => !t.Key.LiveSafe).Select(t => t.Key.Name).ToList(),
-                })
-                .ToList();
-
-            var skippedFields = updates.SelectMany(u => u.skipped).Distinct(StringComparer.Ordinal).OrderBy(s => s, StringComparer.Ordinal).ToList();
-            var work = updates.Where(u => u.values.Count > 0).ToList();
-            var insertedCount = result.Rows.Count(r => r.Kind == "insert");
-
-            if (work.Count == 0)
-                return new { applied = 0, refreshedMonsters = 0, skippedFields, newMonstersNeedRestart = insertedCount, message = "No live-safe changes." };
-
-            if (!WebAdminGame.IsRunning)
-                return new { applied = 0, refreshedMonsters = 0, skippedFields, newMonstersNeedRestart = insertedCount, message = "The world is not running; the changes apply when it starts." };
-
-            try
+            var batch = new LiveDbBatchRequest
             {
-                var outcome = await WebAdminGame.RunAsync(() =>
-                {
-                    var touched = new HashSet<MonsterInfo>();
-                    var applied = 0;
-                    var list = Envir.Main.MonsterInfoList;
+                Id = "put-" + WebAdminSessionStore.NewToken(8),
+                Reason = reason,
+                FlushUnsaved = true,
+                Admin = req.AdminName,
+                Ip = req.ClientIp,
+                Source = "put",
+            };
+            batch.Tables.Add(new LiveDbTableOps { Endpoint = table.Endpoint, Rows = rows, NoRev = noRev });
 
-                    foreach (var u in work)
-                    {
-                        MonsterInfo info = null;
-                        for (var i = 0; i < list.Count; i++)
-                        {
-                            if (list[i] != null && list[i].Index == u.index)
-                            {
-                                info = list[i];
-                                break;
-                            }
-                        }
-
-                        if (info == null) continue;
-
-                        var row = new GameDataRow { Index = u.index, Entity = info };
-                        foreach (var kv in u.values) kv.Key.Set(row, kv.Value);
-                        touched.Add(info);
-                        applied++;
-                    }
-
-                    var refreshed = 0;
-                    if (touched.Count > 0)
-                    {
-                        foreach (var obj in Envir.Main.Objects)
-                        {
-                            if (!(obj is MonsterObject mob) || mob.Info == null || !touched.Contains(mob.Info)) continue;
-
-                            try
-                            {
-                                mob.RefreshAll();
-                                refreshed++;
-                            }
-                            catch (Exception ex)
-                            {
-                                WebAdminLog.Error(ex, "Refreshing monster " + mob.Info.Name + " after a live edit failed");
-                            }
-                        }
-                    }
-
-                    return (applied, refreshed);
-                }, 10000).ConfigureAwait(false);
-
-                WebAdminAudit.Record(req, "db.live-apply", "monsters", new
-                {
-                    endpoint = "monsters",
-                    indexes = work.Select(u => u.index).ToList(),
-                    fields = work.SelectMany(u => u.values.Select(v => v.Key.Name)).Distinct().ToList(),
-                    applied = outcome.applied,
-                    refreshedMonsters = outcome.refreshed,
-                }, reason);
-
-                return new
-                {
-                    applied = outcome.applied,
-                    refreshedMonsters = outcome.refreshed,
-                    skippedFields,
-                    newMonstersNeedRestart = insertedCount,
-                    message = skippedFields.Count > 0 ? "Name / DropPath changes take effect after a restart." : null,
-                };
-            }
-            catch (WebAdminException ex) when (ex is WorldNotRunningException || ex is GameThreadTimeoutException)
+            if (rows.Count == 0)
             {
-                return new { applied = 0, refreshedMonsters = 0, skippedFields, newMonstersNeedRestart = insertedCount, message = "Live apply failed: " + ex.Message + ". The edit is saved in the editor copy." };
+                await req.Json(new { ok = true, dryRun = false, applied = 0, conflicts = new List<object>(), validation = new List<object>(), ignoredFields = new List<string>(),
+                    pendingReboot = false, unsavedChanges = GameDataState.Unsaved.Changes, live = LiveNothingApplied(null) }).ConfigureAwait(false);
+                return;
             }
+
+            var r = await LiveDbRoutes.RunAsync(batch).ConfigureAwait(false);
+            var rejected = r.Status == "rejected";
+            await req.Json(new
+            {
+                ok = !rejected,
+                dryRun = false,
+                message = r.Message,
+                applied = r.Applied,
+                inserted = r.Rows.Where(x => x.Kind == "insert").Select(x => new { index = x.Index, newIndex = x.NewIndex }).ToList(),
+                conflicts = r.Conflicts,
+                validation = r.Validation,
+                ignoredFields = r.IgnoredFields.Select(f => f.Contains('.') ? f.Substring(f.IndexOf('.') + 1) : f).Distinct().ToList(),
+                renames = r.Renames,
+                savedToDisk = r.Saved,
+                pendingReboot = r.PendingReboot,
+                unsavedChanges = GameDataState.Unsaved.Changes,
+                batch = r.Id,
+                live = rejected
+                    ? LiveNothingApplied(RejectedMarker)
+                    : new
+                    {
+                        applied = r.Rows.Count(x => x.Changes.Any(c => c.Live) || x.RowLive == true),
+                        refreshedMonsters = r.Live.MonstersQueued,
+                        skippedFields = r.RestartFields.Select(f => f.Substring(f.IndexOf('.') + 1)).Distinct().OrderBy(f => f, StringComparer.Ordinal).ToList(),
+                        newMonstersNeedRestart = r.Rows.Count(x => x.Kind == "insert" && x.RowLive != true),
+                        outcome = r.Live.Outcome,
+                        message = r.Message,
+                    },
+            }, rejected ? r.HttpStatus : 200).ConfigureAwait(false);
         }
 
         // ================================================================== delete

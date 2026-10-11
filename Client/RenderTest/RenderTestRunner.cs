@@ -77,6 +77,9 @@ namespace Client.RenderTest
         /// <summary>Test-mode settings: applied after Settings.Load, never saved.</summary>
         public static void ApplySettings()
         {
+            // Golden and QA modes read every presented frame back; a plain smoke run requests only the two frames it saves
+            // (SmokeFrameReady), so its frame profile measures the game's own Present path.
+            DXManager.KeepFrames = !SmokeMode || QaMode;
             // Never reach a real server: port 1 on loopback is always refused (WoOOLcraft and others listen on 7000).
             Settings.IPAddress = "127.0.0.1";
             Settings.Port = 1;
@@ -726,6 +729,26 @@ namespace Client.RenderTest
                     sum += c.R + c.G + c.B; n++;
                 }
             return n == 0 ? 0 : sum / (3.0 * n);
+        }
+
+        private static long _smokeCaptureAfter = -1;
+
+        /// <summary>
+        /// Smoke capture points: the first call requests that the next presented frame be kept and returns false; returns
+        /// true once that frame has been presented (then CaptureBackBuffer reads it).
+        /// </summary>
+        public static bool SmokeFrameReady()
+        {
+            if (DXManager.KeepFrames) return true;
+            if (_smokeCaptureAfter < 0)
+            {
+                _smokeCaptureAfter = DXManager.PresentCount;
+                DXManager.CaptureNextFrame();
+                return false;
+            }
+            if (DXManager.PresentCount <= _smokeCaptureAfter) return false;
+            _smokeCaptureAfter = -1;
+            return true;
         }
 
         /// <summary>Halfway through a smoke run: the in-game screenshot path, after which the loop keeps rendering.</summary>

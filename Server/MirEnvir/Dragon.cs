@@ -20,6 +20,20 @@ namespace Server.MirEnvir
             get { return Envir.Main; }
         }
 
+        /// <summary>LiveDb: recomputes the drop area from Info (as Load does) and returns the previous one (game thread).</summary>
+        internal Rectangle RefreshDropArea()
+        {
+            var previous = DropArea;
+            DropArea = new Rectangle(Info.DropAreaTop.X, Info.DropAreaTop.Y, Info.DropAreaBottom.X - Info.DropAreaTop.X, Info.DropAreaBottom.Y - Info.DropAreaTop.Y);
+            return previous;
+        }
+
+        /// <summary>LiveDb rollback of <see cref="RefreshDropArea"/>.</summary>
+        internal void RestoreDropArea(Rectangle previous)
+        {
+            DropArea = previous;
+        }
+
         protected static MessageQueue MessageQueue
         {
             get { return MessageQueue.Instance; }

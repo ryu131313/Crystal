@@ -216,25 +216,42 @@ namespace Server
             Close();
         }
 
+        /// <summary>
+        /// Shows a database editor that edits Envir.Edit and saves it when it closes. The web admin's LiveDb refuses batches while one is
+        /// open (Envir.EditorFormsOpen), because both would edit and save the same data.
+        /// </summary>
+        private static void ShowEditor(Form form)
+        {
+            Server.MirEnvir.Envir.EditorFormOpened();
+            try
+            {
+                form.ShowDialog();
+            }
+            finally
+            {
+                Server.MirEnvir.Envir.EditorFormClosed();
+            }
+        }
+
         private void itemInfoToolStripMenuItem_Click(object sender, EventArgs e)
         {
             ItemInfoForm form = new ItemInfoForm();
 
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void monsterInfoToolStripMenuItem_Click(object sender, EventArgs e)
         {
             MonsterInfoForm form = new MonsterInfoForm();
 
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void nPCInfoToolStripMenuItem_Click(object sender, EventArgs e)
         {
             NPCInfoForm form = new NPCInfoForm();
 
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void balanceConfigToolStripMenuItem_Click(object sender, EventArgs e)
@@ -248,7 +265,7 @@ namespace Server
         {
             QuestInfoForm form = new QuestInfoForm();
 
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void serverToolStripMenuItem_Click(object sender, EventArgs e)
@@ -276,35 +293,35 @@ namespace Server
         {
             MapInfoForm form = new MapInfoForm();
 
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void itemInfoToolStripMenuItem_Click_1(object sender, EventArgs e)
         {
             ItemInfoForm form = new ItemInfoForm();
 
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void monsterInfoToolStripMenuItem_Click_1(object sender, EventArgs e)
         {
             MonsterInfoForm form = new MonsterInfoForm();
 
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void nPCInfoToolStripMenuItem_Click_1(object sender, EventArgs e)
         {
             NPCInfoForm form = new NPCInfoForm();
 
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void questInfoToolStripMenuItem_Click_1(object sender, EventArgs e)
         {
             QuestInfoForm form = new QuestInfoForm();
 
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void dragonSystemToolStripMenuItem_Click(object sender, EventArgs e)
@@ -332,7 +349,7 @@ namespace Server
         {
             SystemInfoForm form = new SystemInfoForm(0);
 
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void GlobalMessageButton_Click(object sender, EventArgs e)
@@ -373,41 +390,41 @@ namespace Server
         {
             SystemInfoForm form = new SystemInfoForm(1);
 
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void goodsToolStripMenuItem_Click(object sender, EventArgs e)
         {
             SystemInfoForm form = new SystemInfoForm(2);
 
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void relationshipToolStripMenuItem_Click(object sender, EventArgs e)
         {
             SystemInfoForm form = new SystemInfoForm(4);
 
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void refiningToolStripMenuItem_Click(object sender, EventArgs e)
         {
             SystemInfoForm form = new SystemInfoForm(3);
 
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void mentorToolStripMenuItem_Click(object sender, EventArgs e)
         {
             SystemInfoForm form = new SystemInfoForm(5);
 
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void magicInfoToolStripMenuItem_Click(object sender, EventArgs e)
         {
             MagicInfoForm form = new MagicInfoForm();
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void SMain_Load(object sender, EventArgs e)
@@ -426,14 +443,14 @@ namespace Server
         {
             SystemInfoForm form = new SystemInfoForm(6);
 
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void conquestToolStripMenuItem_Click(object sender, EventArgs e)
         {
             ConquestInfoForm form = new ConquestInfoForm();
 
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void rebootServerToolStripMenuItem_Click(object sender, EventArgs e)
@@ -445,7 +462,7 @@ namespace Server
         {
             SystemInfoForm form = new SystemInfoForm(7);
 
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void monsterTunerToolStripMenuItem_Click(object sender, EventArgs e)
@@ -465,21 +482,21 @@ namespace Server
         private void gameshopToolStripMenuItem_Click(object sender, EventArgs e)
         {
             GameShop form = new GameShop();
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void itemNEWToolStripMenuItem_Click(object sender, EventArgs e)
         {
             ItemInfoFormNew form = new ItemInfoFormNew();
 
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void monsterExperimentalToolStripMenuItem_Click(object sender, EventArgs e)
         {
             MonsterInfoFormNew form = new MonsterInfoFormNew();
 
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void dropBuilderToolStripMenuItem_Click(object sender, EventArgs e)
@@ -610,7 +627,7 @@ namespace Server
         {
             SystemInfoForm form = new SystemInfoForm(8);
 
-            form.ShowDialog();
+            ShowEditor(form);
         }
 
         private void CharacterToolStripMenuItem_Click(object sender, EventArgs e)

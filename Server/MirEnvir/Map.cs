@@ -35,7 +35,7 @@ namespace Server.MirEnvir
         public List<SpellObject> Spells = new List<SpellObject>();
         public List<PlayerObject> Players = new List<PlayerObject>();
         public List<MapRespawn> Respawns = new List<MapRespawn>();
-        public List<DelayedAction> ActionList = new List<DelayedAction>();
+        public readonly MapActionList ActionList;
         public List<HeroObject> Heroes = new List<HeroObject>();
 
         public List<ConquestObject> Conquest = new List<ConquestObject>();
@@ -45,6 +45,7 @@ namespace Server.MirEnvir
         {
             Info = info;
             Thread = Envir.Random.Next(Settings.ThreadLimit);
+            ActionList = new MapActionList(this);
         }
 
         public Door AddDoor(byte DoorIndex, Point location)
@@ -608,6 +609,90 @@ namespace Server.MirEnvir
 
         }
 
+        // ---- LiveDb (web admin live edits; game thread only, inside an admin action after the mob barrier) ---------------
+
+        /// <summary>
+        /// LiveDb: recreates the spell objects of one safe zone (border decorations / healing cells, as at map load). Called after
+        /// <see cref="RemoveSafeZoneSpells"/> removed the zone's previous objects.
+        /// </summary>
+        internal void CreateSafeZoneSpells(SafeZoneInfo info)
+        {
+            CreateSafeZone(info);
+        }
+
+        /// <summary>
+        /// LiveDb: removes the spell objects a safe zone at <paramref name="location"/> / <paramref name="size"/> created (map load or
+        /// <see cref="CreateSafeZoneSpells"/>): only objects with no caster that never expire and are a zone decoration
+        /// (TrapHexagon, Decoration) or a zone healing cell (Healing, not Decoration). Spells players cast always have a caster or an
+        /// expiry; conquest war borders (also caster-less decorations) are skipped. Returns the number removed. One pass over the
+        /// zone's square of cells.
+        /// </summary>
+        internal int RemoveSafeZoneSpells(Point location, int size)
+        {
+            var removed = 0;
+            for (int y = location.Y - size; y <= location.Y + size; y++)
+            {
+                if (y < 0) continue;
+                if (y >= Height) break;
+                for (int x = location.X - size; x <= location.X + size; x++)
+                {
+                    if (x < 0) continue;
+                    if (x >= Width) break;
+                    var objects = Cells[x, y].Objects;
+                    if (objects == null) continue;
+
+                    for (int i = objects.Count - 1; i >= 0; i--)
+                    {
+                        if (objects[i].Race != ObjectType.Spell) continue;
+                        var spell = (SpellObject)objects[i];
+                        if (!IsSafeZoneSpell(spell) || IsConquestWarEffect(spell)) continue;
+
+                        objects.RemoveAt(i);
+                        if (spell.Node != null) spell.Despawn();
+                        removed++;
+                    }
+                }
+            }
+
+            return removed;
+        }
+
+        private static bool IsSafeZoneSpell(SpellObject spell)
+        {
+            if (spell.Caster != null || spell.ExpireTime != long.MaxValue) return false;
+            return (spell.Decoration && spell.Spell == Spell.TrapHexagon) || (!spell.Decoration && spell.Spell == Spell.Healing);
+        }
+
+        private bool IsConquestWarEffect(SpellObject spell)
+        {
+            for (int i = 0; i < Conquest.Count; i++)
+                if (Conquest[i].WarEffects.Contains(spell)) return true;
+            return false;
+        }
+
+        /// <summary>LiveDb: rebuilds the mine from Info.MineIndex / Info.MineZones (mine state resets, as at map load).</summary>
+        internal void RebuildMine()
+        {
+            Mine = null;
+            CreateMine();
+        }
+
+        /// <summary>LiveDb: the walkable cells a respawn spawns on (the same box as <see cref="Load"/>), with a plain loop.</summary>
+        internal List<Point> BuildRespawnCells(RespawnInfo info)
+        {
+            var cells = new List<Point>();
+            if (WalkableCells == null) return cells;
+            for (int i = 0; i < WalkableCells.Count; i++)
+            {
+                var p = WalkableCells[i];
+                if (p.X <= info.Location.X + info.Spread && p.X >= info.Location.X - info.Spread &&
+                    p.Y <= info.Location.Y + info.Spread && p.Y >= info.Location.Y - info.Spread)
+                    cells.Add(p);
+            }
+
+            return cells;
+        }
+
         private void CreateMine()
         {
             if ((Info.MineIndex == 0) && (Info.MineZones.Count == 0)) return;
@@ -669,10 +754,26 @@ namespace Server.MirEnvir
             return true;
         }
 
+        // Respawn delays are minute-scale, so respawns don't need checking on every loop iteration (roadmap P9). With a real world
+        // ProcessRespawns for every map costs ~1.5 ms per sweep, hence the 1 s default.
+        private long NextRespawnCheckTime;
+        private int LastRespawnCheckMs = -1;
+
         public void Process()
         {
-            ProcessRespawns();
+            if (Envir.Time >= NextRespawnCheckTime)
+            {
+                // A random phase after the first check (and after a live interval change), so the maps' respawn sweeps don't all
+                // land in one iteration.
+                var interval = Settings.MapRespawnCheckMs;
+                var rephase = interval != LastRespawnCheckMs && interval > 1;
+                LastRespawnCheckMs = interval;
+                NextRespawnCheckTime = Envir.Time + (rephase ? 1 + Envir.Random.Next(interval) : interval);
 
+                ProcessRespawns();
+            }
+
+            // Doors close 5 s after opening; the close time is folded into NextProcessTime below, so this runs on time.
             for (int i = 0; i < Doors.Count; i++)
             {
                 if ((Doors[i].DoorState == DoorState.Open) && (Doors[i].LastTick + 5000 < Envir.Time))
@@ -754,7 +855,33 @@ namespace Server.MirEnvir
                 Process(ActionList[i]);
                 ActionList.RemoveAt(i);
             }
+
+            var next = NextRespawnCheckTime;
+            if (Info.Lightning && LightningTime + 1 < next) next = LightningTime + 1;
+            if (Info.Fire && FireTime + 1 < next) next = FireTime + 1;
+            for (int i = 0; i < ActionList.Count; i++)
+                if (ActionList[i].Time < next) next = ActionList[i].Time;
+            for (int i = 0; i < Doors.Count; i++)
+                if (Doors[i].DoorState == DoorState.Open && Doors[i].LastTick + 5001 < next) next = Doors[i].LastTick + 5001;
+            NextProcessTime = next;
+            ActionCountAfterProcess = ActionList.Count;
         }
+
+        /// <summary>
+        /// Earliest time Process has timed work: respawn/door check, lightning, fire, or a queued map action (roadmap P9). The game
+        /// loop runs the map then, or earlier when <see cref="MapActionList.Add"/> wakes it (actions are removed only here).
+        /// </summary>
+        internal long NextProcessTime;
+        internal int ActionCountAfterProcess;
+
+        /// <summary>Old-walk loop (DueScheduler off), game thread after the mob barrier: true when Process has work this iteration.</summary>
+        internal bool ProcessDue(long time) => time >= NextProcessTime || ActionList.Count != ActionCountAfterProcess;
+
+        // Map scheduler state (Envir.RunMaps, game thread): the live heap entry's due, the world run that scheduled this map, and
+        // whether a wake is already queued (set by MapActionList.Add from any thread).
+        internal long ScheduledDue = long.MaxValue;
+        internal int ScheduledGeneration;
+        internal int WakePending;
 
         private void ProcessRespawns()
         {

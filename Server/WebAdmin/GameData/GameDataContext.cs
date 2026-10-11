@@ -43,6 +43,12 @@ namespace Server.WebAdmin.GameData
 
         public Func<DateTime> Now = () => DateTime.Now;
 
+        /// <summary>LiveDb rollback: an opaque copy of the index counters (null when the context cannot capture them).</summary>
+        public Func<object> CaptureCounters;
+
+        /// <summary>LiveDb rollback: puts the counters of <see cref="CaptureCounters"/> back.</summary>
+        public Action<object> RestoreCounters;
+
         public GameDataContext()
         {
             var item = 0;
@@ -92,6 +98,23 @@ namespace Server.WebAdmin.GameData
                 MineSetNames = () => Settings.MineSetList.Select(m => m?.Name ?? string.Empty).ToList(),
                 DefaultGameShopGoldPrice = () => (uint)Math.Max(0, Math.Min(uint.MaxValue, 1000L * Settings.CredxGold)),
                 Now = () => DateTime.Now,
+                CaptureCounters = () => new[]
+                {
+                    envir.ItemIndex, envir.MonsterIndex, envir.MapIndex, envir.NPCIndex, envir.QuestIndex, envir.GameshopIndex, envir.ConquestIndex,
+                    envir.RespawnIndex,
+                },
+                RestoreCounters = o =>
+                {
+                    if (!(o is int[] c) || c.Length != 8) return;
+                    envir.ItemIndex = c[0];
+                    envir.MonsterIndex = c[1];
+                    envir.MapIndex = c[2];
+                    envir.NPCIndex = c[3];
+                    envir.QuestIndex = c[4];
+                    envir.GameshopIndex = c[5];
+                    envir.ConquestIndex = c[6];
+                    envir.RespawnIndex = c[7];
+                },
             };
 
             return ctx;

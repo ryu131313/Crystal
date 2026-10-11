@@ -19,6 +19,7 @@ namespace Client
     {
         public static MirControl DebugBaseLabel, HintBaseLabel;
         public static MirLabel DebugTextLabel, HintTextLabel, ScreenshotTextLabel;
+        private static bool _screenshotPending;
         public static Graphics Graphics;
         public static Point MPoint;
 
@@ -119,9 +120,11 @@ namespace Client
                     UpdateTime();
                     if (RenderTest.RenderTestRunner.SmokeMode && RenderTest.RenderTestRunner.QaMode)
                         RenderTest.RenderTestRunner.QaTick(Time); // roadmap C4 scripted QA: resolution / fullscreen / minimise steps
-                    else if (RenderTest.RenderTestRunner.SmokeMode && !RenderTest.RenderTestRunner.MidSmokeDone && Time >= RenderTest.RenderTestRunner.SmokeSeconds * 500L)
+                    else if (RenderTest.RenderTestRunner.SmokeMode && !RenderTest.RenderTestRunner.MidSmokeDone && Time >= RenderTest.RenderTestRunner.SmokeSeconds * 500L
+                             && RenderTest.RenderTestRunner.SmokeFrameReady())
                         RenderTest.RenderTestRunner.MidSmokeScreenshot(); // a screenshot mid-run, then keep rendering (review C1)
-                    if (RenderTest.RenderTestRunner.SmokeMode && Time >= RenderTest.RenderTestRunner.SmokeSeconds * 1000L)
+                    if (RenderTest.RenderTestRunner.SmokeMode && Time >= RenderTest.RenderTestRunner.SmokeSeconds * 1000L
+                        && (RenderTest.RenderTestRunner.MidSmokeDone || RenderTest.RenderTestRunner.QaMode) && RenderTest.RenderTestRunner.SmokeFrameReady())
                     {
                         // Roadmap C4 smoke test: the real loop ran for N seconds; capture and close.
                         RenderTest.RenderTestRunner.FinishSmoke();
@@ -137,6 +140,12 @@ namespace Client
                     {
                         RenderEnvironment();
                         UpdateFrameTime();
+
+                        if (_screenshotPending)
+                        {
+                            _screenshotPending = false;
+                            Program.Form.CreateScreenShot();
+                        }
                     }
                 }
 
@@ -241,7 +250,9 @@ namespace Client
                     continue;
                 if ((KeyCheck.RequireTilde != 2) && (KeyCheck.RequireTilde != (Tilde ? 1 : 0)))
                     continue;
-                Program.Form.CreateScreenShot();
+                // Saved right after the next Present, which keeps that frame for CaptureBackBuffer.
+                _screenshotPending = true;
+                DXManager.CaptureNextFrame();
                 break;
 
             }
@@ -491,6 +502,7 @@ namespace Client
             text += string.Format(", Ping: {0}", PingTime);
 
             text += ", Frame: " + FrameProfiler.Summary; // roadmap C1 frame profiler (summary rebuilt once per second)
+            text += ", Rebuilds: " + FrameProfiler.RebuildSummary; // render-target rebuilds; detail in RebuildProfile.txt
 
             text += string.Format(", Sent: {0}, Received: {1}", Functions.ConvertByteSize(BytesSent), Functions.ConvertByteSize(BytesReceived));
 

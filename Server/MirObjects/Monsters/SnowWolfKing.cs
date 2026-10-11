@@ -171,33 +171,39 @@ namespace Server.MirObjects.Monsters
                 }
             }
 
-            for (int i = 0; i < SlaveList.Count; i++)
-            {
-                var mob = SlaveList[i];
-
-                if (EXPOwner != null)
-                {
-                    if (EXPOwner.Pets.Count >= 6) break;
-
-                    mob.Master = EXPOwner;
-                    mob.BroadcastHealthChange();
-                    EXPOwner.Pets.Add(mob);
-
-                    mob.Target = null;
-                    mob.RageTime = 0;
-                    mob.ShockTime = 0;
-                    mob.OperateTime = 0;
-
-                    if (!Settings.PetSave)
-                    {
-                        mob.TameTime = Envir.Time + (Settings.Minute * 60);
-                    }
-
-                    mob.Broadcast(new S.ObjectName { ObjectID = mob.ObjectID, Name = mob.Name });
-                }
-            }
-
+            // Taming the slaves changes the player's Pets list: on the game thread when this runs in a mob pass.
+            var slaves = new List<MonsterObject>(SlaveList);
+            var expOwner = EXPOwner;
             SlaveList.Clear();
+
+            Envir.RunOutsideMobPass(() =>
+            {
+                for (int i = 0; i < slaves.Count; i++)
+                {
+                    var mob = slaves[i];
+
+                    if (expOwner != null)
+                    {
+                        if (expOwner.Pets.Count >= 6) break;
+
+                        mob.Master = expOwner;
+                        mob.BroadcastHealthChange();
+                        expOwner.Pets.Add(mob);
+
+                        mob.Target = null;
+                        mob.RageTime = 0;
+                        mob.ShockTime = 0;
+                        mob.OperateTime = 0;
+
+                        if (!Settings.PetSave)
+                        {
+                            mob.TameTime = Envir.Time + (Settings.Minute * 60);
+                        }
+
+                        mob.Broadcast(new S.ObjectName { ObjectID = mob.ObjectID, Name = mob.Name });
+                    }
+                }
+            });
         }
 
         private void SpawnSlaves()

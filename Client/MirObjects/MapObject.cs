@@ -26,6 +26,7 @@ namespace Client.MirObjects
                 if (mouseObjectID == value) return;
                 mouseObjectID = value;
                 MouseObject = MapControl.Objects.TryGetValue(value, out var obj) ? obj : null;
+                InvalidateMapTexture(); // mouse-over highlight and name
             }
         }
 
@@ -40,6 +41,7 @@ namespace Client.MirObjects
                 lastTargetObjectId = value;
                 targetObjectID = value;
                 TargetObject = MapControl.Objects.TryGetValue(value, out var obj) ? obj : null;
+                InvalidateMapTexture(); // target highlight
             }
         }
 
@@ -81,6 +83,7 @@ namespace Client.MirObjects
             set
             {
                 if (percentHealth == value) return;
+                InvalidateMap(); // health bar
 
                 percentHealth = value;
             }
@@ -376,6 +379,26 @@ namespace Client.MirObjects
                 Text = text,
             };
             ChatTime = CMain.Time + 5000;
+            InvalidateMap();
+        }
+
+        /// <summary>Invalidates the map texture (rebuild profiler + optimisation aware).</summary>
+        public static void InvalidateMapTexture()
+        {
+            MapControl map = GameScene.Scene?.MapControl;
+            if (map != null) map.TextureValid = false;
+        }
+
+        /// <summary>
+        /// Invalidates the map texture for a change to this object. With Settings.RebuildOptimisations, a change to an object
+        /// that cannot reach the drawn area (outside the DrawObjects range plus sprite/light margin) is skipped.
+        /// </summary>
+        public void InvalidateMap()
+        {
+            MapControl map = GameScene.Scene?.MapControl;
+            if (map == null) return;
+            if (this == User) map.TextureValid = false;
+            else map.InvalidateNear(CurrentLocation, Light > 0 ? MapControl.LightViewMargin : MapControl.ViewMargin);
         }
         public virtual void DrawChat()
         {

@@ -300,6 +300,7 @@ namespace Client.MirObjects
                 }
 
                 NextMotion = CMain.Time + FrameInterval;
+                InvalidateMap(); // spell frames (fire wall, clouds, ...) used to show only on the 100 ms map tick
 
                 switch (Spell)
                 {

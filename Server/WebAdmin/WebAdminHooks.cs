@@ -22,6 +22,12 @@ namespace Server.WebAdmin
         /// <summary>A player left the game (StopGame).</summary>
         public static event Action<PlayerObject> PlayerLeft;
 
+        /// <summary>
+        /// A player died (end of PlayerObject.Die): (victim, last hitter or null). May be raised on a mob thread (a monster killing a
+        /// player during the mob pass): subscribers must be thread-safe and lock-free (enqueue only).
+        /// </summary>
+        public static event Action<PlayerObject, MapObject> PlayerDied;
+
         /// <summary>(channel, sender, message, target or null). Channels: normal, shout, shout-map, shout-server, whisper, group, guild, mentor, relationship, announcement.</summary>
         public static event Action<string, string, string, string> Chat;
 
@@ -81,6 +87,24 @@ namespace Server.WebAdmin
         internal static void RaisePlayerLeft(PlayerObject player)
         {
             RaisePlayer(PlayerLeft, player, "PlayerLeft");
+        }
+
+        internal static void RaisePlayerDied(PlayerObject victim, MapObject killer)
+        {
+            var handler = PlayerDied;
+            if (handler == null) return;
+
+            foreach (var d in handler.GetInvocationList())
+            {
+                try
+                {
+                    ((Action<PlayerObject, MapObject>)d)(victim, killer);
+                }
+                catch (Exception ex)
+                {
+                    WebAdminLog.Error(ex, "PlayerDied subscriber failed");
+                }
+            }
         }
 
         internal static void RaiseChat(string channel, string sender, string message, string target)

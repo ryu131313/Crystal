@@ -248,6 +248,26 @@
     return Array.isArray(p) ? p.length : (typeof p === 'number' ? p : 0);
   }
 
+  var LIVEDB_TEXT = { applied: 'Live', partial: 'Partly live', none: 'Saved', 'world-stopped': 'Saved only', 'rolled-back': 'Rolled back', timeout: 'Timed out' };
+
+  /** LiveDb tile (st.livedb from /api/admin/status): last batch and its live outcome, sweeper queue, diverged parents. */
+  function liveDbTile(ldb) {
+    var diverged = Number(ldb.divergedCount) || 0;
+    var failed = ldb.lastLiveOutcome === 'rolled-back' || ldb.lastLiveOutcome === 'timeout';
+    var value = !ldb.enabled ? 'Off' : (ldb.lastBatchId ? (LIVEDB_TEXT[ldb.lastLiveOutcome] || ldb.lastLiveOutcome || '—') : 'Idle');
+    var sub = [];
+    if (ldb.lastBatchUtc) sub.push('last ' + OpsUI.ago(ldb.lastBatchUtc) + (ldb.lastSaved === false ? ', not saved' : ''));
+    if (ldb.sweeperActive || ldb.sweeperPending) sub.push('sweeper ' + (Number(ldb.sweeperPending) || 0) + ' queued');
+    if (diverged) sub.push(diverged + ' diverged');
+    return {
+      key: 'livedb', label: 'LiveDb', value: value, href: 'livedb',
+      cls: !ldb.enabled ? '' : (failed ? 'metric-bad' : (diverged || ldb.lastLiveOutcome === 'partial' ? 'metric-warn' : (ldb.lastBatchId ? 'metric-ok' : ''))),
+      sub: sub.length ? sub.join(' · ') : (ldb.enabled ? (Number(ldb.batches) || 0) + ' batches' : '[LiveDb] Enabled=False'),
+      title: 'Live game-data edits: ' + (Number(ldb.batches) || 0) + ' batches, ' + (Number(ldb.undos) || 0) + ' undos since start' +
+        (ldb.lastBatchId ? '; last ' + ldb.lastBatchId : '') + (diverged ? '; diverged: ' + (ldb.diverged || []).join(', ') : '') + '. Open LiveDb History'
+    };
+  }
+
   function render() {
     var st = lastStatus;
     var h = lastHost;
@@ -281,6 +301,7 @@
       { key: 'pending', label: 'Pending reboot', value: String(pending), cls: pending > 0 ? 'metric-warn' : 'metric-ok', href: 'server',
         sub: pending > 0 ? 'restart to apply' : 'nothing pending', title: 'Saved game-data changes that apply on the next world start' }
     ];
+    if (st.livedb) specs.push(liveDbTile(st.livedb));
     if (h && h.diskFreeMb) {
       specs.push({ key: 'disk', label: 'Disk free', value: fmtMb(h.diskFreeMb), cls: h.diskFreeMb < 2048 ? 'metric-bad' : (h.diskFreeMb < 8192 ? 'metric-warn' : ''),
         sub: h.diskRoot ? 'drive ' + h.diskRoot : null, bar: h.diskTotalMb ? 1 - h.diskFreeMb / h.diskTotalMb : null });

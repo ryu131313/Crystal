@@ -238,7 +238,23 @@ namespace Client.MirGraphics
             Backend.EndScene();
         }
 
-        public static void Present() => Backend.Present();
+        /// <summary>Keep a copy of every presented frame for <see cref="CaptureBackBuffer"/> (render tests read frames after Present).</summary>
+        public static bool KeepFrames;
+        private static bool _captureNextFrame;
+
+        /// <summary>Keep the next presented frame for <see cref="CaptureBackBuffer"/> (screenshots); read it after that Present.</summary>
+        public static void CaptureNextFrame() => _captureNextFrame = true;
+
+        /// <summary>Frames presented so far (a capture requested with <see cref="CaptureNextFrame"/> is ready once this advances).</summary>
+        public static long PresentCount { get; private set; }
+
+        public static void Present()
+        {
+            bool keep = KeepFrames || _captureNextFrame;
+            _captureNextFrame = false;
+            Backend.Present(keep);
+            PresentCount++;
+        }
 
         /// <summary>Clears the current render target.</summary>
         public static void Clear(Color colour) => Backend.Clear(colour);

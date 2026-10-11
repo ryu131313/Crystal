@@ -21,6 +21,8 @@ namespace Server.WebAdmin.Tests
             "/api/admin/server/reboot",
             "/api/admin/server/reload/drops",
             "/api/admin/server/reload/npcs",
+            "/api/admin/livedb/status",         // LiveDb ([LiveDb] Enabled): batch save + live apply
+            "/api/admin/livedb/batch",          // + ?dryRun=1
         };
 
         private static string AdminDir()

@@ -70,6 +70,12 @@ namespace Server.WebAdmin.GameData
         /// <summary>Hook after values were applied to an attached row (e.g. rebind GameShopItem.Info).</summary>
         public Action<GameDataContext, GameDataRow> AfterApply;
 
+        /// <summary>
+        /// Every list that holds this table's rows (the top-level list, or each parent's child list), so LiveDb can snapshot and restore
+        /// them when a batch with inserts / deletes must be rolled back. Null for tables without inserts / deletes (magic, dragon).
+        /// </summary>
+        public Func<GameDataContext, IEnumerable<System.Collections.IList>> Lists;
+
         private Dictionary<string, GameDataColumn> _byName;
 
         public bool IsChild => !string.IsNullOrEmpty(ParentEndpoint);

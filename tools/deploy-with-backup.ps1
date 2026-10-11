@@ -18,14 +18,14 @@
     Client: Data\, Sound\, Map\, Screenshots\, Mir2Config.ini, Mir2Test.ini, KeyBinds.ini, Error.txt
 
 .PARAMETER Source      Scratch build folder (e.g. the -o folder used by tools\verify.ps1).
-.PARAMETER Target      Run folder, e.g. C:\Mir2\Build\Server\Debug.
+.PARAMETER Target      Run folder, e.g. C:\Mir2\Build\Server\Release (live since 2026-10-11).
 .PARAMETER Kind        Server or Client (selects the protected list and the process check).
 .PARAMETER BackupRoot  Where snapshots go. Should be OUTSIDE the target (ideally another disk).
 .PARAMETER DryRun      Print what would happen; change nothing.
 
 .EXAMPLE
   # 1. build:   powershell -File tools\verify.ps1 -Only Server -NoTests -Scratch D:\mir2-out
-  # 2. preview: powershell -File tools\deploy-with-backup.ps1 -Kind Server -Source D:\mir2-out\Server -Target C:\Mir2\Build\Server\Debug -BackupRoot D:\Mir2Backups -DryRun
+  # 2. preview: powershell -File tools\deploy-with-backup.ps1 -Kind Server -Source D:\mir2-out\Server -Target C:\Mir2\Build\Server\Release -BackupRoot D:\Mir2Backups -DryRun
   # 3. deploy:  (same without -DryRun), with the world stopped after a manual save.
 #>
 param(

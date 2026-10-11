@@ -699,8 +699,8 @@ namespace Server.MirObjects
             SetHP(Stats[Stat.HP]);
 
             Spawned();
-            Envir.MonsterCount++;
-            CurrentMap.MonsterCount++;
+            Interlocked.Increment(ref Envir.MonsterCount);
+            Interlocked.Increment(ref CurrentMap.MonsterCount);
             return true;
         }
         public bool Spawn(MapRespawn respawn)
@@ -725,9 +725,9 @@ namespace Server.MirObjects
             SetHP(Stats[Stat.HP]);
 
             Spawned();
-            Respawn.Count++;
-            respawn.Map.MonsterCount++;
-            Envir.MonsterCount++;
+            Interlocked.Increment(ref Respawn.Count);
+            Interlocked.Increment(ref respawn.Map.MonsterCount);
+            Interlocked.Increment(ref Envir.MonsterCount);
             return true;
         }
 
@@ -737,7 +737,9 @@ namespace Server.MirObjects
 
             if (Info.HasSpawnScript && (Envir.MonsterNPC != null))
             {
-                Envir.MonsterNPC.Call(this,string.Format("[@_SPAWN({0})]",Info.Index));
+                // NPC scripts share state and can act on any map (MONGEN, MONCLEAR): never from a mob pass.
+                var key = string.Format("[@_SPAWN({0})]", Info.Index);
+                Envir.RunOutsideMobPass(() => Envir.MonsterNPC?.Call(this, key));
             }
 
             base.Spawned();
@@ -939,16 +941,27 @@ namespace Server.MirObjects
         {
             if (temp == null || !temp.ValidPoint(location)) return false;
 
+            // Another map can belong to another mob thread: from a mob pass, move after the barrier instead (same tick).
+            if (temp != CurrentMap && Envir.InMobPass)
+            {
+                Envir.RunOutsideMobPass(() =>
+                {
+                    if (Node != null) Teleport(temp, location, effects, effectnumber);
+                });
+                return true;
+            }
+
             CurrentMap.RemoveObject(this);
             if (effects) Broadcast(new S.ObjectTeleportOut { ObjectID = ObjectID, Type = effectnumber });
             Broadcast(new S.ObjectRemove { ObjectID = ObjectID });
 
-            CurrentMap.MonsterCount--;
+            Interlocked.Decrement(ref CurrentMap.MonsterCount);
 
             CurrentMap = temp;
             CurrentLocation = location;
 
-            CurrentMap.MonsterCount++;
+            Interlocked.Increment(ref CurrentMap.MonsterCount);
+            SyncSpawnThread(); // outside a mob pass here (or the same map)
 
             InTrapRock = false;
 
@@ -974,35 +987,43 @@ namespace Server.MirObjects
 
             Broadcast(new S.ObjectDied { ObjectID = ObjectID, Direction = Direction, Location = CurrentLocation });
 
-            if (Info.HasDieScript && (Envir.MonsterNPC != null))
+            // Script, exp, quest and drops touch players, NPC script state, other maps and Envir.Objects: run them on the game
+            // thread when this death happens inside a mob pass (poison ticks kill monsters in their own Process). Decided now,
+            // because Master is cleared below.
+            var expOwner = EXPOwner;
+            var unowned = Master == null;
+            Envir.RunOutsideMobPass(() =>
             {
-                Envir.MonsterNPC.Call(this, string.Format("[@_DIE({0})]", Info.Index));
-            }
-
-            if (EXPOwner != null && EXPOwner.Node != null && Master == null && (EXPOwner.Race == ObjectType.Player || EXPOwner.Race == ObjectType.Hero))
-            {
-                EXPOwner.WinExp(Experience, Level);
-
-                if (EXPOwner.Race != ObjectType.Hero)
+                if (Info.HasDieScript && (Envir.MonsterNPC != null))
                 {
-                    PlayerObject playerObj = (PlayerObject)EXPOwner;
-                    playerObj.CheckGroupQuestKill(Info);
+                    Envir.MonsterNPC.Call(this, string.Format("[@_DIE({0})]", Info.Index));
                 }
 
-            }
+                if (expOwner != null && expOwner.Node != null && unowned && (expOwner.Race == ObjectType.Player || expOwner.Race == ObjectType.Hero))
+                {
+                    expOwner.WinExp(Experience, Level);
+
+                    if (expOwner.Race != ObjectType.Hero)
+                    {
+                        PlayerObject playerObj = (PlayerObject)expOwner;
+                        playerObj.CheckGroupQuestKill(Info);
+                    }
+
+                }
+
+                if (unowned && expOwner != null)
+                    Drop();
+            });
 
             if (Respawn != null)
-                Respawn.Count--;
-
-            if (Master == null && EXPOwner != null)
-                Drop();
+                Interlocked.Decrement(ref Respawn.Count);
 
             Master = null;
 
             PoisonList.Clear();
-            Envir.MonsterCount--;
+            Interlocked.Decrement(ref Envir.MonsterCount);
             if (CurrentMap != null)
-            CurrentMap.MonsterCount--;
+                Interlocked.Decrement(ref CurrentMap.MonsterCount);
         }
 
         public MapObject GetAttacker(MapObject attacker)
@@ -1026,10 +1047,10 @@ namespace Server.MirObjects
             Broadcast(new S.ObjectRevived { ObjectID = ObjectID, Effect = effect });
 
             if (Respawn != null)
-                Respawn.Count++;
+                Interlocked.Increment(ref Respawn.Count);
 
-            Envir.MonsterCount++;
-            CurrentMap.MonsterCount++;
+            Interlocked.Increment(ref Envir.MonsterCount);
+            Interlocked.Increment(ref CurrentMap.MonsterCount);
         }
 
         public override int Pushed(MapObject pusher, MirDirection dir, int distance)
@@ -1158,9 +1179,10 @@ namespace Server.MirObjects
             if (!item.Info.GlobalDropNotify)
                 return ob.Drop(Settings.DropRange);
 
+            var notice = GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.PlayerHasDroppedItem), Name, item.FriendlyName);
             foreach (var player in Envir.Players)
             {
-                player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.PlayerHasDroppedItem), Name, item.FriendlyName), ChatType.System2);
+                player.ReceiveChat(notice, ChatType.System2);
             }
 
             return ob.Drop(Settings.DropRange);
@@ -1917,6 +1939,10 @@ namespace Server.MirObjects
 
         protected virtual void FindTarget()
         {
+            // Only a StoneTrap can replace a target this search has (or already had), so with none alive stop at the first one.
+            var stopAtFirst = !StoneTrap.AnyAlive;
+            if (stopAtFirst && Target != null) return;
+
             Map Current = CurrentMap;
 
             for (int d = 0; d <= Info.ViewRange; d++)
@@ -1960,6 +1986,7 @@ namespace Server.MirObjects
                                     {
                                         Target ??= ob;
                                     }
+                                    if (stopAtFirst) return;
                                     continue;
                                     
                                 case ObjectType.Player:
@@ -1986,6 +2013,7 @@ namespace Server.MirObjects
                                             break;
                                         }
                                     }
+                                    if (stopAtFirst) return;
                                     continue;
                                 default:
                                     continue;
@@ -2655,8 +2683,7 @@ namespace Server.MirObjects
             {
                 if (attacker.HasBuff(BuffType.Mentor, out _))
                 {
-                    CharacterInfo mentee = Envir.GetCharacterInfo(attacker.Info.Mentor);
-                    PlayerObject player = Envir.GetPlayer(mentee.Name);
+                    PlayerObject player = Envir.GetPlayer((uint)attacker.Info.Mentor);
                     if (player != null && player.CurrentMap == attacker.CurrentMap && Functions.InRange(player.CurrentLocation, attacker.CurrentLocation, Globals.DataRange) && !player.Dead)
                     {
                         if (GroupMembers != null && GroupMembers.Contains(player))
@@ -2873,7 +2900,7 @@ namespace Server.MirObjects
                 Hidden = Hidden,
                 ShockTime = (ShockTime > 0 ? ShockTime - Envir.Time : 0),
                 BindingShotCenter = BindingShotCenter,
-                Buffs = Buffs.Where(d => d.Info.Visible).Select(e => e.Type).ToList(),
+                Buffs = GetVisibleBuffTypes(),
                 MasterObjectId = Master?.ObjectID ?? 0,
                 Rarity= MonsterType
             };

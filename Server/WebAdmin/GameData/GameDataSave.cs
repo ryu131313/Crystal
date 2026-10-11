@@ -55,9 +55,24 @@ namespace Server.WebAdmin.GameData
         /// </summary>
         public static SaveOutcome SaveEdit()
         {
+            // F3: Envir.Edit's clock never advances, so SaveDB() alone would overwrite one rolling backup; pick the name from the wall
+            // clock (a timestamped backup at most every [LiveDb] BackupEveryMinutes, the rolling one in between).
+            var now = DateTime.Now;
+            var name = LiveDb.LiveDbBackupPolicy.Next(now, Settings.LiveDbBackupEveryMinutes);
+            var outcome = SaveEdit(name);
+            LiveDb.LiveDbBackupPolicy.Saved(name, now);
+            return outcome;
+        }
+
+        /// <summary>
+        /// As <see cref="SaveEdit()"/>, with the file name the previous Server.MirDB gets in Back Up\Database (null = Envir's own
+        /// timestamp, which for Envir.Edit never advances). Caller holds EditLock and has called <see cref="EnsureSavable"/>.
+        /// </summary>
+        public static SaveOutcome SaveEdit(string backupFileName)
+        {
             RunFileIo(() =>
             {
-                Envir.Edit.SaveDB();
+                Envir.Edit.SaveDB(backupFileName);
                 return true;
             });
 
@@ -114,7 +129,7 @@ namespace Server.WebAdmin.GameData
 
                 if (w.QueueOpen && !Envir.SystemDataStale)
                 {
-                    if (TryRunOnGameThread(w, io, out var result)) return result;
+                    if (TryRunOnGameThread(w, io, GameThreadStartTimeoutMs, out var result)) return result;
                     continue; // dropped: the loop stopped meanwhile, re-evaluate
                 }
 
@@ -129,8 +144,16 @@ namespace Server.WebAdmin.GameData
             throw new WebAdminException(409, "The world is changing state; try again in a moment", new { world = WebAdminGame.WorldState });
         }
 
-        private static bool TryRunOnGameThread<T>(IWebAdminWorld w, Func<T> io, out T result)
+        /// <summary>
+        /// Queues <paramref name="io"/> on the game thread and blocks until it finished (worker threads only, never the game thread; the
+        /// caller may hold EditLock because the queued work takes no web admin lock). Returns false when it could not be queued or was
+        /// dropped before it ran (the loop stopped); throws <see cref="GameThreadTimeoutException"/> (Started = false, cancelled) when the
+        /// game thread did not pick it up within <paramref name="startTimeoutMs"/>; once started it is always waited for. Exceptions
+        /// thrown by <paramref name="io"/> propagate. Shared by the file IO here and the LiveDb live step.
+        /// </summary>
+        internal static bool TryRunOnGameThread<T>(IWebAdminWorld w, Func<T> io, int startTimeoutMs, out T result)
         {
+            if (startTimeoutMs <= 0) startTimeoutMs = GameThreadStartTimeoutMs;
             var state = 0; // 0 pending, 1 started, 2 cancelled / dropped
             var done = new ManualResetEventSlim(false); // not disposed: a late callback may still Set it
             var value = default(T);
@@ -159,7 +182,7 @@ namespace Server.WebAdmin.GameData
             result = default(T);
             if (!queued) return false;
 
-            if (!done.Wait(GameThreadStartTimeoutMs))
+            if (!done.Wait(startTimeoutMs))
             {
                 if (Interlocked.CompareExchange(ref state, 2, 0) == 0)
                     throw new GameThreadTimeoutException(false);

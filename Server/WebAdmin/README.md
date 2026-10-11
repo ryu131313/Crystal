@@ -31,6 +31,7 @@ A world reboot is not enough.
 | `WebRoot` | `.\wwwroot` | Folder with the static files. A relative path is resolved against the exe folder. It must contain `admin\index.html`. |
 | `SessionHours` | `8` | Sliding session lifetime in hours (clamped to 1–720). `<= 0` means 8. |
 | `MaxBodyKB` | `2048` | Largest request body accepted (clamped to 16–65536 KB). Bigger bodies get `413`. This limits script file saves and bulk grid edits. |
+| `ClientDataPath` | *(empty)* | A game client's `Data` folder (the one with `MMap.Lib` and `Map\`), e.g. `C:\Mir2\Build\Client\Release\Data`. The Live Monitor **reads** it (never writes; files are opened with full sharing, so a running client or patcher is not blocked) to draw the minimaps and the real map tiles. Relative paths are resolved against the exe folder. Empty = walkability images only. |
 
 The login rate limits and the request concurrency limit are **not** in the ini. They are fixed defaults in `WebAdminOptions`:
 32 concurrent requests, 10 sign-in attempts per IP per minute, 120 sign-in attempts per minute globally, and 10 failed sign-ins
@@ -131,6 +132,20 @@ confirmation dialog, with a reason field for moderation actions. Every successfu
   download). Start, stop and reboot share a transition guard, so overlapping requests get `409`.
 - **Players Online:** a live table of online characters with row actions (inspect, message, kick, kill, safe zone, teleport,
   chat ban, ban account).
+- **Live Monitor:** every occupied map with its players, polled every **1 s** (a deliberate exception to the panel's ~5 s
+  polling floor, approved 2026-10-11; one game-thread snapshot per poll per open tab). Map: with `[WebAdmin] ClientDataPath`
+  set, "Game art" shows the map's authored minimap (`MMap.Lib` frame `MapInfo.MiniMap`) and, once zoomed in past ~4 px per
+  cell, real map tiles drawn from the client's `.Lib` files with the client's floor/object rules (animation frame 0, doors
+  closed, no lights); otherwise, or with "Walkability" picked, a walkability image (3:2 cells, safe zones tinted). Layers: trails (10/30/60 s, built in the browser from the snapshots; dashed = jump), heat
+  (1/5/15 min, sampled by the server every 5 s so it is there when the page opens; all instances of a map index together),
+  monsters (all or bosses, focus map only, at most 4000 drawn) and death flashes. Scroll zooms, drag pans, right-click a pin
+  or row for player actions, right-click the map to teleport the selected player there, spawn a monster there or clear the
+  map's monsters (all through `POST /api/admin/gm/action`, so the usual reason + audit apply). Recent events (deaths with
+  the killer, logins, logouts) list on the side. Routes: `GET /api/admin/monitor/snapshot?map=<index>:<instance>&mobs=off|all|bosses&evSince=<seq>`,
+  `GET /api/admin/monitor/heat?map=<index>&minutes=1..15`, `GET /api/admin/monitor/maps/{index}/image` (PNG, cached per world run),
+  `GET /api/admin/monitor/maps/{index}/minimap` and `GET /api/admin/monitor/maps/{index}/tiles/{z}/{tx}/{ty}` (768 x 512 PNG covering
+  16·2^z x 16·2^z cells at 1/2^z scale, z = 0..3; rendered on demand from the server's own `Maps\*.map`, one render at a time,
+  ~55–180 ms each on this machine; caches ~128 MB of decoded frames + ~192 MB of tile PNGs; `Server/WebAdmin/MapArt/`).
 - **Security:** banned accounts, chat bans, admins, panel sessions (revoke), IP blocks (add, remove, clear), IPs shared by
   several accounts, recent failed logins, and a searchable game login log.
 
@@ -164,10 +179,16 @@ confirmation dialog, with a reason field for moderation actions. Every successfu
   mine zones), game shop, conquests (and six child tables) and the dragon. Behaviour to know:
   - Edits go to the **editor copy `Envir.Edit`**, the same copy the WinForms editors use. *Save* writes `Server.MirDB`
     (Crystal makes a backup in `Back Up\Database`).
-  - The running world (`Envir.Main`) **only sees saved changes after a world reboot**. Each save adds a pending-reboot entry,
-    which shows in the topbar badge. There are two exceptions. **Monsters** can be applied live ("Apply live to running world",
-    `PUT ...?live=1`), which updates `MonsterInfo` and refreshes the live monsters. **Magic** (spell) changes are synced into
-    Main's `MagicInfo` when you save, or on the next world start if the world was not running.
+  - **LiveDb** (`[LiveDb] Enabled=True`, the default; see §4.4): *Apply* sends the changed cells of a grid as **one
+    batch** that is validated as a whole, saved to `Server.MirDB` at once and, for the columns marked *live*, applied to the
+    running world between ticks. Restart-only columns are saved too and take effect after the next world restart (pending-reboot
+    entry). Grid headers show a green dot (live) or an amber dotted underline (restart-only) with a tooltip saying when the change
+    takes effect. *Delete selected* sends the rows as the batch's deletes: saved at once, and removed from the running world for
+    respawns, safe zones, movements, mine zones and the game shop.
+  - With LiveDb off, the running world (`Envir.Main`) **only sees saved changes after a world reboot**. Each save adds a
+    pending-reboot entry, which shows in the topbar badge. `PUT ...?live=1` (the "Apply live to running world" box on Monsters)
+    still runs one request through the LiveDb pipeline. **Magic** (spell) changes are synced into Main's `MagicInfo` when you
+    save, or on the next world start if the world was not running.
   - After any Edit save, Main's periodic `SaveDB()` is skipped until the next reboot (`Envir.SystemDataStale`). Without this,
     Main's old in-memory data would overwrite your save.
   - Saves are serialised with the world's periodic save. While Main still saves, the file IO runs on the game thread between
@@ -184,6 +205,10 @@ confirmation dialog, with a reason field for moderation actions. Every successfu
   `Server.MirDB` or `Server.MirADB`, download, and prune. **Restore only works while the world is stopped** (`409` otherwise).
   It backs up the current file first, then reloads the editor copy or the account list. The *History* tab shows per-field
   game-data changes from the audit log, with a Revert action (not for inserts, deletes or position-keyed child tables).
+- **LiveDb History:** every LiveDb batch from the journal (filter by table, admin and date; paged), each expandable to the
+  before → after of every field with what reached the running world, the live counters and the client push. **Undo** previews
+  the inverse batch (dry run) and applies it after a confirmation; conflicts are shown under the batch. A status line shows
+  whether LiveDb is on, the last batch, the sweeper queue and diverged parents (also the *LiveDb* tile on the Dashboard).
 
 **Config**
 - **Server Config:** every `Setup.ini` key that `Settings.Load()` and `Save()` handle, in sections with typed inputs. Saves go
@@ -232,29 +257,145 @@ Subscribers run on the calling thread, which is usually the game thread, so keep
 | `LoginAttempt(accountId, ip, result)` | `Envir.Login`: `no-account`, `banned`, `bad-password`, `refused:<reason>`, `ok` |
 | `LoginGate` (single `Func<AccountInfo,string>`) | `Envir.Login`, before a successful login. Owned by Maintenance; a non-empty result refuses the login. |
 | `PlayerEntered` / `PlayerLeft` | `PlayerObject.StartGame` (after joining `Envir.Players`, before the Login scripts) / `PlayerObject.StopGame` |
+| `PlayerDied(victim, lastHitter)` | end of `PlayerObject.Die`. **May run on a mob thread** (a monster kills a player during the mob pass): subscribers must be lock-free (the Live Monitor only enqueues into a capped `ConcurrentQueue`) |
 | `Chat(channel, sender, message, target)` | `PlayerObject.Chat`: normal, shout, shout-map, shout-server, whisper, group, guild, mentor, relationship, announcement |
 
 ### 4.3 Stale system data guard
 
 `Envir.SaveDB()` sets a static `_systemDataStale` flag when `this == Edit`. While `Envir.SystemDataStale` is true, Main's periodic
 save in `WorkLoop` skips `SaveDB()`, so Main's stale in-memory system data never overwrites newer data that the panel or WinForms
-saved through Edit. The flag clears when Main reloads its database (Start/Reboot). Calling `Main.SaveDB()` explicitly, as the
-MonsterTuner and Dragon WinForms forms do, still works.
+saved through Edit. The flag clears when Main reloads its database (Start/Reboot). The MonsterTuner and Dragon WinForms forms
+used to call `Main.SaveDB()` on close; they now skip it (with a message box) while `[LiveDb] Enabled` is on or the flag is set,
+so Edit stays the only writer of system data.
 
-### 4.4 Log tap
+Two details keep Edit a faithful writer: the respawn tick counter only advances in Main, so Main publishes
+`RespawnTick.CurrentTickcounter` after each `RespawnTick.Process()` and Edit's `SaveDB` writes that published value (F4); and
+Edit's clock never advances, so editor saves name their backup from the wall clock through `LiveDbBackupPolicy`: a timestamped
+`Database yyyy-MM-dd HH-mm-ss.bak` at most every `[LiveDb] BackupEveryMinutes`, a rolling `Database livedb-previous.bak` in
+between (F3, `Envir.SaveDB(string backupFileName)`).
+
+### 4.4 LiveDb (live game-data edits)
+
+Settings, `[LiveDb]` in `Setup.ini` (all read at use time, also on the Server Config page): `Enabled=True`,
+`BackupEveryMinutes=10`, `SweepPerTick=512`, `MaxBatchRows=2000`, `MaxPushRows=500` (client push limit, see below).
+
+Routes (`Routes/LiveDbRoutes.cs`, admin + CSRF like every mutating route):
+
+| Route | Purpose |
+|---|---|
+| `GET /api/admin/livedb/status` | enabled, world, open WinForms editors, unsaved legacy edits, live tables, sweeper, diverged parents, last batch |
+| `GET /api/admin/livedb/schema/{endpoint}` | per column: effective `liveClass` / `liveTiming`, the plan's class, a note |
+| `POST /api/admin/livedb/batch[?dryRun=1]` | `{id, reason?, flushUnsaved?, tables:[{endpoint, rows:[changed cells + Index + __rev], deletes:[...]}]}` |
+| `GET /api/admin/livedb/history[?limit=&offset=&days=&table=&admin=&from=&to=]` | recent batches from the journal, newest first, paged and filtered; per batch the live counters, `inverseOf` (it is an undo) and `undoneBy` (an applied undo reverses it) |
+| `GET /api/admin/livedb/history/{id}` | one batch: every row's before / after values with its live outcome, full row images for inserts / deletes, the undo state (`undoId`, `undoable`, `refused`, `notes`) |
+| `POST /api/admin/livedb/undo/{id}[?dryRun=1]` | `{reason?, flushUnsaved?}` → the inverse batch's outcome plus `target`, `undoId`, `alreadyUndone`, `undoNotes` |
+
+Pipeline (`LiveDb/LiveDbEngine.cs`, on a `Task.Run` worker holding `EditLock`): checks (world starting/stopping → 503; a WinForms
+DB editor open → 409, counted by `Envir.EditorFormsOpen` around `SMain`'s editor dialogs; other unsaved editor-copy edits → 409
+unless `flushUnsaved:true`; a batch id seen before → the stored outcome, `duplicate:true`) → **validate all** rows with dry runs
+(any conflict or validation problem rejects the whole batch: 409 / 422, nothing changes) → apply to Edit with before-images →
+save (`GameDataSave.SaveEdit(backupName)`; a failure restores Edit, 500) → **one game-thread step** (`LiveDbMainApplier`: copies
+the live columns onto Main's records, clones new rows into Main (monsters load their drops), removes deleted rows, copies spells,
+runs the hooks; any exception restores Main — values, rows, and each hook's own compensation — and keeps the save, reply "takes
+effect after restart"; last, it queues the **client push**) → journal + audit + pending-reboot entry. A batch that moves or adds an
+NPC first asks the game thread whether the target is a walkable cell of a loaded map (after Edit was changed, before the save): an
+unwalkable cell rejects the whole batch (422, Edit restored); a map the running world has not loaded saves the move only. Refusals
+of the running world are per row / field with the reason in `rows[].changes[].reason` / `rows[].rowReason` and counted in
+`live.refusedLive` (the change is saved and applies after a restart).
+
+Classification (`LiveDb/LiveDbClassification.cs`): every column of every table is `ReadThrough`, `Hooked` or `RestartOnly`, with a
+timing (now / hook / spawn / clients / restart). Every table is live except the six conquest child tables (restart-only).
+Items: price, requirements, bind, flags and the other
+read-on-use columns are read through; Stats, Weight, Light, Set, Shape, Effect, Unique and CanFastRun refresh every online player
+and spawned hero holding the item (equipped, in the bag or socketed, including holders of a class / level based base item:
+`HumanObject.RefreshStats`, which also re-broadcasts looks and light); RandomStatsId re-resolves `RandomStats`; StartItem rebuilds
+`Envir.StartItems`; new items are cloned into Main; Name, Type and deletes are restart-only. Monsters: Level, Experience, ViewRange and the Can*/IsBoss flags are
+read through; stats and speeds queue the budgeted sweeper (`LiveDbSweeper`: at most `SweepPerTick` world objects per tick after
+the admin-action drain, `RefreshAll` + HP clamped to the new maximum, no scaling); DropPath reloads that monster's drop file;
+Name, Image, AI, Effect, CoolEye, Light, Undead, AutoRev and deletes are restart-only.
+
+World tables (Batch C; the hooks are `ILiveDbHooks` / `LiveDbWorldHooks`, game thread, plain loops, per-object errors isolated with
+`WorldErrors.Record`):
+
+| Table | Live | Restart-only |
+|---|---|---|
+| npcs | visibility fields → schedule + per-player check for nearby players; Image / Name → re-broadcast; FileName → script rebound (quests and speech from the new script, unsaved used goods kept; a script that fails to load refuses only FileName); MapIndex / Location → moved (`RelocateNpc`: leave the old cell while `Info.Location` still names it, then change, then enter — F10); ShowOnBigMap / BigMapIcon (and any change of an NPC shown on the big map) → map info invalidated; insert → `NPCObject` spawned as at map load | Conquest, ConquestVisible, delete |
+| quests | requirements and messages (pushed; a saved `RequiredMaxLevel` 0 means "no maximum" as after a restart); FileName → the shared `GameData/QuestReload` (also used by the Scripts editor; refused when the kill / item / flag tasks change shape: FileName stays saved only) | Type, insert, delete |
+| maps | flags (read through `Map.Info`); MineIndex → mine rebuilt (mine state resets); Title / BigMap → sent at the next map entry, big-map info invalidated for the map and for maps whose movements show it | FileName, GT, insert, delete |
+| mapsafezones | the map's safe-zone spell objects removed (only caster-less, never-expiring zone decorations / healing cells; conquest war borders skipped) and recreated from the new zones, `Envir.StartPoints` rebuilt, `InSafeZone` recomputed for players, heroes and pets on the map; insert, delete | — |
+| maprespawns | Count / Delay / RandomDelay / Direction read at the next spawn; MonsterIndex / Location / RoutePath / Spread → `MapRespawn` cache rebuilt in place (monster, spawn cells, route; spawned monsters stay and keep counting against it); SaveRespawnTime / RespawnTicks → `Envir.SavedSpawns` membership; insert (spawns at the map's next respawn check, within `[Optimisation] MapRespawnCheckMs`, default 1 s), delete (spawned monsters stay) | — |
+| mapmovements | read when a player steps on the cell; big-map info invalidated; insert, delete | — |
+| mapminezones | mine rebuilt (mine state resets); insert, delete | — |
+| gameshop | read when the shop opens / an item is bought; ItemIndex → bound to Main's item; insert (bound to **Main's** `ItemInfo`), delete; pushed to every player in the game (stock level per player as at login; a row sold out for that player is sent as removed) | — |
+| conquests | schedule and area fields; a conquest whose war is on refuses the row (saved only) | Map, Palace, ExtraMaps, FullMap, counters |
+| dragon | Exps (read on level up); drop area → recomputed | Enabled, map, monster names, location |
+
+Position-keyed child rows (safe zones, movements, mine zones; keys `MapIndex * 10000 + position`) are matched to Main by position,
+so the live step first checks every touched list: its length must equal the editor copy's before the batch, and each touched row
+must still hold the editor copy's pre-batch values. A list that does not line up is never changed by position (rows refused, the
+parent marked diverged); a single row with other values is refused alone. Inserts append and deletes are resolved first and removed
+by reference, exactly as in Edit. A structural change (insert / delete) that does not reach Main — a restart-only table, a failed or
+refused live step — marks the parent diverged (`LiveDbState`), and live edits, inserts and deletes of its children are saved only
+until the next world start. Respawns are keyed by their global `RespawnIndex` and never diverge.
+
+Client push (`LiveDb/LiveDbPush.cs`, packet `S.GameDataChanged`, private): after the hooks, the live step snapshots every
+changed item (a fresh `ItemInfo` copy), monster (`ClientInformation`) and spell, then, under `lock (Connections)`, sends each
+connection in the game (and each spectator) only the rows in its own `SentItemInfo` / `SentMonsterInfo` / ... lists, and each
+player's / hero's own `ClientMagic` for changed spells. Elements are measured by writing them to a scratch buffer and packets are
+cut at 60 KB (never above 65 535 bytes); the last packet of a connection has `Last = true`, when the client refreshes its stats,
+skill bars and tooltip. Packets hold copies, never Main references (EncodeOnce). A push failure is logged and never undoes the
+world change (clients see it at their next login: `CheckItemInfo` sends the current record). A batch with more client-visible rows
+(item / monster / spell updates) than `MaxPushRows` is not pushed: its item updates are saved only (reason in the outcome),
+monsters and spells still apply live. The outcome's `live` block reports `itemHoldersRefreshed`, `pushConnections`,
+`pushPackets`, `pushRows`, `pushSkipped`, `pushFailed`. Batch C fills the other sections: changed NPCs (`ClientInformation`),
+quests (each connection's own `CreateClientQuestInfo(player)` copy, which first sends the infos its links mention), game-shop rows
+(a copy whose `Info` is a copy of Main's item; per-player stock) and removed shop indexes, and invalidated maps (the connection's
+`SentMapInfo` entry is dropped so the next request re-sends it). NPC, quest and game-shop rows count against `MaxPushRows` too
+(only item updates are refused live when the limit is passed). Client: `GameScene.GameDataChanged` (in-place `ItemInfo.CopyFrom`, upserts, spells by `Spell`,
+shop remove + add, invalidated big-map records dropped and re-requested); `S.NewItemInfo` / `S.NewQuestInfo` now upsert (F7).
+Ship client and server from the same commit.
+
+Journal: `Logs\WebAdmin\livedb\batches-yyyy-MM-dd.jsonl` (next to the exe; ops with before / after images and revs, the live
+outcome, the backup file, `inverseOf` and notes for undo batches), plus an LRU of the last 500 batch ids. Reading a line back
+restores the row images too, so undo works after a restart (for the journal's last 14 days).
+
+Undo (`LiveDb/LiveDbUndo.cs`; Batch D): `LiveDbUndo.Plan` builds the inverse of a journaled batch (pure, no Edit / Main access) and
+it runs through the same engine pipeline, so it is all-or-nothing, saved, applied live, journaled (`source: "undo"`,
+`inverseOf`) and audited like any batch (`db.update` / `db.delete` rows carry `inverseOf`; `db.livedb-batch` too). Updates go
+back to their recorded before-values with `__rev` = the row's `revAfter`, so a row changed after the batch is a conflict and the
+whole undo is refused (409, per-row conflicts; nothing changes). Inserts become deletes guarded by `revAfter` (the new optional
+`deleteRevs: {"index": "__rev"}` of a batch table; a mismatch is a conflict). For position-keyed rows the key
+(`parent * 10000 + position`) names the same row only while no earlier sibling was deleted; the rev guard refuses it otherwise.
+Removing an added respawn, game-shop row, safe zone, movement or mine zone is live; an added item, monster or NPC is removed from the
+saved data only and the running world keeps it until a restart (said in the outcome's `notes`). **Deletes cannot be undone** (a
+re-insert would get a new RespawnIndex / GIndex or go to the end of its list): such a batch answers 409 with a hint to restore a
+`Back Up\Database` backup with the world stopped. Other editor changes a batch saved with `flushUnsaved` are not reverted. The undo
+id is derived from the target: `undo:<id>` (a hash when longer than 64 characters), so a repeated click returns the stored outcome
+(`alreadyUndone`); undoing an undo is a redo (`undo:undo:<id>`), after which undoing the original again uses `undo2:<id>`. A dry
+run (`?dryRun=1`) previews the rows, their live / restart outcome and any conflict. Undo refuses like any batch: LiveDb disabled
+(409), world starting / stopping (503), a WinForms DB editor open (409), other unsaved edits (409 unless `flushUnsaved`).
+
+Status: `GET /api/admin/status` carries a `livedb` block (`enabled`, `batches`, `undos`, `rejected`, `liveFailures`, the last
+batch's id / time / live outcome / saved, `sweeperActive` / `sweeperPending`, `divergedCount` / `diverged`) for the Dashboard tile. Audit: one `db.update` / `db.insert` / `db.delete` per row with
+`batch:<id>` in the details, plus `db.livedb-batch`. Each batch logs `[LiveDb] batch …: validate / apply / save / live ms`.
+
+### 4.5 Log tap
 
 `MessageQueue.Enqueue`, `Enqueue(Exception)`, `EnqueueDebugging` and `EnqueueChat` also send each line to
 `WebAdminLogTap.AppendServer`, `AppendDebug` and `AppendChat`. These are ring buffers with sequence ids, read by
 `/api/admin/logs/{kind}`. The WinForms log views and log4net are unaffected.
 
-### 4.5 Changes to existing Crystal files
+### 4.6 Changes to existing Crystal files
 
 | File | Change |
 |---|---|
-| `Server\MirEnvir\Envir.cs` | Admin action queue region (`QueueAdminAction`, `RequestSaveNow`, `AdminQueueOpen`, `WorkLoopAlive`, open/drain/close), `SystemDataStale`, the `WorkLoop` drain call and save guard, hook calls in WorkLoop, StartNetwork, account saving and Login |
-| `Server\MirObjects\PlayerObject.cs` | `PlayerEntered` / `PlayerLeft` / `Chat` hook calls |
+| `Server\MirEnvir\Envir.cs` | Admin action queue region (`QueueAdminAction`, `RequestSaveNow`, `AdminQueueOpen`, `WorkLoopAlive`, open/drain/close), `SystemDataStale`, the `WorkLoop` drain call and save guard, hook calls in WorkLoop, StartNetwork, account saving and Login; LiveDb: `SaveDB(string backupFileName)`, the published respawn tick counter, the `LiveDbSweeper.Tick` call after the drain, `EditorFormsOpen` |
+| `Server\MirEnvir\RespawnTimer.cs` | `Save(writer, tickCounter)` overload (same layout) |
+| `Server\MirObjects\PlayerObject.cs` | `PlayerEntered` / `PlayerLeft` / `PlayerDied` / `Chat` hook calls |
 | `Server\MessageQueue.cs` | Log tap calls |
-| `Server\Settings.cs` | `WebAdmin*` fields, plus Load and Save of the `[WebAdmin]` section |
+| `Server\Settings.cs` | `WebAdmin*` fields, plus Load and Save of the `[WebAdmin]` section; `LiveDb*` fields and the `[LiveDb]` section |
+| `Server.MirForms\SMain.cs` | `ShowEditor(form)` counts the open DB editor dialogs (`Envir.EditorFormOpened/Closed`) |
+| `Server.MirForms\Systems\MonsterTunerForm.cs`, `DragonInfoForm.cs` | Skip `Main.SaveDB()` with a message box while LiveDb is enabled or `SystemDataStale` |
 | `Server\Server.Library.csproj` | `InternalsVisibleTo Server.WebAdmin.Tests` |
 | `Server.MirForms\Program.cs` | `WebAdminHost.Start()` after `Settings.Load()`, the `ShutdownRequested` handler (closes the main form on the UI thread), `WebAdminHost.Stop()` on exit |
 | `Server.MirForms\Server.csproj` | Copies `wwwroot\**` to the output (`PreserveNewest`), never compiled or embedded |
@@ -368,7 +509,11 @@ without a rebuild.
 
 - The WinForms editors (Item/Monster/Map/... info forms, System/Balance forms) edit the **same** `Envir.Edit` copy and the same
   settings files. Simultaneous edits from WinForms and the web are last-writer-wins, and only the web side keeps `__rev`
-  conflict detection.
+  conflict detection. LiveDb batches are refused (409) while a WinForms DB editor dialog is open, but a legacy PUT is not.
+- LiveDb (this build): items, monsters and magic reach the running world (with the client push); other tables are saved and
+  wait for a restart. Deletes in the grids still use the legacy delete + database/save. NPCs, quests, maps, the game shop and
+  the other world tables (with their push sections) and undo come in later batches. An old client without the
+  `GameDataChanged` packet would discard its receive buffer: always deploy client and server together.
 - The WinForms *Reboot* (and Start/Stop) menu items bypass the web start/stop/reboot transition guard, so a WinForms reboot can
   overlap a web-initiated start/stop/reboot.
 - Host shutdown drains in-flight requests for up to 15 s once `Stop()` runs, but writes are not refused between the main form
@@ -379,3 +524,7 @@ without a rebuild.
   cause a noticeable tick hitch.
 - The host does not handle `X-Forwarded-For`, so behind a proxy every client appears with the proxy's IP (see §2).
 - Sessions and maintenance state live in memory and are lost when `Server.exe` restarts.
+- Live Monitor: there is no per-player idle time; heat buckets, the event ring and the map-art caches live in memory only.
+  Map art needs a client `Data` folder whose libraries match the maps (`[WebAdmin] ClientDataPath`); the tile renderer copies
+  the client's map parser and library table (`MapArt/ClientMapData.cs`, `MapArt/MapLibCatalog.cs`), so a new map format or
+  library slot in the client must be added there too. Tiles show animation frame 0 with doors closed and no lighting.

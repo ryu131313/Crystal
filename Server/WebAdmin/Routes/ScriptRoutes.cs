@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Server.MirEnvir;
+using Server.WebAdmin.GameData;
 
 namespace Server.WebAdmin.Routes
 {
@@ -468,20 +469,13 @@ namespace Server.WebAdmin.Routes
 
         // ------------------------------------------------------------------ quests reload
 
-        private static string QuestKey(string fileName)
-        {
-            var key = (fileName ?? string.Empty).Trim().Replace('\\', '/');
-            if (key.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)) key = key.Substring(0, key.Length - 4);
-            return key;
-        }
-
         private static async Task PostReloadQuests(WebAdminRequest req)
         {
             var body = await req.ReadJsonAsync().ConfigureAwait(false);
             var path = RequireString(body, "path", "path");
             var normalized = ScriptPaths.Normalize(path);
             if (!ScriptPaths.IsTextFile(normalized)) throw new WebAdminException(400, "Only .txt quest files can be reloaded.");
-            var key = QuestKey(normalized);
+            var key = QuestReload.Key(normalized);
 
             var outcome = await WebAdminGame.RunAsync(() =>
             {
@@ -492,38 +486,16 @@ namespace Server.WebAdmin.Routes
                 for (var i = 0; i < quests.Count; i++)
                 {
                     var quest = quests[i];
-                    if (quest == null || !string.Equals(QuestKey(quest.FileName), key, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (quest == null || !string.Equals(QuestReload.Key(quest.FileName), key, StringComparison.OrdinalIgnoreCase)) continue;
 
-                    var snapshot = QuestSnapshot.Take(quest);
-
-                    // QuestInfo.ClearInfo leaves these lists alone, so LoadInfo(true) alone would duplicate their lines.
-                    quest.TaskDescription.Clear();
-                    quest.ReturnDescription.Clear();
-                    quest.CompletionDescription.Clear();
-                    quest.CarryItems.Clear();
-                    try
+                    // Shared with the LiveDb live step (a changed QuestInfo.FileName): refused reloads leave the quest unchanged.
+                    var reload = QuestReload.Reload(quest, Envir.Main.CharacterList);
+                    if (!reload.Reloaded)
                     {
-                        quest.LoadInfo(true);
-                    }
-                    catch (Exception ex)
-                    {
-                        snapshot.Restore(quest);
-                        refused.Add(quest.Index + " " + quest.Name + ": the file could not be read (" + ex.Message + ")");
+                        refused.Add(quest.Index + " " + quest.Name + ": " + reload.Refusal);
                         continue;
                     }
 
-                    // Every QuestProgressInfo (online or not) was sized from the old task lists, and UpdateKillTasks /
-                    // UpdateItemTasks / UpdateFlagTasks index Info.*Tasks[i] by the progress counts. A changed task
-                    // shape would throw on the game thread, so roll back and refuse it: that needs a reboot.
-                    var mismatch = snapshot.TaskShapeMismatch(quest);
-                    if (mismatch != null)
-                    {
-                        snapshot.Restore(quest);
-                        refused.Add(quest.Index + " " + quest.Name + ": " + mismatch);
-                        continue;
-                    }
-
-                    snapshot.RebindProgress(quest, Envir.Main.CharacterList);
                     names.Add(quest.Index + " " + quest.Name);
                 }
 
@@ -546,105 +518,6 @@ namespace Server.WebAdmin.Routes
             WebAdminAudit.Record(req, "script.reload-quests", "quests/" + normalized, new { path = normalized, quests = reloaded }, Reason(body));
             await req.Ok(new { path = normalized, reloaded = reloaded.Count, quests = reloaded },
                 "Reloaded " + reloaded.Count + " quest(s) from " + normalized + ".").ConfigureAwait(false);
-        }
-
-        /// <summary>The file-loaded parts of a live QuestInfo, so a refused reload can be rolled back exactly.</summary>
-        private sealed class QuestSnapshot
-        {
-            private List<string> description, taskDescription, returnDescription, completionDescription;
-            private List<Server.MirDatabase.QuestItemTask> carryItems, itemTasks;
-            private List<Server.MirDatabase.QuestKillTask> killTasks;
-            private List<Server.MirDatabase.QuestFlagTask> flagTasks;
-            private List<QuestItemReward> fixedRewards, selectRewards;
-            private uint expReward, goldReward, creditReward;
-
-            public static QuestSnapshot Take(Server.MirDatabase.QuestInfo q) => new QuestSnapshot
-            {
-                description = new List<string>(q.Description),
-                taskDescription = new List<string>(q.TaskDescription),
-                returnDescription = new List<string>(q.ReturnDescription),
-                completionDescription = new List<string>(q.CompletionDescription),
-                carryItems = new List<Server.MirDatabase.QuestItemTask>(q.CarryItems),
-                killTasks = q.KillTasks,
-                itemTasks = q.ItemTasks,
-                flagTasks = q.FlagTasks,
-                fixedRewards = q.FixedRewards,
-                selectRewards = q.SelectRewards,
-                expReward = q.ExpReward,
-                goldReward = q.GoldReward,
-                creditReward = q.CreditReward,
-            };
-
-            public void Restore(Server.MirDatabase.QuestInfo q)
-            {
-                q.Description.Clear(); q.Description.AddRange(description);
-                q.TaskDescription.Clear(); q.TaskDescription.AddRange(taskDescription);
-                q.ReturnDescription.Clear(); q.ReturnDescription.AddRange(returnDescription);
-                q.CompletionDescription.Clear(); q.CompletionDescription.AddRange(completionDescription);
-                q.CarryItems.Clear(); q.CarryItems.AddRange(carryItems);
-                q.KillTasks = killTasks;
-                q.ItemTasks = itemTasks;
-                q.FlagTasks = flagTasks;
-                q.FixedRewards = fixedRewards;
-                q.SelectRewards = selectRewards;
-                q.ExpReward = expReward;
-                q.GoldReward = goldReward;
-                q.CreditReward = creditReward;
-            }
-
-            /// <summary>Null when the kill / item / flag tasks still line up one-to-one (same count, same monster / item / flag per slot).</summary>
-            public string TaskShapeMismatch(Server.MirDatabase.QuestInfo q)
-            {
-                if (q.KillTasks.Count != killTasks.Count) return "kill tasks " + killTasks.Count + " -> " + q.KillTasks.Count;
-                for (var i = 0; i < killTasks.Count; i++)
-                    if (q.KillTasks[i].Monster?.Index != killTasks[i].Monster?.Index) return "kill task " + (i + 1) + " monster changed";
-                if (q.ItemTasks.Count != itemTasks.Count) return "item tasks " + itemTasks.Count + " -> " + q.ItemTasks.Count;
-                for (var i = 0; i < itemTasks.Count; i++)
-                    if (q.ItemTasks[i].Item?.Index != itemTasks[i].Item?.Index) return "item task " + (i + 1) + " item changed";
-                if (q.FlagTasks.Count != flagTasks.Count) return "flag tasks " + flagTasks.Count + " -> " + q.FlagTasks.Count;
-                for (var i = 0; i < flagTasks.Count; i++)
-                    if (q.FlagTasks[i].Number != flagTasks[i].Number) return "flag task " + (i + 1) + " number changed";
-                return null;
-            }
-
-            /// <summary>
-            /// Points every character's progress entries at the new task objects (so new required counts and messages apply),
-            /// then re-sends the task list to online owners. Only called when <see cref="TaskShapeMismatch"/> is null.
-            /// </summary>
-            public void RebindProgress(Server.MirDatabase.QuestInfo q, List<Server.MirDatabase.CharacterInfo> characters)
-            {
-                for (var c = 0; c < characters.Count; c++)
-                {
-                    var character = characters[c];
-                    if (character?.CurrentQuests == null) continue;
-
-                    for (var p = 0; p < character.CurrentQuests.Count; p++)
-                    {
-                        var progress = character.CurrentQuests[p];
-                        if (progress == null || progress.Info != q) continue;
-
-                        foreach (var k in progress.KillTaskCount)
-                        {
-                            var slot = k.Info == null ? -1 : killTasks.IndexOf(k.Info);
-                            if (slot >= 0) k.Info = q.KillTasks[slot];
-                        }
-                        foreach (var it in progress.ItemTaskCount)
-                        {
-                            var slot = it.Info == null ? -1 : itemTasks.IndexOf(it.Info);
-                            if (slot >= 0) it.Info = q.ItemTasks[slot];
-                        }
-                        foreach (var f in progress.FlagTaskSet)
-                        {
-                            var slot = f.Info == null ? -1 : flagTasks.IndexOf(f.Info);
-                            if (slot >= 0) f.Info = q.FlagTasks[slot];
-                        }
-
-                        var player = character.Player;
-                        if (player != null && player.Info == character && player.Connection != null)
-                            player.SendUpdateQuest(progress, QuestState.Update);
-                    }
-                }
-            }
         }
 
         // ------------------------------------------------------------------ drop class tool

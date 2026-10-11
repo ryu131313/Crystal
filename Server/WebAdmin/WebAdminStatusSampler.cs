@@ -142,7 +142,7 @@ namespace Server.WebAdmin
 
     /// <summary>
     /// Background sampler: every 5 s (only while the web admin host is listening) records players / connections / monsters / cycle delay /
-    /// working set / CPU into a 24 h ring, refreshes the host CPU baseline and turns new audit records into activity events.
+    /// working set / CPU into a 24 h ring, refreshes the host CPU baseline, turns new audit records into activity events and posts the Live Monitor heat capture.
     /// Scalar reads of Envir.Main off the game thread are tolerated (same as the WinForms status timer).
     /// </summary>
     public static class WebAdminStatusSampler
@@ -175,6 +175,15 @@ namespace Server.WebAdmin
                 WebAdminHostMetrics.Sample();
                 Ring.Add(Capture());
                 WebAdminActivity.PollAudit();
+
+                try
+                {
+                    WebAdminMonitor.SampleTick();
+                }
+                catch (Exception ex)
+                {
+                    WebAdminLog.Error(ex, "Live monitor heat sample failed");
+                }
             }
             catch (Exception ex)
             {

@@ -83,6 +83,8 @@ namespace Server
         public static bool MobThreadOnePass = true;    // [Optimisation] MobThreadOnePass: mob threads do one pass per tick
         public static bool EncodeOnce = true;          // [Optimisation] EncodeOnce: a packet sent to many clients is encoded once per pass (roadmap P9)
         public static int HumanProcessMs = 10;         // [Optimisation] HumanProcessMs: players/heroes run Process at most every N ms; 0 = every iteration (roadmap P9)
+        public static bool DueScheduler = true;        // [Optimisation] DueScheduler: process objects from per-thread due-time heaps instead of walking every object every tick; read at world start (roadmap P9-05)
+        public static int MapRespawnCheckMs = 1000;    // [Optimisation] MapRespawnCheckMs: maps check respawns and doors at most every N ms; 0 = every iteration (roadmap P9)
         public static bool LogLoopProfile = false;     // [Diag] LogLoopProfile: one "[Diag] Loop" line per second (Debug log)
         public static int LoadTestLoopbackMaxPacket = 0; // 0 = use MaxPacket
 
@@ -98,6 +100,8 @@ namespace Server
         public static string WebAdminWebRoot = @".\wwwroot";
         public static int WebAdminSessionHours = 8;
         public static int WebAdminMaxBodyKB = 2048;
+        /// <summary>Client Data folder (with MMap.Lib and Map\) the Live Monitor reads for map art; empty = walkability only.</summary>
+        public static string WebAdminClientDataPath = string.Empty;
 
         //Permission
         public static bool AllowNewAccount = true,
@@ -362,6 +366,10 @@ namespace Server
         public static bool BackupRetentionEnabled = false;
         public static int BackupKeepAllHours = 48, BackupKeepHourlyDays = 14, BackupKeepDailyDays = 90;
 
+        //LiveDb (web admin live game-data edits): read at use time
+        public static bool LiveDbEnabled = true;
+        public static int LiveDbBackupEveryMinutes = 10, LiveDbSweepPerTick = 512, LiveDbMaxBatchRows = 2000, LiveDbMaxPushRows = 500;
+
         //Archive Settings
         public static int ArchiveInactiveCharacterAfterMonths = 12;
         public static int ArchiveDeletedCharacterAfterMonths = 1;
@@ -431,6 +439,9 @@ namespace Server
             EncodeOnce = Reader.ReadBoolean("Optimisation", "EncodeOnce", EncodeOnce);
             HumanProcessMs = Math.Max(0, Reader.ReadInt32("Optimisation", "HumanProcessMs", HumanProcessMs));
             if (HumanProcessMs > 50) HumanProcessMs = 50;
+            DueScheduler = Reader.ReadBoolean("Optimisation", "DueScheduler", DueScheduler);
+            MapRespawnCheckMs = Math.Max(0, Reader.ReadInt32("Optimisation", "MapRespawnCheckMs", MapRespawnCheckMs));
+            if (MapRespawnCheckMs > 5000) MapRespawnCheckMs = 5000;
             LogLoopProfile = Reader.ReadBoolean("Diag", "LogLoopProfile", LogLoopProfile);
             LoadTestLoopbackMaxPacket = Math.Max(0, Reader.ReadInt32("LoadTest", "LoopbackMaxPacket", LoadTestLoopbackMaxPacket));
 
@@ -446,6 +457,7 @@ namespace Server
             WebAdminWebRoot = Reader.ReadString("WebAdmin", "WebRoot", WebAdminWebRoot);
             WebAdminSessionHours = Reader.ReadInt32("WebAdmin", "SessionHours", WebAdminSessionHours);
             WebAdminMaxBodyKB = Reader.ReadInt32("WebAdmin", "MaxBodyKB", WebAdminMaxBodyKB);
+            WebAdminClientDataPath = Reader.ReadString("WebAdmin", "ClientDataPath", WebAdminClientDataPath);
 
             //Permission
             AllowNewAccount = Reader.ReadBoolean("Permission", "AllowNewAccount", AllowNewAccount);
@@ -591,6 +603,12 @@ namespace Server
             BackupKeepAllHours = Math.Max(1, Reader.ReadInt32("Backup", "KeepAllHours", BackupKeepAllHours));
             BackupKeepHourlyDays = Math.Max(1, Reader.ReadInt32("Backup", "KeepHourlyDays", BackupKeepHourlyDays));
             BackupKeepDailyDays = Math.Max(1, Reader.ReadInt32("Backup", "KeepDailyDays", BackupKeepDailyDays));
+
+            LiveDbEnabled = Reader.ReadBoolean("LiveDb", "Enabled", LiveDbEnabled);
+            LiveDbBackupEveryMinutes = Math.Max(0, Reader.ReadInt32("LiveDb", "BackupEveryMinutes", LiveDbBackupEveryMinutes));
+            LiveDbSweepPerTick = Math.Max(1, Reader.ReadInt32("LiveDb", "SweepPerTick", LiveDbSweepPerTick));
+            LiveDbMaxBatchRows = Math.Max(1, Reader.ReadInt32("LiveDb", "MaxBatchRows", LiveDbMaxBatchRows));
+            LiveDbMaxPushRows = Math.Max(1, Reader.ReadInt32("LiveDb", "MaxPushRows", LiveDbMaxPushRows));
 
             if (!Directory.Exists(EnvirPath))
                 Directory.CreateDirectory(EnvirPath);
@@ -742,6 +760,8 @@ namespace Server
             Reader.Write("Optimisation", "MobThreadOnePass", MobThreadOnePass);
             Reader.Write("Optimisation", "EncodeOnce", EncodeOnce);
             Reader.Write("Optimisation", "HumanProcessMs", HumanProcessMs);
+            Reader.Write("Optimisation", "DueScheduler", DueScheduler);
+            Reader.Write("Optimisation", "MapRespawnCheckMs", MapRespawnCheckMs);
             Reader.Write("Diag", "LogLoopProfile", LogLoopProfile);
             Reader.Write("LoadTest", "LoopbackMaxPacket", LoadTestLoopbackMaxPacket);
 
@@ -757,6 +777,7 @@ namespace Server
             Reader.Write("WebAdmin", "WebRoot", WebAdminWebRoot);
             Reader.Write("WebAdmin", "SessionHours", WebAdminSessionHours);
             Reader.Write("WebAdmin", "MaxBodyKB", WebAdminMaxBodyKB);
+            Reader.Write("WebAdmin", "ClientDataPath", WebAdminClientDataPath);
 
             //Permission
             Reader.Write("Permission", "AllowNewAccount", AllowNewAccount);
@@ -903,6 +924,12 @@ namespace Server
             Reader.Write("Backup", "KeepAllHours", BackupKeepAllHours);
             Reader.Write("Backup", "KeepHourlyDays", BackupKeepHourlyDays);
             Reader.Write("Backup", "KeepDailyDays", BackupKeepDailyDays);
+
+            Reader.Write("LiveDb", "Enabled", LiveDbEnabled);
+            Reader.Write("LiveDb", "BackupEveryMinutes", LiveDbBackupEveryMinutes);
+            Reader.Write("LiveDb", "SweepPerTick", LiveDbSweepPerTick);
+            Reader.Write("LiveDb", "MaxBatchRows", LiveDbMaxBatchRows);
+            Reader.Write("LiveDb", "MaxPushRows", LiveDbMaxPushRows);
 
             Reader.Write("Game", "TeleportToNPCCost", TeleportToNPCCost);
 

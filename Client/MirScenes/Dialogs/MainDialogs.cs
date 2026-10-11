@@ -1884,14 +1884,28 @@ namespace Client.MirScenes.Dialogs
 
         }
 
+        private int _questIconsUsed;
+
         private void MiniMap_BeforeDraw(object sender, EventArgs e)
         {
+            _questIconsUsed = 0;
+            try
+            {
+                DrawMiniMap();
+            }
+            finally
+            {
+                // Labels not reused by this draw (the NPC left the view or has no quests left).
+                for (int i = QuestIcons.Count - 1; i >= _questIconsUsed; i--)
+                {
+                    QuestIcons[i].Dispose();
+                    QuestIcons.RemoveAt(i);
+                }
+            }
+        }
 
-            foreach (var icon in QuestIcons)
-                icon.Dispose();
-
-            QuestIcons.Clear();
-
+        private void DrawMiniMap()
+        {
             MapControl map = GameScene.Scene.MapControl;
             if (map == null) return;
 
@@ -1999,19 +2013,34 @@ namespace Client.MirScenes.Dialogs
                             break;
                     }
 
-                    QuestIcons.Add(new MirLabel
+                    Point iconLocation = new Point((int)(x - Settings.ScreenWidth + GameScene.Scene.MiniMapDialog.Size.Width) - 6, (int)(y) - 10);
+
+                    if (_questIconsUsed < QuestIcons.Count)
                     {
-                        AutoSize = true,
-                        Parent = GameScene.Scene.MiniMapDialog,
-                        Font = new Font(Settings.FontName, 9f, FontStyle.Bold),
-                        DrawFormat = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter,
-                        Text = text,
-                        ForeColour = color,
-                        Location = new Point((int)(x - Settings.ScreenWidth + GameScene.Scene.MiniMapDialog.Size.Width) - 6, (int)(y) - 10),
-                        NotControl = true,
-                        Visible = true,
-                        Modal = true
-                    });
+                        // Reuse the previous draw's label: disposing and re-creating it on every draw re-rasterised its text
+                        // (GDI) on every minimap redraw. The setters skip unchanged values.
+                        MirLabel icon = QuestIcons[_questIconsUsed];
+                        icon.Text = text;
+                        icon.ForeColour = color;
+                        icon.Location = iconLocation;
+                    }
+                    else
+                    {
+                        QuestIcons.Add(new MirLabel
+                        {
+                            AutoSize = true,
+                            Parent = GameScene.Scene.MiniMapDialog,
+                            Font = new Font(Settings.FontName, 9f, FontStyle.Bold),
+                            DrawFormat = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter,
+                            Text = text,
+                            ForeColour = color,
+                            Location = iconLocation,
+                            NotControl = true,
+                            Visible = true,
+                            Modal = true
+                        });
+                    }
+                    _questIconsUsed++;
                 }
 
                 #endregion

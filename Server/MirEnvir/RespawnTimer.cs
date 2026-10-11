@@ -85,8 +85,14 @@
         }
         public void Save(BinaryWriter writer)
         {
+            Save(writer, CurrentTickcounter);
+        }
+
+        /// <summary>Same layout as <see cref="Save(BinaryWriter)"/> with another tick counter (Envir.Edit writes Main's published one, F4).</summary>
+        public void Save(BinaryWriter writer, ulong tickCounter)
+        {
             writer.Write(BaseSpawnRate);
-            writer.Write(CurrentTickcounter);
+            writer.Write(tickCounter);
             writer.Write(Respawn.Count);
             foreach (RespawnTickOption Option in Respawn)
                 Option.Save(writer);

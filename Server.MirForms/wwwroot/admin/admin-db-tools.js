@@ -471,6 +471,13 @@
       return;
     }
 
+    // MirCraft LiveDb ([LiveDb] Enabled): the deletes go in one batch (saved at once; live where the table allows it).
+    if (global.MirLiveDb && MirLiveDb.enabled && MirLiveDb.enabled() && MirLiveDb.deleteRows) {
+      var applied = await MirLiveDb.deleteRows(ctx.endpoint, realIdx);
+      if (applied && ctx.reload) ctx.reload();
+      return;
+    }
+
     var ok = await portalConfirm('Delete ' + realIdx.length + ' saved row(s) from ' + ctx.endpoint +
       '? The database is backed up before it is saved. The live game drops them on the next world restart.');
     if (!ok) return;

@@ -440,6 +440,8 @@ public abstract class Packet
                 return new S.StorageUnlockResult();
             case (short)ServerPacketIds.StoragePasswordResult:
                 return new S.StoragePasswordResult();
+            case (short)ServerPacketIds.GameDataChanged:
+                return new S.GameDataChanged();
             case (short)ServerPacketIds.Login:
                 return new S.Login();
             case (short)ServerPacketIds.LoginBanned:

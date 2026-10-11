@@ -205,6 +205,50 @@ public class ItemInfo
 
 
 
+    /// <summary>
+    /// Copies every field of <paramref name="other"/> onto this instance (Stats as a fresh copy). The client uses it to update an
+    /// ItemInfo it already holds in place, so every UserItem.Info that points at it sees the new values (LiveDb push, relog).
+    /// Not part of any wire or DB format.
+    /// </summary>
+    public void CopyFrom(ItemInfo other)
+    {
+        if (other == null || ReferenceEquals(other, this)) return;
+
+        Index = other.Index;
+        Name = other.Name;
+        Type = other.Type;
+        Grade = other.Grade;
+        RequiredType = other.RequiredType;
+        RequiredClass = other.RequiredClass;
+        RequiredGender = other.RequiredGender;
+        Set = other.Set;
+        Shape = other.Shape;
+        Weight = other.Weight;
+        Light = other.Light;
+        RequiredAmount = other.RequiredAmount;
+        Image = other.Image;
+        Durability = other.Durability;
+        Price = other.Price;
+        StackSize = other.StackSize;
+        StartItem = other.StartItem;
+        Effect = other.Effect;
+        NeedIdentify = other.NeedIdentify;
+        ShowGroupPickup = other.ShowGroupPickup;
+        GlobalDropNotify = other.GlobalDropNotify;
+        ClassBased = other.ClassBased;
+        LevelBased = other.LevelBased;
+        CanMine = other.CanMine;
+        CanFastRun = other.CanFastRun;
+        CanAwakening = other.CanAwakening;
+        Bind = other.Bind;
+        Unique = other.Unique;
+        RandomStatsId = other.RandomStatsId;
+        RandomStats = other.RandomStats;
+        ToolTip = other.ToolTip;
+        Slots = other.Slots;
+        Stats = other.Stats != null ? new Stats(other.Stats) : new Stats();
+    }
+
     public void Save(BinaryWriter writer)
     {
         writer.Write(Index);

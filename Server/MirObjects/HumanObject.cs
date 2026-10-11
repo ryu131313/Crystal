@@ -210,6 +210,7 @@ namespace Server.MirObjects
         public bool ActiveBlizzard, ActiveReincarnation, ActiveSwiftFeet, ReincarnationReady;
         public HumanObject ReincarnationTarget, ReincarnationHost;
         public long ReincarnationExpireTime;
+        private long PartnerBuffCheckTime;
 
         public long LastRevivalTime;
         public float HpDrain = 0;
@@ -314,7 +315,7 @@ namespace Server.MirObjects
                 ProcessItems();
             }
 
-            for (int i = Pets.Count() - 1; i >= 0; i--)
+            for (int i = Pets.Count - 1; i >= 0; i--)
             {
                 MonsterObject pet = Pets[i];
                 if (pet.Dead) Pets.Remove(pet);
@@ -411,7 +412,7 @@ namespace Server.MirObjects
         protected virtual void ProcessBuffs()
         {
             bool refresh = false;
-            bool clearRing = false, skill = false, gm = false, mentor = false, lover = false;
+            bool clearRing = false, skill = false, gm = false, mentor = false, lover = false, newbie = false;
 
             for (int i = Buffs.Count - 1; i >= 0; i--)
             {
@@ -447,6 +448,9 @@ namespace Server.MirObjects
                     case BuffType.Lover:
                         lover = true;
                         if (Info.Married == 0) buff.FlagForRemoval = true;
+                        break;
+                    case BuffType.Newbie:
+                        newbie = true;
                         break;
                 }
 
@@ -522,36 +526,41 @@ namespace Server.MirObjects
                 AddBuff(BuffType.Skill, this, 0, new Stats { [Stat.SkillGainMultiplier] = 3 }, false);
             }
 
-            if (Info.Mentor != 0 && !mentor)
+            // Partners are found by character index among online players; while one is offline, retry once a second, not every tick.
+            if (((Info.Mentor != 0 && !mentor) || (Info.Married != 0 && !lover)) && Envir.Time >= PartnerBuffCheckTime)
             {
-                CharacterInfo partnerC = Envir.GetCharacterInfo(Info.Mentor);
-                PlayerObject partnerP = partnerC != null ? Envir.GetPlayer(partnerC.Name) : null;
+                PartnerBuffCheckTime = Envir.Time + Settings.Second;
 
-                if (partnerP != null)
+                if (Info.Mentor != 0 && !mentor)
                 {
-                    if (Info.IsMentor)
+                    PlayerObject partnerP = Envir.GetPlayer((uint)Info.Mentor);
+
+                    if (partnerP != null)
                     {
-                        AddBuff(BuffType.Mentor, partnerP, 0, new Stats { [Stat.MentorDamageRatePercent] = Settings.MentorDamageBoost });
+                        if (Info.IsMentor)
+                        {
+                            AddBuff(BuffType.Mentor, partnerP, 0, new Stats { [Stat.MentorDamageRatePercent] = Settings.MentorDamageBoost });
+                        }
+                        else
+                        {
+                            AddBuff(BuffType.Mentee, partnerP, 0, new Stats { [Stat.MentorExpRatePercent] = Settings.MentorExpBoost });
+                        }
                     }
-                    else
+                }
+
+                if (Info.Married != 0 && !lover)
+                {
+                    PlayerObject loverP = Envir.GetPlayer((uint)Info.Married);
+
+                    if (loverP != null)
                     {
-                        AddBuff(BuffType.Mentee, partnerP, 0, new Stats { [Stat.MentorExpRatePercent] = Settings.MentorExpBoost });
+                        AddBuff(BuffType.Lover, loverP, 0, new Stats { [Stat.LoverExpRatePercent] = Settings.LoverEXPBonus });
                     }
                 }
             }
 
-            if (Info.Married != 0 && !lover)
-            {
-                CharacterInfo loverC = Envir.GetCharacterInfo(Info.Married);
-                PlayerObject loverP = loverC != null ? Envir.GetPlayer(loverC.Name) : null;
-
-                if (loverP != null)
-                {
-                    AddBuff(BuffType.Lover, loverP, 0, new Stats { [Stat.LoverExpRatePercent] = Settings.LoverEXPBonus });
-                }
-            }
-
-            if (MyGuild != null && MyGuild.Name == Settings.NewbieGuild && Settings.NewbieGuildBuffEnabled == true)
+            // Newbie is Infinite, so re-adding it changed nothing but cost an AddBuff packet and a RefreshStats every tick.
+            if (!newbie && MyGuild != null && MyGuild.Name == Settings.NewbieGuild && Settings.NewbieGuildBuffEnabled == true)
             {
                 AddBuff(BuffType.Newbie, this, 0, new Stats { [Stat.ExpRatePercent] = Settings.NewbieGuildExpBuff });
             }
@@ -1491,9 +1500,10 @@ namespace Server.MirObjects
 
                         if (item.Info.GlobalDropNotify)
                         {
+                            var notice = GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.PlayerHasDroppedItem), Name, item.FriendlyName);
                             foreach (var player in Envir.Players)
                             {
-                                player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.PlayerHasDroppedItem), Name, item.FriendlyName), ChatType.System2);
+                                player.ReceiveChat(notice, ChatType.System2);
                             }
                         }
 
@@ -1565,10 +1575,13 @@ namespace Server.MirObjects
                         continue;
 
                     if (item.Info.GlobalDropNotify)
+                    {
+                        var notice = GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.PlayerHasDroppedItem), Name, item.FriendlyName);
                         foreach (var player in Envir.Players)
                         {
-                            player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.PlayerHasDroppedItem), Name, item.FriendlyName), ChatType.System2);;
+                            player.ReceiveChat(notice, ChatType.System2);
                         }
+                    }
 
                     Info.Inventory[i] = null;
                     Enqueue(new S.DeleteItem { UniqueID = item.UniqueID, Count = item.Count });
@@ -2509,7 +2522,7 @@ namespace Server.MirObjects
             
             Enqueue(new S.UserLocation { Direction = Direction, Location = CurrentLocation });
             Broadcast(new S.ObjectWalk { ObjectID = ObjectID, Direction = Direction, Location = CurrentLocation });
-            GetPlayerLocation();
+            SendLocationToGroup();
 
             cell = CurrentMap.GetCell(CurrentLocation);
 
@@ -2638,7 +2651,7 @@ namespace Server.MirObjects
                 ChangeHP(-1);
             }
 
-            GetPlayerLocation();
+            SendLocationToGroup();
 
             for (int j = 1; j <= steps; j++)
             {
@@ -2695,7 +2708,7 @@ namespace Server.MirObjects
 
                 Enqueue(new S.Pushed { Direction = Direction, Location = CurrentLocation });
                 Broadcast(new S.ObjectPushed { ObjectID = ObjectID, Direction = Direction, Location = CurrentLocation });
-                GetPlayerLocation();
+                SendLocationToGroup();
                 result++;
             }
 
@@ -2752,6 +2765,28 @@ namespace Server.MirObjects
                 Enqueue(new S.SendMemberLocation { MemberName = member.Name, MemberLocation = member.CurrentLocation });
             }
             Enqueue(new S.SendMemberLocation { MemberName = Name, MemberLocation = CurrentLocation });
+        }
+
+        /// <summary>
+        /// Step variant of <see cref="GetPlayerLocation"/>: sends only this player's new location, as one shared packet.
+        /// The other members' locations don't change when this player steps; they are exchanged in full on group join and
+        /// map changes, and each member sends its own on its steps.
+        /// </summary>
+        protected void SendLocationToGroup()
+        {
+            if (GroupMembers == null) return;
+
+            var packet = new S.SendMemberLocation { MemberName = Name, MemberLocation = CurrentLocation };
+
+            for (int i = 0; i < GroupMembers.Count; i++)
+            {
+                PlayerObject member = GroupMembers[i];
+
+                if (member == this || member.CurrentMap.Info.BigMap <= 0) continue;
+
+                member.Enqueue(packet);
+            }
+            Enqueue(packet);
         }
 
 
@@ -4091,9 +4126,9 @@ namespace Server.MirObjects
             }
             else if (target.Respawn != null)
             {
-                target.Respawn.Count--;
-                Envir.MonsterCount--;
-                CurrentMap.MonsterCount--;
+                Interlocked.Decrement(ref target.Respawn.Count);
+                Interlocked.Decrement(ref Envir.MonsterCount);
+                Interlocked.Decrement(ref CurrentMap.MonsterCount);
                 target.Respawn = null;
             }
 
@@ -6922,9 +6957,8 @@ namespace Server.MirObjects
             {
                 if (HasBuff(BuffType.Mentee, out _))
                 {
-                    CharacterInfo mentor = Envir.GetCharacterInfo(Info.Mentor);
-                    PlayerObject player = Envir.GetPlayer(mentor.Name);
-                    if (player.CurrentMap == CurrentMap && Functions.InRange(player.CurrentLocation, CurrentLocation, Globals.DataRange) && !player.Dead)
+                    PlayerObject player = Envir.GetPlayer((uint)Info.Mentor);
+                    if (player != null && player.CurrentMap == CurrentMap && Functions.InRange(player.CurrentLocation, CurrentLocation, Globals.DataRange) && !player.Dead)
                     {
                         if (Stats[Stat.SkillGainMultiplier] == 1)
                         {

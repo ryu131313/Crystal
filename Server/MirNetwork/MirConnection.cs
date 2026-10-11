@@ -236,15 +236,15 @@ namespace Server.MirNetwork
 
             BeginReceive();
         }
-        private void BeginSend(List<byte> data)
+        private void BeginSend(byte[] data)
         {
-            if (!Connected || data.Count == 0) return;
+            if (!Connected || data.Length == 0) return;
 
-            //Interlocked.Add(ref Network.Sent, data.Count);
+            //Interlocked.Add(ref Network.Sent, data.Length);
 
             try
             {
-                _client.Client.BeginSend(data.ToArray(), 0, data.Count, SocketFlags.None, SendData, Disconnecting);
+                _client.Client.BeginSend(data, 0, data.Length, SocketFlags.None, SendData, Disconnecting);
             }
             catch
             {
@@ -367,22 +367,44 @@ namespace Server.MirNetwork
                 return;
             }
 
-            if (_sendList == null || _sendList.Count <= 0) return;
+            if (_sendList == null || _sendList.IsEmpty) return;
 
-            List<byte> data = new List<byte>();
-            var sent = 0;
-
-            while (!_sendList.IsEmpty)
+            // Encode first, then copy into one exact-size array: no List<byte> growth and no ToArray copy.
+            // The array is handed to the socket, so it can't be reused; the scratch list only holds references.
+            byte[] data;
+            try
             {
-                Packet p;
-                if (!_sendList.TryDequeue(out p) || p == null) continue;
-                data.AddRange(Encode(p));
-                sent++;
+                var total = 0;
+                while (_sendList.TryDequeue(out var p))
+                {
+                    if (p == null) continue;
+                    var bytes = Encode(p);
+                    SendScratch.Add(bytes);
+                    total += bytes.Length;
+                }
+
+                data = new byte[total];
+                var offset = 0;
+                for (int i = 0; i < SendScratch.Count; i++)
+                {
+                    var bytes = SendScratch[i];
+                    Buffer.BlockCopy(bytes, 0, data, offset, bytes.Length);
+                    offset += bytes.Length;
+                }
+
+                LoopProfiler.CountPacketsOut(SendScratch.Count, total);
+            }
+            finally
+            {
+                // Always cleared, so an isolated encode failure can't leak this connection's bytes into the next flush.
+                SendScratch.Clear();
             }
 
-            LoopProfiler.CountPacketsOut(sent, data.Count);
             BeginSend(data);
         }
+
+        /// <summary>Encoded packets of the connection being flushed. Game thread only (Process); cleared after every flush.</summary>
+        private static readonly List<byte[]> SendScratch = new List<byte[]>();
         private void ProcessPacket(Packet p)
         {
             if (p == null || Disconnecting) return;
@@ -942,11 +964,7 @@ namespace Server.MirNetwork
             
             Disconnecting = true;
 
-            List<byte> data = new List<byte>();
-
-            data.AddRange(new S.Disconnect { Reason = reason }.GetPacketBytes());
-
-            BeginSend(data);
+            BeginSend(ToBytes(new S.Disconnect { Reason = reason }));
             SoftDisconnect(reason);
         }
         public void CleanObservers()
@@ -979,11 +997,7 @@ namespace Server.MirNetwork
                 {
                     Disconnecting = true;
 
-                    List<byte> data = new List<byte>();
-
-                    data.AddRange(new S.ClientVersion { Result = 0 }.GetPacketBytes());
-
-                    BeginSend(data);
+                    BeginSend(ToBytes(new S.ClientVersion { Result = 0 }));
                     SoftDisconnect(10);
                     MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.PlayerDisconnectedWrongClientVersion), SessionID));
                     return;

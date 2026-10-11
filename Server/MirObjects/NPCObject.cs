@@ -65,6 +65,12 @@ namespace Server.MirObjects
             ScriptID = script.ScriptID;
         }
 
+        /// <summary>LiveDb: binds the script of the current Info.FileName (game thread; the caller handles Quests / Speech / goods).</summary>
+        internal void ReloadScript()
+        {
+            LoadScript();
+        }
+
         public void ProcessGoods(bool clear = false)
         {
             if (!Settings.GoodsOn) return;

@@ -27,7 +27,7 @@ namespace Server.MirObjects
         public long ExplosionInflictedTime;
         public int ExplosionInflictedStage;
 
-        private int SpawnThread;
+        internal int SpawnThread;
 
         private Map _currentMap;
         public Map CurrentMap
@@ -151,8 +151,33 @@ namespace Server.MirObjects
         }
 
         public MapObject LastHitter, EXPOwner, Owner;
-        public long ExpireTime, OwnerTime, OperateTime;
+        public long ExpireTime, OwnerTime;
         public int OperateDelay = 100;
+
+        private long _operateTime;
+        /// <summary>
+        /// The object is processed once <c>Envir.Time &gt; OperateTime</c>. With <c>[Optimisation] DueScheduler</c> (roadmap P9-05) a
+        /// write that makes the object due earlier than its scheduled entry wakes its owner's <see cref="ObjectScheduler"/>, so
+        /// <c>OperateTime = 0</c> from any thread still means "process on the next pass".
+        /// </summary>
+        public long OperateTime
+        {
+            get { return _operateTime; }
+            set
+            {
+                _operateTime = value;
+                if (Node == null) return;
+                // Full fence between this write and the ScheduledDue read; pairs with ObjectScheduler.Schedule (publish, re-read).
+                Interlocked.MemoryBarrier();
+                if (value < Volatile.Read(ref ScheduledDue) - 1)
+                    Envir.WakeObject(this);
+            }
+        }
+
+        /// <summary>Due time of this object's live <see cref="ObjectScheduler"/> entry; long.MaxValue = none. Written by schedulers only.</summary>
+        internal long ScheduledDue = long.MaxValue;
+        /// <summary>World run this object was last spawned in (<see cref="Envir"/> WorldGeneration); schedulers ignore older ones.</summary>
+        internal int SpawnedGeneration;
 
         public Stats Stats;
 
@@ -341,13 +366,17 @@ namespace Server.MirObjects
             if (Node != null)
                 throw new InvalidOperationException("Node is not null, Object already spawned");
 
-            Node = Envir.Objects.AddLast(this);
+            // Link/Unlink defer the list change to the mob barrier when called from a mob pass (no concurrent LinkedList writes).
+            Node = Envir.LinkObject(Envir.Objects, this);
             if ((Race == ObjectType.Monster) && Settings.Multithreaded)
             {
                 SpawnThread = CurrentMap.Thread;
-                NodeThreaded = Envir.MobThreads[SpawnThread].ObjectsList.AddLast(this);
+                NodeThreaded = Envir.LinkObject(Envir.MobThreads[SpawnThread].ObjectsList, this);
             }
 
+            // A fresh life: forget any entry from a previous one, so the OperateTime write below always wakes the scheduler.
+            Volatile.Write(ref ScheduledDue, long.MaxValue);
+            SpawnedGeneration = Envir.WorldGeneration;
             OperateTime = Envir.Time + Envir.Random.Next(OperateDelay);
 
             BroadcastInfo();
@@ -361,10 +390,11 @@ namespace Server.MirObjects
                 throw new InvalidOperationException("Node is null, Object already Despawned");
             
             Broadcast(new S.ObjectRemove { ObjectID = ObjectID });
-            Envir.Objects.Remove(Node);
+            Envir.UnlinkObject(Envir.Objects, Node);
             if (Settings.Multithreaded && (Race == ObjectType.Monster))
             {
-                Envir.MobThreads[SpawnThread].ObjectsList.Remove(NodeThreaded);
+                Envir.UnlinkObject(Envir.MobThreads[SpawnThread].ObjectsList, NodeThreaded);
+                NodeThreaded = null;
             }
 
             ActionList.Clear();
@@ -373,6 +403,20 @@ namespace Server.MirObjects
                 Pets[i].Die();
 
             Node = null;
+        }
+
+        /// <summary>
+        /// Outside a mob pass only: after a monster changed map, moves it to the new map's mob thread, so one map is never processed
+        /// by two mob threads. The due scheduler follows SpawnThread (the old owner forwards the entry when it next pops it).
+        /// </summary>
+        internal void SyncSpawnThread()
+        {
+            if (Race != ObjectType.Monster || !Settings.Multithreaded || Node == null || CurrentMap == null) return;
+            if (CurrentMap.Thread == SpawnThread) return;
+
+            Envir.UnlinkObject(Envir.MobThreads[SpawnThread].ObjectsList, NodeThreaded);
+            SpawnThread = CurrentMap.Thread;
+            NodeThreaded = Envir.LinkObject(Envir.MobThreads[SpawnThread].ObjectsList, this);
         }
 
         public MapObject FindObject(uint targetID, int dist)
@@ -717,7 +761,26 @@ namespace Server.MirObjects
 
         public bool HasAnyBuffs(BuffType exceptBuff, params BuffType[] types)
         {
-            return Buffs.Select(x => x.Type).Except(new List<BuffType> { exceptBuff }).Intersect(types).Any();
+            for (int i = 0; i < Buffs.Count; i++)
+            {
+                var type = Buffs[i].Type;
+                if (type == exceptBuff) continue;
+
+                for (int j = 0; j < types.Length; j++)
+                    if (type == types[j]) return true;
+            }
+
+            return false;
+        }
+
+        // The packet keeps the list, so it is new per call; this only avoids the LINQ chain.
+        protected List<BuffType> GetVisibleBuffTypes()
+        {
+            var list = new List<BuffType>(Buffs.Count);
+            for (int i = 0; i < Buffs.Count; i++)
+                if (Buffs[i].Info.Visible) list.Add(Buffs[i].Type);
+
+            return list;
         }
 
         public virtual void PauseBuff(Buff b)

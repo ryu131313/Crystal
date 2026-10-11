@@ -1,6 +1,6 @@
 # Crystal Operator Runbook (deploy, rollback, restore)
 
-> **Scope:** how to put a new build into the live run folders (`Build\Server\Debug`, `Build\Client\Debug`) safely, how to roll back, and how to rehearse a restore. Written for roadmap phase P0 (2026-10-10).
+> **Scope:** how to put a new build into the live run folders (`Build\Server\Release`, `Build\Client\Release` since 2026-10-11; previously `Debug`) safely, how to roll back, and how to rehearse a restore. Written for roadmap phase P0 (2026-10-10).
 > **Who runs this:** the operator (you). Agents build to scratch and stop there. They never deploy, and never touch `Build\` (AGENTS.md).
 
 ---
@@ -21,7 +21,7 @@ powershell -ExecutionPolicy Bypass -File C:\Mir2\tools\verify.ps1 -Scratch D:\mi
 3. **Preview:**
    ```powershell
    powershell -ExecutionPolicy Bypass -File C:\Mir2\tools\deploy-with-backup.ps1 -Kind Server `
-     -Source D:\mir2-out\Server -Target C:\Mir2\Build\Server\Debug -BackupRoot D:\Mir2Backups -DryRun
+     -Source D:\mir2-out\Server -Target C:\Mir2\Build\Server\Release -BackupRoot D:\Mir2Backups -DryRun
    ```
 4. **Deploy:** run the same command without `-DryRun`. The script:
    - snapshots all data plus the outgoing binaries into `D:\Mir2Backups\Server-<timestamp>\`;

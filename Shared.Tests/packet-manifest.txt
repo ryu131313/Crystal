@@ -278,6 +278,7 @@ S	275	SendMemberLocation	SendMemberLocation	1	2EAAEE9C
 S	276	GuildTerritoryPage	GuildTerritoryPage	1	319BB764
 S	277	StorageUnlockResult	StorageUnlockResult	1	3217D722
 S	278	StoragePasswordResult	StoragePasswordResult	1	C5838BD9
+S	279	GameDataChanged	GameDataChanged	0	B16EF489
 C	0	ClientVersion	ClientVersion	1	BA76D321
 C	1	Disconnect	Disconnect	1	E3B0C442
 C	2	KeepAlive	KeepAlive	1	1AC00927

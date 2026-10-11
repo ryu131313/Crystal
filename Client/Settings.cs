@@ -79,6 +79,9 @@ namespace Client
         public static RendererType Renderer = RendererType.D3D11; // [Graphics] Renderer: D3D11 (default since roadmap C4 QA, falls back to D3D9 if it cannot start) or D3D9
         public static int Resolution = 1024;
         public static bool DebugMode = false;
+        // [Graphics] RebuildOptimisations: fewer UI/map render-target rebuilds (live skill-bar/minimap overlays, no blind 100 ms map
+        // tick, off-screen frames skipped). False restores the old invalidation behaviour for A/B checks and rollback.
+        public static bool RebuildOptimisations = true;
 
         //Network
         public static bool UseConfig = false;
@@ -220,6 +223,7 @@ namespace Client
             Renderer = Enum.TryParse(Reader.ReadString("Graphics", "Renderer", Renderer.ToString()), true, out RendererType renderer) ? renderer : RendererType.D3D11;
             Resolution = Reader.ReadInt32("Graphics", "Resolution", Resolution);
             DebugMode = Reader.ReadBoolean("Graphics", "DebugMode", DebugMode);
+            RebuildOptimisations = Reader.ReadBoolean("Graphics", "RebuildOptimisations", RebuildOptimisations);
             UseMouseCursors = Reader.ReadBoolean("Graphics", "UseMouseCursors", UseMouseCursors);
 
             //Network
@@ -350,6 +354,7 @@ namespace Client
             Reader.Write("Logs", "LogChat", LogChat);
             Reader.Write("Graphics", "Resolution", Resolution);
             Reader.Write("Graphics", "DebugMode", DebugMode);
+            Reader.Write("Graphics", "RebuildOptimisations", RebuildOptimisations);
             Reader.Write("Graphics", "UseMouseCursors", UseMouseCursors);
 
             //Sound

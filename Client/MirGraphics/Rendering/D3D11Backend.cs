@@ -96,6 +96,7 @@ namespace Client.MirGraphics.Rendering
         private ID3D11DeviceContext _context;
         private IDXGISwapChain1 _swapChain;
         private bool _allowTearing;
+        private bool _bltModel;   // swap model chosen at Create: blit when uncapped, flip with vsync (see Create)
         private SwapChainFlags _swapChainFlags;
 
         private ID3D11VertexShader _vs;
@@ -110,6 +111,7 @@ namespace Client.MirGraphics.Rendering
 
         private RenderTexture _backBuffer, _target, _white;
         private ID3D11Texture2D _lastFrame;   // copy of the back buffer taken just before Present (screenshots)
+        private bool _lastFrameFresh;         // _lastFrame holds the most recently presented frame
 
         private DeviceState _state, _saved;
         private bool _hasSaved;
@@ -155,15 +157,20 @@ namespace Client.MirGraphics.Rendering
             // been bound to the window yet and the D3D9 fallback gets a clean HWND.
             CreatePipeline();
 
-            // At most one queued frame: D3D9's windowed Discard swap had no extra queue (review: up to 2 frames more input lag).
-            using (IDXGIDevice1 dxgiDevice1 = _device.QueryInterfaceOrNull<IDXGIDevice1>())
-                dxgiDevice1?.SetMaximumFrameLatency(1);
+            ApplyFrameLatency();
 
             using (IDXGIDevice dxgiDevice = _device.QueryInterface<IDXGIDevice>())
             using (IDXGIAdapter adapter = dxgiDevice.GetAdapter())
             using (IDXGIFactory2 factory = adapter.GetParent<IDXGIFactory2>())
             {
-                _allowTearing = QueryTearing(factory);
+                // Swap model (2026-10-11 bench, uncapped login scene, Release): windowed flip 6,700-7,100 fps, blit 11,200-11,700,
+                // D3D9 10,400-10,600; borderless fullscreen flip ~7,600, blit ~8,500. A windowed flip present costs ~0.13 ms against
+                // ~0.08 ms for a blit, which is the whole frame at these rates. Uncapped (FPSCap=false) therefore uses the blit model,
+                // like D3D9 windowed. With vsync the flip model stays: lower latency (independent flip in borderless fullscreen) and
+                // variable refresh, neither of which matters when presenting far above the refresh rate. The blit model cannot use
+                // the tearing flag; its Present(0) is not paced by DWM, so it needs none.
+                _bltModel = !vsync;
+                _allowTearing = !_bltModel && QueryTearing(factory);
                 _swapChainFlags = _allowTearing ? SwapChainFlags.AllowTearing : SwapChainFlags.None;
                 var description = new SwapChainDescription1
                 {
@@ -173,9 +180,9 @@ namespace Client.MirGraphics.Rendering
                     Stereo = false,
                     SampleDescription = new SampleDescription(1, 0),
                     BufferUsage = Usage.RenderTargetOutput,
-                    BufferCount = 3,                    // a spare while DWM holds one (flip-model guidance)
+                    BufferCount = _bltModel ? 1u : 3u,  // flip: a spare while DWM holds one (flip-model guidance)
                     Scaling = Scaling.Stretch,          // borderless fullscreen: DXGI stretches the game-sized buffer
-                    SwapEffect = SwapEffect.FlipDiscard,
+                    SwapEffect = _bltModel ? SwapEffect.Discard : SwapEffect.FlipDiscard,
                     AlphaMode = AlphaMode.Ignore,
                     Flags = _swapChainFlags,
                 };
@@ -313,6 +320,19 @@ float4 Grayscale_PS(VSOut i) : SV_Target
             _context.OMSetDepthStencilState(_depthOff);
             _boundAlphaTest = uint.MaxValue;
             BindTarget(_target ?? _backBuffer);
+        }
+
+        /// <summary>
+        /// Frames the CPU may queue ahead of the GPU. With vsync, one: every queued frame is a whole refresh of input lag, and
+        /// D3D9's windowed Discard swap had no extra queue (review: up to 2 frames more input lag). Uncapped, three (the D3D9
+        /// driver default): a queued frame is a fraction of a millisecond, and with one the CPU waited for the GPU on every
+        /// Present, which held D3D11 to ~1,700 fps where D3D9 ran ~10,000 on the login scene (2026-10-11 bench: 1 = 1,704 fps,
+        /// 2 = 2,846, 3 = 5,287, 4+ = ~6,000).
+        /// </summary>
+        private void ApplyFrameLatency()
+        {
+            using (IDXGIDevice1 dxgiDevice1 = _device.QueryInterfaceOrNull<IDXGIDevice1>())
+                dxgiDevice1?.SetMaximumFrameLatency(_vsync ? 1u : 3u);
         }
 
         private void CreateBackBuffer()
@@ -467,13 +487,15 @@ float4 Grayscale_PS(VSOut i) : SV_Target
 
         public void EndScene() => Flush();
 
-        public void Present()
+        public void Present(bool keepFrame)
         {
             Flush();
-            KeepLastFrame();
-            // Tearing only where D3D9 tore too: uncapped fullscreen (D3D9 exclusive + Immediate). Windowed D3D9 was composed by
-            // DWM and never tore, so windowed D3D11 presents without the tearing flag.
-            PresentFlags flags = !_vsync && !_windowed && _allowTearing ? PresentFlags.AllowTearing : PresentFlags.None;
+            _lastFrameFresh = keepFrame;
+            if (keepFrame) KeepLastFrame();
+            // Uncapped presents use the blit model (see Create), which is never paced by DWM. A flip-model swap chain (vsync)
+            // would need the tearing flag to run uncapped windowed: without it DWM paces it to the refresh rate. _allowTearing
+            // is false for the blit model, where the flag is invalid.
+            PresentFlags flags = !_vsync && _allowTearing ? PresentFlags.AllowTearing : PresentFlags.None;
             Result result = _swapChain.Present(_vsync ? 1u : 0u, flags);
             if (result.Code == Vortice.DXGI.ResultCode.DeviceRemoved.Code || result.Code == Vortice.DXGI.ResultCode.DeviceReset.Code)
                 throw new DeviceLostException("D3D11 device removed/reset at Present (0x" + result.Code.ToString("X8") + ")");
@@ -779,9 +801,10 @@ float4 Grayscale_PS(VSOut i) : SV_Target
             _count = 0;
             Array.Clear(_textures, 0, _textures.Length);
 
-            if (DeviceRemoved || _swapChain == null || _pixelBuffer == null)
+            if (DeviceRemoved || _swapChain == null || _pixelBuffer == null || _bltModel != !vsync)
             {
                 // TDR / driver reset: the only real device loss in D3D11. Rebuild everything; DXManager re-creates its textures.
+                // Also when vsync changed: ResizeBuffers cannot switch between the blit and flip swap models.
                 ReleaseAll();
                 Create(_hwnd, width, height, windowed, vsync);
                 return;
@@ -790,6 +813,7 @@ float4 Grayscale_PS(VSOut i) : SV_Target
             _context.ClearState();
             ReleaseBackBuffer();
             _context.Flush();
+            ApplyFrameLatency(); // vsync may have changed
             // Re-pass the creation flags: ResizeBuffers replaces them and would drop ALLOW_TEARING.
             _swapChain.ResizeBuffers(0, (uint)Math.Max(1, width), (uint)Math.Max(1, height), DxgiFormat.Unknown, _swapChainFlags);
             CreateBackBuffer();
@@ -854,13 +878,14 @@ float4 Grayscale_PS(VSOut i) : SV_Target
         public Bitmap CaptureBackBuffer()
         {
             byte[] bytes;
-            if (_lastFrame != null)
+            bool useCopy = _lastFrame != null && _lastFrameFresh;
+            if (useCopy)
                 bytes = Read(_lastFrame, (int)_lastFrame.Description.Width, (int)_lastFrame.Description.Height);
             else
                 using (ID3D11Texture2D buffer = _swapChain.GetBuffer<ID3D11Texture2D>(0))
                     bytes = Read(buffer, _backBuffer.Width, _backBuffer.Height);
-            int width = _lastFrame != null ? (int)_lastFrame.Description.Width : _backBuffer.Width;
-            int height = _lastFrame != null ? (int)_lastFrame.Description.Height : _backBuffer.Height;
+            int width = useCopy ? (int)_lastFrame.Description.Width : _backBuffer.Width;
+            int height = useCopy ? (int)_lastFrame.Description.Height : _backBuffer.Height;
             for (int i = 3; i < bytes.Length; i += 4) bytes[i] = 255; // the swap chain ignores alpha
             var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb);
             var data = bitmap.LockBits(new Rectangle(0, 0, bitmap.Width, bitmap.Height), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);

@@ -1309,7 +1309,7 @@ namespace Server.MirObjects
                 ElementOrbLvl = (uint)ElementsLevel,
                 ElementOrbMax = (uint)Settings.OrbsExpList[Settings.OrbsExpList.Count - 1],
 
-                Buffs = Buffs.Where(d => d.Info.Visible).Select(e => e.Type).ToList(),
+                Buffs = GetVisibleBuffTypes(),
 
                 LevelEffects = LevelEffects,
                 OwnerName = Owner.Name

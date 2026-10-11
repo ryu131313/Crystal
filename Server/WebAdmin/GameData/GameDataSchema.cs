@@ -75,6 +75,8 @@ namespace Server.WebAdmin.GameData
                 ["properties"] = properties,
                 ["columnGroups"] = groups,
                 ["presets"] = presets,
+                ["liveTable"] = LiveDb.LiveDbClassification.IsLiveTable(table.Endpoint),
+                ["liveInsert"] = LiveDb.LiveDbClassification.InsertLive(table.Endpoint),
             };
         }
 
@@ -157,6 +159,15 @@ namespace Server.WebAdmin.GameData
 
             if (c.Multiline) p["multiline"] = true;
             if (c.LiveSafe) p["live"] = true;
+
+            // LiveDb: what a saved change of this column does in this build (ReadThrough / Hooked / RestartOnly) and when it shows.
+            if (c.Table != null && !c.IsParentField)
+            {
+                var rule = LiveDb.LiveDbClassification.Effective(c.Table, c.Name);
+                p["liveClass"] = rule.Class.ToString();
+                p["liveTiming"] = rule.Timing;
+                if (!string.IsNullOrEmpty(rule.Note)) p["liveNote"] = rule.Note;
+            }
             if (c.IsParentField) p["parentField"] = true;
 
             return p;

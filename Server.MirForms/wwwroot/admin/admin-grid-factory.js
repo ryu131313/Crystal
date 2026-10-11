@@ -192,6 +192,47 @@
     };
   }
 
+  // ---- LiveDb (MirCraft): header badges from the schema's liveClass / liveTiming / liveNote ----------------------------
+  // Only while the server's [LiveDb] Enabled is on (global.MirLiveDb, set by admin-gamedata.js from /api/admin/livedb/status).
+  var LIVE_TIMING = {
+    now: 'Live: takes effect in the running world as soon as it is applied.',
+    hook: 'Live: applied to the running world, then a refresh runs (for example spawned monsters are updated over the next ticks).',
+    spawn: 'Live: used from the next spawn / next map entry.',
+    clients: 'Live: sent to connected clients.',
+    restart: 'Restart-only: saved to the database now; the running world uses it after the next world restart.'
+  };
+
+  function liveTip(p) {
+    if (!p || !p.liveClass) return '';
+    var t = LIVE_TIMING[p.liveTiming] || (p.liveClass === 'RestartOnly' ? LIVE_TIMING.restart : LIVE_TIMING.now);
+    return p.liveNote ? t + ' (' + p.liveNote + ')' : t;
+  }
+
+  function liveActive() { return !!(global.MirLiveDb && global.MirLiveDb.enabled && global.MirLiveDb.enabled()); }
+
+  /** Adds gd-h-live / gd-h-restart + a timing tooltip to every column the schema classifies (recursing into groups). */
+  function decorateLiveHeaders(defs, schema) {
+    if (!schema || !Array.isArray(schema.properties)) return defs;
+    var props = Object.create(null);
+    schema.properties.forEach(function (p) { props[p.name] = p; });
+    (function walk(list) {
+      (list || []).forEach(function (c) {
+        if (!c) return;
+        if (Array.isArray(c.children)) { walk(c.children); return; }
+        var key = (c.context && c.context.refIndexField) || c.field;
+        var p = key ? props[key] : null;
+        if (!p || !p.liveClass || p.readOnly) return;
+        var cls = p.liveClass === 'RestartOnly' ? 'gd-h-restart' : 'gd-h-live';
+        c.headerClass = [].concat(c.headerClass || [], cls);
+        var tip = liveTip(p);
+        c.headerTooltip = c.headerTooltip ? c.headerTooltip + '\n' + tip : tip;
+      });
+    })(defs);
+    return defs;
+  }
+
+  global.LiveDbText = { tip: liveTip, timing: LIVE_TIMING, decorate: decorateLiveHeaders, active: liveActive };
+
   function sameValue(a, b) {
     if (a === b) return true;
     if (a == null || b == null) return (a == null || a === '') && (b == null || b === '');
@@ -404,6 +445,7 @@
       // LiveDb: a restart-only table is read-only as a whole (no Save/Add/Delete) with a banner saying why.
       ro = !!opts.readOnly || !!(typed && typed.tableLive === false);
       var columnDefs = typed ? typed.colDefs : colDefsFromRows(allRows, opts.columnPriority);
+      if (typed && typed.schema && liveActive()) columnDefs = decorateLiveHeaders(columnDefs, typed.schema);
       if (opts.stats) {
         var byParent = statsByParent;
         var fresh = await loadStatsSummary(opts.stats);

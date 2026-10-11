@@ -347,8 +347,8 @@ namespace Server.MirObjects
                             break;
                     }
 
-                    Envir.MonsterCount--;
-                    pet.CurrentMap.MonsterCount--;
+                    Interlocked.Decrement(ref Envir.MonsterCount);
+                    Interlocked.Decrement(ref pet.CurrentMap.MonsterCount);
 
                     pet.CurrentMap.RemoveObject(pet);
                     pet.Despawn();
@@ -665,6 +665,8 @@ namespace Server.MirObjects
             CallDefaultNPC(DefaultNPCType.Die);
 
             Report.Died(CurrentMap.Info.FileName);
+
+            global::Server.WebAdmin.WebAdminHooks.RaisePlayerDied(this, LastHitter);
         }
         private void RedDeathDrop(MapObject killer)
         {
@@ -734,10 +736,13 @@ namespace Server.MirObjects
                             continue;
 
                         if (item.Info.GlobalDropNotify)
+                        {
+                            var notice = GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.PlayerDroppedItem), Name, item.FriendlyName);
                             foreach (var player in Envir.Players)
                             {
-                                player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.PlayerDroppedItem), Name, item.FriendlyName), ChatType.System2);
+                                player.ReceiveChat(notice, ChatType.System2);
                             }
+                        }
 
                         Info.Equipment[i] = null;
                         Enqueue(new S.DeleteItem { UniqueID = item.UniqueID, Count = item.Count });
@@ -779,10 +784,13 @@ namespace Server.MirObjects
                     continue;
 
                 if (item.Info.GlobalDropNotify)
+                {
+                    var notice = GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.PlayerItemDropped), Name, item.FriendlyName);
                     foreach (var player in Envir.Players)
                     {
-                        player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.PlayerItemDropped), Name, item.FriendlyName), ChatType.System2);
+                        player.ReceiveChat(notice, ChatType.System2);
                     }
+                }
 
                 Info.Inventory[i] = null;
                 Enqueue(new S.DeleteItem { UniqueID = item.UniqueID, Count = item.Count });
@@ -792,6 +800,8 @@ namespace Server.MirObjects
 
             RefreshStats();
         }
+        static readonly float[] partyExpRate = { 1.0F, 1.3F, 1.4F, 1.5F, 1.6F, 1.7F, 1.8F, 1.9F, 2F, 2.1F, 2.2F };
+
         public override void WinExp(uint amount, uint targetLevel = 0)
         {
             if (CurrentMap?.Info?.NoExperience == true) return;
@@ -803,8 +813,6 @@ namespace Server.MirObjects
             expPoint = (int)(expPoint * Settings.ExpRate);
 
             //party
-            float[] partyExpRate = { 1.0F, 1.3F, 1.4F, 1.5F, 1.6F, 1.7F, 1.8F, 1.9F, 2F, 2.1F, 2.2F };
-
             if (GroupMembers != null)
             {
                 int sumLevel = 0;
@@ -856,8 +864,7 @@ namespace Server.MirObjects
             {
                 if (HasBuff(BuffType.Lover, out Buff buff))
                 {
-                    CharacterInfo lover = Envir.GetCharacterInfo(Info.Married);
-                    PlayerObject loverPlayer = Envir.GetPlayer(lover.Name);
+                    PlayerObject loverPlayer = Envir.GetPlayer((uint)Info.Married);
                     if (loverPlayer != null && loverPlayer.CurrentMap == CurrentMap && Functions.InRange(loverPlayer.CurrentLocation, CurrentLocation, Globals.DataRange) && !loverPlayer.Dead)
                     {
                         amount += (uint)Math.Max(0, (amount * Stats[Stat.LoverExpRatePercent]) / 100);
@@ -869,8 +876,7 @@ namespace Server.MirObjects
             {
                 if (HasBuff(BuffType.Mentee, out _))
                 {
-                    CharacterInfo mentor = Envir.GetCharacterInfo(Info.Mentor);
-                    PlayerObject mentorPlayer = Envir.GetPlayer(mentor.Name);
+                    PlayerObject mentorPlayer = Envir.GetPlayer((uint)Info.Mentor);
                     if (mentorPlayer != null && mentorPlayer.CurrentMap == CurrentMap && Functions.InRange(mentorPlayer.CurrentLocation, CurrentLocation, Globals.DataRange) && !mentorPlayer.Dead)
                     {
                         if (GroupMembers != null && GroupMembers.Contains(mentorPlayer))
@@ -1595,11 +1601,19 @@ namespace Server.MirObjects
 
             base.Broadcast(p);
 
-            if (Array.Exists(BroadcastObservePackets, x => x == (ServerPacketIds)p.Index))
-            {
-                foreach (MirConnection c in Connection.Observers)
-                    c.Enqueue(p);
-            }
+            var observers = Connection?.Observers;
+            if (observers == null || observers.Count == 0 || !IsObservePacket((ServerPacketIds)p.Index)) return;
+
+            for (int i = 0; i < observers.Count; i++)
+                observers[i].Enqueue(p);
+        }
+
+        static bool IsObservePacket(ServerPacketIds id)
+        {
+            for (int i = 0; i < BroadcastObservePackets.Length; i++)
+                if (BroadcastObservePackets[i] == id) return true;
+
+            return false;
         }
 
         public void AddObserver(MirConnection observer)
@@ -4834,7 +4848,7 @@ namespace Server.MirObjects
                 ElementOrbLvl = (uint)ElementsLevel,
                 ElementOrbMax = (uint)Settings.OrbsExpList[Settings.OrbsExpList.Count - 1],
 
-                Buffs = Buffs.Where(d => d.Info.Visible).Select(e => e.Type).ToList(),
+                Buffs = GetVisibleBuffTypes(),
 
                 LevelEffects = LevelEffects,
             };

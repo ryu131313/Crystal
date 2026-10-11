@@ -196,7 +196,8 @@ namespace Server.WebAdmin.Tests
             Assert.True(monsters.Column("Level").LiveSafe);
             Assert.True(monsters.Column("Stat_HP").LiveSafe);
             Assert.False(monsters.Column("Name").LiveSafe);
-            Assert.False(monsters.Column("DropPath").LiveSafe);
+            Assert.True(monsters.Column("DropPath").LiveSafe);    // LiveDb: hooked (the drop file is reloaded)
+            Assert.False(monsters.Column("AI").LiveSafe);         // LiveDb: restart-only
 
             var npcs = T("npcs");
             Assert.NotNull(npcs.Column("Location_X"));

@@ -229,6 +229,11 @@ namespace Server.WebAdmin
                 "A packet sent to many players in the same connection pass (movement, chat, effects) is encoded once and the bytes are reused, instead of being encoded again for every recipient.");
             Add(N, "Optimisation", "HumanProcessMs", "HumanProcessMs", I32, "Player processing interval (ms)",
                 "Players and heroes run their per-tick housekeeping (buffs, regen, poison, timers) at most every N ms instead of on every loop iteration. Delayed actions (attack damage, spells, NPC actions) still run on time. 0 = every iteration (old behaviour).", min: 0, max: 50);
+            Add(N, "Optimisation", "DueScheduler", "DueScheduler", B, "Due-time object scheduler",
+                "Players, monsters, NPCs, items and spells are processed from per-thread queues ordered by when each is next due, instead of walking every object on every loop iteration. Idle CPU then no longer grows with the number of monsters. Off = the old walk. Applies when the world starts.",
+                SettingRestart.World);
+            Add(N, "Optimisation", "MapRespawnCheckMs", "MapRespawnCheckMs", I32, "Map respawn check interval (ms)",
+                "Each map checks its respawns at most every N ms (maps staggered) instead of on every loop iteration. Respawn delays are in minutes, so the extra delay is unnoticeable; a respawn added live spawns within N ms. Doors and map spell actions still run on time. 0 = every iteration (old behaviour).", min: 0, max: 5000);
             Add(N, "Diag", "LogLoopProfile", "LogLoopProfile", B, "Log loop profile",
                 "Write one [Diag] Loop line per second to the Debug log (per-phase ms, iterations, packets, GC). The numbers are always on the dashboard status.");
             Add(N, "Network", "StartHTTPService", "StartHTTPService", B, "Legacy HTTP service",
@@ -257,6 +262,9 @@ namespace Server.WebAdmin
                 "How long a panel sign-in stays valid.", SettingRestart.Process, min: 1, max: 720);
             Add(W, "WebAdmin", "MaxBodyKB", "WebAdminMaxBodyKB", I32, "Max request body (KB)",
                 "Largest request body the panel accepts (script files, bulk edits).", SettingRestart.Process, min: 16, max: 65536);
+            Add(W, "WebAdmin", "ClientDataPath", "WebAdminClientDataPath", S, "Client Data folder (Live Monitor map art)",
+                "A game client's Data folder (the one with MMap.Lib and the Map folder). The Live Monitor reads it, never writes it, to draw the "
+                + "minimaps and real map tiles. Empty = walkability only.", SettingRestart.Process, format: "path");
 
             // ---- Permissions --------------------------------------------------------------------------------------
             const string P = GroupPermissions;
@@ -289,6 +297,11 @@ namespace Server.WebAdmin
             Add(D, "Backup", "KeepAllHours", "BackupKeepAllHours", I32, "Keep every backup for (hours)", "Every backup younger than this is kept.", min: 1, max: 8760);
             Add(D, "Backup", "KeepHourlyDays", "BackupKeepHourlyDays", I32, "Keep hourly backups for (days)", "After the keep-all window, the newest backup of each hour is kept for this many days.", min: 1, max: 3650);
             Add(D, "Backup", "KeepDailyDays", "BackupKeepDailyDays", I32, "Keep daily backups for (days)", "After the hourly window, the newest backup of each day is kept for this many days; older backups are deleted.", min: 1, max: 3650);
+            Add(D, "LiveDb", "Enabled", "LiveDbEnabled", B, "LiveDb: live game-data edits", "Game Data edits are saved to Server.MirDB on every apply and, where safe (monsters, magic for now), applied to the running world at once. Off: the old flow (edit, then Save DB, changes after a world restart).");
+            Add(D, "LiveDb", "BackupEveryMinutes", "LiveDbBackupEveryMinutes", I32, "LiveDb: timestamped backup every (min)", "A Game Data save keeps a timestamped copy of the previous Server.MirDB at most this often; saves in between replace one rolling 'Database livedb-previous.bak'. 0 = a timestamped copy on every save.", min: 0, max: 1440);
+            Add(D, "LiveDb", "SweepPerTick", "LiveDbSweepPerTick", I32, "LiveDb: objects refreshed per tick", "After a live monster stat change, spawned monsters are refreshed in the background, scanning at most this many world objects per game tick.", min: 16, max: 100000);
+            Add(D, "LiveDb", "MaxBatchRows", "LiveDbMaxBatchRows", I32, "LiveDb: max rows per batch", "Largest number of rows (edits, new rows and deletes) one Game Data apply may contain.", min: 1, max: 5000);
+            Add(D, "LiveDb", "MaxPushRows", "LiveDbMaxPushRows", I32, "LiveDb: max rows pushed to clients", "Largest number of client-visible rows (item, monster, spell updates) one apply may push to connected clients. A larger batch is not pushed: its item changes are saved and take effect after a restart; monsters and spells still apply live.", min: 1, max: 100000);
 
             // ---- Rates & drops ------------------------------------------------------------------------------------
             const string R = GroupRates;

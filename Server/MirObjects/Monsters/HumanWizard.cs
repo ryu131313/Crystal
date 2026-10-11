@@ -138,21 +138,27 @@ namespace Server.MirObjects.Monsters
 
             Broadcast(new S.ObjectDied { ObjectID = ObjectID, Direction = Direction, Location = CurrentLocation, Type = (byte)(Master != null ? 1 : 0) });
 
-            if (EXPOwner != null && EXPOwner.Node != null && Master == null && EXPOwner.Race == ObjectType.Player) EXPOwner.WinExp(Experience);
+            // Exp and drops touch players and Envir.Objects: on the game thread when this death happens in a mob pass.
+            var expOwner = EXPOwner;
+            var unowned = Master == null;
+            Envir.RunOutsideMobPass(() =>
+            {
+                if (expOwner != null && expOwner.Node != null && unowned && expOwner.Race == ObjectType.Player) expOwner.WinExp(Experience);
+
+                if (unowned)
+                    Drop();
+            });
 
             if (Respawn != null)
-                Respawn.Count--;
-
-            if (Master == null)
-                Drop();
+                Interlocked.Decrement(ref Respawn.Count);
 
             Master = null;
 
             PoisonList.Clear();
-            Envir.MonsterCount--;
+            Interlocked.Decrement(ref Envir.MonsterCount);
 
             if (CurrentMap != null)
-                CurrentMap.MonsterCount--;
+                Interlocked.Decrement(ref CurrentMap.MonsterCount);
         }
 
         public override Packet GetInfo()

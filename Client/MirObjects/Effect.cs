@@ -70,8 +70,25 @@ namespace Client.MirObjects
             NextFrame = Start + (Duration / Count) * (CurrentFrame + 1);
         }
 
+        private bool _startDrawn;
+
+        /// <summary>Invalidates the map texture for this effect; skipped while it is too far off-screen to be drawn or lit.</summary>
+        protected void InvalidateMap()
+        {
+            MapControl map = GameScene.Scene?.MapControl;
+            if (map == null) return;
+            if (Owner != null && Owner == MapObject.User) map.TextureValid = false;
+            else map.InvalidateNear(Owner != null ? Owner.CurrentLocation : Source, MapControl.LightViewMargin);
+        }
+
         public virtual void Process()
         {
+            if (!_startDrawn && CMain.Time >= Start)
+            {
+                _startDrawn = true;
+                InvalidateMap(); // a delayed effect's first frame appears once Start passes
+            }
+
             if (CurrentFrame == 1)
             {
                 if (Played != null)
@@ -95,7 +112,7 @@ namespace Client.MirObjects
             }
             else NextFrame = Start + (Duration / Count) * (CurrentFrame + 1);
 
-            GameScene.Scene.MapControl.TextureValid = false;
+            InvalidateMap();
         }
 
         public virtual void Remove()
@@ -474,12 +491,24 @@ namespace Client.MirObjects
             LightColour = lightColour == null ? Color.White : (Color)lightColour;
         }
 
+        private bool _lit;
+
         public override void Process()
         {
             if (CMain.Time >= Start + Duration)
+            {
                 Remove();
-            GameScene.Scene.MapControl.TextureValid = false;
+                InvalidateMap(); // light gone
+                return;
+            }
 
+            // A light effect has no frames: its light only appears and disappears. Invalidating on every Process (the old
+            // behaviour) rebuilt the map every frame while one existed. Moving with its owner is covered by the owner's frames.
+            if (!Settings.RebuildOptimisations || !_lit)
+            {
+                _lit = true;
+                InvalidateMap();
+            }
         }
 
         public override void Draw()

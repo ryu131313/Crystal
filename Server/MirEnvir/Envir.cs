@@ -23,9 +23,16 @@ namespace Server.MirEnvir
         public long EndTime = 0;
         public LinkedList<MapObject> ObjectsList = new LinkedList<MapObject>();
         public LinkedListNode<MapObject> _current = null;
+        /// <summary>Due-time scheduler of this thread's monsters (roadmap P9-05); used instead of walking ObjectsList.</summary>
+        public readonly ObjectScheduler Scheduler = new ObjectScheduler();
         public bool Stop = false;
         /// <summary>Set when the thread ended on an unexpected exception; the barrier then ignores it (roadmap P5).</summary>
         public volatile bool Dead;
+        /// <summary>
+        /// Set when the thread has returned (shutdown interrupt or loop end). The barrier treats it as stopped even if the game
+        /// thread re-armed it (Stop = false) after it left, which would otherwise hold a shutdown for the full timeout.
+        /// </summary>
+        public volatile bool Exited;
     }
     public class RandomProvider
     {
@@ -87,7 +94,9 @@ namespace Server.MirEnvir
         public DateTime Now =>
             _startTime.AddMilliseconds(Time);
 
-        public bool Running { get; private set; }
+        // Volatile: mob threads poll it inside RunDue so a stop ends their pass promptly (monster threading review, 2026-10-11).
+        private volatile bool _running;
+        public bool Running { get => _running; private set => _running = value; }
 
 
         private static uint _objectID;
@@ -2013,6 +2022,15 @@ namespace Server.MirEnvir
 
                 LinkedListNode<MapObject> current = null;
 
+                // Captured once per world run: objects are scheduled from their first Spawned() (inside StartEnvir).
+                _dueMultithreaded = Settings.Multithreaded;
+                _mainScheduler = new ObjectScheduler();
+                _dueScheduler = Settings.DueScheduler;
+                WorldGeneration++;
+                _mapHeap.Clear();
+                _mapWakes.Clear();
+                _mapsKnown = 0;
+
                 if (Settings.Multithreaded)
                 {
                     for (var j = 0; j < MobThreads.Length; j++)
@@ -2070,6 +2088,14 @@ namespace Server.MirEnvir
                             processCount = 0;
                             processRealCount = 0;
                             processTime = Time + 1000;
+                            if (_dueScheduler)
+                            {
+                                // "Cycle delay" becomes the worst lateness of a processed object in the last second. Mob
+                                // threads are parked at the barrier here, so their schedulers can be read.
+                                LastRunTime = _mainScheduler.TakeMaxLateMs();
+                                for (var j = 0; j < MobThreads.Length; j++)
+                                    if (MobThreads[j] != null) MobThreads[j].LastRunTime = MobThreads[j].Scheduler.TakeMaxLateMs();
+                            }
                             LoopProfiler.Publish();
                         }
 
@@ -2111,36 +2137,69 @@ namespace Server.MirEnvir
 
                         LoopProfiler.Mark(LoopProfiler.Phase.Connections);
 
-                        if (current == null)
-                            current = Objects.First;
-
-                        if (current == Objects.First)
+                        if (!_dueScheduler)
                         {
-                            LastRunTime = Time - startTime;
-                            startTime = Time;
+                            if (current == null)
+                                current = Objects.First;
+
+                            if (current == Objects.First)
+                            {
+                                LastRunTime = Time - startTime;
+                                startTime = Time;
+                            }
                         }
 
                         if (Settings.Multithreaded)
                         {
+                            // Published before any sub-thread is woken (PulseAll's lock orders it); cleared by EndMobPass.
+                            _inMobPass = true;
+                            var armed = false;
                             for (var j = 1; j < MobThreads.Length; j++)
                             {
                                 var Info = MobThreads[j];
 
-                                if (Info.Dead) continue; // ended on an unexpected exception (roadmap P5)
+                                if (Info.Dead || Info.Exited) continue; // ended on an unexpected exception (roadmap P5), or gone
+                                if (!Running) break; // a stop is under way: start no new pass
                                 if (!Info.Stop) continue;
+                                // Due scheduler: a parked thread with nothing due stays parked (its scheduler is safe to read here).
+                                if (_dueScheduler && !Info.Scheduler.HasWork(Time)) continue;
                                 Info.EndTime = Stopwatch.ElapsedMilliseconds + 10; // review M2: was Time + 10 (tick start)
                                 Info.Stop = false;
+                                armed = true;
                             }
-                            lock (_locker)
+                            if (armed || !_dueScheduler)
                             {
-                                Monitor.PulseAll(_locker); //changing a blocking condition. (this makes the threads wake up!)
+                                lock (_locker)
+                                {
+                                    Monitor.PulseAll(_locker); //changing a blocking condition. (this makes the threads wake up!)
+                                }
                             }
                             //run the first loop in the main thread so the main thread automaticaly 'halts' until the other threads are finished
                             ThreadLoop(MobThreads[0]);
+                            EndMobPass();
                         }
                         LoopProfiler.Mark(LoopProfiler.Phase.MobBarrier);
 
-                        var TheEnd = false;
+                        if (_dueScheduler)
+                        {
+                            // A mob thread that ended on an unexpected exception no longer runs its scheduler: adopt its objects.
+                            if (_dueMultithreaded)
+                                for (var j = 1; j < MobThreads.Length; j++)
+                                    if (MobThreads[j] != null && MobThreads[j].Dead) MobThreads[j].Scheduler.MoveAllTo(_mainScheduler);
+
+                            // Per-object errors are isolated inside RunDue; this catches the rest (heap, ownership) so one bad
+                            // pass costs a tick instead of stopping the world.
+                            try
+                            {
+                                processCount += RunDue(_mainScheduler, Stopwatch.ElapsedMilliseconds + 20, null);
+                            }
+                            catch (Exception ex)
+                            {
+                                WorldErrors.Record("RunDue (game thread)", ex);
+                            }
+                        }
+
+                        var TheEnd = _dueScheduler;
                         var Start = Stopwatch.ElapsedMilliseconds;
                         while (!TheEnd && Stopwatch.ElapsedMilliseconds - Start < 20)
                         {
@@ -2174,15 +2233,25 @@ namespace Server.MirEnvir
                         }
                         LoopProfiler.Mark(LoopProfiler.Phase.Objects);
 
-                        for (var i = 0; i < MapList.Count; i++)
+                        if (_dueScheduler)
                         {
-                            try
+                            RunMaps();
+                        }
+                        else
+                        {
+                            for (var i = 0; i < MapList.Count; i++)
                             {
-                                MapList[i].Process();
-                            }
-                            catch (Exception ex)
-                            {
-                                WorldErrors.Record("Map.Process " + (MapList[i].Info?.FileName ?? "?"), ex);
+                                // Nothing timed is due and no map action was queued since the last call: skip it.
+                                if (!MapList[i].ProcessDue(Time)) continue;
+
+                                try
+                                {
+                                    MapList[i].Process();
+                                }
+                                catch (Exception ex)
+                                {
+                                    WorldErrors.Record("Map.Process " + (MapList[i].Info?.FileName ?? "?"), ex);
+                                }
                             }
                         }
 
@@ -2209,6 +2278,22 @@ namespace Server.MirEnvir
                         LoopProfiler.Mark(LoopProfiler.Phase.EnvirProcess);
 
                         DrainAdminActions();
+
+                        // LiveDb: refresh spawned monsters after a live MonsterInfo change, a few hundred objects per tick (mob threads
+                        // are parked here). Idle cost: one volatile read.
+                        if (global::Server.WebAdmin.LiveDb.LiveDbSweeper.HasWork)
+                        {
+                            try
+                            {
+                                global::Server.WebAdmin.LiveDb.LiveDbSweeper.Tick(Settings.LiveDbSweepPerTick);
+                            }
+                            catch (Exception ex)
+                            {
+                                WorldErrors.Record("LiveDb sweeper", ex);
+                                global::Server.WebAdmin.LiveDb.LiveDbSweeper.Drop();
+                            }
+                        }
+
                         LoopProfiler.Mark(LoopProfiler.Phase.AdminDrain);
 
                         if (Time >= saveTime || _saveNowRequested)
@@ -2274,6 +2359,14 @@ namespace Server.MirEnvir
                     MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.InnerWorkloopErrorLine), line, ex));
                 }
 
+                // No monster AI may run during the teardown below (logout saves, StopEnvir, SaveAccounts): wait until every
+                // mob thread is parked or gone, then run what the last pass deferred.
+                if (Settings.Multithreaded)
+                {
+                    WaitForSubThreads(true);
+                    EndMobPass();
+                }
+
                 CloseAdminQueue();
                 TimerResolution.End();
                 _timerResolutionSet = false;
@@ -2304,12 +2397,355 @@ namespace Server.MirEnvir
             _thread = null;
         }
 
-        private void ThreadLoop(MobThread Info)
+        private ObjectScheduler _mainScheduler;
+        private bool _dueScheduler, _dueMultithreaded;
+        /// <summary>Incremented at every world start; objects spawned in an earlier run are never scheduled (they may still be referenced).</summary>
+        internal int WorldGeneration;
+
+        // Map scheduler (roadmap P9, with DueScheduler): game thread only, except _mapWakes. A map runs when its NextProcessTime is
+        // due or when MapActionList.Add wakes it, instead of every map being checked on every iteration.
+        private readonly PriorityQueue<Map, long> _mapHeap = new PriorityQueue<Map, long>();
+        private readonly ConcurrentQueue<Map> _mapWakes = new ConcurrentQueue<Map>();
+        private int _mapsKnown;
+
+        /// <summary>Any thread: a map action was queued on <paramref name="map"/>; run it on the next pass.</summary>
+        public void WakeMap(Map map)
         {
-            Info.Stop = false;
+            if (!_dueScheduler) return;
+            if (Interlocked.Exchange(ref map.WakePending, 1) == 0) _mapWakes.Enqueue(map);
+        }
+
+        private void ScheduleMap(Map map, long due)
+        {
+            map.ScheduledDue = due;
+            map.ScheduledGeneration = WorldGeneration;
+            _mapHeap.Enqueue(map, due);
+        }
+
+        private void RunMaps()
+        {
+            // MapList is filled by StartEnvir before the loop starts; pick up any map added since (each map once).
+            for (; _mapsKnown < MapList.Count; _mapsKnown++)
+                ScheduleMap(MapList[_mapsKnown], Time);
+
+            while (_mapWakes.TryDequeue(out var woken))
+            {
+                Volatile.Write(ref woken.WakePending, 0);
+                if (woken.ScheduledGeneration != WorldGeneration) continue; // not scheduled in this world run (an old map)
+                if (woken.ScheduledDue > Time) ScheduleMap(woken, Time);
+            }
+
+            while (_mapHeap.TryPeek(out var map, out var due) && due <= Time)
+            {
+                _mapHeap.Dequeue();
+                if (due != map.ScheduledDue || map.ScheduledGeneration != WorldGeneration) continue; // stale entry
+
+                try
+                {
+                    map.Process();
+                }
+                catch (Exception ex)
+                {
+                    WorldErrors.Record("Map.Process " + (map.Info?.FileName ?? "?"), ex);
+                    // NextProcessTime is only written at the end of Process: retry next tick, as the old per-map loop did.
+                    map.NextProcessTime = Time + 1;
+                }
+
+                ScheduleMap(map, Math.Max(map.NextProcessTime, Time + 1));
+            }
+        }
+
+        /// <summary>
+        /// Any thread: tells the owner of <paramref name="ob"/> to (re)schedule it at its current OperateTime. Called by the
+        /// <see cref="MapObject.OperateTime"/> setter when a write makes the object due earlier, and by <see cref="MapObject.Spawned"/>.
+        /// </summary>
+        public void WakeObject(MapObject ob)
+        {
+            if (!_dueScheduler) return;
+            OwnerOf(ob)?.Wake(ob);
+        }
+
+        /// <summary>Same split as the old walks: unowned monsters on their spawn thread's scheduler, everything else on the game thread's.</summary>
+        private ObjectScheduler OwnerOf(MapObject ob)
+        {
+            if (_dueMultithreaded && ob.Race == ObjectType.Monster && ob.Master == null)
+            {
+                var thread = MobThreads[ob.SpawnThread];
+                // A dead mob thread's monsters move to the game thread (see RunDue's caller), instead of freezing as with the old walk.
+                if (thread != null && !thread.Dead) return thread.Scheduler;
+            }
+            return _mainScheduler;
+        }
+
+        /// <summary>
+        /// Owner thread: schedules woken objects, then processes every due object until <paramref name="deadline"/> (the same
+        /// Process / SetOperateTime / isolation as the old walks). <paramref name="mob"/> is null on the game thread's scheduler.
+        /// Returns the number of objects processed.
+        /// </summary>
+        private int RunDue(ObjectScheduler s, long deadline, MobThread mob)
+        {
+            while (s.TryDequeueWake(out var woken))
+            {
+                if (woken.Node == null || woken.SpawnedGeneration != WorldGeneration) continue;
+                var owner = OwnerOf(woken);
+                if (owner != s) { owner.Wake(woken); continue; }
+                // Floor at Time: a woken object (OperateTime = 0) runs in this pass but doesn't count as late.
+                s.Schedule(woken, Time);
+            }
+
+            var processed = 0;
+            while (s.TryPopDue(Time, out var ob, out var due))
+            {
+                // Despawned, from an earlier world run, or a stale entry.
+                if (ob.Node == null || ob.SpawnedGeneration != WorldGeneration || due != Volatile.Read(ref ob.ScheduledDue)) continue;
+
+                var owner = OwnerOf(ob);
+                if (owner != s) { owner.Wake(ob); continue; } // Master changed since it was scheduled
+
+                if (Time > ob.OperateTime)
+                {
+                    var late = Time - due;
+                    if (late > s.MaxLateMs) s.MaxLateMs = late;
+
+                    // Isolation (roadmap P5): a throwing object is quarantined, the world keeps running.
+                    try
+                    {
+                        ob.Process();
+                        ob.SetOperateTime();
+                    }
+                    catch (Exception ex)
+                    {
+                        // Stop() interrupts mob threads: let that end the thread instead of quarantining an innocent monster.
+                        if (ex is ThreadInterruptedException && mob != null && mob.Id != 0) throw;
+
+                        if (mob == null)
+                        {
+                            WorldErrors.Record(WorldErrors.Describe(ob), ex);
+                            IsolateObject(ob);
+                        }
+                        else
+                        {
+                            WorldErrors.Record($"mob thread {mob.Id}: {WorldErrors.Describe(ob)}", ex);
+                            ob.OperateTime = Time + WorldErrors.QuarantineMs;
+                        }
+                    }
+                    processed++;
+                }
+
+                // Never due again in this pass: "process on the next iteration" (OperateTime < Time) becomes the next ms.
+                if (ob.Node != null) s.Schedule(ob, Time + 1);
+
+                if (Stopwatch.ElapsedMilliseconds >= deadline) break;
+                if (mob != null && !Running) break; // shutdown: end the pass now, WorkLoop is waiting to tear down
+            }
+
+            return processed;
+        }
+
+        /// <summary>Due-scheduler version of <see cref="ThreadLoop"/>: no list walks, and the game thread waits at the barrier instead of re-walking.</summary>
+        private void ThreadLoopDue(MobThread Info)
+        {
+            if (Info.Id == 0)
+            {
+                // Game thread, inside the barrier: this thread's own monsters, then wait for the sub-threads. An error outside
+                // the per-object catch must still reach the barrier wait, or the rest of the tick would overlap the sub-threads.
+                try
+                {
+                    RunDue(Info.Scheduler, Stopwatch.ElapsedMilliseconds + 10, Info);
+                }
+                catch (Exception ex)
+                {
+                    WorldErrors.Record("mob thread 0 (game thread)", ex);
+                }
+
+                WaitForSubThreads(false);
+                Info.Stop = true;
+                return;
+            }
 
             try
             {
+                while (true)
+                {
+                    Volatile.Write(ref Info.Stop, true);
+                    lock (_locker)
+                    {
+                        while (Info.Stop) Monitor.Wait(_locker);
+                    }
+
+                    if (!Running) continue; // shutdown: Stop() interrupts this thread
+                    RunDue(Info.Scheduler, Info.EndTime, Info);
+                }
+            }
+            catch (Exception ex)
+            {
+                if (ex is ThreadInterruptedException)
+                {
+                    Info.Exited = true; // exiting: the shutdown barrier must not wait for this thread
+                    return;
+                }
+
+                MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.ThreadLoopError), ex));
+                var scheduled = Info.Scheduler.Count; // read before Dead: the game thread then empties this scheduler
+                Info.Dead = true;
+                Info.Stop = true;
+                WorldErrors.Record($"mob thread {Info.Id} stopped; its {scheduled} scheduled monsters now run on the game thread", ex);
+            }
+        }
+
+        private bool SubThreadsStopped()
+        {
+            for (var x = 1; x < MobThreads.Length; x++)
+                if (!Volatile.Read(ref MobThreads[x].Stop) && !MobThreads[x].Dead && !MobThreads[x].Exited) return false;
+
+            return true;
+        }
+
+        /// <summary>How long the game thread waits for mob threads once Running is false, before tearing down anyway.</summary>
+        private const int ShutdownBarrierMs = 2000;
+
+        /// <summary>
+        /// Game thread: spins until every live sub-thread is parked (the mob barrier). Unbounded while the world runs, as before
+        /// (sub-threads always park after their deadline); once <see cref="Running"/> is false, or with <paramref name="bounded"/>,
+        /// it gives up after <see cref="ShutdownBarrierMs"/> so a stuck monster cannot block a stop. Returns false when it gave up.
+        /// Sub-threads stop early on shutdown (RunDue checks Running), so the wait is normally a few ms at most.
+        /// </summary>
+        private bool WaitForSubThreads(bool bounded)
+        {
+            var spin = new SpinWait();
+            var giveUpAt = bounded ? Stopwatch.ElapsedMilliseconds + ShutdownBarrierMs : long.MaxValue;
+            while (!SubThreadsStopped())
+            {
+                if (giveUpAt == long.MaxValue && !Running) giveUpAt = Stopwatch.ElapsedMilliseconds + ShutdownBarrierMs;
+                if (Stopwatch.ElapsedMilliseconds > giveUpAt)
+                {
+                    MessageQueue.Enqueue($"Mob threads still running {ShutdownBarrierMs} ms after the stop request; continuing the shutdown without them.");
+                    return false;
+                }
+                spin.SpinOnce(-1);
+            }
+            return true;
+        }
+
+        // Mob-pass hand-off (monster threading review, 2026-10-11). While the mob threads run (thread 0 on the game thread
+        // included), monster code must not touch shared lists, other maps, players or scripts. Such work is queued here and run
+        // by the game thread in EndMobPass, right after the barrier, when every mob thread is parked. No locks: producers only
+        // enqueue (ALWAYS ConcurrentQueue for hand-off), the game thread alone drains.
+        private volatile bool _inMobPass;
+        private readonly ConcurrentQueue<ListOp> _mobPassListOps = new ConcurrentQueue<ListOp>();
+        private readonly ConcurrentQueue<Action> _afterMobPass = new ConcurrentQueue<Action>();
+
+        private readonly struct ListOp
+        {
+            public readonly LinkedList<MapObject> List;
+            public readonly LinkedListNode<MapObject> Node;
+            public readonly bool Add;
+
+            public ListOp(LinkedList<MapObject> list, LinkedListNode<MapObject> node, bool add)
+            {
+                List = list;
+                Node = node;
+                Add = add;
+            }
+        }
+
+        /// <summary>True while mob threads may be running monster code (between arming them and the end of the barrier).</summary>
+        public bool InMobPass => _inMobPass;
+
+        /// <summary>
+        /// Any thread: runs <paramref name="action"/> now, or, during a mob pass, on the game thread right after the barrier (same
+        /// tick). For monster work that touches players, other maps, global lists or NPC scripts. Errors are isolated.
+        /// </summary>
+        public void RunOutsideMobPass(Action action)
+        {
+            if (_inMobPass)
+            {
+                _afterMobPass.Enqueue(action);
+                return;
+            }
+
+            action();
+        }
+
+        /// <summary>
+        /// Adds <paramref name="ob"/> to <paramref name="list"/> (<see cref="Objects"/> or a mob thread's ObjectsList). During a mob
+        /// pass the link is deferred to the barrier, but the returned node is valid at once (callers use it as the "spawned" mark).
+        /// </summary>
+        internal LinkedListNode<MapObject> LinkObject(LinkedList<MapObject> list, MapObject ob)
+        {
+            if (!_inMobPass) return list.AddLast(ob);
+
+            var node = new LinkedListNode<MapObject>(ob);
+            _mobPassListOps.Enqueue(new ListOp(list, node, true));
+            return node;
+        }
+
+        /// <summary>Removes <paramref name="node"/> from <paramref name="list"/>; deferred to the barrier during a mob pass.</summary>
+        internal void UnlinkObject(LinkedList<MapObject> list, LinkedListNode<MapObject> node)
+        {
+            if (node == null) return;
+            if (_inMobPass)
+            {
+                _mobPassListOps.Enqueue(new ListOp(list, node, false));
+                return;
+            }
+
+            if (node.List == list) list.Remove(node);
+        }
+
+        /// <summary>Game thread, after the barrier (every mob thread parked): applies deferred list changes, then deferred work.</summary>
+        private void EndMobPass()
+        {
+            _inMobPass = false;
+
+            // Queue order is real-time order, so a node's add is always applied before its remove.
+            while (_mobPassListOps.TryDequeue(out var op))
+            {
+                if (op.Add)
+                {
+                    if (op.Node.List == null) op.List.AddLast(op.Node);
+                }
+                else if (op.Node.List == op.List)
+                {
+                    op.List.Remove(op.Node);
+                }
+            }
+
+            while (_afterMobPass.TryDequeue(out var action))
+            {
+                try
+                {
+                    action();
+                }
+                catch (Exception ex)
+                {
+                    WorldErrors.Record("deferred monster work", ex);
+                }
+            }
+        }
+
+        private void ThreadLoop(MobThread Info)
+        {
+            if (_dueScheduler)
+            {
+                ThreadLoopDue(Info);
+                return;
+            }
+
+            try
+            {
+                if (Info.Id != 0)
+                {
+                    // Park until the game loop arms this thread. It used to start walking at once, while WorkLoop was still in
+                    // StartNetwork (LoadConquests spawns guards, walls and gates on the game thread).
+                    Info.Stop = true;
+                    lock (_locker)
+                    {
+                        while (Info.Stop) Monitor.Wait(_locker);
+                    }
+                }
+                Info.Stop = false;
+
                 var stopping = false;
                 var passComplete = false; // roadmap P6: sub-threads stop after one full pass instead of re-walking until EndTime
                 // Review H1: the game thread's own list also needs a pass/time rule, otherwise it walks only as many monsters
@@ -2341,7 +2777,8 @@ namespace Server.MirEnvir
                         }
                         if (Time > Info._current.Value.OperateTime)
                         {
-                            if (Info._current.Value.Master == null) //since we are running multithreaded, dont allow pets to be processed (unless you constantly move pets into their map appropriate thead)
+                            // Node == null: despawned this pass; its list removal is deferred to the barrier (EndMobPass).
+                            if (Info._current.Value.Master == null && Info._current.Value.Node != null) //since we are running multithreaded, dont allow pets to be processed (unless you constantly move pets into their map appropriate thead)
                             {
                                 // Isolation (roadmap P5): a throwing monster is quarantined instead of ending this thread,
                                 // which used to leave Stop == false and hang the game thread in the barrier forever.
@@ -2353,6 +2790,7 @@ namespace Server.MirEnvir
                                 }
                                 catch (Exception ex)
                                 {
+                                    if (ex is ThreadInterruptedException && Info.Id != 0) throw; // Stop(): end the thread
                                     WorldErrors.Record($"mob thread {Info.Id}: {WorldErrors.Describe(ob)}", ex);
                                     ob.OperateTime = Time + WorldErrors.QuarantineMs;
                                 }
@@ -2389,10 +2827,20 @@ namespace Server.MirEnvir
                         while (Info.Stop) Monitor.Wait(_locker);
                     }
                 }
+
+                // Running went false. Thread 0 (the game thread) must still wait for the sub-threads, or the rest of the tick and
+                // the teardown would overlap their pass; a sub-thread marks itself stopped as it exits.
+                if (Info.Id == 0) WaitForSubThreads(false);
+                else Info.Exited = true;
+                Info.Stop = true;
             }
             catch (Exception ex)
             {
-                if (ex is ThreadInterruptedException) return;
+                if (ex is ThreadInterruptedException)
+                {
+                    if (Info.Id != 0) Info.Exited = true; // exiting: the shutdown barrier must not wait for this thread
+                    return;
+                }
 
                 MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.ThreadLoopError), ex));
 
@@ -2403,6 +2851,13 @@ namespace Server.MirEnvir
                     Info.Dead = true;
                     Info.Stop = true;
                     WorldErrors.Record($"mob thread {Info.Id} stopped; its {Info.ObjectsList.Count} monsters are frozen until a restart", ex);
+                }
+                else
+                {
+                    // Thread 0 ended its pass early: still hold the barrier until the sub-threads finish theirs (review L7).
+                    WorldErrors.Record("mob thread 0 (game thread)", ex);
+                    WaitForSubThreads(false);
+                    Info.Stop = true;
                 }
             }
         }
@@ -2514,6 +2969,8 @@ namespace Server.MirEnvir
             {
                 spawnTime = Time + Settings.Second * 10;
                 Main.RespawnTick.Process();
+                // F4 (LiveDb): publish the counter for Envir.Edit's SaveDB (an HTTP worker thread).
+                Interlocked.Exchange(ref _publishedRespawnTick, (long)Main.RespawnTick.CurrentTickcounter);
             }
 
             if (Time >= robotTime)
@@ -2591,6 +3048,16 @@ namespace Server.MirEnvir
 
         public void SaveDB()
         {
+            SaveDB(null);
+        }
+
+        /// <summary>
+        /// <paramref name="backupFileName"/>: the name the previous Server.MirDB gets in Back Up\Database (a plain file name; null = the
+        /// envir's own "Database yyyy-MM-dd HH-mm-ss.bak", which for Envir.Edit never advances because its clock does not run).
+        /// The web admin (LiveDb) passes a wall-clock name at most every [LiveDb] BackupEveryMinutes and a rolling name in between.
+        /// </summary>
+        public void SaveDB(string backupFileName)
+        {
             // Crash-safe save (roadmap P2): write a complete temp file, then swap it in with File.Replace, which also
             // moves the previous file into Back Up\Database. Server.MirDB is never truncated in place, so a crash or an
             // exception mid-write leaves the last good file (and a stale Server.MirDBn) instead of a half-written DB.
@@ -2643,7 +3110,13 @@ namespace Server.MirEnvir
                 for (var i = 0; i < ConquestInfoList.Count; i++)
                     ConquestInfoList[i].Save(writer);
 
-                RespawnTick.Save(writer);
+                // F4 (LiveDb): Edit is the only writer of system data once it has saved (SystemDataStale), but the respawn tick
+                // counter only advances in Main: write Main's published counter instead of Edit's frozen copy.
+                var published = Interlocked.Read(ref _publishedRespawnTick);
+                if (this == Edit && published >= 0)
+                    RespawnTick.Save(writer, (ulong)published);
+                else
+                    RespawnTick.Save(writer);
 
                 writer.Write(GTMapList.Count);
                 for (var i = 0; i < GTMapList.Count; i++)
@@ -2654,8 +3127,9 @@ namespace Server.MirEnvir
             {
                 if (!Directory.Exists(DatabaseBackUpPath)) Directory.CreateDirectory(DatabaseBackUpPath);
 
-                var fileName =
-                    $"Database {Now.Year:0000}-{Now.Month:00}-{Now.Day:00} {Now.Hour:00}-{Now.Minute:00}-{Now.Second:00}.bak";
+                var fileName = !string.IsNullOrWhiteSpace(backupFileName)
+                    ? Path.GetFileName(backupFileName)
+                    : $"Database {Now.Year:0000}-{Now.Month:00}-{Now.Day:00} {Now.Hour:00}-{Now.Minute:00}-{Now.Second:00}.bak";
 
                 var backupFile = Path.Combine(DatabaseBackUpPath, fileName);
 
@@ -3526,6 +4000,24 @@ namespace Server.MirEnvir
         /// <summary>True once Envir.Edit.SaveDB() ran after Envir.Main last loaded its DB: Main's periodic SaveDB() is skipped until the next Start/Reboot reloads it.</summary>
         public static bool SystemDataStale => _systemDataStale;
 
+        /// <summary>Main's RespawnTick.CurrentTickcounter, published by the game thread after RespawnTick.Process(); -1 until then (F4).</summary>
+        private static long _publishedRespawnTick = -1;
+
+        private static int _editorFormsOpen;
+
+        /// <summary>
+        /// WinForms database editors currently open (SMain counts them around ShowDialog). They edit Envir.Edit without the web admin's
+        /// EditLock and save it when they close, so LiveDb refuses batches (409) while one is open.
+        /// </summary>
+        public static int EditorFormsOpen => Volatile.Read(ref _editorFormsOpen);
+
+        public static void EditorFormOpened() => Interlocked.Increment(ref _editorFormsOpen);
+
+        public static void EditorFormClosed()
+        {
+            if (Interlocked.Decrement(ref _editorFormsOpen) < 0) Interlocked.Exchange(ref _editorFormsOpen, 0);
+        }
+
         private readonly ConcurrentQueue<(Action Run, Action<Exception> Dropped)> _adminActions = new ConcurrentQueue<(Action Run, Action<Exception> Dropped)>();
         private readonly object _adminQueueLock = new object();
         private volatile bool _adminQueueOpen;
@@ -3743,6 +4235,7 @@ namespace Server.MirEnvir
             CustomCommands.Clear();
             Heroes.Clear();
             MonsterCount = 0;
+            if (this == Main) Server.MirObjects.Monsters.StoneTrap.ResetLiveCount();
 
             if (this == Main) _systemDataStale = false;
 

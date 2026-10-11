@@ -40,7 +40,7 @@ namespace Server.WebAdmin.GameData
 
         private static List<GameDataTable> Build()
         {
-            return new List<GameDataTable>
+            var tables = new List<GameDataTable>
             {
                 Items(),
                 Monsters(),
@@ -68,6 +68,13 @@ namespace Server.WebAdmin.GameData
                     "Control Point", false, (e, i) => e.Index = i, e => { e.Name = "Control Point"; }),
                 Dragon(),
             };
+
+            // Columns know their table so LiveSafe / the schema can ask the LiveDb classification.
+            foreach (var t in tables)
+                foreach (var c in t.Columns)
+                    c.Table = t.Endpoint;
+
+            return tables;
         }
 
         // ================================================================== items
@@ -99,6 +106,7 @@ namespace Server.WebAdmin.GameData
                     row.Index = item.Index;
                     ctx.Items.Add(item);
                 },
+                Lists = ctx => new System.Collections.IList[] { ctx.Items },
                 Remove = (ctx, row) => ctx.Items.Remove((ItemInfo)row.Entity),
                 DeleteGuard = (ctx, row) =>
                 {
@@ -120,12 +128,10 @@ namespace Server.WebAdmin.GameData
 
         private static GameDataTable Monsters()
         {
-            var opts = new GameDataReflectOptions { LiveSafeByDefault = true };
+            var opts = new GameDataReflectOptions();
             opts.Exclude.Add(nameof(MonsterInfo.Index));
             opts.Exclude.Add(nameof(MonsterInfo.HasSpawnScript));
             opts.Exclude.Add(nameof(MonsterInfo.HasDieScript));
-            opts.NotLive.Add(nameof(MonsterInfo.Name));
-            opts.NotLive.Add(nameof(MonsterInfo.DropPath));
 
             return new GameDataTable
             {
@@ -147,6 +153,7 @@ namespace Server.WebAdmin.GameData
                     row.Index = m.Index;
                     ctx.Monsters.Add(m);
                 },
+                Lists = ctx => new System.Collections.IList[] { ctx.Monsters },
                 Remove = (ctx, row) => ctx.Monsters.Remove((MonsterInfo)row.Entity),
                 DeleteGuard = (ctx, row) =>
                 {
@@ -237,6 +244,7 @@ namespace Server.WebAdmin.GameData
                     row.Index = n.Index;
                     ctx.Npcs.Add(n);
                 },
+                Lists = ctx => new System.Collections.IList[] { ctx.Npcs },
                 Remove = (ctx, row) => ctx.Npcs.Remove((NPCInfo)row.Entity),
                 Validate = (ctx, row, changed) =>
                 {
@@ -291,6 +299,7 @@ namespace Server.WebAdmin.GameData
                     row.Index = q.Index;
                     ctx.Quests.Add(q);
                 },
+                Lists = ctx => new System.Collections.IList[] { ctx.Quests },
                 Remove = (ctx, row) => ctx.Quests.Remove((QuestInfo)row.Entity),
                 DeleteGuard = (ctx, row) =>
                 {
@@ -350,6 +359,7 @@ namespace Server.WebAdmin.GameData
                     row.Index = m.Index;
                     ctx.Maps.Add(m);
                 },
+                Lists = ctx => new System.Collections.IList[] { ctx.Maps },
                 Remove = (ctx, row) => ctx.Maps.Remove((MapInfo)row.Entity),
                 DeleteGuard = (ctx, row) =>
                 {
@@ -475,6 +485,7 @@ namespace Server.WebAdmin.GameData
                     row.Position = items.Count - 1;
                     row.Index = key != null ? key(e) : map.Index * Stride + row.Position;
                 },
+                Lists = ctx => ctx.Maps.Select(m => (System.Collections.IList)list(m)),
                 Remove = (ctx, row) => list((MapInfo)row.Parent).Remove((T)row.Entity),
                 Validate = validate,
             };
@@ -528,6 +539,7 @@ namespace Server.WebAdmin.GameData
                     var g = (GameShopItem)row.Entity;
                     if (g.Info == null || g.Info.Index != g.ItemIndex) g.Info = ctx.FindItem(g.ItemIndex);
                 },
+                Lists = ctx => new System.Collections.IList[] { ctx.GameShop },
                 Remove = (ctx, row) =>
                 {
                     ctx.GameShop.Remove((GameShopItem)row.Entity);
@@ -576,6 +588,7 @@ namespace Server.WebAdmin.GameData
                     row.Index = c.Index;
                     ctx.Conquests.Add(c);
                 },
+                Lists = ctx => new System.Collections.IList[] { ctx.Conquests },
                 Remove = (ctx, row) => ctx.Conquests.Remove((ConquestInfo)row.Entity),
                 DeleteGuard = (ctx, row) =>
                 {
@@ -656,6 +669,7 @@ namespace Server.WebAdmin.GameData
                     row.Position = items.Count - 1;
                     row.Index = c.Index * Stride + row.Position;
                 },
+                Lists = ctx => ctx.Conquests.Select(c => (System.Collections.IList)list(c)),
                 Remove = (ctx, row) => list((ConquestInfo)row.Parent).Remove((T)row.Entity),
                 Validate = (ctx, row, changed) =>
                 {

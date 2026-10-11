@@ -237,6 +237,68 @@ namespace Client.MirScenes
             return false;
         }
 
+        /// <summary>
+        /// Adds the item, or copies it onto the ItemInfo already held with the same Index (in place, so every UserItem.Info that points
+        /// at it sees the new values). Returns the held object. Used by S.NewItemInfo (F7) and the LiveDb push.
+        /// </summary>
+        public static ItemInfo UpsertItemInfo(ItemInfo info)
+        {
+            if (info == null) return null;
+            for (int i = 0; i < ItemInfoList.Count; i++)
+            {
+                if (ItemInfoList[i].Index != info.Index) continue;
+                ItemInfoList[i].CopyFrom(info);
+                return ItemInfoList[i];
+            }
+
+            ItemInfoList.Add(info);
+            return info;
+        }
+
+        /// <summary>Replaces the quest with the same Index (or adds it).</summary>
+        public static void UpsertQuestInfo(ClientQuestInfo info)
+        {
+            if (info == null) return;
+            for (int i = 0; i < QuestInfoList.Count; i++)
+            {
+                if (QuestInfoList[i].Index != info.Index) continue;
+                QuestInfoList[i] = info;
+                return;
+            }
+
+            QuestInfoList.Add(info);
+        }
+
+        /// <summary>Replaces the monster info with the same Index (or adds it).</summary>
+        public static void UpsertMonsterInfo(ClientMonsterInfo info)
+        {
+            if (info == null) return;
+            OnMonsterInfoReceived(info.Index);
+            for (int i = 0; i < MonsterInfoList.Count; i++)
+            {
+                if (MonsterInfoList[i].Index != info.Index) continue;
+                MonsterInfoList[i] = info;
+                return;
+            }
+
+            MonsterInfoList.Add(info);
+        }
+
+        /// <summary>Replaces the NPC info with the same Index (or adds it).</summary>
+        public static void UpsertNPCInfo(ClientNPCInfo info)
+        {
+            if (info == null) return;
+            OnNPCInfoReceived(info.Index);
+            for (int i = 0; i < NPCInfoList.Count; i++)
+            {
+                if (NPCInfoList[i].Index != info.Index) continue;
+                NPCInfoList[i] = info;
+                return;
+            }
+
+            NPCInfoList.Add(info);
+        }
+
         public static UserItem[] Storage = new UserItem[80];
         public static UserItem[] GuildStorage = new UserItem[112];
         public static UserItem[] Refine = new UserItem[16];
@@ -347,6 +409,11 @@ namespace Client.MirScenes
             SkillBarDialogs.Add(Bar1);
             SkillBarDialog Bar2 = new SkillBarDialog { Parent = this, Visible = false, BarIndex = 1 };
             SkillBarDialogs.Add(Bar2);
+
+            // Cooldown sweeps and minimap dots change many times a second; as live overlays they re-render only themselves.
+            AddLiveOverlay(Bar1);
+            AddLiveOverlay(Bar2);
+            AddLiveOverlay(MiniMapDialog);
             ChatOptionDialog = new ChatOptionDialog { Parent = this, Visible = false };
             ChatNoticeDialog = new ChatNoticeDialog { Parent = this, Visible = false };
 
@@ -872,6 +939,7 @@ namespace Client.MirScenes
                     case KeybindOptions.DropView:
                         if (CMain.Time > DropViewTime)
                             DropViewTime = CMain.Time + 5000;
+                            MapControl.TextureValid = false; // item names
                         break;
                     case KeybindOptions.TargetDead:
                         if (CMain.Time > TargetDeadTime)
@@ -1180,6 +1248,23 @@ namespace Client.MirScenes
             for (int i = 0; i < OutputLines.Length; i++)
                 OutputLines[i].Draw();
         }
+        /// <summary>
+        /// An object moved or died. Its dot on the minimap and the big map moves; nothing else in the UI depends on it. With
+        /// Settings.RebuildOptimisations only those dialogs are redrawn (the minimap is a live overlay, so only it re-renders)
+        /// instead of the whole UI scene texture.
+        /// </summary>
+        public void ObjectPositionsChanged()
+        {
+            if (!Settings.RebuildOptimisations)
+            {
+                Redraw();
+                return;
+            }
+
+            if (MiniMapDialog != null && MiniMapDialog.Visible && MapControl != null && MapControl.MiniMap > 0) MiniMapDialog.Redraw();
+            if (BigMapDialog != null && BigMapDialog.Visible) BigMapDialog.Redraw();
+        }
+
         public override void Process()
         {
             if (MapControl == null || User == null)
@@ -1190,7 +1275,8 @@ namespace Client.MirScenes
                 MoveTime = CMain.Time + 100; //Move Speed
                 CanMove = true;
                 MapControl.AnimationCount++;
-                MapControl.TextureValid = false;
+                if (!Settings.RebuildOptimisations || MapControl.NeedsTimedRebuild())
+                    MapControl.TextureValid = false;
             }
             else
                 CanMove = false;
@@ -2117,11 +2203,158 @@ namespace Client.MirScenes
                 case (short)ServerPacketIds.NewNPCInfo:
                     NewNPCInfo((S.NewNPCInfo)p);
                     break;
+                case (short)ServerPacketIds.GameDataChanged:
+                    GameDataChanged((S.GameDataChanged)p);
+                    break;
                 default:
                     base.ProcessPacket(p);
                     break;
             }
         }
+
+        #region LiveDb push (S.GameDataChanged)
+
+        // Accumulated over the chunks of one push; applied and reset when the chunk marked Last arrives.
+        private bool _gameDataMagicsChanged, _gameDataHoverChanged, _gameDataShopChanged;
+
+        /// <summary>
+        /// LiveDb push: the server changed system data this client holds. Items are updated in place (UserItem.Info references stay
+        /// valid), monsters / NPCs / quests are upserted, spells are updated by Spell on the user and the hero (only the server's
+        /// values: name, costs, icon, levels, needs, range, delay; the player's own level / key / cooldown stay), game-shop rows are
+        /// removed by GIndex and re-added, and an invalidated map drops its cached big-map record so it is requested again. Stats,
+        /// skill bars and the hovered item's label are refreshed once, on the last chunk. Runs once per packet (no per-frame work).
+        /// </summary>
+        private void GameDataChanged(S.GameDataChanged p)
+        {
+            try
+            {
+                for (int i = 0; i < p.Items.Count; i++)
+                {
+                    ItemInfo held = UpsertItemInfo(p.Items[i]);
+                    OnItemInfoReceived(p.Items[i].Index);
+                    if (HoverItem != null && HoverItem.Info == held) _gameDataHoverChanged = true;
+                }
+
+                for (int i = 0; i < p.Monsters.Count; i++) UpsertMonsterInfo(p.Monsters[i]);
+                for (int i = 0; i < p.Npcs.Count; i++) UpsertNPCInfo(p.Npcs[i]);
+                for (int i = 0; i < p.Quests.Count; i++) UpsertQuestInfo(p.Quests[i]);
+
+                if (User != null)
+                    for (int i = 0; i < p.Magics.Count; i++)
+                        if (CopyMagicInfo(User, p.Magics[i])) _gameDataMagicsChanged = true;
+
+                if (Hero != null)
+                    for (int i = 0; i < p.HeroMagics.Count; i++)
+                        if (CopyMagicInfo(Hero, p.HeroMagics[i])) _gameDataMagicsChanged = true;
+
+                for (int i = 0; i < p.GameShopRemoved.Count; i++)
+                    if (RemoveGameShopItem(p.GameShopRemoved[i])) _gameDataShopChanged = true;
+
+                for (int i = 0; i < p.GameShop.Count; i++)
+                {
+                    S.GameDataChanged.ShopEntry entry = p.GameShop[i];
+                    if (entry?.Item == null) continue;
+                    RemoveGameShopItem(entry.Item.GIndex);
+                    entry.Item.Stock = entry.StockLevel;
+                    GameShopInfoList.Add(entry.Item);
+                    _gameDataShopChanged = true;
+                }
+
+                for (int i = 0; i < p.MapInfoInvalidated.Count; i++) InvalidateMapInfo(p.MapInfoInvalidated[i]);
+            }
+            catch (Exception ex)
+            {
+                if (Settings.LogErrors) CMain.SaveError("[GameDataChanged] " + ex);
+            }
+
+            if (!p.Last) return;
+
+            try
+            {
+                if (User != null) User.RefreshStats();
+                if (Hero != null) Hero.RefreshStats();
+
+                if (_gameDataMagicsChanged)
+                    for (int i = 0; i < SkillBarDialogs.Count; i++) SkillBarDialogs[i].Update();
+
+                if (_gameDataShopChanged && GameShopDialog != null && GameShopDialog.Visible) GameShopDialog.UpdateShop();
+
+                // The open tooltip was built from the old values; the next hover builds a new one.
+                if (_gameDataHoverChanged) DisposeItemLabel();
+            }
+            catch (Exception ex)
+            {
+                if (Settings.LogErrors) CMain.SaveError("[GameDataChanged] refresh: " + ex);
+            }
+            finally
+            {
+                _gameDataMagicsChanged = false;
+                _gameDataHoverChanged = false;
+                _gameDataShopChanged = false;
+            }
+        }
+
+        /// <summary>Copies the server-owned fields of a pushed spell onto the actor's own ClientMagic with the same Spell.</summary>
+        private static bool CopyMagicInfo(UserObject actor, ClientMagic pushed)
+        {
+            if (actor?.Magics == null || pushed == null) return false;
+            for (int i = 0; i < actor.Magics.Count; i++)
+            {
+                ClientMagic magic = actor.Magics[i];
+                if (magic == null || magic.Spell != pushed.Spell) continue;
+
+                magic.Name = pushed.Name;
+                magic.BaseCost = pushed.BaseCost;
+                magic.LevelCost = pushed.LevelCost;
+                magic.Icon = pushed.Icon;
+                magic.Level1 = pushed.Level1;
+                magic.Level2 = pushed.Level2;
+                magic.Level3 = pushed.Level3;
+                magic.Need1 = pushed.Need1;
+                magic.Need2 = pushed.Need2;
+                magic.Need3 = pushed.Need3;
+                magic.Range = pushed.Range;
+                magic.Delay = pushed.Delay;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool RemoveGameShopItem(int gIndex)
+        {
+            bool removed = false;
+            for (int i = GameShopInfoList.Count - 1; i >= 0; i--)
+            {
+                if (GameShopInfoList[i].GIndex != gIndex) continue;
+                GameShopInfoList.RemoveAt(i);
+                removed = true;
+            }
+
+            return removed;
+        }
+
+        /// <summary>Drops a cached big-map record (and its controls); it is requested again when the big map or a dialog needs it.</summary>
+        private void InvalidateMapInfo(int mapIndex)
+        {
+            if (!MapInfoList.TryGetValue(mapIndex, out BigMapRecord record)) return;
+
+            // Unhook the dialog first: its CurrentRecord setter hides the old record's buttons, which must still exist then.
+            if (BigMapDialog != null && BigMapDialog.CurrentRecord == record) BigMapDialog.CurrentRecord = null;
+
+            MapInfoList.Remove(mapIndex);
+            foreach (MirButton button in record.MovementButtons.Values)
+                if (button != null && !button.IsDisposed) button.Dispose();
+            record.MovementButtons.Clear();
+            for (int i = 0; i < record.NPCButtons.Count; i++)
+                if (record.NPCButtons[i] != null && !record.NPCButtons[i].IsDisposed) record.NPCButtons[i].Dispose();
+            record.NPCButtons.Clear();
+
+            if (BigMapDialog != null && BigMapDialog.Visible && BigMapDialog.TargetMapIndex == mapIndex)
+                Network.Enqueue(new C.RequestMapInfo { MapIndex = mapIndex });
+        }
+
+        #endregion
 
         private void KeepAlive(S.KeepAlive p)
         {
@@ -2252,6 +2485,7 @@ namespace Client.MirScenes
             MapControl.AddObject(User);
 
             MapControl.FloorValid = false;
+            MapControl.TextureValid = false;
             MapControl.InputDelay = CMain.Time + 400;
 
             if (User.Dead) return;
@@ -3529,6 +3763,7 @@ namespace Client.MirScenes
                                 new Damage(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.Crit), 1000, obj.Race == ObjectType.Player ? Color.DarkRed : Color.DarkRed, 50) { Offset = 15 });
                             break;
                     }
+                    obj.InvalidateMap();
                 }
             }
         }
@@ -3820,7 +4055,10 @@ namespace Client.MirScenes
             if (p.ObjectID == User.ObjectID) return;
 
             if (MapControl.Objects.TryGetValue(p.ObjectID, out var ob))
+            {
                 ob.NameColour = p.NameColour;
+                ob.InvalidateMap();
+            }
         }
 
         private void ObjectGuildNameChanged(S.ObjectGuildNameChanged p)
@@ -3828,7 +4066,10 @@ namespace Client.MirScenes
             if (p.ObjectID == User.ObjectID) return;
 
             if (MapControl.Objects.TryGetValue(p.ObjectID, out var ob) && ob is PlayerObject obPlayer)
+            {
                 obPlayer.GuildName = p.GuildName;
+                obPlayer.InvalidateMap();
+            }
         }
 
         private void GainExperience(S.GainExperience p)
@@ -3964,7 +4205,10 @@ namespace Client.MirScenes
         private void ObjectPoisoned(S.ObjectPoisoned p)
         {
             if (MapControl.Objects.TryGetValue(p.ObjectID, out var ob))
+            {
                 ob.Poison = p.Poison;
+                ob.InvalidateMap(); // poison dots
+            }
         }
 
         private void MapChanged(S.MapChanged p)
@@ -4003,6 +4247,7 @@ namespace Client.MirScenes
             GameScene.CanRun = false;
 
             MapControl.FloorValid = false;
+            MapControl.TextureValid = false;
             MapControl.InputDelay = CMain.Time + 400;
 
             MapControl.UpdateWeather();
@@ -4949,7 +5194,10 @@ namespace Client.MirScenes
             if (p.ObjectID == User.ObjectID) return;
 
             if (MapControl.Objects.TryGetValue(p.ObjectID, out var ob))
+            {
                 ob.Name = p.Name;
+                ob.InvalidateMap();
+            }
         }
 
         private void UserStorage(S.UserStorage p)
@@ -5109,6 +5357,7 @@ namespace Client.MirScenes
             {
                 ob.PercentHealth = p.Percent;
                 ob.HealthTime = CMain.Time + p.Expire * 1000;
+                ob.InvalidateMap(); // health bar shown
             }
         }
 
@@ -5332,7 +5581,10 @@ namespace Client.MirScenes
         private void ObjectHidden(S.ObjectHidden p)
         {
             if (MapControl.Objects.TryGetValue(p.ObjectID, out var ob))
+            {
                 ob.Hidden = p.Hidden;
+                ob.InvalidateMap();
+            }
         }
 
         private void ObjectSneaking(S.ObjectSneaking p)
@@ -5528,6 +5780,7 @@ namespace Client.MirScenes
 
 
             MapControl.FloorValid = false;
+            MapControl.TextureValid = false;
             MapControl.InputDelay = CMain.Time + 400;
 
 
@@ -10358,6 +10611,166 @@ namespace Client.MirScenes
         public WeatherSetting Weather = WeatherSetting.None;
         public bool FloorValid, LightsValid;
 
+        // Rebuild profiler shim: routes every map invalidation through FrameProfiler so it can count it and, in DebugMode,
+        // record the code that caused it. The flag itself stays the base MirControl field.
+        internal override bool DrawsInParentTexture => false; // Draw() is a no-op; the map is drawn by GameScene.DrawControl
+
+        public new bool TextureValid
+        {
+            get { return base.TextureValid; }
+            set
+            {
+                if (!value) FrameProfiler.NoteInvalidation(RebuildTarget.Map, base.TextureValid);
+                base.TextureValid = value;
+            }
+        }
+
+        #region Rebuild optimisation (Settings.RebuildOptimisations)
+
+        // Cells beyond the DrawObjects range (ViewRangeX/Y, +25 rows below) in which a change can still reach the map texture:
+        // sprite overhang for plain objects, light radius for anything with a light (largest light ~10x11 cells from its source).
+        public const int ViewMargin = 2, LightViewMargin = 6;
+
+        private bool _mouseMovedOverMap;
+        private long _lastTimedTick;
+        private int _settingsSignature;
+        private CellInfo[,] _animatedScanMap;
+        private Point _animatedScanCentre;
+
+        /// <summary>True if something at <paramref name="location"/> can appear in the map texture (DrawObjects range + margin).</summary>
+        public static bool IsNearView(Point location, int margin)
+        {
+            if (User == null) return true;
+            int dx = location.X - User.Movement.X, dy = location.Y - User.Movement.Y;
+            return dx >= -ViewRangeX - margin && dx <= ViewRangeX + margin && dy >= -ViewRangeY - margin && dy <= ViewRangeY + 25 + margin;
+        }
+
+        /// <summary>Invalidates the map texture for a change at <paramref name="location"/>; off-screen changes are skipped when optimising.</summary>
+        public void InvalidateNear(Point location, int margin)
+        {
+            if (!Settings.RebuildOptimisations || IsNearView(location, margin))
+                TextureValid = false;
+        }
+
+        /// <summary>
+        /// Called on the 100 ms tick. Event-driven changes invalidate where they happen; this covers what is drawn from time
+        /// alone: animated tiles, weather, damage numbers, hover names, chat/health/drop-view expiry, the blindness ramp, and
+        /// settings or lighting changes made outside the map code.
+        /// </summary>
+        public bool NeedsTimedRebuild()
+        {
+            long now = CMain.Time, last = _lastTimedTick;
+            _lastTimedTick = now;
+
+            // Every reason that applies is counted (FrameProfiler "tick" line), so the report shows what keeps the tick busy.
+            bool rebuild = false;
+
+            if (_mouseMovedOverMap) rebuild = Reason("mouse"); // hover names and pixel hit-tests follow the mouse at tick granularity
+            _mouseMovedOverMap = false;
+
+            int signature = DrawSettingsSignature();
+            if (signature != _settingsSignature)
+            {
+                _settingsSignature = signature;
+                rebuild = Reason("settings");
+            }
+
+            if (User == null) return Reason("no-user");
+            if (GameScene.Scene.ParticleEngines.Count > 0) rebuild = Reason("weather");
+            if (GameScene.DropViewTime > last && GameScene.DropViewTime <= now) rebuild = Reason("drop-view");
+            if (User.Poison.HasFlag(PoisonType.Blindness) && User.BlindCount < 25) rebuild = Reason("blindness"); // ramp advances in DrawLights
+            if (AnimatedTileFrameChanged()) rebuild = Reason("tiles");
+
+            bool damage = false, chat = false, health = false;
+            for (int i = 0; i < ObjectsList.Count; i++)
+            {
+                MapObject ob = ObjectsList[i];
+                if (!IsNearView(ob.CurrentLocation, ViewMargin)) continue;
+                damage |= ob.Damages.Count > 0; // numbers drift with time and are removed while drawing
+                chat |= ob.ChatLabel != null && ob.ChatTime >= last && ob.ChatTime < now; // DrawChat drops it after ChatTime
+                health |= ob.HealthTime > last && ob.HealthTime <= now; // DrawHealth hides it from HealthTime
+            }
+            if (damage) rebuild = Reason("damage");
+            if (chat) rebuild = Reason("chat-expiry");
+            if (health) rebuild = Reason("health-expiry");
+
+            if (!rebuild) FrameProfiler.NoteTickReason("skipped");
+            return rebuild;
+        }
+
+        private static bool Reason(string reason)
+        {
+            FrameProfiler.NoteTickReason(reason);
+            return true;
+        }
+
+        private int DrawSettingsSignature()
+        {
+            int s = (Settings.Effect ? 1 : 0) | (Settings.LevelEffect ? 2 : 0) | (Settings.DropView ? 4 : 0) | (Settings.NameView ? 8 : 0) |
+                    (Settings.HighlightTarget ? 16 : 0) | (Settings.DisplayBodyName ? 32 : 0);
+            s = s * 31 + (int)GameScene.Scene.Lights;
+            s = s * 31 + (int)Lights;
+            s = s * 31 + MapDarkLight;
+            return s * 31 + (User != null ? (int)User.Poison : 0);
+        }
+
+        // Distinct (frames, tick) animation timings of the animated tiles in the DrawObjects range, packed as frames << 8 | tick;
+        // rescanned when the map or the view centre changes.
+        private readonly List<int> _animatedTimings = new List<int>();
+
+        /// <summary>
+        /// True if an animated tile in the DrawObjects range shows a different frame at this AnimationCount than at the previous
+        /// one. DrawObjects picks the frame as (AnimationCount % (frames + frames * tick)) / (1 + tick) (the shanda tile layer is
+        /// the tick = 0 case), so slow animations change only every (1 + tick) counts and one-frame "animations" never change.
+        /// </summary>
+        private bool AnimatedTileFrameChanged()
+        {
+            if (M2CellInfo == null) return false;
+
+            if (!ReferenceEquals(_animatedScanMap, M2CellInfo) || _animatedScanCentre != User.Movement)
+            {
+                _animatedScanMap = M2CellInfo;
+                _animatedScanCentre = User.Movement;
+                _animatedTimings.Clear();
+
+                for (int y = Math.Max(1, User.Movement.Y - ViewRangeY); y <= User.Movement.Y + ViewRangeY + 25 && y < Height; y++)
+                    for (int x = Math.Max(0, User.Movement.X - ViewRangeX); x <= User.Movement.X + ViewRangeX && x < Width; x++)
+                    {
+                        CellInfo cell = M2CellInfo[x, y];
+
+                        if (cell.TileAnimationImage > 0 && cell.TileAnimationFrames > 0)
+                            AddAnimatedTiming(cell.TileAnimationFrames, 0);
+
+                        if (cell.MiddleIndex >= 0 && cell.MiddleImage > 1 && cell.MiddleAnimationFrame > 0 && cell.MiddleAnimationFrame < 255)
+                        {
+                            int frames = cell.MiddleAnimationFrame;
+                            if ((frames & 0x0F) > 0) frames &= 0x0F; // blended middle tiles keep the frame count in the low nibble
+                            AddAnimatedTiming(frames, cell.MiddleAnimationTick);
+                        }
+
+                        if ((cell.FrontImage & 0x7FFF) > 0 && cell.FrontIndex != -1 && (cell.FrontAnimationFrame & 0x7F) > 0)
+                            AddAnimatedTiming(cell.FrontAnimationFrame & 0x7F, cell.FrontAnimationTick);
+                    }
+            }
+
+            for (int i = 0; i < _animatedTimings.Count; i++)
+            {
+                int frames = _animatedTimings[i] >> 8, tick = _animatedTimings[i] & 0xFF;
+                int period = frames + frames * tick;
+                if ((AnimationCount % period) / (1 + tick) != ((AnimationCount - 1) % period) / (1 + tick)) return true;
+            }
+
+            return false;
+        }
+
+        private void AddAnimatedTiming(int frames, int tick)
+        {
+            int key = frames << 8 | tick;
+            if (!_animatedTimings.Contains(key)) _animatedTimings.Add(key);
+        }
+
+        #endregion
+
         public long OutputDelay;
 
         private static bool _awakeningAction;
@@ -10406,7 +10819,11 @@ namespace Client.MirScenes
             BackColour = Color.Black;
 
             MouseDown += OnMouseDown;
-            MouseMove += (o, e) => MouseLocation = e.Location;
+            MouseMove += (o, e) =>
+            {
+                MouseLocation = e.Location;
+                _mouseMovedOverMap = true;
+            };
             Click += OnMouseClick;
         }
 
@@ -10516,12 +10933,12 @@ namespace Client.MirScenes
                                 //continue;
                             }
                             MapObject.MouseObjectID = ob.ObjectID;
-                            Redraw();
+                            if (!Settings.RebuildOptimisations) Redraw();
                         }
                         if (bestmouseobject != null && MapObject.MouseObject == null)
                         {
                             MapObject.MouseObjectID = bestmouseobject.ObjectID;
-                            Redraw();
+                            if (!Settings.RebuildOptimisations) Redraw();
                         }
                         return;
                     }
@@ -10531,7 +10948,7 @@ namespace Client.MirScenes
             if (MapObject.MouseObject != null)
             {
                 MapObject.MouseObjectID = 0;
-                Redraw();
+                if (!Settings.RebuildOptimisations) Redraw(); // the setter invalidates the map; nothing in the UI shows it
             }
         }
 
@@ -10551,7 +10968,12 @@ namespace Client.MirScenes
             if (User == null) return;
 
             if (!FloorValid)
+            {
+                long floorStart = FrameProfiler.Now();
+                int floorDraws = CMain.DPSCounter;
                 DrawFloor();
+                FrameProfiler.AddRebuild(RebuildTarget.Floor, floorStart, floorDraws);
+            }
 
 
             if (Size != TextureSize)
@@ -10637,7 +11059,12 @@ namespace Client.MirScenes
                 return;
 
             if (!TextureValid)
+            {
+                long rebuildStart = FrameProfiler.Now();
+                int rebuildDraws = CMain.DPSCounter;
                 CreateTexture();
+                FrameProfiler.AddRebuild(RebuildTarget.Map, rebuildStart, rebuildDraws);
+            }
 
             if (ControlTexture == null || ControlTexture.Disposed)
                 return;
@@ -12443,10 +12870,12 @@ namespace Client.MirScenes
         public void RemoveObject(MapObject ob)
         {
             M2CellInfo[ob.MapLocation.X, ob.MapLocation.Y].RemoveObject(ob);
+            ob.InvalidateMap();
         }
         public void AddObject(MapObject ob)
         {
             M2CellInfo[ob.MapLocation.X, ob.MapLocation.Y].AddObject(ob);
+            ob.InvalidateMap(); // new items, spells, decorations and spawns used to show only on the 100 ms tick
         }
         public MapObject FindObject(uint ObjectID, int x, int y)
         {
@@ -12484,6 +12913,7 @@ namespace Client.MirScenes
                         }
 
                         FloorValid = false;
+                        TextureValid = false; // doors are drawn in the floor and the front layer
                     }
                 }
                 if (Doors[i].DoorState == DoorState.Open)
@@ -12493,6 +12923,7 @@ namespace Client.MirScenes
                         Doors[i].LastTick = CMain.Time;
                         Doors[i].DoorState = DoorState.Closing;
                         FloorValid = false;
+                        TextureValid = false;
                     }
                 }
             }
@@ -12504,6 +12935,8 @@ namespace Client.MirScenes
             Info.DoorState = (closed ? DoorState.Closing : Info.DoorState == DoorState.Open ? DoorState.Open : DoorState.Opening);
             Info.ImageIndex = 0;
             Info.LastTick = CMain.Time;
+            FloorValid = false;
+            TextureValid = false;
         }
     }
 }

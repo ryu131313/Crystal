@@ -70,8 +70,14 @@ namespace Server.WebAdmin.GameData
 
         public bool Multiline;
 
-        /// <summary>Monsters: the value may be pushed onto the running world's MonsterInfo (?live=1).</summary>
-        public bool LiveSafe;
+        /// <summary>The owning table's endpoint (set by <see cref="GameDataRegistry"/>); drives the LiveDb classification.</summary>
+        public string Table;
+
+        /// <summary>
+        /// Compatible view of the LiveDb classification: true when a saved change of this column reaches the running world in this build
+        /// (<see cref="LiveDb.LiveDbClassification.Effective"/> is ReadThrough or Hooked).
+        /// </summary>
+        public bool LiveSafe => Table != null && LiveDb.LiveDbClassification.Effective(Table, Name).IsLive;
 
         /// <summary>Synthetic parent column of a child table (MapIndex / ConquestIndex): writable only on insert.</summary>
         public bool IsParentField;
@@ -123,11 +129,6 @@ namespace Server.WebAdmin.GameData
         public HashSet<string> ForceFlags = new HashSet<string>(StringComparer.Ordinal);
 
         public HashSet<string> Multiline = new HashSet<string>(StringComparer.Ordinal);
-
-        /// <summary>Columns that may NOT be pushed live (only meaningful when <see cref="LiveSafeByDefault"/>).</summary>
-        public HashSet<string> NotLive = new HashSet<string>(StringComparer.Ordinal);
-
-        public bool LiveSafeByDefault;
     }
 
     /// <summary>
@@ -324,9 +325,6 @@ namespace Server.WebAdmin.GameData
                 column.ReadOnly = true;
                 column.Set = null;
             }
-
-            if (options.LiveSafeByDefault)
-                column.LiveSafe = !options.NotLive.Contains(key) && (sourceName == null || !options.NotLive.Contains(sourceName));
 
             column.Group ??= DefaultGroup(column);
             return column;

@@ -14,6 +14,17 @@ namespace Server.MirObjects.Monsters
         public bool Summoned;
         public long DieTime;
 
+        private static int _liveCount;
+        /// <summary>
+        /// Spawned and not yet despawned StoneTraps, server-wide. A StoneTrap is the only target that overrides one
+        /// <see cref="MonsterObject.FindTarget"/> has already found, so at 0 the search can stop at its first target.
+        /// Written on the game thread (StoneTraps are pets), read from mob threads; a count left high only disables that.
+        /// </summary>
+        public static bool AnyAlive => Volatile.Read(ref _liveCount) > 0;
+
+        /// <summary>World start: a stop that dropped traps without Despawn would otherwise leave the count high.</summary>
+        internal static void ResetLiveCount() => Volatile.Write(ref _liveCount, 0);
+
         protected internal StoneTrap(MonsterInfo info) : base(info)
         {
             Direction = MirDirection.Up;
@@ -103,6 +114,12 @@ namespace Server.MirObjects.Monsters
         {
             base.Spawned();
             Summoned = true;
+            Interlocked.Increment(ref _liveCount);
+        }
+        public override void Despawn()
+        {
+            base.Despawn();
+            Interlocked.Decrement(ref _liveCount);
         }
         public override void Process()
         {

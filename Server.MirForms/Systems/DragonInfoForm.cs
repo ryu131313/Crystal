@@ -109,6 +109,17 @@ namespace Server
 
         private void DragonInfoForm_FormClosed(object sender, FormClosedEventArgs e)
         {
+            // Approved Known-debt fix (2026-10-10): Main.SaveDB() would overwrite newer data saved through the editor copy (LiveDb saves
+            // on every web apply; SystemDataStale after any editor save) and races the game thread's own save.
+            if (Settings.LiveDbEnabled || Envir.SystemDataStale)
+            {
+                MessageBox.Show("The dragon settings were NOT saved to Server.MirDB: " +
+                                (Settings.LiveDbEnabled ? "LiveDb is enabled, so Server.MirDB is written only through the web admin." : "newer game data was saved through the editor since the world loaded.") +
+                                " Make the change in the web admin (Game Data → Dragon) to keep it after a restart.",
+                    "Dragon", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
             Envir.SaveDB();
         }
 

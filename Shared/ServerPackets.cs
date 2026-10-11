@@ -6828,4 +6828,122 @@ namespace ServerPackets
             Info.Save(writer);
         }
     }
+
+    /// <summary>
+    /// LiveDb push (web admin live game-data edits): fresh copies of changed system data the client already holds. The server sends
+    /// each connection only rows that are in its Sent*Info lists, split into chunks well under 64 KB; <see cref="Last"/> marks the
+    /// final chunk of one batch (the client refreshes stats / labels then). Private: never mirrored to spectators.
+    /// Every section is defined now so the wire format is set once; a server may leave any of them empty.
+    /// </summary>
+    public sealed class GameDataChanged : Packet
+    {
+        public override short Index
+        {
+            get { return (short)ServerPacketIds.GameDataChanged; }
+        }
+
+        public override bool Observable => false;
+
+        /// <summary>One game-shop row (packet layout of <see cref="GameShopItem"/>) with its stock level, as S.GameShopInfo sends it.</summary>
+        public sealed class ShopEntry
+        {
+            public GameShopItem Item;
+            public int StockLevel;
+        }
+
+        public List<ItemInfo> Items = new List<ItemInfo>();
+        public List<ClientMonsterInfo> Monsters = new List<ClientMonsterInfo>();
+        public List<ClientNPCInfo> Npcs = new List<ClientNPCInfo>();
+        public List<ClientQuestInfo> Quests = new List<ClientQuestInfo>();
+        public List<ClientMagic> Magics = new List<ClientMagic>();
+        public List<ClientMagic> HeroMagics = new List<ClientMagic>();
+        public List<ShopEntry> GameShop = new List<ShopEntry>();
+        public List<int> GameShopRemoved = new List<int>();
+        public List<int> MapInfoInvalidated = new List<int>();
+        public bool Last;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            var count = ReadCount(reader, 1);
+            Items = new List<ItemInfo>(count);
+            for (var i = 0; i < count; i++) Items.Add(new ItemInfo(reader));
+
+            count = ReadCount(reader, 1);
+            Monsters = new List<ClientMonsterInfo>(count);
+            for (var i = 0; i < count; i++) Monsters.Add(new ClientMonsterInfo(reader));
+
+            count = ReadCount(reader, 1);
+            Npcs = new List<ClientNPCInfo>(count);
+            for (var i = 0; i < count; i++) Npcs.Add(new ClientNPCInfo(reader));
+
+            count = ReadCount(reader, 1);
+            Quests = new List<ClientQuestInfo>(count);
+            for (var i = 0; i < count; i++) Quests.Add(new ClientQuestInfo(reader));
+
+            count = ReadCount(reader, 1);
+            Magics = new List<ClientMagic>(count);
+            for (var i = 0; i < count; i++) Magics.Add(new ClientMagic(reader));
+
+            count = ReadCount(reader, 1);
+            HeroMagics = new List<ClientMagic>(count);
+            for (var i = 0; i < count; i++) HeroMagics.Add(new ClientMagic(reader));
+
+            count = ReadCount(reader, 1);
+            GameShop = new List<ShopEntry>(count);
+            for (var i = 0; i < count; i++)
+            {
+                var item = new GameShopItem(reader, true);
+                GameShop.Add(new ShopEntry { Item = item, StockLevel = reader.ReadInt32() });
+            }
+
+            count = ReadCount(reader, sizeof(int));
+            GameShopRemoved = new List<int>(count);
+            for (var i = 0; i < count; i++) GameShopRemoved.Add(reader.ReadInt32());
+
+            count = ReadCount(reader, sizeof(int));
+            MapInfoInvalidated = new List<int>(count);
+            for (var i = 0; i < count; i++) MapInfoInvalidated.Add(reader.ReadInt32());
+
+            Last = reader.ReadBoolean();
+        }
+
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Items.Count);
+            for (var i = 0; i < Items.Count; i++) Items[i].Save(writer);
+
+            writer.Write(Monsters.Count);
+            for (var i = 0; i < Monsters.Count; i++) Monsters[i].Save(writer);
+
+            writer.Write(Npcs.Count);
+            for (var i = 0; i < Npcs.Count; i++) Npcs[i].Save(writer);
+
+            writer.Write(Quests.Count);
+            for (var i = 0; i < Quests.Count; i++) Quests[i].Save(writer);
+
+            writer.Write(Magics.Count);
+            for (var i = 0; i < Magics.Count; i++) Magics[i].Save(writer);
+
+            writer.Write(HeroMagics.Count);
+            for (var i = 0; i < HeroMagics.Count; i++) HeroMagics[i].Save(writer);
+
+            writer.Write(GameShop.Count);
+            for (var i = 0; i < GameShop.Count; i++)
+            {
+                GameShop[i].Item.Save(writer, true);
+                writer.Write(GameShop[i].StockLevel);
+            }
+
+            writer.Write(GameShopRemoved.Count);
+            for (var i = 0; i < GameShopRemoved.Count; i++) writer.Write(GameShopRemoved[i]);
+
+            writer.Write(MapInfoInvalidated.Count);
+            for (var i = 0; i < MapInfoInvalidated.Count; i++) writer.Write(MapInfoInvalidated[i]);
+
+            writer.Write(Last);
+        }
+
+        /// <summary>Bytes the section counts and <see cref="Last"/> add to a packet (plus the 4-byte packet header).</summary>
+        public const int FixedOverhead = 4 + 9 * sizeof(int) + 1;
+    }
 }

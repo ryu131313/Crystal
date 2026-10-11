@@ -1712,6 +1712,7 @@ public enum ServerPacketIds : short
     GuildTerritoryPage,
     StorageUnlockResult,
     StoragePasswordResult,
+    GameDataChanged, // LiveDb push (web admin live game-data edits); append-only
 }
 
 public enum ClientPacketIds : short

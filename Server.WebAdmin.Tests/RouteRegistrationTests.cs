@@ -109,6 +109,17 @@ namespace Server.WebAdmin.Tests
             new object[] { "POST", "/api/admin/database/reload-edit", "/api/admin/database/reload-edit" },
             // History (owner B11) must win over db/{endpoint}
             new object[] { "GET", "/api/admin/db/history", "/api/admin/db/history" },
+            // LiveDb (Batch A)
+            new object[] { "GET", "/api/admin/livedb/status", "/api/admin/livedb/status" },
+            new object[] { "POST", "/api/admin/livedb/batch", "/api/admin/livedb/batch" },
+            new object[] { "GET", "/api/admin/livedb/schema/items", "/api/admin/livedb/schema/{endpoint}" },
+            new object[] { "GET", "/api/admin/livedb/history", "/api/admin/livedb/history" },
+            // Live Monitor
+            new object[] { "GET", "/api/admin/monitor/snapshot", "/api/admin/monitor/snapshot" },
+            new object[] { "GET", "/api/admin/monitor/heat", "/api/admin/monitor/heat" },
+            new object[] { "GET", "/api/admin/monitor/maps/12/image", "/api/admin/monitor/maps/{index:int}/image" },
+            new object[] { "GET", "/api/admin/monitor/maps/12/minimap", "/api/admin/monitor/maps/{index:int}/minimap" },
+            new object[] { "GET", "/api/admin/monitor/maps/12/tiles/2/3/4", "/api/admin/monitor/maps/{index:int}/tiles/{z:int}/{tx:int}/{ty:int}" },
             // Shell
             new object[] { "GET", "/api/admin/status", "/api/admin/status" },
             new object[] { "POST", "/api/auth/login", "/api/auth/login" },

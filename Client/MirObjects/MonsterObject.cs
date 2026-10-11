@@ -464,7 +464,7 @@ namespace Client.MirObjects
             if (newColour != DrawColour)
             {
                 DrawColour = newColour;
-                GameScene.Scene.MapControl.TextureValid = false;
+                InvalidateMap();
             }
         }
 
@@ -662,7 +662,7 @@ namespace Client.MirObjects
                         break;
                     case MirAction.Pushed:
                         FrameIndex = Frame.Count - 1;
-                        GameScene.Scene.Redraw();
+                        GameScene.Scene.ObjectPositionsChanged(); // minimap/big map dots
                         break;
                     case MirAction.Jump:
                         PlayJumpSound();
@@ -685,11 +685,11 @@ namespace Client.MirObjects
                         PlayDashSound();
                         break;
                     case MirAction.Walking:
-                        GameScene.Scene.Redraw();
+                        GameScene.Scene.ObjectPositionsChanged(); // minimap/big map dots
                         break;
                     case MirAction.Running:
                         PlayRunSound();
-                        GameScene.Scene.Redraw();
+                        GameScene.Scene.ObjectPositionsChanged(); // minimap/big map dots
                         break;
                     case MirAction.Attack1:
                         PlayAttackSound();
@@ -1198,7 +1198,7 @@ namespace Client.MirObjects
                         PlayDieSound();
                         break;
                     case MirAction.Dead:
-                        GameScene.Scene.Redraw();
+                        GameScene.Scene.ObjectPositionsChanged(); // minimap/big map dots
                         GameScene.Scene.MapControl.SortObject(this);
                         if (MouseObject == this) MouseObjectID = 0;
                         if (TargetObject == this) TargetObjectID = 0;
@@ -1214,7 +1214,7 @@ namespace Client.MirObjects
 
             }
 
-            GameScene.Scene.MapControl.TextureValid = false;
+            InvalidateMap();
 
             NextMotion = CMain.Time + FrameInterval;
 
@@ -1263,7 +1263,7 @@ namespace Client.MirObjects
                 case MirAction.Walking:
                     if (!GameScene.CanMove) return;
 
-                    GameScene.Scene.MapControl.TextureValid = false;
+                    InvalidateMap();
 
                     if (SkipFrames) UpdateFrame();
 
@@ -1288,7 +1288,7 @@ namespace Client.MirObjects
                 case MirAction.Running:
                     if (!GameScene.CanMove) return;
 
-                    GameScene.Scene.MapControl.TextureValid = false;
+                    InvalidateMap();
 
                     if (SkipFrames) UpdateFrame();
 
@@ -1301,7 +1301,7 @@ namespace Client.MirObjects
                 case MirAction.Pushed:
                     if (!GameScene.CanMove) return;
 
-                    GameScene.Scene.MapControl.TextureValid = false;
+                    InvalidateMap();
 
                     FrameIndex -= 2;
 
@@ -1314,7 +1314,7 @@ namespace Client.MirObjects
                 case MirAction.Jump:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -1332,7 +1332,7 @@ namespace Client.MirObjects
                 case MirAction.DashAttack:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -1363,7 +1363,7 @@ namespace Client.MirObjects
                 case MirAction.Show:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -1423,7 +1423,7 @@ namespace Client.MirObjects
                 case MirAction.Hide:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -1475,7 +1475,7 @@ namespace Client.MirObjects
                 case MirAction.Stoned:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -1509,7 +1509,7 @@ namespace Client.MirObjects
                 case MirAction.Attack1:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         Point front = Functions.PointMove(CurrentLocation, Direction, 1);
 
@@ -1825,7 +1825,7 @@ namespace Client.MirObjects
                 case MirAction.SitDown:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -1843,7 +1843,7 @@ namespace Client.MirObjects
                 case MirAction.Attack2:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -2131,7 +2131,7 @@ namespace Client.MirObjects
                 case MirAction.Attack3:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -2282,7 +2282,7 @@ namespace Client.MirObjects
                 case MirAction.Attack4:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -2347,7 +2347,7 @@ namespace Client.MirObjects
                 case MirAction.Attack5:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -2379,7 +2379,7 @@ namespace Client.MirObjects
                 case MirAction.AttackRange1:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -3350,7 +3350,7 @@ namespace Client.MirObjects
                 case MirAction.AttackRange2:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -3582,7 +3582,7 @@ namespace Client.MirObjects
                 case MirAction.AttackRange3:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -3618,7 +3618,7 @@ namespace Client.MirObjects
                 case MirAction.Struck:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -3637,7 +3637,7 @@ namespace Client.MirObjects
                 case MirAction.Die:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -3737,7 +3737,7 @@ namespace Client.MirObjects
                 case MirAction.Revive:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 

@@ -16,12 +16,14 @@
   <link rel="stylesheet" href="admin-dashboard.css" />
   <link rel="stylesheet" href="admin-server.css" />
   <link rel="stylesheet" href="admin-players.css" />
+  <link rel="stylesheet" href="admin-monitor.css" />
   <link rel="stylesheet" href="admin-security.css" />
   <link rel="stylesheet" href="admin-gm.css" />
   <link rel="stylesheet" href="admin-broadcast.css" />
   <link rel="stylesheet" href="admin-chatlog.css" />
   <link rel="stylesheet" href="admin-maintenance.css" />
   <link rel="stylesheet" href="admin-audit.css" />
+  <link rel="stylesheet" href="admin-livedb.css" />
   <link rel="stylesheet" href="admin-accounts.css" />
   <link rel="stylesheet" href="admin-characters.css" />
   <link rel="stylesheet" href="admin-guilds.css" />
@@ -57,6 +59,7 @@
         <button type="button" class="nav-link active" data-section="dashboard">Dashboard</button>
         <button type="button" class="nav-link" data-section="server">Server Control</button>
         <button type="button" class="nav-link" data-section="players-online">Players Online <span id="navOnlineBadge" class="nav-badge hidden">0</span></button>
+        <button type="button" class="nav-link" data-section="monitor">Live Monitor</button>
         <button type="button" class="nav-link" data-section="security">Security</button>
 
         <div class="mir-sidebar-section">Operations</div>
@@ -77,6 +80,7 @@
         <button type="button" class="nav-link" data-section="gamedata">Game Data <span id="navGameDataBadge" class="nav-badge hidden">0</span></button>
         <button type="button" class="nav-link" data-section="scripts">Scripts &amp; Files</button>
         <button type="button" class="nav-link" data-section="backups">Backups &amp; History</button>
+        <button type="button" class="nav-link" data-section="livedb">LiveDb History</button>
 
         <div class="mir-sidebar-section">Config</div>
         <button type="button" class="nav-link" data-section="config">Server Config</button>
@@ -94,6 +98,7 @@
       <section id="section-dashboard" class="admin-section"></section>
       <section id="section-server" class="admin-section hidden"></section>
       <section id="section-players-online" class="admin-section hidden"></section>
+      <section id="section-monitor" class="admin-section hidden"></section>
       <section id="section-security" class="admin-section hidden"></section>
       <section id="section-gm" class="admin-section hidden"></section>
       <section id="section-broadcast" class="admin-section hidden"></section>
@@ -108,6 +113,7 @@
       <section id="section-gamedata" class="admin-section hidden"></section>
       <section id="section-scripts" class="admin-section hidden"></section>
       <section id="section-backups" class="admin-section hidden"></section>
+      <section id="section-livedb" class="admin-section hidden"></section>
       <section id="section-config" class="admin-section hidden"></section>
       <section id="section-balance" class="admin-section hidden"></section>
       <section id="section-systems" class="admin-section hidden"></section>
@@ -157,6 +163,7 @@
   <script src="admin-dashboard.js"></script>
   <script src="admin-server.js"></script>
   <script src="admin-players.js"></script>
+  <script src="admin-monitor.js"></script>
   <script src="admin-security.js"></script>
   <script src="admin-gm.js"></script>
   <script src="admin-broadcast.js"></script>
@@ -171,6 +178,7 @@
   <script src="admin-gamedata.js"></script>
   <script src="admin-scripts.js"></script>
   <script src="admin-backups.js"></script>
+  <script src="admin-livedb.js"></script>
   <script src="admin-config.js"></script>
   <script src="admin-balance.js"></script>
   <script src="admin-systems.js"></script>

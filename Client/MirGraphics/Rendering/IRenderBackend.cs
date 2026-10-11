@@ -98,7 +98,12 @@ namespace Client.MirGraphics.Rendering
         void Clear(Color colour);
         void BeginScene();
         void EndScene();
-        void Present();
+        /// <summary>
+        /// Presents the frame. <paramref name="keepFrame"/>: keep a copy for <see cref="CaptureBackBuffer"/> (a flip-model back
+        /// buffer is undefined after Present). Only requested for screenshots and render tests: a full-screen copy every frame
+        /// cost D3D11 most of its uncapped frame rate.
+        /// </summary>
+        void Present(bool keepFrame);
 
         /// <summary>ID3DXSprite.Begin: <paramref name="alphaBlend"/> = SpriteFlags.AlphaBlend (saves state), otherwise
         /// SpriteFlags.DoNotSaveState (blending off, nothing saved).</summary>

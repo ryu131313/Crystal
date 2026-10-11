@@ -89,6 +89,7 @@ namespace Server.WebAdmin.Routes
                 recentIsolatedErrors = WorldErrors.Recent(),
                 accountSaveFailures = Envir.AccountSaveFailures,
                 loopProfile = LoopProfiler.Last, // roadmap P6: last one-second window (null until the world has run 1 s)
+                livedb = LiveDbRoutes.StatusBlock(Settings.LiveDbEnabled), // LiveDb Batch D: last batch, live outcome, sweeper, divergence
             });
         }
     }

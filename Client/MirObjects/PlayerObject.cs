@@ -879,7 +879,7 @@ namespace Client.MirObjects
             if (newColour != DrawColour)
             {
                 DrawColour = newColour;
-                GameScene.Scene.MapControl.TextureValid = false;
+                InvalidateMap();
             }
         }
         public virtual void SetAction()
@@ -1493,30 +1493,30 @@ namespace Client.MirObjects
                     case MirAction.Pushed:
                         FrameIndex = Frame.Count - 1;
                         EffectFrameIndex = Frame.EffectCount - 1;
-                        GameScene.Scene.Redraw();
+                        GameScene.Scene.ObjectPositionsChanged(); // minimap/big map dots
                         break;
                     case MirAction.DashL:
                     case MirAction.Jump:
                         FrameIndex = 0;
                         EffectFrameIndex = 0;
-                        GameScene.Scene.Redraw();
+                        GameScene.Scene.ObjectPositionsChanged(); // minimap/big map dots
                         break;
                     case MirAction.DashR:
                         FrameIndex = 3;
                         EffectFrameIndex = 3;
-                        GameScene.Scene.Redraw();
+                        GameScene.Scene.ObjectPositionsChanged(); // minimap/big map dots
                         break;
                     case MirAction.Walking:
                     case MirAction.Running:
                     case MirAction.MountWalking:
                     case MirAction.MountRunning:
                     case MirAction.Sneek:
-                        GameScene.Scene.Redraw();
+                        GameScene.Scene.ObjectPositionsChanged(); // minimap/big map dots
                         break;
                     case MirAction.DashAttack:
                         //FrameIndex = 0;
                         //EffectFrameIndex = 0;
-                        GameScene.Scene.Redraw();
+                        GameScene.Scene.ObjectPositionsChanged(); // minimap/big map dots
 
                         if (IsDashAttack())
                         {
@@ -2234,7 +2234,7 @@ namespace Client.MirObjects
 
                         break;
                     case MirAction.Dead:
-                        GameScene.Scene.Redraw();
+                        GameScene.Scene.ObjectPositionsChanged(); // minimap/big map dots
                         GameScene.Scene.MapControl.SortObject(this);
                         if (MouseObject == this) MouseObjectID = 0;
                         if (TargetObject == this) TargetObjectID = 0;
@@ -2246,7 +2246,7 @@ namespace Client.MirObjects
 
             }
 
-            GameScene.Scene.MapControl.TextureValid = false;
+            InvalidateMap();
 
             NextMotion = CMain.Time + FrameInterval;
             NextMotion2 = CMain.Time + EffectFrameInterval;
@@ -2311,7 +2311,7 @@ namespace Client.MirObjects
                 case MirAction.DashAttack:
                     if (!GameScene.CanMove) return;
 
-                    GameScene.Scene.MapControl.TextureValid = false;
+                    InvalidateMap();
 
                     if (this == User) GameScene.Scene.MapControl.FloorValid = false;
                     if (SkipFrames) FrameIndex = Frame.Count;
@@ -2334,7 +2334,7 @@ namespace Client.MirObjects
                     break;
                  case MirAction.Jump:
                     if (!GameScene.CanMove) return;
-                    GameScene.Scene.MapControl.TextureValid = false;
+                    InvalidateMap();
                     if (this == User) GameScene.Scene.MapControl.FloorValid = false;
                     if (SkipFrames) UpdateFrame();
                     if (UpdateFrame() >= Frame.Count)
@@ -2355,7 +2355,7 @@ namespace Client.MirObjects
                 case MirAction.DashL:
                     if (!GameScene.CanMove) return;
 
-                    GameScene.Scene.MapControl.TextureValid = false;
+                    InvalidateMap();
 
                     if (this == User) GameScene.Scene.MapControl.FloorValid = false;
                     if (UpdateFrame() >= 3)
@@ -2369,7 +2369,7 @@ namespace Client.MirObjects
                 case MirAction.DashR:
                     if (!GameScene.CanMove) return;
 
-                    GameScene.Scene.MapControl.TextureValid = false;
+                    InvalidateMap();
 
                     if (this == User) GameScene.Scene.MapControl.FloorValid = false;
 
@@ -2384,7 +2384,7 @@ namespace Client.MirObjects
                 case MirAction.Pushed:
                     if (!GameScene.CanMove) return;
 
-                    GameScene.Scene.MapControl.TextureValid = false;
+                    InvalidateMap();
 
                     if (this == User) GameScene.Scene.MapControl.FloorValid = false;
 
@@ -2408,7 +2408,7 @@ namespace Client.MirObjects
                 case MirAction.Stance2:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -2432,7 +2432,7 @@ namespace Client.MirObjects
                 case MirAction.FishingWait:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -2493,7 +2493,7 @@ namespace Client.MirObjects
                 case MirAction.Mine:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -2519,7 +2519,7 @@ namespace Client.MirObjects
                 case MirAction.AttackRange1:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -2568,7 +2568,7 @@ namespace Client.MirObjects
                 case MirAction.AttackRange2:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -2799,7 +2799,7 @@ namespace Client.MirObjects
                 case MirAction.MountStruck:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -2819,7 +2819,7 @@ namespace Client.MirObjects
                 case MirAction.Spell:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -3441,7 +3441,7 @@ namespace Client.MirObjects
                 case MirAction.Die:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -3468,7 +3468,7 @@ namespace Client.MirObjects
                 case MirAction.Revive:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -3524,7 +3524,7 @@ namespace Client.MirObjects
         {
             if (WingEffect > 0 && CMain.Time >= NextMotion2)
             {
-                GameScene.Scene.MapControl.TextureValid = false;
+                InvalidateMap();
 
                 if (SkipFrames) UpdateFrame2();
 

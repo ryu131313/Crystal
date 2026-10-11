@@ -20,6 +20,9 @@ namespace Server.WebAdmin
 
         public int SessionHours { get; set; } = 8;
         public int MaxBodyKB { get; set; } = 2048;
+
+        /// <summary>Absolute client Data folder for the Live Monitor's map art, or null when not configured.</summary>
+        public string ClientDataPath { get; set; }
         public int MaxConcurrentRequests { get; set; } = 32;
         public int LoginPerIpPerMinute { get; set; } = 10;
         public int LoginGlobalPerMinute { get; set; } = 120;
@@ -47,6 +50,7 @@ namespace Server.WebAdmin
                     WebRoot = ResolveWebRoot(Settings.WebAdminWebRoot, AppContext.BaseDirectory),
                     SessionHours = Settings.WebAdminSessionHours <= 0 ? 8 : Settings.WebAdminSessionHours,
                     MaxBodyKB = Settings.WebAdminMaxBodyKB <= 0 ? 2048 : Settings.WebAdminMaxBodyKB,
+                    ClientDataPath = ResolveClientDataPath(Settings.WebAdminClientDataPath, AppContext.BaseDirectory),
                 };
             }
         }
@@ -64,6 +68,13 @@ namespace Server.WebAdmin
                 : Path.GetFullPath(Path.Combine(baseDirectory, configured.TrimStart('\\', '/')));
 
             return full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+
+        /// <summary>Absolute client Data folder (relative paths against <paramref name="baseDirectory"/>), or null when empty.</summary>
+        public static string ResolveClientDataPath(string configured, string baseDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(configured)) return null;
+            return ResolveWebRoot(configured, baseDirectory);
         }
 
         internal static string ListenerHost(string bind)

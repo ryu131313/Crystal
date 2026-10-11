@@ -45,8 +45,33 @@ namespace Client.MirControls
             OnShown();
         }
 
+        /// <summary>Top-level children drawn by their own render target when nothing overlaps them (Settings.RebuildOptimisations).</summary>
+        internal readonly List<LiveOverlay> LiveOverlays = new List<LiveOverlay>();
+
+        protected void AddLiveOverlay(MirControl target)
+        {
+            LiveOverlays.Add(new LiveOverlay(target, this));
+        }
+
+        protected internal override void DrawControl()
+        {
+            for (int i = 0; i < LiveOverlays.Count; i++)
+                LiveOverlays[i].Prepare();
+
+            base.DrawControl();
+
+            for (int i = 0; i < LiveOverlays.Count; i++)
+                LiveOverlays[i].Composite(Opacity);
+        }
+
         protected override void CreateTexture()
         {
+            long rebuildStart = FrameProfiler.Now();
+            int rebuildDraws = CMain.DPSCounter;
+
+            for (int i = 0; i < LiveOverlays.Count; i++)
+                LiveOverlays[i].UpdateEligibility();
+
             if (Size != TextureSize)
                 DisposeTexture();
 
@@ -70,6 +95,8 @@ namespace Client.MirControls
 
             DXManager.SetSurface(oldSurface);
             TextureValid = true;
+
+            FrameProfiler.AddRebuild(RebuildTarget.Ui, rebuildStart, rebuildDraws);
         }
 
         public override void OnMouseDown(MouseEventArgs e)
@@ -163,6 +190,7 @@ namespace Client.MirControls
 
         public override void Redraw()
         {
+            FrameProfiler.NoteInvalidation(RebuildTarget.Ui, TextureValid);
             TextureValid = false;
         }
         
@@ -200,7 +228,9 @@ namespace Client.MirControls
 
         private void NewItemInfo(S.NewItemInfo info)
         {
-            GameScene.ItemInfoList.Add(info.Info);
+            // Upsert in place (F7): after a relog the server sends a newer copy of an item the client already holds; updating the
+            // existing object keeps every UserItem.Info that points at it current.
+            GameScene.UpsertItemInfo(info.Info);
             GameScene.OnItemInfoReceived(info.Info.Index);
         }
 
@@ -243,7 +273,7 @@ namespace Client.MirControls
 
         private void NewQuestInfo(S.NewQuestInfo info)
         {
-            GameScene.QuestInfoList.Add(info.Info);
+            GameScene.UpsertQuestInfo(info.Info); // F7: replace a stale copy instead of adding a second one
         }
 
         private void NewRecipeInfo(S.NewRecipeInfo info)
@@ -296,6 +326,10 @@ namespace Client.MirControls
             base.Dispose(disposing);
 
             if (!disposing) return;
+
+            for (int i = 0; i < LiveOverlays.Count; i++)
+                LiveOverlays[i].Dispose();
+            LiveOverlays.Clear();
 
             if (ActiveScene == this) ActiveScene = null;
 

@@ -17,6 +17,12 @@
  * - Persistent banner: unsaved Edit changes (GET /api/admin/database/status) with Save to disk / Discard unsaved, and the
  *   pending-reboot list (GET /api/admin/status via AdminStatus) with Reboot world.
  * - Stat_* columns are grouped into one collapsible "Stats" column group; column presets All / Basic / Stats / Flags.
+ * - LiveDb ([LiveDb] Enabled, GET /api/admin/livedb/status): "Apply" sends only the changed cells (+ Index, __rev; new rows
+ *   whole) as ONE batch with a client-generated id (reused on retry) -> POST /api/admin/livedb/batch?dryRun=1 -> preview with
+ *   live / restart badges per field -> POST /api/admin/livedb/batch (saved to Server.MirDB, live fields applied to the running
+ *   world) -> outcome toast. Grid headers carry live / restart badges with a timing tooltip (admin-grid-factory.js). "Delete
+ *   selected" sends the indexes as the batch's deletes (MirLiveDb.deleteRows, used by admin-db-tools.js): saved at once, and removed
+ *   from the running world for the tables whose deletes are live (respawns, safe zones, movements, mine zones, game shop).
  *
  * Globals: GameData (open / editor / current), DbNav (goto / openChild), DbRegistry (labels, lookup homes, child tables
  * for the row drawer), GameDataLogic (pure helpers).
@@ -200,6 +206,19 @@
   var dragon = null;          // { schema, row, inputs, dirty }
   var bannerSig = '';
   var liveMonsters = false;
+  var liveDb = null;          // GET /api/admin/livedb/status (null until loaded / when the call failed)
+  var lastBatch = { sig: '', id: '' };   // the id of the last batch sent, reused when the same payload is retried
+
+  /** LiveDb: [LiveDb] Enabled on the server -> grids send one batch (changed cells + __rev) that saves and applies live. */
+  function liveDbEnabled() { return !!(liveDb && liveDb.enabled); }
+
+  global.MirLiveDb = {
+    enabled: liveDbEnabled,
+    status: function () { return liveDb; },
+    refresh: function () { return refreshLiveDb(); },
+    /** LiveDb delete: one batch {endpoint, deletes:[...]} with dry-run preview -> the applied reply, or null (cancelled / refused). */
+    deleteRows: function (endpoint, indexes) { return deleteBatch(endpoint, indexes); }
+  };
 
   function el(tag, cls, text) {
     var e = document.createElement(tag);
@@ -298,6 +317,44 @@
     }
     res.status = r.status;
     return res;
+  }
+
+  /** GET /api/admin/livedb/status (whether batches are on, which tables apply live). Never throws. */
+  async function refreshLiveDb() {
+    var res = await global.OpsUI.fetchResult('/api/admin/livedb/status');
+    var d = res.ok ? global.OpsUI.unwrap(res.data) : null;
+    liveDb = d && typeof d === 'object' && typeof d.enabled === 'boolean' ? d : (res.data && typeof res.data.enabled === 'boolean' ? res.data : null);
+    syncLiveToggle();
+    renderHeadNote();
+    return liveDb;
+  }
+
+  /** A client-generated batch id, reused while the same payload is retried (so a lost reply never applies twice). */
+  function batchIdFor(payload) {
+    var sig = JSON.stringify(payload);
+    if (sig === lastBatch.sig && lastBatch.id) return lastBatch.id;
+    var rnd = Math.random().toString(36).slice(2, 10);
+    lastBatch = { sig: sig, id: 'b-' + Date.now().toString(36) + '-' + rnd };
+    return lastBatch.id;
+  }
+
+  /**
+   * POST /api/admin/livedb/batch (dry run or real). -> { http, body } with the server's reply, or null after a transport error
+   * (toasted). 409 / 422 / 503 replies come back too: the caller shows them.
+   */
+  async function postBatch(body, dryRun) {
+    var url = '/api/admin/livedb/batch' + (dryRun ? '?dryRun=1' : '');
+    var r, j;
+    try {
+      r = await portalApi(url, { method: 'POST', body: body });
+      j = await r.json().catch(function () { return {}; });
+    } catch (e) {
+      portalToast('Request failed: ' + ((e && e.message) || e) + '. Apply again to retry (it is not applied twice).', 'error');
+      return null;
+    }
+    var b = j && typeof j === 'object' ? j : {};
+    if (b.rows === undefined && b.data && typeof b.data === 'object' && b.data.rows !== undefined) b = Object.assign({ ok: j.ok, message: j.message }, b.data);
+    return { http: r.status, body: b };
   }
 
   /** POST /api/admin/database/save. Returns true when the Edit envir was written to disk. */
@@ -443,6 +500,8 @@
   function syncLiveToggle() {
     var cb = ui.liveCb;
     if (!cb) return;
+    // LiveDb on: every apply saves and applies the live fields itself, so the legacy checkbox is not needed.
+    if (ui.liveLabel) ui.liveLabel.classList.toggle('hidden', liveDbEnabled());
     var on = worldRunning();
     cb.disabled = !on;
     if (ui.liveLabel) {
@@ -453,8 +512,208 @@
     }
   }
 
+  // ---- LiveDb batch flow ----------------------------------------------------------------------------------------------
+
+  /** The writable schema properties of a table: name -> property (parent fields too, they are needed for new rows). */
+  async function writableProps(endpoint) {
+    var schema = global.DbSchema ? await global.DbSchema.fetch(endpoint) : null;
+    var props = Object.create(null);
+    if (!schema || !Array.isArray(schema.properties)) return null;
+    schema.properties.forEach(function (p) {
+      if (p && p.name && p.name !== 'Index' && (!p.readOnly || p.parentField)) props[p.name] = p;
+    });
+    return props;
+  }
+
+  /**
+   * The batch rows of one grid: for an edited row only Index, __rev and the changed cells (a lookup display column such as
+   * ItemName sends its index column instead); a new row (Index <= 0) is sent whole. Unknown / read-only fields are left out.
+   */
+  async function batchRows(endpoint, rows, pending) {
+    var props = await writableProps(endpoint);
+    var ed = editors[endpoint];
+    var api = ed && ed.getApi ? ed.getApi() : null;
+    var byIndex = Object.create(null);
+    (pending || []).forEach(function (e) { if (e) byIndex[String(e.index)] = e; });
+    var out = [];
+    (rows || []).forEach(function (r) {
+      if (!r) return;
+      var idx = Number(r.Index);
+      if (!(idx > 0)) {
+        var whole = { Index: r.Index };
+        Object.keys(r).forEach(function (k) {
+          if (k.indexOf('__') === 0 || k === 'Index') return;
+          if (!props || props[k]) whole[k] = r[k];
+        });
+        out.push(whole);
+        return;
+      }
+      var e = byIndex[String(r.Index)];
+      if (!e || !e.fields) return;
+      var cells = { Index: r.Index, __rev: r.__rev };
+      var any = false;
+      Object.keys(e.fields).forEach(function (f) {
+        var field = f;
+        if (props && !props[f] && api && api.getColumn) {
+          var col = api.getColumn(f);
+          var def = col && col.getColDef ? col.getColDef() : null;
+          var rif = def && def.context && def.context.refIndexField;
+          if (rif) field = rif;
+        }
+        if (props && !props[field]) return;
+        cells[field] = r[field];
+        any = true;
+      });
+      if (any) out.push(cells);
+    });
+    return out;
+  }
+
+  function liveBadge(f) {
+    var on = !!f.live;
+    var b = el('span', 'gd-live-badge ' + (on ? 'gd-live-on' : 'gd-live-off'), on ? 'live' : 'restart');
+    var p = { liveClass: f.liveClass, liveTiming: on ? f.liveTiming : 'restart' };
+    var tip = global.LiveDbText ? global.LiveDbText.tip(p) : '';
+    b.title = (f.reason ? f.reason + '. ' : '') + tip;
+    return b;
+  }
+
+  /** Per row and field: before -> after with a live / restart badge (the server's dry-run prediction or the outcome). */
+  function appendBatchRows(body, rows) {
+    var list = Array.isArray(rows) ? rows : [];
+    if (!list.length) return;
+    body.appendChild(el('h4', 'gd-dialog-h', 'Changes (' + list.length + ' row(s))'));
+    var ul = el('ul', 'gd-change-list');
+    list.slice(0, 200).forEach(function (r) {
+      var li = el('li');
+      var head = el('strong', null, (r.kind === 'insert' ? 'new row ' : r.kind === 'delete' ? 'delete #' + r.newIndex + ' ' : '#' + r.index + ' ') + (r.name || ''));
+      li.appendChild(head);
+      if (r.kind !== 'update') {
+        var rb = el('span', 'gd-live-badge ' + (r.rowLive ? 'gd-live-on' : 'gd-live-off'), r.rowLive ? 'live' : 'restart');
+        rb.title = r.rowReason || (r.rowLive ? 'Added to the running world at once.' : '');
+        li.appendChild(document.createTextNode(' '));
+        li.appendChild(rb);
+      }
+      (r.changes || []).slice(0, 60).forEach(function (f) {
+        var line = el('div', 'gd-change-field');
+        line.appendChild(liveBadge(f));
+        line.appendChild(document.createTextNode(' ' + f.field + ': ' + fmtValue(f.before) + ' → ' + fmtValue(f.after)));
+        li.appendChild(line);
+      });
+      ul.appendChild(li);
+    });
+    if (list.length > 200) ul.appendChild(el('li', 'mir-muted', '… and ' + (list.length - 200) + ' more row(s)'));
+    body.appendChild(ul);
+  }
+
+  /** Validation / conflict lists of a batch reply in the shape appendIssues expects. */
+  function batchIssues(b) {
+    var res = normalizeResult(b);
+    res.validation = (b.validation || []).map(function (v) { return Object.assign({}, v, { index: (v.endpoint && v.endpoint !== currentTab ? v.endpoint + ' ' : '') + v.index }); });
+    res.conflicts = (b.conflicts || []).map(function (c) { return Object.assign({}, c, { index: (c.endpoint && c.endpoint !== currentTab ? c.endpoint + ' ' : '') + c.index }); });
+    return res;
+  }
+
+  /**
+   * LiveDb save of one grid: changed cells -> dry run -> preview with live / restart badges -> apply (saved to Server.MirDB and,
+   * where the server says so, applied to the running world) -> outcome toast. -> { ok, clean }
+   */
+  async function persistBatch(endpoint, rows) {
+    var ed = editors[endpoint];
+    var pending = ed ? ed.pendingEdits() : [];
+    var send = await batchRows(endpoint, changedRows(rows, pending), pending);
+    if (!send.length) {
+      if (global.DbSave && global.DbSave.setDirty) global.DbSave.setDirty(endpoint, false);
+      portalToast('No changes to apply in ' + label(endpoint) + '.', 'info');
+      return { ok: false };
+    }
+    var res = await runBatch(label(endpoint), [{ endpoint: endpoint, rows: send }]);
+    if (!res) return { ok: false };
+    var renames = Array.isArray(res.renames) ? res.renames : [];
+    if (renames.length) setTimeout(function () { handleRenames(renames); }, 0);
+    return { ok: true, clean: false };
+  }
+
+  /** Dry run + preview + apply of one batch; returns the applied reply, or null when cancelled / refused / failed (shown). */
+  async function runBatch(title, tables) {
+    var payload = { tables: tables };
+    var id = batchIdFor(payload);
+    var dry = await postBatch(Object.assign({ id: id, dryRun: true }, payload), true);
+    if (!dry) return null;
+    var d = dry.body;
+    if (dry.http >= 400 && d.status !== 'rejected') {
+      portalToast(d.message || ('Dry run failed (HTTP ' + dry.http + ').'), 'error');
+      return null;
+    }
+    var rejected = d.status === 'rejected';
+    var unsaved = Number(d.unsavedChanges) || 0;
+    var forms = Number(d.editorFormsOpen) || 0;
+    var flush = null;
+    var choice = await modal({
+      title: (rejected ? 'Not applied: ' : 'Apply: ') + title,
+      confirmLabel: 'Apply and save',
+      confirmDisabled: rejected || forms > 0,
+      confirmDisabledTitle: rejected ? 'The batch applies completely or not at all: fix the problems listed first.' : 'Close the database editor window on the server first.',
+      reason: !rejected,
+      build: function (body) {
+        body.appendChild(el('p', null, d.message || ''));
+        if (!rejected) {
+          var running = d.world === 'running';
+          body.appendChild(el('p', 'gd-live-note', running
+            ? 'Fields marked live reach the running world as soon as you apply; restart fields are saved now and used after the next world restart.'
+            : 'The world is not running: everything is saved now and loaded when it starts.'));
+        }
+        appendIssues(body, batchIssues(d));
+        appendBatchRows(body, d.rows);
+        if (forms > 0) body.appendChild(el('p', 'gd-bad', 'A database editor window is open on the server (WinForms). Close it before applying: it edits the same data.'));
+        if (unsaved > 0 && !rejected) {
+          var wrap = el('label', 'gd-flush');
+          flush = el('input');
+          flush.type = 'checkbox';
+          wrap.appendChild(flush);
+          wrap.appendChild(document.createTextNode(' Also save the ' + unsaved + ' other unsaved change(s) of the editor copy (required to apply)'));
+          body.appendChild(wrap);
+        }
+        body.appendChild(el('p', 'mir-muted', 'The previous Server.MirDB is backed up in Back Up\\Database before it is written.'));
+      }
+    });
+    if (!choice) return null;
+    if (unsaved > 0 && !(flush && flush.checked)) {
+      portalToast('Not applied: the editor copy has other unsaved changes. Tick "Also save" or use Save to disk / Discard unsaved in the banner first.', 'error');
+      return null;
+    }
+    var real = await postBatch(Object.assign({ id: id, reason: choice.reason || '', flushUnsaved: unsaved > 0 }, payload), false);
+    if (!real) return null;
+    var b = real.body;
+    if (b.status === 'rejected') {
+      lastBatch = { sig: '', id: '' };
+      await showIssues('Nothing applied: ' + title, batchIssues(b));
+      return null;
+    }
+    if (real.http >= 400 || b.ok === false) {
+      // 409 (unsaved / editor open / state change), 503 (world starting), 500: nothing was changed; a retry reuses the id.
+      portalToast(b.message || ('Apply failed (HTTP ' + real.http + ').'), 'error');
+      if (real.http < 500) lastBatch = { sig: '', id: '' };
+      return null;
+    }
+    lastBatch = { sig: '', id: '' };
+    var outcome = b.live && b.live.outcome;
+    var kind = outcome === 'rolled-back' || outcome === 'timeout' ? 'error' : ((b.restartFields || []).length ? 'info' : 'ok');
+    portalToast((b.duplicate ? 'Already applied (same request): ' : '') + (b.message || 'Saved.'), kind);
+    afterServerChange();
+    return b;
+  }
+
+  /** LiveDb delete of saved rows (dry run + preview + apply, like an edit batch). -> the applied reply or null. */
+  async function deleteBatch(endpoint, indexes) {
+    var list = (indexes || []).map(Number).filter(function (n) { return n > 0; });
+    if (!list.length) return null;
+    return runBatch('delete ' + list.length + ' row(s) from ' + label(endpoint), [{ endpoint: endpoint, rows: [], deletes: list }]);
+  }
+
   /** persistLegacy for every grid: dry run + preview when > 1 row, PUT, database/save, renames. -> { ok, clean } */
   async function persistRows(endpoint, rows) {
+    if (liveDbEnabled()) return persistBatch(endpoint, rows);
     var ed = editors[endpoint];
     var pending = ed ? ed.pendingEdits() : [];
     var send = changedRows(rows, pending);
@@ -1185,6 +1444,15 @@
       return;
     }
     if (!changes.length) { portalToast('No changes to save.', 'info'); setDragonDirty(false); return; }
+    if (liveDbEnabled()) {
+      var cells = { Index: orig.Index != null ? orig.Index : 1, __rev: orig.__rev };
+      changes.forEach(function (c) { cells[c.field] = c.after; });
+      var applied = await runBatch('Dragon', [{ endpoint: 'dragon', rows: [cells] }]);
+      if (!applied) return;
+      setDragonDirty(false);
+      loadDragon();
+      return;
+    }
     var go = await modal({
       title: 'Save Dragon settings',
       confirmLabel: 'Save',
@@ -1393,7 +1661,9 @@
     } else if (stale) {
       var srow = el('div', 'gd-banner-row');
       srow.appendChild(el('span', 'ops-pill', 'Note'));
-      srow.appendChild(el('span', 'gd-banner-text mir-muted', 'Game data was saved since the world last loaded it: the running world keeps its own copy until it restarts.'));
+      srow.appendChild(el('span', 'gd-banner-text mir-muted', liveDbEnabled()
+        ? 'Game data was saved since the world last loaded it: live columns are already in the running world; restart-only changes wait for the next restart.'
+        : 'Game data was saved since the world last loaded it: the running world keeps its own copy until it restarts.'));
       b.appendChild(srow);
     }
     if (lastSaved && global.OpsUI.toDate(lastSaved)) {
@@ -1453,13 +1723,26 @@
 
   // ---- section lifecycle ----------------------------------------------------------------------------------------------
 
+  function renderHeadNote() {
+    if (!ui.headNote) return;
+    if (liveDbEnabled()) {
+      var tables = Array.isArray(liveDb.liveTables) && liveDb.liveTables.length ? liveDb.liveTables.map(label).join(', ') : 'none yet';
+      ui.headNote.textContent = 'LiveDb: every apply is saved to disk at once. Columns marked live reach the running world immediately (live tables: ' +
+        tables + '); restart-only columns take effect after a world restart. Hover a column header for details.';
+    } else {
+      ui.headNote.textContent = 'Edits go to the editor copy of the database and are saved to disk; the running world picks them up after a restart.';
+    }
+  }
+
   function buildSection(el0) {
     root = el0;
     root.innerHTML = '';
     var wrap = el('div', 'gd-wrap');
     var head = el('div', 'gd-head');
     head.appendChild(el('h2', 'gd-group-title', 'Game Data'));
-    head.appendChild(el('span', 'mir-muted gd-head-note', 'Edits go to the editor copy of the database and are saved to disk; the running world picks them up after a restart.'));
+    ui.headNote = el('span', 'mir-muted gd-head-note', '');
+    head.appendChild(ui.headNote);
+    renderHeadNote();
     wrap.appendChild(head);
     ui.banner = el('div', 'gd-banner hidden');
     ui.banner.setAttribute('role', 'status');
@@ -1520,7 +1803,8 @@
     load: function (el0) {
       buildSection(el0);
       hookGlobals();
-      return fetchTables(false);
+      // LiveDb status first: the grids decorate their headers and choose the batch save from it.
+      return refreshLiveDb().then(function () { return fetchTables(false); }, function () { return fetchTables(false); });
     },
     show: function (el0, params) {
       refreshDbStatus();

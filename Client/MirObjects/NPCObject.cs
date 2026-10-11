@@ -157,13 +157,14 @@ namespace Client.MirObjects
             }
 
 
-            if (colour != DrawColour) GameScene.Scene.MapControl.TextureValid = false;
+            if (colour != DrawColour) InvalidateMap();
 
 
             if (CMain.Time > QuestTime)
             {
                 QuestTime = CMain.Time + 500;
                 if (++QuestIndex > 1) QuestIndex = 0;
+                if (QuestIcon != QuestIcon.None) InvalidateMap(); // quest icon blink
             }
         }
         public virtual void ProcessFrames()
@@ -176,7 +177,7 @@ namespace Client.MirObjects
                 case MirAction.Harvest:
                     if (CMain.Time >= NextMotion)
                     {
-                        GameScene.Scene.MapControl.TextureValid = false;
+                        InvalidateMap();
 
                         if (SkipFrames) UpdateFrame();
 
@@ -194,7 +195,7 @@ namespace Client.MirObjects
                     if(EffectFrameInterval > 0)
                         if (CMain.Time >= NextMotion2)
                         {
-                            GameScene.Scene.MapControl.TextureValid = false;
+                            InvalidateMap();
 
                             if (SkipFrames) UpdateFrame2();
 
@@ -285,7 +286,7 @@ namespace Client.MirObjects
             NextMotion = CMain.Time + FrameInterval;
             NextMotion2 = CMain.Time + EffectFrameInterval;
 
-            GameScene.Scene.MapControl.TextureValid = false;
+            InvalidateMap();
 
         }
         public override void Draw()

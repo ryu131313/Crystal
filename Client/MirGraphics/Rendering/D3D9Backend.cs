@@ -141,7 +141,7 @@ namespace Client.MirGraphics.Rendering
         public void Clear(Color colour) => _device.Clear(ClearFlags.Target, colour, 0, 0);
         public void BeginScene() => _device.BeginScene();
         public void EndScene() => _device.EndScene();
-        public void Present() => _device.Present();
+        public void Present(bool keepFrame) => _device.Present(); // the lockable back buffer still holds the frame afterwards
 
         public void SpriteBegin(bool alphaBlend) => _sprite.Begin(alphaBlend ? SpriteFlags.AlphaBlend : SpriteFlags.DoNotSaveState);
         public void SpriteEnd() => _sprite.End();

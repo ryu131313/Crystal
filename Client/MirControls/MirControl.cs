@@ -688,8 +688,17 @@ namespace Client.MirControls
             Visible = false;
         }
 
+        /// <summary>Set while this control is drawn by a <see cref="MirControls.LiveOverlay"/> instead of its scene's texture.</summary>
+        internal LiveOverlay LiveOverlay;
+
+        /// <summary>False for children that draw nothing into their parent's texture (MapControl draws its own target).</summary>
+        internal virtual bool DrawsInParentTexture => true;
+
         public virtual void Draw()
         {
+            if (LiveOverlay != null && LiveOverlay.SkipInScene)
+                return;
+
             if (IsDisposed || !Visible /*|| Size.Width == 0 || Size.Height == 0*/ || Size.Width > Settings.ScreenWidth || Size.Height > Settings.ScreenHeight)
                 return;
 
@@ -989,6 +998,12 @@ namespace Client.MirControls
 
         public virtual void Redraw()
         {
+            if (LiveOverlay != null && LiveOverlay.Active)
+            {
+                LiveOverlay.Invalidate(); // re-render the overlay only; the scene texture does not contain this control
+                return;
+            }
+
             if (Parent != null) Parent.Redraw();
         }
 

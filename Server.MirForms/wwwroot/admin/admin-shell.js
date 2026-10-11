@@ -12,6 +12,7 @@
     dashboard: { label: 'Dashboard', group: 'Monitoring' },
     server: { label: 'Server Control', group: 'Monitoring' },
     'players-online': { label: 'Players Online', group: 'Monitoring' },
+    monitor: { label: 'Live Monitor', group: 'Monitoring' },
     security: { label: 'Security', group: 'Monitoring' },
     gm: { label: 'GM Console', group: 'Operations' },
     broadcast: { label: 'Broadcast', group: 'Operations' },
@@ -26,6 +27,7 @@
     gamedata: { label: 'Game Data', group: 'Game Data' },
     scripts: { label: 'Scripts & Files', group: 'Game Data' },
     backups: { label: 'Backups & History', group: 'Game Data' },
+    livedb: { label: 'LiveDb History', group: 'Game Data' },
     config: { label: 'Server Config', group: 'Config' },
     balance: { label: 'Balance', group: 'Config' },
     systems: { label: 'Systems', group: 'Config' }
