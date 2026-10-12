@@ -1,24 +1,30 @@
-// Mail: MailListDialog (inbox, 10 rows per page, read / reply / delete), MailReadLetterDialog + MailReadParcelDialog
-// (one read window here; delete / lock on a letter, collect on a parcel), MailComposeLetterDialog, MailComposeParcelDialog
-// (recipient, message, gold, stamp, up to 5 inventory items with the mail-locked-item flow and the C.MailCost query) and
-// GameScene's mail handlers (ReceiveMail / MailLockedItem / MailSendRequest / MailSent / ParcelCollected / MailCost).
+// Mail: the desktop mail dialogs (Client/MirScenes/Dialogs/MailDialogs.cs) with their artwork — MailListDialog (Title 670,
+// 10 MailItemRows a page), MailReadLetterDialog (Title 672), MailReadParcelDialog (Title 675), MailComposeLetterDialog
+// (Title 671), MailComposeParcelDialog (Title 674: recipient, message, gold, stamp, up to 5 inventory items with the
+// mail-locked-item flow and the C.MailCost query) — and GameScene's mail handlers (ReceiveMail / MailLockedItem /
+// MailSendRequest / MailSent / ParcelCollected / MailCost) + GameScene.CreateMailLabel (the row hover label).
 // The list opens from the HUD Mail button (MiniMapDialog.MailButton); parcels are composed only after S.MailSendRequest
-// (an NPC script), like the desktop. MirInputBox / MirAmountBox / MirMessageBox Yes-No are prompt() / confirm();
-// the ParcelCollected answers are a non-blocking messageBox.
+// (an NPC script), like the desktop. Closeall (Escape) hides every mail dialog (GameScene key handling).
 
 import type { ServerPacket, UserItem, ClientMail } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
 import { ChatType, ItemType, BindMode } from "../protocol/enums.generated.ts";
 import type { Inventory } from "../game/inventory.ts";
 import { dateFromBinary } from "../game/itemChanges.ts";
-import type { InventoryWindow } from "./inventoryWindow.ts";
-import { itemIcon } from "./inventoryWindow.ts";
-import { messageBox } from "./messageBox.ts";
+import { SoundList } from "../game/audio.ts";
+import { gameSignal } from "../game/scope.ts";
+import { KeybindOptions, matches } from "../game/keybinds.ts";
+import { type InventoryWindow, placeCell } from "./inventoryWindow.ts";
+import { MirWindow, MirControl, MirImage, MirButton, MirLabel, MirTextBox, closeButton, Lib, libSize, getUiRoot, uiSound, SCREEN_WIDTH, SCREEN_HEIGHT } from "./mir/controls.ts";
+import { messageBox, inputBox, amountBox } from "./messageBox.ts";
 import { el } from "./screens.ts";
 
 const ROWS = 10; // MailListDialog.Rows
 const PARCEL_CELLS = 5; // MailComposeParcelDialog._cellCount
 const MAX_MESSAGE = 500; // PlayerObject.SendMail refuses longer messages
+const MAIL_CELL: readonly [number, number] = [35, 31]; // the mail MirItemCells' Size
+const TITLE_FONT = "italic 7pt Arial"; // new Font(Settings.FontName, Settings.FontSize - 1, FontStyle.Italic)
+const ENTER_NAME = "Please enter the name of the person you would like to mail."; // ClientTextKeys.EnterMailToName
 
 /** Mail.DateSent.ToString("dd/MM/yy H:mm:ss"). */
 function formatDate(v: bigint): string {
@@ -28,8 +34,79 @@ function formatDate(v: bigint): string {
 
 const isParcel = (m: ClientMail) => m.Gold > 0 || m.Items.length > 0;
 
-function windowTitle(text: string, close: () => void): HTMLElement {
-  return el("div", { class: "window-title" }, el("span", {}, text), el("button", { class: "window-close", onclick: close }, "×"));
+/** A Title.Lib button with Index / Index + 1 / Index + 2 (the dialogs' common pattern). */
+function titleButton(parent: MirControl, index: number, location: [number, number], onClick: () => void, hint?: string, library: string = Lib.Title): MirButton {
+  return new MirButton({ parent, library, index, hoverIndex: index + 1, pressedIndex: index + 2, location, sound: SoundList.ButtonA, hint, onClick });
+}
+
+/** A single-line label clipped to its Size (MirLabel with DrawFormat = VerticalCenter, no WordBreak). */
+function lineLabel(parent: MirControl, location: [number, number], size: [number, number], notControl = true): MirLabel {
+  const l = new MirLabel({ parent, location, size, vCenter: true, notControl });
+  l.el.style.whiteSpace = "pre";
+  l.el.style.overflow = "hidden";
+  return l;
+}
+
+/** MailItemRow: icon (first item / Prguse 541 gold / Prguse 540 letter), unread / locked / parcel marks, sender, message. */
+class MailItemRow {
+  readonly control: MirControl;
+  private readonly icon: MirImage;
+  private readonly unread: MirImage;
+  private readonly locked: MirImage;
+  private readonly parcel: MirImage;
+  private readonly selectedImage: MirImage;
+  private readonly sender: MirLabel;
+  private readonly message: MirLabel;
+  mail: ClientMail | null = null;
+
+  constructor(parent: MirControl, location: [number, number], onClick: (row: MailItemRow) => void, onHover: (row: MailItemRow, e: PointerEvent | null) => void) {
+    this.control = new MirControl({ parent, location, size: [290, 33], visible: false });
+    this.control.onClick(() => { uiSound(SoundList.ButtonA); onClick(this); });
+    this.icon = new MirImage({ parent: this.control, library: Lib.Prguse, index: 540, location: [0, 0], notControl: true });
+    this.unread = new MirImage({ parent: this.control, library: Lib.Prguse, index: 550, location: [5, 17], visible: false, notControl: true });
+    this.locked = new MirImage({ parent: this.control, library: Lib.Prguse, index: 551, location: [5, 17], visible: false, notControl: true });
+    this.parcel = new MirImage({ parent: this.control, library: Lib.Prguse, index: 552, location: [5, 17], visible: false, notControl: true });
+    this.selectedImage = new MirImage({ parent: this.control, library: Lib.Prguse, index: 545, location: [-5, -3], visible: false, notControl: true });
+    this.sender = lineLabel(this.control, [35, 0], [130, 31]);
+    this.message = lineLabel(this.control, [170, 0], [115, 31]);
+    // OnMouseEnter / OnMouseLeave: GameScene.CreateMailLabel / DisposeMailLabel
+    this.control.el.addEventListener("pointerenter", (e) => onHover(this, e));
+    this.control.el.addEventListener("pointermove", (e) => onHover(this, e));
+    this.control.el.addEventListener("pointerleave", () => onHover(this, null));
+  }
+
+  /** MailItemRow.UpdateInterface (the icon centred in the 34 x 32 IconArea). Returns false while the item info is unknown. */
+  update(mail: ClientMail | null, selected: boolean, image: (item: UserItem) => number | undefined): boolean {
+    this.mail = mail;
+    this.control.visible = mail !== null;
+    if (!mail) return true;
+    let known = true;
+    const first = mail.Items[0];
+    if (first) {
+      const img = image(first);
+      if (img === undefined) { known = false; this.icon.library = null; }
+      else { this.icon.library = Lib.Items; this.icon.index = img; }
+    } else {
+      this.icon.library = Lib.Prguse;
+      this.icon.index = mail.Gold > 0 ? 541 : 540;
+    }
+    const lib = this.icon.library, idx = this.icon.index;
+    void this.icon.ready.then(() => {
+      if (this.icon.library !== lib || this.icon.index !== idx) return;
+      const [w, h] = this.icon.size;
+      this.icon.location = [Math.trunc((34 - w) / 2), Math.trunc((32 - h) / 2)];
+    });
+    this.unread.visible = !mail.Opened;
+    this.locked.visible = mail.Locked;
+    this.parcel.visible = !mail.Collected;
+    // move unread to the second position when a parcel or lock mark takes the first
+    this.unread.location = (!mail.Collected || mail.Locked) && !mail.Opened ? [20, 17] : [5, 17];
+    this.sender.text = mail.SenderName;
+    const text = mail.Message.replace(/\r\n/g, " ");
+    this.message.text = mail.Locked ? "[*] " + text : text;
+    this.selectedImage.visible = selected;
+    return known;
+  }
 }
 
 export class MailWindow {
@@ -37,8 +114,8 @@ export class MailWindow {
   mail: ClientMail[] = [];
   /** GameScene.NewMail: any unopened mail (MiniMapDialog blinks the NewMail icon). */
   newMail = false;
-  /** The HUD Mail button (MiniMapDialog.MailButton); blinks while there is new mail. game.ts places it. */
-  readonly hudButton: HTMLButtonElement;
+  /** MailListDialog.HelpButton (GameScene.HelpDialog.DisplayPage("")); set by game.ts. */
+  onHelp: (() => void) | null = null;
 
   private readonly inv: Inventory;
   private readonly invWindow: InventoryWindow;
@@ -48,45 +125,48 @@ export class MailWindow {
   private readonly stage: HTMLElement;
 
   // MailListDialog
-  private readonly listRoot = el("div", { class: "window mail-window", hidden: true });
-  private readonly rows = el("div", { class: "mail-rows" });
-  private readonly pageLabel = el("span", { class: "mail-page" });
-  private readonly replyButton = el("button", { onclick: () => this.reply() }, "Reply");
+  private readonly listWin: MirWindow;
+  private readonly rows: MailItemRow[] = [];
+  private readonly pageLabel: MirLabel;
+  private readonly replyButton: MirButton;
   private selected: ClientMail | null = null;
   private startIndex = 0;
   private currentPage = 1;
   private pageCount = 1;
+  private mailLabel: HTMLDivElement | null = null;
+  private mailLabelFor: ClientMail | null = null;
 
-  // MailReadLetterDialog / MailReadParcelDialog
-  private readonly readRoot = el("div", { class: "window mail-read", hidden: true });
-  private readonly readTitle = el("span", {});
-  private readonly readSender = el("div", {});
-  private readonly readDate = el("div", {});
-  private readonly readMessage = el("div", { class: "mail-message" });
-  private readonly readParcel = el("div", { class: "mail-parcel" });
-  private readonly readGold = el("span", { class: "trade-gold" });
-  private readonly readCells = el("div", { class: "inv-grid mail-cells" });
-  private readonly readLetterButtons = el("div", { class: "row" });
-  private readonly readParcelButtons = el("div", { class: "row" });
-  private readonly lockButton = el("button", { onclick: () => this.toggleLock() }, "Lock");
-  private readonly collectButton = el("button", { onclick: () => this.collect() }, "Collect");
-  private reading: ClientMail | null = null;
+  // MailReadLetterDialog
+  private readonly letterReadWin: MirWindow;
+  private readonly letterSender: MirLabel;
+  private readonly letterDate: MirLabel;
+  private readonly letterMessage: MirLabel;
+  private readingLetter: ClientMail | null = null;
+
+  // MailReadParcelDialog
+  private readonly parcelReadWin: MirWindow;
+  private readonly parcelSender: MirLabel;
+  private readonly parcelDate: MirLabel;
+  private readonly parcelMessage: MirLabel;
+  private readonly parcelGold: MirLabel;
+  private readonly collectButton: MirButton;
+  private readCells: HTMLElement[] = [];
+  private readingParcel: ClientMail | null = null;
 
   // MailComposeLetterDialog
-  private readonly letterRoot = el("div", { class: "window mail-compose", hidden: true });
-  private readonly letterTo = el("div", { class: "mail-to" });
-  private readonly letterText = el("textarea", { class: "mail-text", rows: 8, maxLength: MAX_MESSAGE }) as HTMLTextAreaElement;
+  private readonly letterWin: MirWindow;
+  private readonly letterTo: MirLabel;
+  private readonly letterText: MirTextBox;
 
   // MailComposeParcelDialog
-  private readonly parcelRoot = el("div", { class: "window mail-compose mail-compose-parcel", hidden: true });
-  private readonly parcelTo = el("div", { class: "mail-to" });
-  private readonly parcelText = el("textarea", { class: "mail-text", rows: 6, maxLength: MAX_MESSAGE }) as HTMLTextAreaElement;
-  private readonly stampButton = el("button", { onclick: () => this.stampParcel() }, "Stamp");
-  private readonly costLabel = el("span", { class: "trade-gold" });
-  private readonly goldButton = el("button", { class: "trade-gold", title: "Add gold", onclick: () => this.addGold() });
-  private readonly parcelCells = el("div", { class: "inv-grid mail-cells" });
-  private letterName = "";
-  private parcelName = "";
+  private readonly parcelWin: MirWindow;
+  private readonly parcelTo: MirLabel;
+  private readonly parcelText: MirTextBox;
+  private readonly stampButton: MirButton;
+  private readonly itemCover: MirImage;
+  private readonly costLabel: MirLabel;
+  private readonly goldLabel: MirLabel;
+  private parcelCells: HTMLElement[] = [];
   /** MailComposeParcelDialog.Items / ItemsIdx / GiftGoldAmount / Stamped. */
   private readonly items: (UserItem | null)[] = new Array<UserItem | null>(PARCEL_CELLS).fill(null);
   private giftGold = 0;
@@ -102,66 +182,102 @@ export class MailWindow {
     this.chat = chat;
     this.requestItem = requestItem;
 
-    this.hudButton = el("button", { title: "Mail", onclick: () => this.toggle() }, "Mail") as HTMLButtonElement;
 
-    this.listRoot.append(
-      windowTitle("Mail", () => this.toggle(false)),
-      el("div", { class: "mail-head" }, el("span", {}, "Type"), el("span", {}, "Sender"), el("span", {}, "Message")),
-      this.rows,
-      el("div", { class: "row mail-pager" },
-        el("button", { onclick: () => this.page(-1) }, "‹"), this.pageLabel, el("button", { onclick: () => this.page(1) }, "›")),
-      el("div", { class: "row" },
-        el("button", { title: "Write a letter", onclick: () => this.sendClick() }, "Send"),
-        this.replyButton,
-        el("button", { onclick: () => { if (this.selected) this.read(this.selected); } }, "Read"),
-        el("button", { onclick: () => this.deleteSelected() }, "Delete")),
-    );
-
-    this.readLetterButtons.append(
-      el("button", { onclick: () => this.deleteReading() }, "Delete"), this.lockButton,
-      el("button", { onclick: () => this.closeRead() }, "Cancel"));
-    this.readParcelButtons.append(this.collectButton, el("button", { onclick: () => this.closeRead() }, "Cancel"));
-    this.readParcel.append(el("div", { class: "row" }, el("span", {}, "Gold"), this.readGold), this.readCells);
-    this.readRoot.append(
-      el("div", { class: "window-title" }, this.readTitle, el("button", { class: "window-close", onclick: () => this.closeRead() }, "×")),
-      this.readSender, this.readDate, this.readMessage, this.readParcel, this.readLetterButtons, this.readParcelButtons);
-
-    this.letterRoot.append(
-      windowTitle("Letter", () => this.hideLetter()), this.letterTo, this.letterText,
-      el("div", { class: "row" },
-        el("button", { class: "primary", onclick: () => this.sendLetter() }, "Send"),
-        el("button", { onclick: () => this.hideLetter() }, "Cancel")));
-
-    this.parcelRoot.append(
-      windowTitle("Parcel", () => this.cancelParcel()), this.parcelTo,
-      el("div", { class: "row" }, this.stampButton),
-      this.parcelText,
-      el("div", { class: "row" }, el("span", {}, "Cost"), this.costLabel),
-      el("div", { class: "row" }, el("span", {}, "Gold"), this.goldButton),
-      this.parcelCells,
-      el("div", { class: "magic-meta mail-hint" }, "Pick an item in the bag, then click a slot. A stamp opens slots 2-5."),
-      el("div", { class: "row" },
-        el("button", { class: "primary", onclick: () => this.sendParcel() }, "Send"),
-        el("button", { onclick: () => this.cancelParcel() }, "Cancel")));
-
-    for (const root of [this.listRoot, this.readRoot, this.letterRoot, this.parcelRoot]) {
-      root.addEventListener("mousedown", (e) => e.stopPropagation());
-      root.addEventListener("keydown", (e) => e.stopPropagation()); // typing in a letter must not trigger game keys
-      root.addEventListener("contextmenu", (e) => e.preventDefault());
-      stage.append(root);
+    // — MailListDialog ctor —
+    this.listWin = new MirWindow({ library: Lib.Title, index: 670, movable: true, sort: true, location: [SCREEN_WIDTH - 312 - 150, 5],
+      onHide: () => { this.selected = null; this.hideMailLabel(); } });
+    const lw = this.listWin;
+    new MirImage({ parent: lw, library: Lib.Title, index: 7, location: [18, 9] });
+    new MirLabel({ parent: lw, text: "TYPE", font: TITLE_FONT, center: true, size: [37, 19], location: [8, 34] });
+    new MirLabel({ parent: lw, text: "SENDER", font: TITLE_FONT, center: true, size: [132, 19], location: [47, 34] });
+    new MirLabel({ parent: lw, text: "MESSAGE", font: TITLE_FONT, center: true, size: [122, 19], location: [181, 34] });
+    closeButton(lw, [312 - 24, 3], () => this.toggle(false));
+    titleButton(lw, 257, [312 - 50, 3], () => this.onHelp?.(), undefined, Lib.Prguse2);
+    titleButton(lw, 240, [102, 444 - 55], () => this.page(-1), undefined, Lib.Prguse2);
+    this.pageLabel = new MirLabel({ parent: lw, location: [120, 444 - 55], size: [67, 15], center: true });
+    titleButton(lw, 243, [192, 444 - 55], () => this.page(1), undefined, Lib.Prguse2);
+    titleButton(lw, 563, [75, 414], () => this.sendClick(), "Send", Lib.Prguse);
+    this.replyButton = titleButton(lw, 569, [102, 414], () => this.reply(), "Reply", Lib.Prguse);
+    titleButton(lw, 572, [129, 414], () => { if (this.selected) this.read(this.selected); }, "Read", Lib.Prguse);
+    titleButton(lw, 557, [156, 414], () => this.deleteSelected(), "Delete", Lib.Prguse);
+    // BlockListButton / BugReportButton: GrayScale, Enabled = false on the desktop too
+    const block = titleButton(lw, 520, [183, 414], () => {}, "Block List", Lib.Prguse);
+    block.enabled = false; block.grayScale = true;
+    const bug = titleButton(lw, 523, [210, 414], () => {}, "Report Bug", Lib.Prguse);
+    bug.enabled = false; bug.grayScale = true;
+    for (let i = 0; i < ROWS; i++) {
+      this.rows.push(new MailItemRow(lw, [10, 55 + i * 33], (row) => this.rowClick(row), (row, e) => this.mailHover(row, e)));
     }
+
+    // — MailReadLetterDialog ctor —
+    this.letterReadWin = new MirWindow({ library: Lib.Title, index: 672, movable: true, sort: true, location: [100, 100], onHide: () => { this.readingLetter = null; } });
+    const rl = this.letterReadWin;
+    closeButton(rl, [236 - 27, 3], () => rl.hide());
+    this.letterSender = new MirLabel({ parent: rl, location: [70, 35], size: [150, 15], notControl: true });
+    this.letterDate = new MirLabel({ parent: rl, location: [70, 56], size: [150, 15], notControl: true });
+    this.letterMessage = new MirLabel({ parent: rl, location: [15, 92], size: [202, 165] });
+    this.letterMessage.el.style.overflow = "hidden";
+    titleButton(rl, 540, [12, 265], () => this.deleteReading());
+    titleButton(rl, 686, [81, 265], () => this.toggleLock());
+    titleButton(rl, 193, [154, 265], () => rl.hide());
+
+    // — MailReadParcelDialog ctor —
+    this.parcelReadWin = new MirWindow({ library: Lib.Title, index: 675, movable: true, sort: true, location: [100, 100], onHide: () => { this.readingParcel = null; } });
+    const rp = this.parcelReadWin;
+    closeButton(rp, [236 - 27, 3], () => rp.hide());
+    this.parcelSender = new MirLabel({ parent: rp, location: [70, 35], size: [150, 15], notControl: true });
+    this.parcelDate = new MirLabel({ parent: rp, location: [70, 56], size: [150, 15], notControl: true });
+    this.parcelMessage = new MirLabel({ parent: rp, location: [15, 98], size: [202, 165] });
+    this.parcelMessage.el.style.overflow = "hidden";
+    this.parcelGold = lineLabel(rp, [63, 290], [143, 15], false);
+    this.collectButton = titleButton(rp, 370, [30, 350], () => this.collect());
+    titleButton(rp, 193, [135, 350], () => rp.hide());
+
+    // — MailComposeLetterDialog ctor —
+    this.letterWin = new MirWindow({ library: Lib.Title, index: 671, movable: true, sort: true, location: [100, 100] });
+    const cl = this.letterWin;
+    closeButton(cl, [236 - 27, 3], () => cl.hide());
+    this.letterTo = new MirLabel({ parent: cl, location: [70, 35], size: [150, 15], notControl: true });
+    this.letterText = new MirTextBox({ parent: cl, location: [15, 92], size: [202, 165], multiline: true, font: "8pt Arial", foreColour: "#ffffff", maxLength: MAX_MESSAGE });
+    titleButton(cl, 607, [30, 265], () => this.sendLetter());
+    titleButton(cl, 193, [135, 265], () => cl.hide());
+
+    // — MailComposeParcelDialog ctor (Location = (InventoryDialog.Size.Width + 10, 0)) —
+    this.parcelWin = new MirWindow({ library: Lib.Title, index: 674, movable: true, sort: true, location: [0, 0], onHide: () => this.resetParcel() });
+    const cp = this.parcelWin;
+    void libSize(Lib.Title, 196).then(([w]) => { cp.location = [w + 10, 0]; });
+    closeButton(cp, [236 - 27, 3], () => cp.hide());
+    this.parcelTo = new MirLabel({ parent: cp, location: [70, 35], size: [150, 15], notControl: true });
+    this.parcelText = new MirTextBox({ parent: cp, location: [15, 98], size: [202, 165], multiline: true, font: "8pt Arial", foreColour: "#ffffff", maxLength: MAX_MESSAGE });
+    this.stampButton = new MirButton({ parent: cp, library: Lib.Prguse2, index: 203, hoverIndex: 203, pressedIndex: 203, location: [73, 56], size: [20, 20], sound: SoundList.ButtonA,
+      onClick: () => this.stampParcel() });
+    this.itemCover = new MirImage({ parent: cp, library: Lib.Title, index: 676, location: [63, 310], size: [144, 33], notControl: true });
+    this.costLabel = lineLabel(cp, [63, 269], [143, 15], false);
+    this.goldLabel = lineLabel(cp, [63, 290], [143, 15], false);
+    this.goldLabel.onClick(() => { uiSound(SoundList.Gold); this.addGold(); });
+    titleButton(cp, 607, [30, 350], () => this.sendParcel());
+    titleButton(cp, 193, [135, 350], () => cp.hide());
+
     const prevRender = invWindow.onRender;
     invWindow.onRender = () => { prevRender(); this.renderParcel(); };
+    // GameScene Closeall: every mail dialog hides
+    window.addEventListener("keydown", (e) => {
+      if (!matches(e, KeybindOptions.Closeall) || document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement) return;
+      for (const w of [this.letterWin, this.parcelWin, this.listWin, this.letterReadWin, this.parcelReadWin]) w.hide();
+    }, { signal: gameSignal() });
+    gameSignal().addEventListener("abort", () => {
+      this.hideMailLabel();
+      for (const w of [this.letterWin, this.parcelWin, this.listWin, this.letterReadWin, this.parcelReadWin]) w.dispose();
+    });
   }
 
   get visible(): boolean {
-    return !this.listRoot.hidden;
+    return this.listWin.visible;
   }
 
   // MailListDialog.Toggle / Show (UpdateInterface) / Hide (SelectedMail = null)
-  toggle(show = this.listRoot.hidden): void {
-    this.listRoot.hidden = !show;
-    if (!show) this.selected = null;
+  toggle(show = !this.listWin.visible): void {
+    if (show) this.listWin.show(); else this.listWin.hide();
     this.renderList();
   }
 
@@ -180,7 +296,7 @@ export class MailWindow {
       case "ParcelCollected": this.parcelCollected(p.Result); return true;
       case "MailCost":
         // GameScene.MailCost (the gold sound is not played)
-        if (!this.parcelRoot.hidden) this.costLabel.textContent = p.Cost.toLocaleString();
+        if (this.parcelWin.visible) this.costLabel.text = p.Cost.toLocaleString("en-US");
         return true;
       default: return false;
     }
@@ -193,28 +309,30 @@ export class MailWindow {
     for (const m of this.mail) for (const item of m.Items) this.requestItem(item.ItemIndex); // GameScene.Bind
     this.setNewMail(this.mail.some((m) => !m.Opened));
     // the desktop keeps the old ClientMail objects in the open dialogs; re-resolve them by MailID
-    if (this.selected) this.selected = this.mail.find((m) => m.MailID === this.selected!.MailID) ?? null;
-    if (this.reading) {
-      const fresh = this.mail.find((m) => m.MailID === this.reading!.MailID);
-      if (fresh) { this.reading = fresh; this.renderRead(); } else this.closeRead();
+    const fresh = (m: ClientMail | null) => (m ? this.mail.find((x) => x.MailID === m.MailID) ?? null : null);
+    this.selected = fresh(this.selected);
+    if (this.readingLetter) {
+      const f = fresh(this.readingLetter);
+      if (f) { this.readingLetter = f; this.renderLetterRead(); } else this.letterReadWin.hide();
+    }
+    if (this.readingParcel) {
+      const f = fresh(this.readingParcel);
+      if (f) { this.readingParcel = f; this.renderParcelRead(); } else this.parcelReadWin.hide();
     }
     this.renderList();
   }
 
   private setNewMail(on: boolean): void {
     this.newMail = on;
-    // MiniMapDialog.Process: the icon blinks (5 s on / 5 s off) ten times, then stays lit
-    this.hudButton.classList.remove("mail-new");
-    if (on) { void this.hudButton.offsetWidth; this.hudButton.classList.add("mail-new"); }
-    this.hudButton.title = on ? "Mail (new mail)" : "Mail";
+    // the MiniMapDialog mail icon blinks from `newMail` (miniMap.ts)
   }
 
   // GameScene.MailSendRequest: MirInputBox for the recipient, then MailComposeParcelDialog.ComposeMail + the inventory
   private mailSendRequest(): void {
-    const name = prompt("Please enter the name of the person you would like to mail.", "");
-    if (!name) return;
-    this.composeParcel(name.trim());
-    if (!this.invWindow.visible) this.invWindow.toggle(true);
+    inputBox(this.stage, ENTER_NAME, "", (name) => {
+      this.composeParcel(name.trim());
+      if (!this.invWindow.visible) this.invWindow.toggle(true);
+    });
   }
 
   // GameScene.MailSent: unlock the mailed cells and hide the parcel dialog (Hide -> Reset -> ResetLockedCells)
@@ -225,14 +343,14 @@ export class MailWindow {
       return;
     }
     for (const item of this.items) if (item) this.inv.setLocked(item, false);
-    this.hideParcel();
+    this.parcelWin.hide();
   }
 
   // GameScene.ParcelCollected
   private parcelCollected(result: number): void {
     if (result === -1) messageBox(this.stage, "No parcels to collect.");
     else if (result === 0) messageBox(this.stage, "All parcels have been collected.");
-    else if (result === 1 && this.reading && isParcel(this.reading)) this.closeRead();
+    else if (result === 1) this.parcelReadWin.hide();
   }
 
   // — MailListDialog —
@@ -248,8 +366,7 @@ export class MailWindow {
 
   // SendButton: MirInputBox (EnterMailToName) -> MailComposeLetterDialog.ComposeMail
   private sendClick(): void {
-    const name = prompt("Please enter the name of the person you would like to mail.", "");
-    if (name) this.composeLetter(name.trim());
+    inputBox(this.stage, ENTER_NAME, "", (name) => { this.composeLetter(name.trim()); });
   }
 
   // ReplyButton
@@ -257,153 +374,178 @@ export class MailWindow {
     if (this.selected) this.composeLetter(this.selected.SenderName);
   }
 
-  // DeleteButton: never a locked mail; a parcel with items or gold asks first
+  // DeleteButton: never a locked mail; a parcel with items or gold asks first (MirMessageBox YesNo)
   private deleteSelected(): void {
     const m = this.selected;
     if (!m || m.Locked) return;
-    if (isParcel(m) && !confirm("This parcel contains items or gold. Are you sure you want to delete it?")) return;
-    this.send(ClientPackets.DeleteMail({ MailID: m.MailID }));
-    this.selected = null;
-    this.renderList();
+    const del = () => {
+      this.send(ClientPackets.DeleteMail({ MailID: m.MailID }));
+      if (this.selected === m) this.selected = null;
+      this.renderList();
+    };
+    if (isParcel(m)) {
+      messageBox(this.stage, "This parcel contains items or gold. Are you sure you want to delete it?",
+        [{ label: "Yes", onClick: del }, { label: "No" }]);
+    } else del();
   }
 
   // MailItemRow click: select, a second click on the selected row reads it
-  private rowClick(m: ClientMail): void {
+  private rowClick(row: MailItemRow): void {
+    const m = row.mail;
+    if (!m) return;
     if (this.selected?.MailID !== m.MailID) { this.selected = m; this.renderList(); return; }
     this.read(m);
   }
 
-  // MailListDialog.UpdateInterface + MailItemRow.UpdateInterface (+ GameScene.CreateMailLabel as the row tooltip)
+  // MailListDialog.UpdateInterface + UpdateRows
   private renderList(): void {
-    if (this.listRoot.hidden) return;
+    if (!this.listWin.visible) return;
     this.pageCount = Math.max(1, Math.ceil(this.mail.length / ROWS));
     if (this.currentPage > this.pageCount) { this.currentPage = this.pageCount; this.startIndex = (this.pageCount - 1) * ROWS; }
-    this.pageLabel.textContent = `${this.currentPage} / ${this.pageCount}`;
+    this.pageLabel.text = `${this.currentPage} / ${this.pageCount}`;
     let missing = false;
-    const rows: HTMLElement[] = [];
-    for (let i = 0; i < ROWS && i + this.startIndex < this.mail.length; i++) {
-      const m = this.mail[i + this.startIndex]!;
-      const icon = el("div", { class: "mail-icon" });
-      const first = m.Items[0];
-      const info = first ? this.inv.info(first) : undefined;
-      if (first && info) {
-        const img = el("img", { alt: info.Name, draggable: false });
-        void itemIcon(info.Image).then((url) => { if (url) img.src = url; });
-        icon.append(img);
-      } else {
-        if (first) missing = true;
-        icon.append(el("span", {}, m.Gold > 0 || first ? "Parcel" : "Letter"));
-      }
-      const marks = el("div", { class: "mail-marks" });
-      if (!m.Collected) marks.append(el("span", { class: "mail-mark parcel", title: "Parcel to collect" }, "P"));
-      if (m.Locked) marks.append(el("span", { class: "mail-mark locked", title: "Locked" }, "L"));
-      if (!m.Opened) marks.append(el("span", { class: "mail-mark unread", title: "Unread" }, "N"));
-      icon.append(marks);
-      const tip = [m.SenderName, `Date Sent : ${formatDate(m.DateSent)}`, ...(m.Gold > 0 ? [`Gold: ${m.Gold}`] : []), m.Opened ? "[Old]" : "[New]"];
-      const row = el("div", { class: `mail-row${this.selected?.MailID === m.MailID ? " selected" : ""}${m.Opened ? "" : " unread"}`, title: tip.join("\n") },
-        icon, el("span", { class: "mail-sender" }, m.SenderName),
-        el("span", { class: "mail-preview" }, (m.Locked ? "[*] " : "") + m.Message.replace(/\r\n/g, " ")));
-      row.onclick = () => this.rowClick(m);
-      rows.push(row);
+    for (let i = 0; i < ROWS; i++) {
+      const m = this.mail[i + this.startIndex] ?? null;
+      const known = this.rows[i]!.update(m, !!m && this.selected?.MailID === m.MailID, (item) => this.inv.info(item)?.Image);
+      if (!known) missing = true;
     }
-    this.rows.replaceChildren(...rows);
     // UpdateRows: Reply only when the selected mail can be replied to
-    this.replyButton.hidden = !!this.selected && !this.selected.CanReply;
+    if (this.selected) this.replyButton.visible = this.selected.CanReply;
     this.scheduleRetry(missing);
   }
 
   /** Item infos arrive after the list (S.NewItemInfo): redraw shortly while any icon is unknown. */
   private scheduleRetry(missing: boolean): void {
     if (!missing || this.retryRender) return;
-    this.retryRender = window.setTimeout(() => { this.retryRender = 0; this.renderList(); this.renderRead(); }, 400);
+    this.retryRender = window.setTimeout(() => { this.retryRender = 0; this.renderList(); this.renderParcelRead(); }, 400);
+  }
+
+  // GameScene.CreateMailLabel: (50,50,50) box at 70 %, gray border; sender (yellow), date, gold, [Old] / [New] (red); at mouse + (15, 0)
+  private mailHover(row: MailItemRow, e: PointerEvent | null): void {
+    const m = row.mail;
+    if (!e || !m) { this.hideMailLabel(); return; }
+    if (this.mailLabelFor !== m || !this.mailLabel?.isConnected) {
+      this.hideMailLabel();
+      const box = document.createElement("div");
+      box.className = "mir";
+      Object.assign(box.style, { position: "absolute", pointerEvents: "none", zIndex: "100000", padding: "4px 4px 0 4px", width: "max-content",
+        background: "rgba(50,50,50,0.7)", outline: "1px solid #808080", outlineOffset: "-1px" });
+      const line = (text: string, colour: string) => {
+        const l = new MirLabel({ parent: box, text, foreColour: colour, autoSize: true });
+        l.el.style.position = "relative";
+      };
+      line(m.SenderName, "#ffff00");
+      line(`Date Sent : ${formatDate(m.DateSent)}`, "#ffffff");
+      if (m.Gold > 0) line(`Gold: ${m.Gold}`, "#ffffff");
+      line(m.Opened ? "[Old]" : "[New]", "#ff0000");
+      getUiRoot().append(box);
+      this.mailLabel = box;
+      this.mailLabelFor = m;
+    }
+    // GameScene.Process: MailLabel at the mouse + (15, 0), kept on screen
+    const root = getUiRoot();
+    const r = root.getBoundingClientRect();
+    const s = r.width / (root.offsetWidth || 1) || 1;
+    const box = this.mailLabel!;
+    let x = Math.round((e.clientX - r.left) / s) + 15, y = Math.round((e.clientY - r.top) / s);
+    if (x + box.offsetWidth > SCREEN_WIDTH) x = SCREEN_WIDTH - box.offsetWidth;
+    if (y + box.offsetHeight > SCREEN_HEIGHT) y = SCREEN_HEIGHT - box.offsetHeight;
+    box.style.left = x + "px";
+    box.style.top = y + "px";
+  }
+
+  private hideMailLabel(): void {
+    this.mailLabel?.remove();
+    this.mailLabel = null;
+    this.mailLabelFor = null;
   }
 
   // — MailReadLetterDialog / MailReadParcelDialog —
 
   // MailListDialog ReadButton / row: a parcel (gold or items) opens the parcel dialog, else the letter dialog. ReadMail: C.ReadMail when unopened
   private read(m: ClientMail): void {
-    this.reading = m;
     if (!m.Opened) this.send(ClientPackets.ReadMail({ MailID: m.MailID }));
-    this.readRoot.hidden = false;
-    this.renderRead();
-  }
-
-  private closeRead(): void {
-    this.reading = null;
-    this.readRoot.hidden = true;
-  }
-
-  private renderRead(): void {
-    const m = this.reading;
-    if (!m || this.readRoot.hidden) return;
-    const parcel = isParcel(m);
-    this.readTitle.textContent = parcel ? "Parcel" : "Letter";
-    this.readSender.textContent = `From: ${m.SenderName}`;
-    this.readDate.textContent = `Sent: ${formatDate(m.DateSent)}`;
-    this.readMessage.textContent = m.Message.replace(/\\r\\n/g, "\r\n");
-    this.readParcel.hidden = !parcel;
-    this.readParcelButtons.hidden = !parcel;
-    this.readLetterButtons.hidden = parcel;
-    this.lockButton.textContent = m.Locked ? "Unlock" : "Lock";
-    if (parcel) {
-      this.readGold.textContent = m.Gold.toLocaleString();
-      const cells: HTMLElement[] = [];
-      for (let i = 0; i < PARCEL_CELLS; i++) cells.push(this.invWindow.viewCell(m.Items[i] ?? null));
-      this.readCells.replaceChildren(...cells);
-      // Collected = the server delivered it straight to the mailbox; otherwise it waits at a post office NPC
-      this.collectButton.disabled = !m.Collected;
-      this.collectButton.title = m.Collected ? "" : "Collect this parcel from a post office NPC";
-      this.scheduleRetry(m.Items.some((i) => !this.inv.info(i)));
+    if (isParcel(m)) {
+      this.readingParcel = m;
+      this.parcelReadWin.show();
+      this.renderParcelRead();
+    } else {
+      this.readingLetter = m;
+      this.letterReadWin.show();
+      this.renderLetterRead();
     }
+  }
+
+  // MailReadLetterDialog.ReadMail
+  private renderLetterRead(): void {
+    const m = this.readingLetter;
+    if (!m || !this.letterReadWin.visible) return;
+    this.letterSender.text = m.SenderName;
+    this.letterDate.text = formatDate(m.DateSent);
+    this.letterMessage.text = m.Message.replace(/\\r\\n/g, "\r\n");
+  }
+
+  // MailReadParcelDialog.ReadMail (cells at (27 + i * 36, 311), CollectButton 680 / 683 by Collected)
+  private renderParcelRead(): void {
+    const m = this.readingParcel;
+    if (!m || !this.parcelReadWin.visible) return;
+    this.parcelSender.text = m.SenderName;
+    this.parcelDate.text = formatDate(m.DateSent);
+    this.parcelMessage.text = m.Message.replace(/\\r\\n/g, "\r\n");
+    this.parcelGold.text = m.Gold.toLocaleString("en-US");
+    for (const c of this.readCells) c.remove();
+    this.readCells = [];
+    for (let i = 0; i < PARCEL_CELLS && i < m.Items.length; i++) {
+      this.readCells.push(placeCell(this.invWindow.viewCell(m.Items[i]!, MAIL_CELL), this.parcelReadWin, [27 + i * 36, 311]));
+    }
+    // Collected = the server delivered it straight to the mailbox; otherwise it waits at a post office NPC
+    if (!m.Collected) { this.collectButton.setIndices(683, 684, 685); this.collectButton.enabled = false; }
+    else { this.collectButton.setIndices(680, 681, 682); this.collectButton.enabled = true; }
+    this.scheduleRetry(m.Items.some((i) => !this.inv.info(i)));
   }
 
   // MailReadLetterDialog.DeleteButton
   private deleteReading(): void {
-    const m = this.reading;
+    const m = this.readingLetter;
     if (!m || m.Locked) return;
     this.send(ClientPackets.DeleteMail({ MailID: m.MailID }));
-    this.closeRead();
+    this.letterReadWin.hide();
   }
 
   // MailReadLetterDialog.LockButton
   private toggleLock(): void {
-    const m = this.reading;
+    const m = this.readingLetter;
     if (!m) return;
     m.Locked = !m.Locked;
     this.send(ClientPackets.LockMail({ MailID: m.MailID, Lock: m.Locked }));
-    this.renderRead();
+    this.renderList();
   }
 
   // MailReadParcelDialog.CollectButton
   private collect(): void {
-    if (this.reading) this.send(ClientPackets.CollectParcel({ MailID: this.reading.MailID }));
+    if (this.readingParcel) this.send(ClientPackets.CollectParcel({ MailID: this.readingParcel.MailID }));
   }
 
   // — MailComposeLetterDialog —
 
-  /** MailComposeLetterDialog.ComposeMail (also the friend list's Mail button). */
+  /** MailComposeLetterDialog.ComposeMail (also the friend list's / relationship's / market's Mail button). */
   composeLetter(name: string, message = ""): void {
     if (!name) return;
-    this.letterName = name;
-    this.letterTo.textContent = `To: ${name}`;
-    this.letterText.value = message;
-    this.letterRoot.hidden = false;
+    this.letterTo.text = name;
+    this.letterText.text = message;
+    this.letterWin.show();
     this.letterText.focus();
-  }
-
-  private hideLetter(): void {
-    this.letterRoot.hidden = true;
   }
 
   // MailComposeLetterDialog.SendButton (no gold, no items)
   private sendLetter(): void {
-    this.send(ClientPackets.SendMail({ Name: this.letterName, Message: this.messageText(this.letterText), Gold: 0, ItemsIdx: new Array<bigint>(PARCEL_CELLS).fill(0n), Stamped: false }));
-    this.hideLetter();
+    this.send(ClientPackets.SendMail({ Name: this.letterTo.text, Message: this.messageText(this.letterText), Gold: 0, ItemsIdx: new Array<bigint>(PARCEL_CELLS).fill(0n), Stamped: false }));
+    this.letterWin.hide();
   }
 
   /** MirTextBox.MultiLine text uses CRLF line breaks. */
-  private messageText(t: HTMLTextAreaElement): string {
-    return t.value.replace(/\r?\n/g, "\r\n");
+  private messageText(t: MirTextBox): string {
+    return t.text.replace(/\r?\n/g, "\r\n");
   }
 
   // — MailComposeParcelDialog —
@@ -411,15 +553,14 @@ export class MailWindow {
   // ComposeMail
   private composeParcel(name: string): void {
     if (!name) return;
-    if (!this.parcelRoot.hidden) this.hideParcel();
-    this.parcelName = name;
-    this.parcelTo.textContent = `To: ${name}`;
-    this.parcelText.value = "";
+    if (this.parcelWin.visible) this.parcelWin.hide();
+    this.parcelTo.text = name;
+    this.parcelText.text = "";
     this.stamped = false;
     this.giftGold = 0;
-    this.costLabel.textContent = "0";
+    this.costLabel.text = "0";
     this.resetLockedCells();
-    this.parcelRoot.hidden = false;
+    this.parcelWin.show();
     this.renderParcel();
     this.parcelText.focus();
   }
@@ -443,17 +584,10 @@ export class MailWindow {
   }
 
   // Hide -> Reset (GiftGoldAmount, Stamped, ResetLockedCells)
-  private hideParcel(): void {
-    if (this.parcelRoot.hidden) return;
-    this.parcelRoot.hidden = true;
+  private resetParcel(): void {
     this.giftGold = 0;
     this.stamped = false;
     this.resetLockedCells();
-  }
-
-  // CloseButton / CancelButton
-  private cancelParcel(): void {
-    this.hideParcel();
   }
 
   // StampParcel: needs a stamp (ItemType.Nothing, Shape 1) in the bag; toggling clears the cells like the desktop
@@ -463,28 +597,27 @@ export class MailWindow {
       if (has) this.stamped = true;
       else this.chat("You need a stamp in your bag.", ChatType.System); // deliberate: the desktop does nothing
     } else this.stamped = false;
-    this.resetLockedCells();
     this.calculatePostage();
+    this.resetLockedCells();
     this.renderParcel();
   }
 
-  // GoldSendLabel click: MirAmountBox up to the gold not already put in the parcel
+  // GoldSendLabel click: MirAmountBox (Items 116) up to the gold not already put in the parcel
   private addGold(): void {
     const left = this.inv.gold - this.giftGold;
     if (this.invWindow.pickedInventorySlot >= 0 || left <= 0) return;
-    const text = prompt(`Send Amount: (max ${left.toLocaleString()})`, String(left));
-    if (text === null) return;
-    const amount = Math.min(left, Math.trunc(Number(text.replace(/[,\s]/g, ""))));
-    if (amount > 0) this.giftGold += amount;
-    this.calculatePostage();
-    this.renderParcel();
+    amountBox("Send Amount:", 116, left, (amount) => {
+      if (amount > 0) this.giftGold += Math.min(amount, this.inv.gold - this.giftGold);
+      this.calculatePostage();
+      this.renderParcel();
+    });
   }
 
   // MirItemCell "To Mail" (from the inventory only): empty slot, not DontTrade; the inventory cell is locked locally
   private cellClick(slot: number): void {
     const from = this.invWindow.pickedInventorySlot;
     if (from < 0) return; // a mail cell does nothing without a picked item
-    if (slot > 0 && !this.stamped) return; // ItemCover: slots 2-5 need a stamp
+    if (slot > 0 && !this.stamped) return; // Cells[1..4].Enabled = false until stamped
     const item = this.inv.inventory[from];
     this.invWindow.clearPick();
     if (!item) return;
@@ -501,21 +634,22 @@ export class MailWindow {
 
   // SendButton: the server answers with S.MailSent (and S.LoseGold / S.DeleteItem on success)
   private sendParcel(): void {
-    this.send(ClientPackets.SendMail({ Name: this.parcelName, Message: this.messageText(this.parcelText), Gold: this.giftGold, ItemsIdx: this.itemsIdx(), Stamped: this.stamped }));
+    this.send(ClientPackets.SendMail({ Name: this.parcelTo.text, Message: this.messageText(this.parcelText), Gold: this.giftGold, ItemsIdx: this.itemsIdx(), Stamped: this.stamped }));
   }
 
+  // UpdateParcel (StampButton 203 / 204, ItemCover) + the cells at (27 + i * 36, 311) + GoldSendLabel
   private renderParcel(): void {
-    if (this.parcelRoot.hidden) return;
-    this.stampButton.textContent = this.stamped ? "Stamped ✓" : "Stamp";
-    this.stampButton.classList.toggle("on", this.stamped);
-    this.goldButton.textContent = this.giftGold.toLocaleString();
-    const cells: HTMLElement[] = [];
+    if (!this.parcelWin.visible) return;
+    const s = this.stamped ? 204 : 203;
+    this.stampButton.setIndices(s, s, s);
+    this.itemCover.visible = !this.stamped;
+    this.goldLabel.text = this.giftGold.toLocaleString("en-US");
+    for (const c of this.parcelCells) c.remove();
+    this.parcelCells = [];
     for (let i = 0; i < PARCEL_CELLS; i++) {
-      const c = this.invWindow.viewCell(this.items[i] ?? null);
-      if (i > 0 && !this.stamped) c.classList.add("mail-covered");
-      c.onmousedown = (e) => { e.stopPropagation(); if (e.button === 0) this.cellClick(i); };
-      cells.push(c);
+      const c = placeCell(this.invWindow.viewCell(this.items[i] ?? null, MAIL_CELL), this.parcelWin, [27 + i * 36, 311]);
+      c.addEventListener("mousedown", (e) => { if (e.button === 0) this.cellClick(i); });
+      this.parcelCells.push(c);
     }
-    this.parcelCells.replaceChildren(...cells);
   }
 }

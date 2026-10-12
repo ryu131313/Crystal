@@ -1,23 +1,26 @@
-// NPC storage (bank): StorageDialog (Client/MirScenes/Dialogs/NPCDialogs.cs) + GameScene.NPCStorage /
-// StorageUnlockResult / StoragePasswordResult / ResizeStorage, DOM edition.
-//   Two pages of 80 cells (Globals.StorageGridSize): page 1 = slots 0..79, page 2 = 80..159 (the rented expansion; a
-//   "locked" label until User.HasExpandedStorage), the Rent button (C.Chat "@ADDSTORAGE" after a Yes/No box), the
-//   Protect button (set / change the storage password when the server requires one) and the unlock prompt.
+// NPC storage (bank): StorageDialog (Client/MirScenes/Dialogs/NPCDialogs.cs) with the desktop artwork + GameScene.NPCStorage /
+// StorageUnlockResult / StoragePasswordResult / ResizeStorage.
+//   Prguse 586 at (0, 0), Title 0, the Storage 1 / Storage 2 tab buttons (Title 743-746), Rent (Title 483, C.Chat
+//   "@ADDSTORAGE" after an OK/Cancel box), Protect (Title 113: set / change the storage password when the server requires
+//   one), the 10 x 8 MirItemCell grid per page (page 2 = slots 80..159, the rented expansion: Prguse 2443 + the red
+//   "locked" label until User.HasExpandedStorage) and the rental label.
 //   Items live in Inventory.storage and the cells share the inventory window's pick (grid "npcStorage"): store / take
 //   back / merge / move / split / equip from storage / unequip into storage follow MirItemCell (see inventory.ts).
-// The password prompts are a non-blocking box with a masked input (MirInputBox with InputTextBox.Password = true).
+// The password prompts are MirInputBox (Prguse 660) with InputTextBox.Password = true and OK disabled while empty.
 // Deliberate differences: a forced first-time setup whose confirmation does not match closes that box before asking
-// again (the desktop leaves it open behind the new one); Shift+right-click chat links are inventory-only here.
+// again (the desktop leaves it open behind the new one); the InventoryDialog is not moved beside the storage
+// (InventoryWindow has no location API); the expiry date reads "Expires On <date>" with a space.
 
 import type { ServerPacket } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
 import { ChatType } from "../protocol/enums.generated.ts";
 import { STORAGE_GRID_SIZE } from "../game/inventory.ts";
-import type { InventoryWindow } from "./inventoryWindow.ts";
+import { placeCell, type InventoryWindow } from "./inventoryWindow.ts";
 import { messageBox } from "./messageBox.ts";
-import { el } from "./screens.ts";
 import { gameSignal } from "../game/scope.ts";
+import { SoundList } from "../game/audio.ts";
 import { KeybindOptions, matches } from "../game/keybinds.ts";
+import { MirWindow, MirImage, MirButton, MirLabel, MirTextBox, Lib, closeButton } from "./mir/controls.ts";
 
 const MIN_PASSWORD = 5, MAX_PASSWORD = 15; // Globals.MinPasswordLength / MaxPasswordLength
 
@@ -50,8 +53,31 @@ function dateFromBinary(v: bigint): Date {
   return new Date(Number((ticks - 621355968000000000n) / 10000n));
 }
 
-/** What the window needs from the NPC dialog (GameScene.NPCDialog.Visible / Hide). */
-export interface StorageNpc { readonly visible: boolean; close(): void }
+/** What the window needs from the NPC dialog (GameScene.NPCDialog.Visible / Hide; NPCDialog.Hide also hides the
+ *  StorageDialog, through onClose). */
+export interface StorageNpc { readonly visible: boolean; close(): void; onClose: () => void }
+
+/** MirInputBox (Prguse 660) with InputTextBox.Password = true and OKButton.Enabled following the text. `onSubmit`
+ *  returning false keeps the box open (refocused); Cancel closes it, then calls onCancel. Returns a close function. */
+function passwordBox(text: string, onSubmit: (value: string) => boolean, onCancel?: () => void): () => void {
+  const win = new MirWindow({ library: Lib.Prguse, index: 660, location: "center", modal: true });
+  new MirLabel({ parent: win, location: [25, 25], size: [235, 40], text });
+  const close = () => win.dispose();
+  const ok = () => {
+    const value = input.text;
+    if (!value) return;
+    if (onSubmit(value)) { close(); return; }
+    input.focus();
+  };
+  const cancel = () => { close(); onCancel?.(); };
+  const input = new MirTextBox({ parent: win, location: [23, 86], size: [240, 19], border: true, borderColour: "lime", password: true, maxLength: 64,
+    onEnter: ok, onEscape: cancel, onChange: (v) => { okButton.enabled = v !== ""; } });
+  const okButton = new MirButton({ parent: win, library: Lib.Title, index: 200, hoverIndex: 201, pressedIndex: 202, location: [60, 123], enabled: false, onClick: ok });
+  new MirButton({ parent: win, library: Lib.Title, index: 203, hoverIndex: 204, pressedIndex: 205, location: [160, 123], onClick: cancel });
+  win.show();
+  input.focus();
+  return close;
+}
 
 export class StorageWindow {
   /** UserObject.HasExpandedStorage / ExpandedStorageExpiryTime / HasStoragePassword / RequireStoragePassword /
@@ -64,21 +90,21 @@ export class StorageWindow {
   private storageUnlocked = false;        // StorageDialog._storageUnlocked
   private pendingOpenAfterPasswordSet = false;
   private forcingPasswordSetup = false;
-  private page: 1 | 2 = 1;
   private readonly stage: HTMLElement;
   private readonly invWindow: InventoryWindow;
   private readonly send: (f: Uint8Array) => void;
   private readonly chat: (text: string, type: number) => void;
   private readonly npc: StorageNpc;
-  private readonly root = el("div", { class: "window storage-window", hidden: true });
-  private readonly grid = el("div", { class: "inv-grid storage-grid" });
-  private readonly lockedPage = el("div", { class: "storage-locked", hidden: true });
-  private readonly rentalLabel = el("div", { class: "magic-meta storage-rental", hidden: true });
-  private readonly page1Button = el("button", { onclick: () => this.refreshStorage(1) }, "Storage 1");
-  private readonly page2Button = el("button", { onclick: () => this.refreshStorage(2) }, "Storage 2");
-  private readonly rentButton = el("button", { title: "Rent / extend the expanded storage", onclick: () => this.rent() }, "Rent");
-  private readonly protectButton = el("button", { title: "Storage password", onclick: () => this.manageStoragePassword() }, "Protect");
-  /** Open password boxes (closed with the scene or when the storage closes from elsewhere). */
+  private readonly win: MirWindow;
+  private readonly lockedPage: MirImage;
+  private readonly storage1Button: MirButton;
+  private readonly storage2Button: MirButton;
+  private readonly rentButton: MirButton;
+  private readonly protectButton: MirButton;
+  private readonly rentalLabel: MirLabel;
+  /** StorageDialog.Grid: 10 x 16 cells (two pages of 80). */
+  private readonly grid: HTMLElement[] = [];
+  /** Open password boxes (closed with the scene). */
   private readonly boxes = new Set<() => void>();
 
   constructor(stage: HTMLElement, invWindow: InventoryWindow, send: (f: Uint8Array) => void,
@@ -88,26 +114,36 @@ export class StorageWindow {
     this.send = send;
     this.chat = chat;
     this.npc = npc;
-    this.root.append(
-      el("div", { class: "window-title" }, el("span", {}, "Storage"), el("button", { class: "window-close", onclick: () => this.hide() }, "×")),
-      el("div", { class: "row storage-tabs" }, this.page1Button, this.page2Button, el("span", { class: "storage-spacer" }), this.rentButton, this.protectButton),
-      this.grid, this.lockedPage, this.rentalLabel,
-    );
-    this.lockedPage.textContent = T.ExpandedStorageLocked;
-    this.root.addEventListener("mousedown", (e) => e.stopPropagation());
-    this.root.addEventListener("contextmenu", (e) => e.preventDefault());
-    stage.append(this.root);
-    const prevRender = invWindow.onRender;
-    invWindow.onRender = () => { prevRender(); this.render(); };
+    // StorageDialog ctor
+    this.win = new MirWindow({ library: Lib.Prguse, index: 586, location: [0, 0], sort: true });
+    new MirImage({ parent: this.win, library: Lib.Title, index: 0, location: [18, 8] });
+    this.lockedPage = new MirImage({ parent: this.win, library: Lib.Prguse, index: 2443, location: [8, 59], visible: false });
+    this.storage1Button = new MirButton({ parent: this.win, library: Lib.Title, index: 743, hoverIndex: 743, pressedIndex: 744, location: [8, 36], sound: SoundList.ButtonA, onClick: () => this.refreshStorage(1) });
+    this.storage2Button = new MirButton({ parent: this.win, library: Lib.Title, index: 746, hoverIndex: 746, pressedIndex: 746, location: [80, 36], sound: SoundList.ButtonA, onClick: () => this.refreshStorage(2) });
+    this.rentButton = new MirButton({ parent: this.win, library: Lib.Title, index: 483, hoverIndex: 484, pressedIndex: 485, location: [283, 33], sound: SoundList.ButtonA, onClick: () => this.rent() });
+    this.protectButton = new MirButton({ parent: this.win, library: Lib.Title, index: 113, hoverIndex: 114, pressedIndex: 115, location: [328, 33], sound: SoundList.ButtonA, onClick: () => this.manageStoragePassword() });
+    closeButton(this.win, [363, 3], () => this.hide());
+    this.rentalLabel = new MirLabel({ parent: this.win, location: [40, 322], autoSize: true, notControl: true, foreColour: "#ff0000", text: T.ExpandedStorageLocked });
+    for (let x = 0; x < 10; x++) {
+      for (let y = 0; y < 16; y++) {
+        const idx = 10 * y + x;
+        const cell = placeCell(invWindow.boundCell("npcStorage", idx), this.win, [x * 36 + 9 + x, (y % 8) * 32 + 60 + (y % 8)]);
+        cell.hidden = idx >= STORAGE_GRID_SIZE;
+        this.grid[idx] = cell;
+      }
+    }
+    // NPCDialog.Hide hides the StorageDialog
+    const prevClose = npc.onClose;
+    npc.onClose = () => { prevClose(); this.hide(); };
     // KeybindOptions.Closeall (Escape) hides StorageDialog with the rest
     window.addEventListener("keydown", (e) => {
-      if (matches(e, KeybindOptions.Closeall) && !this.root.hidden && !(document.activeElement instanceof HTMLInputElement)) this.hide();
+      if (matches(e, KeybindOptions.Closeall) && this.win.visible && !(document.activeElement instanceof HTMLInputElement)) this.hide();
     }, { signal: gameSignal() });
-    gameSignal().addEventListener("abort", () => this.closeBoxes());
+    gameSignal().addEventListener("abort", () => { this.closeBoxes(); this.win.dispose(); });
   }
 
   get visible(): boolean {
-    return !this.root.hidden;
+    return this.win.visible;
   }
 
   handle(p: ServerPacket): void {
@@ -136,7 +172,7 @@ export class StorageWindow {
 
   /** StorageDialog.Show: open straight away, force a first password, or ask for the password first. */
   show(): void {
-    this.protectButton.disabled = !this.requireStoragePassword;
+    this.protectButton.enabled = this.requireStoragePassword;
     if (this.requireStoragePassword) {
       if (!this.hasStoragePassword) {
         this.npc.close();
@@ -152,15 +188,15 @@ export class StorageWindow {
       }
     } else this.storageUnlocked = true;
     this.invWindow.toggle(true);
-    this.root.hidden = false;
     this.refreshStorage(1);
+    this.win.show();
   }
 
   /** StorageDialog.Hide (re-lock: the next open asks for the password again). */
   hide(): void {
     this.storageUnlocked = false;
-    if (this.root.hidden) return;
-    this.root.hidden = true;
+    if (!this.win.visible) return;
+    this.win.hide();
     this.invWindow.clearPick();
   }
 
@@ -276,62 +312,35 @@ export class StorageWindow {
     }, () => this.hide());
   }
 
-  /** StorageDialog.PromptStoragePassword: a masked MirInputBox with the length rules; OK is disabled while empty;
-   *  `onSubmit` returning false keeps the box open (refocused). */
+  /** StorageDialog.PromptStoragePassword: the masked MirInputBox with the length rules. */
   private promptStoragePassword(text: string, onSubmit: (value: string) => boolean, onCancel?: () => void): void {
-    const input = el("input", { type: "password", maxLength: 64, class: "storage-password-input" }) as HTMLInputElement;
-    const ok = el("button", { class: "primary", disabled: true }, "OK");
-    const cancel = el("button", {}, "Cancel");
-    const box = el("div", { class: "window message-box storage-password-box" },
-      el("div", { class: "message-box-text" }, `${text}\n${T.StoragePasswordRules}`), input, el("div", { class: "row" }, ok, cancel));
-    const close = () => { box.remove(); this.boxes.delete(close); };
+    let close: () => void = () => {};
+    const forget = () => { this.boxes.delete(close); };
+    close = passwordBox(`${text}\n${T.StoragePasswordRules}`, (v) => { const done = onSubmit(v); if (done) forget(); return done; }, () => { forget(); onCancel?.(); });
     this.boxes.add(close);
-    const submit = () => {
-      const value = input.value;
-      if (!value) return;
-      if (onSubmit(value)) { close(); return; }
-      input.focus();
-    };
-    input.oninput = () => { ok.disabled = !input.value; };
-    ok.onclick = submit;
-    cancel.onclick = () => { close(); onCancel?.(); };
-    box.addEventListener("mousedown", (e) => e.stopPropagation());
-    box.addEventListener("keydown", (e) => {
-      e.stopPropagation();
-      if (e.key === "Enter") submit();
-      else if (e.key === "Escape") cancel.click();
-    });
-    this.stage.append(box);
-    input.focus();
   }
 
   private closeBoxes(): void {
     for (const close of [...this.boxes]) close();
   }
 
-  /** StorageDialog.RefreshStorage1 / RefreshStorage2: which cells show, the Rent button and the rental label. */
+  /** StorageDialog.RefreshStorage1 / RefreshStorage2: the tab pictures, which cells show, Rent, the locked page and
+   *  the rental label. */
   private refreshStorage(page: 1 | 2): void {
-    this.page = page;
-    this.render();
-  }
-
-  private render(): void {
-    if (this.root.hidden) return;
-    const page2 = this.page === 2;
-    this.page1Button.classList.toggle("primary", !page2);
-    this.page2Button.classList.toggle("primary", page2);
-    this.rentButton.hidden = !page2;
-    this.rentalLabel.hidden = !page2;
-    this.lockedPage.hidden = !page2 || this.hasExpandedStorage;
+    const page2 = page === 2;
+    this.storage1Button.setIndices(page2 ? 744 : 743, page2 ? 744 : 743, 744);
+    this.storage2Button.setIndices(page2 ? 745 : 746, page2 ? 745 : 746, 746);
+    this.rentButton.visible = page2;
+    this.lockedPage.visible = page2 && !this.hasExpandedStorage;
+    this.rentalLabel.visible = page2;
     if (page2) {
-      this.rentalLabel.textContent = this.hasExpandedStorage
+      this.rentalLabel.text = this.hasExpandedStorage
         ? `${T.ExpandedStorageExpiresOn} ${dateFromBinary(this.expandedStorageExpiryTime).toLocaleString()}`
         : T.ExpandedStorageLocked;
+      this.rentalLabel.foreColour = this.hasExpandedStorage ? "#ffffff" : "#ff0000";
     }
-    const showCells = !page2 || this.hasExpandedStorage;
-    this.grid.hidden = !showCells;
-    if (!showCells) { this.grid.replaceChildren(); return; }
-    const start = page2 ? STORAGE_GRID_SIZE : 0;
-    this.grid.replaceChildren(...Array.from({ length: STORAGE_GRID_SIZE }, (_, i) => this.invWindow.npcStorageCell(start + i)));
+    this.grid.forEach((cell, idx) => {
+      cell.hidden = page2 ? idx < STORAGE_GRID_SIZE || !this.hasExpandedStorage : idx >= STORAGE_GRID_SIZE;
+    });
   }
 }

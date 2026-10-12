@@ -1,8 +1,9 @@
-// Options: port of OptionDialog (Client/MirScenes/Dialogs/MainDialogs.cs). Toggle with F12 / O (KeybindOptions.Options /
-// Options2) or the Options button. The desktop dialog has: skill mode (~ / Ctrl), skill bar, effects, drop view, name view,
-// HP view, new move, allow observe and the sound / music volume bars. The "More" section adds the [Game] / [Graphics] values
-// the desktop only changes elsewhere (chat commands @LEVELEFFECT / @TARGETDEAD / @LIGHT, ChatOptionDialog transparency,
-// BuffDialog, Mir2Config.ini) so they are reachable without an ini file.
+// Options: port of OptionDialog (Client/MirScenes/Dialogs/MainDialogs.cs) with the desktop artwork (Title 411, the
+// Prguse2 450-467 / Title 848-853 On / Off pairs, the Prguse2 468 volume bars with the Prguse 20 knobs). Toggle with
+// F12 / O (KeybindOptions.Options / Options2) or the Options button.
+// Web extra (no desktop control): a "More" panel beside the dialog for the [Game] / [Graphics] values the desktop only
+// changes elsewhere (chat commands @LEVELEFFECT / @TARGETDEAD / @LIGHT, ChatOptionDialog transparency, BuffDialog,
+// Mir2Config.ini), drawn with the same Prguse2 On / Off buttons, so they stay reachable without an ini file.
 // Values go through settings.ts setSetting (localStorage); volumes go to SoundManager (audio.ts persists them).
 // Allow observe sends `C.Chat "@ALLOWOBSERVE"` like OptionDialog.ToggleObserve; the state comes from
 // UserInformation.AllowObserve (setAllowObserve) and S.AllowObserve (handle).
@@ -11,93 +12,122 @@ import { KeybindOptions, matches } from "../game/keybinds.ts";
 import type { ServerPacket } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
 import { ChatType } from "../protocol/enums.generated.ts";
-import type { SoundManager } from "../game/audio.ts";
+import { SoundList, type SoundManager } from "../game/audio.ts";
 import { gameSettings, setSetting, onSettingChange, type GameSettings } from "../game/settings.ts";
 import { gameSignal } from "../game/scope.ts";
+import { MirWindow, MirControl, MirImage, MirButton, MirLabel, closeButton, setPicture, libSize, Lib } from "./mir/controls.ts";
 import { el } from "./screens.ts";
 
 type BoolKey = { [K in keyof GameSettings]: GameSettings[K] extends boolean ? K : never }[keyof GameSettings];
 
-interface Row { label: string; title?: string; get: () => boolean; set: (v: boolean) => void; on?: string; off?: string }
+/** One OptionDialog On / Off button pair: the indices OptionPanel_BeforeDraw swaps in. */
+interface Pair {
+  on: MirButton; off: MirButton; get: () => boolean;
+  /** [On, Off] Index when the value is true, then when it is false. */
+  whenOn: [number, number]; whenOff: [number, number];
+}
+
+/** A row of the web-only "More" panel. */
+interface MoreRow { label: string; hint?: string; get: () => boolean; set: (v: boolean) => void }
 
 export class OptionWindow {
-  readonly hudButton: HTMLButtonElement;
   /** GameScene.AllowObserve. */
   allowObserve = false;
-  private readonly root = el("div", { class: "window option-window", hidden: true });
-  private readonly refreshers: (() => void)[] = [];
+  private readonly win: MirWindow;
+  private readonly pairs: Pair[] = [];
+  private readonly bars: (() => void)[] = [];
+  private readonly more: MirControl;
   private readonly send: (f: Uint8Array) => void;
   private readonly chat: (text: string, type: number) => void;
   private readonly sound: Pick<SoundManager, "volume" | "musicVolume">;
 
-  constructor(stage: HTMLElement, send: (f: Uint8Array) => void, chat: (text: string, type: number) => void, sound: Pick<SoundManager, "volume" | "musicVolume">) {
+  constructor(_stage: HTMLElement, send: (f: Uint8Array) => void, chat: (text: string, type: number) => void, sound: Pick<SoundManager, "volume" | "musicVolume">) {
     this.send = send;
     this.chat = chat;
     this.sound = sound;
-    this.hudButton = el("button", { title: "Options (F12 / O)", onclick: () => this.toggle() }, "Options") as HTMLButtonElement;
-
     const hint = (text: string) => this.chat(text, ChatType.Hint);
-    const flag = (key: BoolKey, label: string, title?: string, after?: (v: boolean) => void): Row =>
-      ({ label, title, get: () => gameSettings[key], set: (v) => { setSetting(key, v); after?.(v); } });
 
-    // OptionDialog buttons (in the dialog's order)
-    const main: Row[] = [
-      // GameScene.ChangeSkillMode: SkillMode true = "~" bar, false = "Ctrl" bar
-      { label: "Skill mode", title: "Second skill bar modifier", on: "~", off: "Ctrl", get: () => gameSettings.SkillMode,
-        set: (v) => { setSetting("SkillMode", v); hint(v ? "[Skill Mode: ~]" : "[Skill Mode: Ctrl]"); } }, // ClientTextKeys.SkillModeTilde / SkillModeCtrl
-      flag("SkillBar", "Skill bar"),
-      flag("Effect", "Effects"),
-      flag("DropView", "Drop view", "Show ground item names"),
-      flag("NameView", "Name view", "Show object names"),
-      flag("HPView", "HP view", undefined, (v) => hint(v ? "[HP/MP Mode 1]" : "[HP/MP Mode 2]")), // ClientTextKeys.HpMpMode1 / 2
-      flag("NewMove", "New move", undefined, (v) => hint(v ? "[New Movement Style]" : "[Old Movement Style]")), // NewMovementStyle / OldMovementStyle
-      // OptionDialog.ToggleObserve: the server flips the flag and answers with S.AllowObserve
-      { label: "Allow observe", title: "Let other players observe you", get: () => this.allowObserve,
-        set: (v) => { if (this.allowObserve !== v) this.send(ClientPackets.Chat({ Message: "@ALLOWOBSERVE" })); } },
-    ];
-    const more: Row[] = [
-      flag("LevelEffect", "Level effects", "Desktop: @LEVELEFFECT"),
-      flag("TransparentChat", "Transparent chat", "Desktop: chat options"),
-      flag("ModeView", "Mode view"),
-      flag("DuraView", "Durability view"),
-      flag("DisplayDamage", "Display damage"),
-      flag("TargetDead", "Target dead", "Desktop: @TARGETDEAD"),
-      flag("HighlightTarget", "Highlight target"),
-      flag("DisplayBodyName", "Display body name", "Show dead monsters' names under the mouse"),
+    // OptionDialog ctor
+    const win = this.win = new MirWindow({ library: Lib.Title, index: 411, movable: true, sort: true, location: "center", onShow: () => this.refresh() });
+    const close = closeButton(win, [0, 5], () => this.toggle(false));
+    void win.ready.then(() => { close.location = [win.size[0] - 26, 5]; });
+
+    const pair = (library: string, y: number, pressed: [number, number], whenOn: [number, number], whenOff: [number, number],
+      get: () => boolean, onOn: () => void, onOff: () => void) => {
+      const on = new MirButton({ parent: win, library, location: [159, y], size: [36, 17], pressedIndex: pressed[0], sound: SoundList.ButtonA, onClick: () => { onOn(); this.refresh(); } });
+      const off = new MirButton({ parent: win, library, location: [201, y], size: [36, 17], pressedIndex: pressed[1], sound: SoundList.ButtonA, onClick: () => { onOff(); this.refresh(); } });
+      this.pairs.push({ on, off, get, whenOn, whenOff });
+    };
+    const flag = (key: BoolKey, y: number, after?: (v: boolean) => void) =>
+      pair(Lib.Prguse2, y, [457, 460], [458, 459], [456, 461], () => gameSettings[key],
+        () => { setSetting(key, true); after?.(true); }, () => { setSetting(key, false); after?.(false); });
+
+    // SkillModeOn ("~", Settings.SkillMode = true) / SkillModeOff ("Ctrl"): GameScene.ChangeSkillMode
+    const skillMode = (v: boolean) => { setSetting("SkillMode", v); hint(v ? "[Skill Mode: ~]" : "[Skill Mode: Ctrl]"); }; // SkillModeTilde / SkillModeCtrl
+    pair(Lib.Prguse2, 68, [451, 454], [452, 453], [450, 455], () => gameSettings.SkillMode, () => skillMode(true), () => skillMode(false));
+    flag("SkillBar", 93);
+    flag("Effect", 118);
+    flag("DropView", 143);
+    flag("NameView", 168);
+    pair(Lib.Prguse2, 193, [463, 466], [464, 465], [462, 467], () => gameSettings.HPView,
+      () => { setSetting("HPView", true); hint("[HP/MP Mode 1]"); }, () => { setSetting("HPView", false); hint("[HP/MP Mode 2]"); }); // HpMpMode1 / 2
+    // SoundBar / VolumeBar, MusicSoundBar / MusicVolumeBar
+    this.volumeBar(225, 218, () => this.sound.volume, (v) => { this.sound.volume = v; });
+    this.volumeBar(251, 244, () => this.sound.musicVolume, (v) => { this.sound.musicVolume = v; });
+    pair(Lib.Title, 296, [853, 850], [853, 848], [851, 850], () => gameSettings.NewMove,
+      () => { setSetting("NewMove", true); hint("[New Movement Style]"); }, () => { setSetting("NewMove", false); hint("[Old Movement Style]"); }); // NewMovementStyle / OldMovementStyle
+    // ObserveOn / ObserveOff: OptionDialog.ToggleObserve (the server flips the flag and answers with S.AllowObserve)
+    const observe = (allow: boolean) => { if (this.allowObserve !== allow) this.send(ClientPackets.Chat({ Message: "@ALLOWOBSERVE" })); };
+    pair(Lib.Prguse2, 271, [457, 460], [458, 459], [456, 461], () => this.allowObserve, () => observe(true), () => observe(false));
+
+    // Web-only "More" panel (see the header)
+    const moreRows: MoreRow[] = [
+      { label: "Level effects", hint: "Desktop: @LEVELEFFECT", ...this.boolRow("LevelEffect") },
+      { label: "Transparent chat", hint: "Desktop: chat options", ...this.boolRow("TransparentChat") },
+      { label: "Mode view", ...this.boolRow("ModeView") },
+      { label: "Durability view", ...this.boolRow("DuraView") },
+      { label: "Display damage", ...this.boolRow("DisplayDamage") },
+      { label: "Target dead", hint: "Desktop: @TARGETDEAD", ...this.boolRow("TargetDead") },
+      { label: "Highlight target", ...this.boolRow("HighlightTarget") },
+      { label: "Body names", hint: "Show dead monsters' names under the mouse", ...this.boolRow("DisplayBodyName") },
       // ChatDialog.TryLightingCommand (@LIGHT NEW / OLD)
-      { label: "Lighting", title: "Desktop: @LIGHT NEW / OLD", on: "Enhanced", off: "Classic", get: () => gameSettings.Lighting === "Enhanced",
+      { label: "Enhanced lighting", hint: "Desktop: @LIGHT NEW / OLD", get: () => gameSettings.Lighting === "Enhanced",
         set: (v) => { setSetting("Lighting", v ? "Enhanced" : "Classic"); hint(v ? "[Lighting: Enhanced]" : "[Lighting: Classic]"); } },
     ];
-
-    this.root.append(
-      el("div", { class: "window-title" }, el("span", {}, "Options"), el("button", { class: "window-close", title: "Close (F12 / O)", onclick: () => this.toggle(false) }, "×")),
-      el("div", { class: "option-grid" }, ...main.map((r) => this.row(r))),
-      this.slider("Sound", () => this.sound.volume, (v) => { this.sound.volume = v; }), // OptionDialog.SoundBar_MouseMove
-      this.slider("Music", () => this.sound.musicVolume, (v) => { this.sound.musicVolume = v; }), // MusicSoundBar_MouseMove
-      el("div", { class: "option-section" }, "More"),
-      el("div", { class: "option-grid" }, ...more.map((r) => this.row(r))),
-    );
-    this.root.addEventListener("mousedown", (e) => e.stopPropagation());
-    stage.append(this.root);
+    this.more = new MirControl({ parent: win, size: [180, 12 + moreRows.length * 25], backColour: "rgba(0, 0, 0, 0.8)", border: true, borderColour: "rgb(148, 146, 148)", visible: false });
+    moreRows.forEach((r, i) => {
+      const y = 8 + i * 25;
+      new MirLabel({ parent: this.more, location: [10, y + 2], autoSize: true, text: r.label, hint: r.hint });
+      const on = new MirButton({ parent: this.more, library: Lib.Prguse2, location: [100, y], size: [36, 17], pressedIndex: 457, sound: SoundList.ButtonA, onClick: () => { r.set(true); this.refresh(); } });
+      const off = new MirButton({ parent: this.more, library: Lib.Prguse2, location: [142, y], size: [36, 17], pressedIndex: 460, sound: SoundList.ButtonA, onClick: () => { r.set(false); this.refresh(); } });
+      this.pairs.push({ on, off, get: r.get, whenOn: [458, 459], whenOff: [456, 461] });
+    });
+    const moreButton = new MirButton({ parent: win, location: [0, 0], size: [40, 16], drawImage: false, className: "mir-text-button", text: "More", sound: SoundList.ButtonA, hint: "More options",
+      onClick: () => { this.more.visible = !this.more.visible; } });
+    void win.ready.then(() => {
+      const [w, h] = win.size;
+      moreButton.location = [w - 52, h - 24];
+      this.more.location = [w + 2, 0];
+    });
 
     const signal = gameSignal();
     const off = onSettingChange(() => this.refresh());
-    signal.addEventListener("abort", off);
+    signal.addEventListener("abort", () => { off(); win.dispose(); });
     window.addEventListener("keydown", (e) => {
       const a = document.activeElement;
       if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement || a instanceof HTMLSelectElement) return;
       if (matches(e, KeybindOptions.Options) || matches(e, KeybindOptions.Options2)) { e.preventDefault(); this.toggle(); } // F12 / O
-      else if (matches(e, KeybindOptions.Closeall) && !this.root.hidden) this.toggle(false);
+      else if (matches(e, KeybindOptions.Closeall) && this.win.visible) this.toggle(false);
     }, { signal });
+    this.refresh();
   }
 
   get visible(): boolean {
-    return !this.root.hidden;
+    return this.win.visible;
   }
 
-  toggle(show = this.root.hidden): void {
-    this.root.hidden = !show;
-    if (show) this.refresh();
+  toggle(show = !this.win.visible): void {
+    if (show) this.win.show(); else this.win.hide();
   }
 
   /** UserInformation.AllowObserve (GameScene.UserInformation). */
@@ -113,26 +143,57 @@ export class OptionWindow {
     return true;
   }
 
+  private boolRow(key: BoolKey): Pick<MoreRow, "get" | "set"> {
+    return { get: () => gameSettings[key], set: (v) => setSetting(key, v) };
+  }
+
+  /** OptionPanel_BeforeDraw (+ the volume bars' BeforeDraw). */
   private refresh(): void {
-    if (this.root.hidden) return;
-    for (const r of this.refreshers) r();
+    for (const p of this.pairs) {
+      const [on, off] = p.get() ? p.whenOn : p.whenOff;
+      p.on.index = on;
+      p.off.index = off;
+    }
+    for (const b of this.bars) b();
   }
 
-  /** An On / Off pair like the dialog's two image buttons (the active one pressed). */
-  private row(r: Row): HTMLElement {
-    const on = el("button", { onclick: () => { r.set(true); this.refresh(); } }, r.on ?? "On");
-    const off = el("button", { onclick: () => { r.set(false); this.refresh(); } }, r.off ?? "Off");
-    this.refreshers.push(() => { const v = r.get(); on.classList.toggle("active", v); off.classList.toggle("active", !v); });
-    return el("div", { class: "option-row", title: r.title ?? "" }, el("span", {}, r.label), el("span", { class: "option-pair" }, on, off));
-  }
+  /** SoundBar / MusicSoundBar (Prguse2 468, DrawImage = false, drawn cut to the volume in BeforeDraw) at (159, barY) and the
+   *  VolumeBar knob (Prguse 20, NotControl) at (159 + filled width, knobY). SoundBar_MouseMove: a left press / drag sets
+   *  the volume to p.X / Width * 100; the hint shows "N%". */
+  private volumeBar(barY: number, knobY: number, get: () => number, set: (v: number) => void): void {
+    const bar = new MirControl({ parent: this.win, location: [159, barY] });
+    const clip = document.createElement("div"); // the drawn section: Rectangle((Width - 2) * percent, Height)
+    clip.style.cssText = "position:absolute;left:0;top:0;height:100%;overflow:hidden;pointer-events:none";
+    const pic = document.createElement("div");
+    pic.className = "mir-pic";
+    clip.append(pic);
+    bar.el.append(clip);
+    void setPicture(pic, Lib.Prguse2, 468);
+    void libSize(Lib.Prguse2, 468).then((s) => { bar.size = s; draw(); });
+    const knob = new MirImage({ parent: this.win, library: Lib.Prguse, index: 20, location: [155, knobY], notControl: true });
 
-  private slider(label: string, get: () => number, set: (v: number) => void): HTMLElement {
-    const value = el("span", { class: "option-value" });
-    const input = el("input", { type: "range", min: "0", max: "100", step: "1" });
-    const show = () => { const v = Math.round(get()); input.value = String(v); value.textContent = `${v}%`; };
-    input.addEventListener("input", () => { set(Number(input.value)); value.textContent = `${Math.round(get())}%`; });
-    this.refreshers.push(show);
-    show();
-    return el("div", { class: "option-slider" }, el("span", {}, label), input, value);
+    const draw = () => {
+      const volume = Math.round(get());
+      bar.hint = `${volume}%`;
+      const percent = Math.min(1, volume / 100);
+      const width = percent > 0 ? Math.floor((bar.size[0] - 2) * percent) : 0;
+      clip.style.width = width + "px";
+      knob.location = [159 + width, knobY];
+    };
+    const fromMouse = (e: PointerEvent) => {
+      const r = bar.el.getBoundingClientRect();
+      const w = bar.size[0];
+      if (!w || !r.width) return;
+      const x = (e.clientX - r.left) / (r.width / w);
+      set(Math.max(0, Math.min(100, Math.floor((x / w) * 100))));
+      draw();
+    };
+    bar.el.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      bar.el.setPointerCapture(e.pointerId);
+      fromMouse(e);
+    });
+    bar.el.addEventListener("pointermove", (e) => { if (bar.el.hasPointerCapture(e.pointerId)) fromMouse(e); });
+    this.bars.push(draw);
   }
 }

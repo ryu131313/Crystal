@@ -1,12 +1,14 @@
-// Marriage + mentor: RelationshipDialog (L / Lover button) and MentorDialog (Mentor button) + GameScene's handlers
-// (MarriageRequest, DivorceRequest, LoverUpdate, MentorRequest, MentorUpdate). Requests are answered in a non-blocking
-// MirMessageBox (messageBox.ts) so the frame loop keeps running. The desktop's Mail Lover button is not ported (no mail yet).
+// Marriage + mentor: RelationshipDialog (Client/MirScenes/Dialogs/RelationshipDialog.cs, Prguse 583; L / Lover button)
+// and MentorDialog (MentorDialog.cs, Prguse 170; Mentor key / button) + GameScene's handlers (MarriageRequest,
+// DivorceRequest, LoverUpdate, MentorRequest, MentorUpdate). Requests are answered in a non-blocking MirMessageBox
+// (messageBox.ts) so the frame loop keeps running. Esc closes both (GameScene Closeall).
 
 import type { ServerPacket } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
 import { ChatType, MirClassName } from "../protocol/enums.generated.ts";
-import { el } from "./screens.ts";
-import { messageBox } from "./messageBox.ts";
+import { MirWindow, MirImage, MirButton, MirLabel, closeButton, Lib } from "./mir/controls.ts";
+import { messageBox, inputBox } from "./messageBox.ts";
+import { SoundList } from "../game/audio.ts";
 import { dateFromBinary } from "../game/itemChanges.ts";
 import { gameSignal } from "../game/scope.ts";
 import { KeybindOptions, matches } from "../game/keybinds.ts";
@@ -16,65 +18,97 @@ function ticksOf(v: bigint): bigint {
   return BigInt.asUintN(62, v);
 }
 
+const LIGHT_GRAY = "#d3d3d3"; // Color.LightGray
+const DIM_GRAY = "#696969";   // Color.DimGray
+const GREEN = "#008000";      // Color.Green
+
+/** The desktop's Size(200, 30) VerticalCenter info labels. */
+function infoLabel(parent: MirWindow, location: [number, number], font: string, foreColour: string, text = ""): MirLabel {
+  return new MirLabel({ parent, location, size: [200, 30], vCenter: true, notControl: true, font, foreColour, text });
+}
+
+/** True while typing in a text field (window keys are not game keys then). */
+function typing(): boolean {
+  const a = document.activeElement;
+  return a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement;
+}
+
 export class RelationshipWindow {
   // RelationshipDialog fields
   loverName = "";
   date = 0n;
   mapName = "";
   marriedDays = 0;
-  private received = false;
+  /** MailButton: MailComposeLetterDialog.ComposeMail (set by the game; the button does nothing until then). */
+  composeMail: ((name: string) => void) | null = null;
   private readonly send: (f: Uint8Array) => void;
   private readonly chat: (text: string, type: number) => void;
   private readonly prefillChat: (text: string) => void;
   private readonly stage: HTMLElement;
-  private readonly root = el("div", { class: "window relationship-window", hidden: true });
-  private readonly nameLabel = el("div", {});
-  private readonly dateLabel = el("div", {});
-  private readonly lengthLabel = el("div", {});
-  private readonly onlineLabel = el("div", {});
-  private readonly allowButton = el("button", {});
+  private readonly win: MirWindow;
+  private readonly allowButton: MirButton;
+  private readonly nameLabel: MirLabel;
+  private readonly dateLabel: MirLabel;
+  private readonly lengthLabel: MirLabel;
+  private readonly onlineLabel: MirLabel;
 
   constructor(stage: HTMLElement, send: (f: Uint8Array) => void, chat: (text: string, type: number) => void, prefillChat: (text: string) => void) {
     this.stage = stage;
     this.send = send;
     this.chat = chat;
     this.prefillChat = prefillChat;
-    // RelationshipDialog ctor: AllowButton -> C.ChangeMarriage, Request / Divorce / Whisper with their client checks
-    this.allowButton.onclick = () => this.send(ClientPackets.ChangeMarriage());
-    this.root.append(
-      el("div", { class: "window-title" }, el("span", {}, "Relationship"), el("button", { class: "window-close", onclick: () => this.toggle(false), title: "Close (L)" }, "×")),
-      this.nameLabel, this.dateLabel, this.lengthLabel, this.onlineLabel,
-      el("div", { class: "row" },
-        el("button", { title: "Request marriage with the player you face", onclick: () => this.request() }, "Request Marriage"),
-        el("button", { onclick: () => this.divorce() }, "Request Divorce")),
-      el("div", { class: "row" }, this.allowButton, el("button", { onclick: () => this.whisper() }, "Whisper Lover")),
-    );
-    this.root.addEventListener("mousedown", (e) => e.stopPropagation());
-    stage.append(this.root);
-    // KeybindOptions.Relationship = L (GameScene key handler)
+    // RelationshipDialog ctor
+    this.win = new MirWindow({ library: Lib.Prguse, index: 583, movable: true, sort: true, location: "center" });
+    new MirImage({ parent: this.win, library: Lib.Title, index: 52, location: [18, 8] });
+    closeButton(this.win, [260, 3], () => this.toggle(false));
+    this.allowButton = new MirButton({ parent: this.win, library: Lib.Prguse, index: 610, hoverIndex: 611, pressedIndex: 612, location: [50, 164], sound: SoundList.ButtonA,
+      hint: "Allow/Block Marriage", onClick: () => this.send(ClientPackets.ChangeMarriage()) });
+    new MirButton({ parent: this.win, library: Lib.Prguse, index: 600, hoverIndex: 601, pressedIndex: 602, location: [85, 164], sound: SoundList.ButtonA,
+      hint: "Request Marriage", onClick: () => this.request() });
+    new MirButton({ parent: this.win, library: Lib.Prguse, index: 616, hoverIndex: 617, pressedIndex: 618, location: [120, 164], sound: SoundList.ButtonA,
+      hint: "Request Divorce", onClick: () => this.divorce() });
+    new MirButton({ parent: this.win, library: Lib.Prguse, index: 437, hoverIndex: 438, pressedIndex: 439, location: [155, 164], sound: SoundList.ButtonA,
+      hint: "Mail Lover", onClick: () => this.mail() });
+    new MirButton({ parent: this.win, library: Lib.Prguse, index: 566, hoverIndex: 567, pressedIndex: 568, location: [190, 164], sound: SoundList.ButtonA,
+      hint: "Whisper Lover", onClick: () => this.whisper() });
+    this.nameLabel = infoLabel(this.win, [30, 40], "10pt Arial", LIGHT_GRAY);
+    this.dateLabel = infoLabel(this.win, [30, 65], "10pt Arial", LIGHT_GRAY);
+    this.lengthLabel = infoLabel(this.win, [30, 90], "10pt Arial", LIGHT_GRAY);
+    this.onlineLabel = infoLabel(this.win, [30, 115], "10pt Arial", LIGHT_GRAY);
+    const signal = gameSignal();
+    // KeybindOptions.Relationship = L, Closeall = Esc (GameScene key handler)
     window.addEventListener("keydown", (e) => {
-      if (matches(e, KeybindOptions.Relationship) && !(document.activeElement instanceof HTMLInputElement) && !(document.activeElement instanceof HTMLTextAreaElement)) this.toggle();
-    }, { signal: gameSignal() });
-    this.updateInterface();
+      if (typing()) return;
+      if (matches(e, KeybindOptions.Relationship)) this.toggle();
+      else if (matches(e, KeybindOptions.Closeall) && this.win.visible) this.toggle(false);
+    }, { signal });
+    signal.addEventListener("abort", () => this.win.dispose());
+    // the desktop fills the labels on the first S.LoverUpdate only (the server sends one at login)
   }
 
-  toggle(show = this.root.hidden): void {
-    this.root.hidden = !show;
+  toggle(show = !this.win.visible): void {
+    if (show) this.win.show(); else this.win.hide();
   }
 
-  /** RelationshipDialog.RequestButton.Click. */
+  /** RequestButton.Click. */
   private request(): void {
     if (this.loverName !== "") { this.chat("You're already married.", ChatType.System); return; }
     this.send(ClientPackets.MarriageRequest());
   }
 
-  /** RelationshipDialog.DivorceButton.Click. */
+  /** DivorceButton.Click. */
   private divorce(): void {
     if (this.loverName === "") { this.chat("You're not married.", ChatType.System); return; }
     this.send(ClientPackets.DivorceRequest());
   }
 
-  /** RelationshipDialog.WhisperButton.Click: ":)" in the chat box (the lover chat prefix). */
+  /** MailButton.Click. */
+  private mail(): void {
+    if (this.loverName === "") { this.chat("You're not married.", ChatType.System); return; }
+    this.composeMail?.(this.loverName);
+  }
+
+  /** WhisperButton.Click: ":)" in the chat box (the lover chat prefix). */
   private whisper(): void {
     if (this.loverName === "") { this.chat("You're not married.", ChatType.System); return; }
     if (this.mapName === "") { this.chat("Lover is not online", ChatType.System); return; }
@@ -101,7 +135,6 @@ export class RelationshipWindow {
         this.date = p.Date;
         this.mapName = p.MapName;
         this.marriedDays = p.MarriedDays;
-        this.received = true;
         this.updateInterface();
         return true;
     }
@@ -110,27 +143,26 @@ export class RelationshipWindow {
 
   /** RelationshipDialog.UpdateInterface. */
   private updateInterface(): void {
-    this.nameLabel.textContent = `Lover:  ${this.loverName}`;
-    this.onlineLabel.textContent = this.mapName !== "" ? `Location:  ${this.mapName}` : "Location:  Offline";
+    this.nameLabel.text = `Lover:  ${this.loverName}`;
+    this.onlineLabel.text = this.mapName !== "" ? `Location:  ${this.mapName}` : "Location:  Offline";
     const ticks = ticksOf(this.date);
     const shortDate = () => dateFromBinary(this.date).toLocaleDateString();
-    if (this.loverName === "" && this.date !== 0n) {
+    if (this.loverName === "" && ticks !== 0n) {
       if (ticks < 2000n) { // Date < new DateTime(2000) (ticks)
-        this.dateLabel.textContent = "Date: ";
-        this.lengthLabel.textContent = "Length: ";
+        this.dateLabel.text = "Date: ";
+        this.lengthLabel.text = "Length: ";
       } else {
-        this.dateLabel.textContent = `Divorced Date:  ${shortDate()}`;
-        this.lengthLabel.textContent = `Time Since: ${this.marriedDays} Days`;
+        this.dateLabel.text = `Divorced Date:  ${shortDate()}`;
+        this.lengthLabel.text = `Time Since: ${this.marriedDays} Days`;
       }
-      this.onlineLabel.textContent = "Location: ";
-      this.allowButton.textContent = "Allow/Block Marriage";
+      this.onlineLabel.text = "Location: ";
+      this.allowButton.hint = "Allow/Block Marriage";
     } else {
-      this.dateLabel.textContent = `Marriage Date:  ${ticks === 0n ? "" : shortDate()}`;
-      this.lengthLabel.textContent = `Length: ${this.marriedDays} Days`;
-      // the same C.ChangeMarriage toggles recall while married (AllowButton.Hint)
-      this.allowButton.textContent = "Allow/Block Recall";
+      this.dateLabel.text = `Marriage Date:  ${ticks === 0n ? "" : shortDate()}`;
+      this.lengthLabel.text = `Length: ${this.marriedDays} Days`;
+      // the same C.ChangeMarriage toggles recall while married
+      this.allowButton.hint = "Allow/Block Recall";
     }
-    if (!this.received) this.allowButton.textContent = "Allow/Block Marriage"; // the ctor hint, before any LoverUpdate
   }
 }
 
@@ -146,41 +178,66 @@ export class MentorWindow {
   private readonly chat: (text: string, type: number) => void;
   private readonly me: () => MentorUser;
   private readonly stage: HTMLElement;
-  private readonly root = el("div", { class: "window mentor-window", hidden: true });
-  private readonly info = el("div", { class: "mentor-info" });
+  private readonly win: MirWindow;
+  private readonly mentorNameLabel: MirLabel;
+  private readonly mentorLevelLabel: MirLabel;
+  private readonly mentorOnlineLabel: MirLabel;
+  private readonly studentNameLabel: MirLabel;
+  private readonly studentLevelLabel: MirLabel;
+  private readonly studentOnlineLabel: MirLabel;
+  private readonly menteeExpLabel: MirLabel;
 
   constructor(stage: HTMLElement, send: (f: Uint8Array) => void, chat: (text: string, type: number) => void, me: () => MentorUser) {
     this.stage = stage;
     this.send = send;
     this.chat = chat;
     this.me = me;
-    this.root.append(
-      el("div", { class: "window-title" }, el("span", {}, "Mentor"), el("button", { class: "window-close", onclick: () => this.toggle(false) }, "×")),
-      this.info,
-      el("div", { class: "row" },
-        // MentorDialog.AllowButton: C.AllowMentor toggles on the server (the desktop's button image never changes either)
-        el("button", { title: "Allow/Disallow Mentor Requests", onclick: () => this.send(ClientPackets.AllowMentor()) }, "Allow/Disallow"),
-        el("button", { onclick: () => this.add() }, "Add Mentor"),
-        el("button", { onclick: () => this.remove() }, "Remove")),
-    );
-    this.root.addEventListener("mousedown", (e) => e.stopPropagation());
-    stage.append(this.root);
+    // MentorDialog ctor
+    this.win = new MirWindow({ library: Lib.Prguse, index: 170, movable: true, sort: true, location: "center" });
+    new MirImage({ parent: this.win, library: Lib.Title, index: 51, location: [18, 8] });
+    closeButton(this.win, [219, 3], () => this.toggle(false));
+    // AllowButton: C.AllowMentor toggles on the server. The desktop's index swap tests Index == 116, which the button never
+    // has at rest, so it always resets to 114 / 115 / 116: the picture never changes.
+    new MirButton({ parent: this.win, library: Lib.Prguse, index: 114, hoverIndex: 115, pressedIndex: 116, location: [30, 178], sound: SoundList.ButtonA,
+      hint: "Allow/Disallow Mentor Requests", onClick: () => this.send(ClientPackets.AllowMentor()) });
+    new MirButton({ parent: this.win, library: Lib.Title, index: 213, hoverIndex: 214, pressedIndex: 215, location: [60, 178], sound: SoundList.ButtonA,
+      hint: "Add Mentor", onClick: () => this.add() });
+    new MirButton({ parent: this.win, library: Lib.Title, index: 216, hoverIndex: 217, pressedIndex: 218, location: [135, 178], sound: SoundList.ButtonA,
+      hint: "Remove Mentor/Mentee", onClick: () => this.remove() });
+    this.mentorNameLabel = infoLabel(this.win, [20, 58], "10pt Arial", LIGHT_GRAY);
+    this.mentorLevelLabel = infoLabel(this.win, [170, 58], "10pt Arial", LIGHT_GRAY);
+    this.mentorOnlineLabel = infoLabel(this.win, [125, 58], "7pt Arial", GREEN, "ONLINE");
+    this.mentorOnlineLabel.visible = false;
+    this.studentNameLabel = infoLabel(this.win, [20, 112], "10pt Arial", LIGHT_GRAY);
+    this.studentLevelLabel = infoLabel(this.win, [170, 111], "10pt Arial", LIGHT_GRAY);
+    this.studentOnlineLabel = infoLabel(this.win, [125, 112], "7pt Arial", GREEN, "ONLINE");
+    this.studentOnlineLabel.visible = false;
+    infoLabel(this.win, [15, 41], "7pt Arial", DIM_GRAY, "MENTOR");
+    infoLabel(this.win, [15, 94], "7pt Arial", DIM_GRAY, "MENTEE");
+    this.menteeExpLabel = infoLabel(this.win, [15, 147], "7pt Arial", DIM_GRAY);
+    const signal = gameSignal();
+    // KeybindOptions.Mentor (unbound by default), Closeall = Esc (GameScene key handler)
+    window.addEventListener("keydown", (e) => {
+      if (typing()) return;
+      if (matches(e, KeybindOptions.Mentor)) this.toggle();
+      else if (matches(e, KeybindOptions.Closeall) && this.win.visible) this.toggle(false);
+    }, { signal });
+    signal.addEventListener("abort", () => this.win.dispose());
     this.updateInterface();
   }
 
-  toggle(show = this.root.hidden): void {
-    this.root.hidden = !show;
-    if (show) this.updateInterface(); // the user's own level may have changed since the last MentorUpdate
+  toggle(show = !this.win.visible): void {
+    if (show) { this.win.show(); this.updateInterface(); } // the user's own level may have changed since the last MentorUpdate
+    else this.win.hide();
   }
 
-  /** MentorDialog.AddButton.Click (MirInputBox). */
+  /** AddButton.Click (MirInputBox). */
   private add(): void {
     if (this.mentorLevel !== 0) { this.chat("You already have a Mentor.", ChatType.System); return; }
-    const name = prompt("Please enter the name of the person you would like to be your Mentor.");
-    if (name !== null) this.send(ClientPackets.AddMentor({ Name: name }));
+    inputBox(this.stage, "Please enter the name of the person you would like to be your Mentor.", "", (name) => { this.send(ClientPackets.AddMentor({ Name: name })); });
   }
 
-  /** MentorDialog.RemoveButton.Click. */
+  /** RemoveButton.Click. */
   private remove(): void {
     if (this.mentorName === "") { this.chat("You don't currently have a Mentorship to cancel.", ChatType.System); return; }
     messageBox(this.stage, "Cancelling a Mentorship early will cause a cooldown. Are you sure?", [
@@ -213,23 +270,30 @@ export class MentorWindow {
 
   /** MentorDialog.UpdateInterface: the higher level is the mentor; MENTEE EXP shows only for the mentor. */
   private updateInterface(): void {
+    const parts = [this.mentorNameLabel, this.mentorLevelLabel, this.mentorOnlineLabel, this.studentNameLabel, this.studentLevelLabel, this.studentOnlineLabel];
     if (this.mentorLevel === 0) {
-      this.info.replaceChildren(el("div", { class: "magic-meta" }, "No mentorship."));
+      for (const l of parts) l.visible = false;
+      this.menteeExpLabel.visible = false;
       return;
     }
+    for (const l of parts) l.visible = true;
     const me = this.me();
-    const row = (title: string, name: string, level: number, online: boolean) => el("div", { class: "mentor-row" },
-      el("span", { class: "mentor-title" }, title), el("span", { class: "mentor-name" }, name), el("span", {}, `Lv ${level}`),
-      el("span", { class: "mentor-online" }, online ? "ONLINE" : ""));
     if (me.level > this.mentorLevel) {
-      this.info.replaceChildren(
-        row("MENTOR", me.name, me.level, false),
-        row("MENTEE", this.mentorName, this.mentorLevel, this.mentorOnline),
-        el("div", {}, `MENTEE EXP: ${this.menteeExp}`));
+      this.mentorNameLabel.text = me.name;
+      this.mentorLevelLabel.text = `Lv ${me.level}`;
+      this.mentorOnlineLabel.visible = false;
+      this.studentNameLabel.text = this.mentorName;
+      this.studentLevelLabel.text = `Lv ${this.mentorLevel}`;
+      this.studentOnlineLabel.visible = this.mentorOnline;
+      this.menteeExpLabel.visible = true;
+      this.menteeExpLabel.text = `MENTEE EXP: ${this.menteeExp}`;
     } else {
-      this.info.replaceChildren(
-        row("MENTOR", this.mentorName, this.mentorLevel, this.mentorOnline),
-        row("MENTEE", me.name, me.level, false));
+      this.mentorNameLabel.text = this.mentorName;
+      this.mentorLevelLabel.text = `Lv ${this.mentorLevel}`;
+      this.mentorOnlineLabel.visible = this.mentorOnline;
+      this.studentNameLabel.text = me.name;
+      this.studentLevelLabel.text = `Lv ${me.level}`;
+      this.studentOnlineLabel.visible = false;
     }
   }
 }

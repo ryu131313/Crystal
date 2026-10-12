@@ -1,28 +1,34 @@
-// NPC item services (Client/MirScenes/Dialogs/NPCDialogs.cs + GameScene handlers, DOM edition):
-//   NPCDropDialog (the PanelTypes npcWindow.ts does not own): Refine, CheckRefine, ReplaceWedRing, Disassemble, Downgrade, Reset.
-//                 Pick an inventory item and click the panel's cell (or, except for Refine, just click the item: the refine
-//                 grid needs the plain pick), then Confirm.
-//   RefineDialog: the 4 x 4 refine grid (items live in Inventory.refine, cells share the inventory pick); hiding it sends
-//                 C.RefineCancel and the server hands the items back with S.RetrieveRefineItem.
-//   NPCAwakeDialog: base item, the server's material list (S.AwakeningNeedMaterials), 2 material + 2 extra cells, glyph type,
-//                 Awaken (C.Awakening); S.AwakeningLockedItem / S.Awakening answers.
-//   NPCCraftGoodsDialog + CraftDialog: S.NPCGoods with PanelType.Craft lists recipes (S.NewRecipeInfo); pick tools /
-//                 ingredients into the recipe cells (or Auto Fill), Craft sends C.CraftItem with the inventory slots.
-//   NPCGoodsDialog with UsePearls: S.NPCPearlGoods, click to buy (C.BuyItem, Type = PanelType.Buy like the desktop).
-// MirMessageBox / MirAmountBox: messageBox() for the awakening results, prompt() for amounts, chat lines for refusals.
+// NPC item services with the desktop artwork (Client/MirScenes/Dialogs/NPCDialogs.cs + GameScene handlers):
+//   NPCDropDialog types Refine, CheckRefine, ReplaceWedRing, Disassemble, Downgrade, Reset: the shared panel is
+//                 NpcWindow.drop (npcWindow.ts); this file opens it from the server packets.
+//   RefineDialog: Prguse 1002 at (0, 225), Title 18, the 4 x 4 refine grid (items live in Inventory.refine, cells share
+//                 the inventory pick); hiding it sends C.RefineCancel and the server hands the items back
+//                 (S.RetrieveRefineItem).
+//   NPCAwakeDialog: Title 710 (movable), base item cell, the glyph MirDropDownBox, the server's material list
+//                 (S.AwakeningNeedMaterials) in cells 1-2 with their labels, material cells 3-4, extra cells 5-6, the gold
+//                 label, Upgrade (C.Awakening); S.AwakeningLockedItem / S.Awakening answers.
+//   NPCCraftGoodsDialog + CraftDialog: S.NPCGoods with PanelType.Craft lists recipes (S.NewRecipeInfo) in the goods list
+//                 (npcWindow.ts GoodsDialog); CraftDialog (Prguse 1109, movable) shows 3 tool + 6 ingredient cells with the
+//                 recipe's shadow items; pick tools / ingredients into them (or Auto Fill), Craft sends C.CraftItem with the
+//                 inventory slots.
+//   NPCGoodsDialog with UsePearls: S.NPCPearlGoods goes to NpcWindow.showPearlGoods (the desktop reuses the goods list).
+// Deliberate differences: awakening cells take items picked from the bag (the desktop also swaps between its cells);
+// the needed-material cells show the item name as a hint instead of the full item label.
 
 import type { ClientRecipeInfo, ItemInfo, ServerPacket, UserItem } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
 import { AwakeType, ChatType, ItemGrade, ItemType, PanelType, Stat } from "../protocol/enums.generated.ts";
 import { REFINE_SLOTS, type Inventory } from "../game/inventory.ts";
-import { type ItemInfos, itemPrice } from "../game/items.ts";
+import type { ItemInfos } from "../game/items.ts";
 import { itemFriendlyName } from "../game/gameInfo.ts";
 import { gameSignal } from "../game/scope.ts";
+import { SoundList } from "../game/audio.ts";
 import { KeybindOptions, matches } from "../game/keybinds.ts";
-import { itemIcon, type InventoryWindow } from "./inventoryWindow.ts";
-import type { NpcWindow } from "./npcWindow.ts";
-import { messageBox } from "./messageBox.ts";
-import { el } from "./screens.ts";
+import { placeCell, type InventoryWindow } from "./inventoryWindow.ts";
+import { GoodsDialog, awakeLevel, type NpcWindow } from "./npcWindow.ts";
+import { MirWindow, MirImage, MirButton, MirLabel, MirControl, Lib, closeButton, setPicture, libSize } from "./mir/controls.ts";
+import { messageBox, amountBox } from "./messageBox.ts";
+import { showItemLabel, moveItemLabel, hideItemLabel } from "./itemLabel.ts";
 
 export interface NpcServicesOptions {
   stage: HTMLElement;
@@ -38,18 +44,16 @@ export interface NpcServicesOptions {
   pearls?: () => number | null;
 }
 
-type DropType = typeof PanelType.Refine | typeof PanelType.CheckRefine | typeof PanelType.ReplaceWedRing
-  | typeof PanelType.Disassemble | typeof PanelType.Downgrade | typeof PanelType.Reset;
-
 const TOOL_COUNT = 3, INGREDIENT_COUNT = 6; // CraftDialog._toolCount / _ingredientCount
 const AWAKE_CELLS = 7; // NPCAwakeDialog.Items (0 base, 1-2 needed materials, 3-4 materials, 5-6 extra)
 
-/** Stats.Count: the sum of |value| (UserItem.AddedStats.Count in the price formulas). */
-const addedCount = (item: UserItem) => Object.values(item.AddedStats).reduce((sum, v) => sum + Math.abs(v), 0);
-/** Awake.GetAwakeLevel. */
-const awakeLevel = (item: UserItem) => item.AwakeLevels.length;
-/** C# float ToString for the NPCDropDialog prices (RequiredAmount * 10 * NPCRate). */
-const floatText = (v: number) => String(Number(Math.fround(v).toPrecision(7)));
+/** ClientTextKeys used here (Client/Localization/English.json). */
+const T = {
+  SelectUpgradeItem: "Select Upgrade Item.", SelectUpgradeType: "Select Upgrade Type.",
+  NeedItemQuantity: (name: string, n: number) => `${name}\nQuantity: ${n}`,
+  YouDoNotHaveEnoughGold: "You do not have enough gold.", CraftAmount: "Craft Amount:",
+  YouDoNotHaveRequiredToolsOrIngredients: "You do not have the required tools or ingredients.",
+};
 
 /** NPCAwakeDialog.getAwakeTypeText. */
 const AWAKE_TYPE_TEXT: Record<number, string> = {
@@ -57,63 +61,215 @@ const AWAKE_TYPE_TEXT: Record<number, string> = {
   [AwakeType.AC]: "Protection Glyph", [AwakeType.MAC]: "EvilSlayer Glyph", [AwakeType.HPMP]: "Body Glyph",
 };
 
+/** The MirItemCell look for a cell this file draws itself (awakening / craft): 36 x 32 (or `size`), the item centred,
+ *  the count label bottom-right, the lime border while hovered (or always with `border`). */
+class ItemView {
+  readonly control: MirControl;
+  private readonly back = document.createElement("div");
+  private readonly icon = document.createElement("div");
+  private readonly count: MirLabel;
+  private hovered = false;
+  private alwaysBorder: boolean;
+  private item: UserItem | null = null;
+  private labelOpts: { hideDura?: boolean } = {};
+
+  constructor(parent: MirControl, location: readonly [number, number], invWindow: InventoryWindow, onDown: () => void,
+    size: readonly [number, number] = [36, 32], border = false) {
+    this.control = new MirControl({ parent, location, size });
+    this.alwaysBorder = border;
+    this.back.className = this.icon.className = "mir-pic";
+    this.control.el.append(this.back, this.icon);
+    this.count = new MirLabel({ parent: this.control, autoSize: true, notControl: true, outline: false, foreColour: "#ffff00" });
+    Object.assign(this.count.el.style, { left: "auto", top: "auto", right: "0px", bottom: "0px" });
+    const el = this.control.el;
+    el.addEventListener("contextmenu", (e) => e.preventDefault());
+    el.addEventListener("mousedown", (e) => { e.stopPropagation(); if (e.button === 0) { hideItemLabel(); onDown(); } });
+    el.addEventListener("pointerenter", (e) => {
+      this.hovered = true;
+      this.drawBorder();
+      if (this.item) showItemLabel(this.item, invWindow.labelContext(), e.clientX, e.clientY, this.labelOpts);
+    });
+    el.addEventListener("pointermove", (e) => moveItemLabel(e.clientX, e.clientY));
+    el.addEventListener("pointerleave", () => { this.hovered = false; this.drawBorder(); hideItemLabel(); });
+    this.drawBorder();
+  }
+
+  private drawBorder(): void {
+    this.control.el.style.outline = this.alwaysBorder || this.hovered ? "1px solid #00ff00" : "";
+  }
+
+  /** Draws Items[image] centred (dim = DimGray at 0.8), the craft background (Prguse 1121 at (-2, -1), 0.8) and the
+   *  count text / colour; `label` is the item for the hover label. */
+  set(image: number, dim: boolean, countText: string, countColour: string, label: UserItem | null, craftBack = false, labelOpts: { hideDura?: boolean } = {}): void {
+    this.item = label;
+    this.labelOpts = labelOpts;
+    const [w, h] = this.control.size;
+    if (this.icon.dataset.pic !== (image >= 0 ? `${Lib.Items}#${image}` : "")) {
+      void setPicture(this.icon, image >= 0 ? Lib.Items : null, image).then((pic) => {
+        if (!pic) return;
+        this.icon.style.left = Math.trunc((w - pic.width) / 2) + "px";
+        this.icon.style.top = Math.trunc((h - pic.height) / 2) + "px";
+      });
+    }
+    this.icon.style.filter = dim ? "brightness(0.41)" : "";
+    this.icon.style.opacity = dim ? "0.8" : "";
+    void setPicture(this.back, craftBack && image >= 0 ? Lib.Prguse : null, 1121).then(() => {
+      this.back.style.left = "-2px";
+      this.back.style.top = "-1px";
+    });
+    this.back.style.opacity = "0.8";
+    this.count.text = countText;
+    this.count.visible = countText !== "";
+    this.count.foreColour = countColour;
+  }
+}
+
+/** MirDropDownBox (NPCAwakeDialog.SelectAwakeType): a dark box with the selected text, a Prguse2 207 drop button and
+ *  up to 5 option rows (hover brown) under it. */
+class DropDownBox {
+  readonly control: MirControl;
+  private readonly label: MirLabel;
+  private readonly options: MirLabel[] = [];
+  private items: string[] = [];
+  selectedIndex = -1;
+  onChange: ((index: number) => void) | null = null;
+
+  constructor(parent: MirControl, location: readonly [number, number], size: readonly [number, number]) {
+    this.control = new MirControl({ parent, location, size, backColour: "rgb(6, 6, 6)" });
+    this.label = new MirLabel({ parent: this.control, location: [0, 0], size: [size[0] - 16, 15], backColour: "rgb(6, 6, 6)" });
+    this.label.onClick(() => this.toggle());
+    new MirButton({ parent: this.control, library: Lib.Prguse2, index: 207, hoverIndex: 208, pressedIndex: 209, location: [size[0] - 18, 2], onClick: () => this.toggle() });
+    for (let i = 0; i < 5; i++) {
+      const o = new MirLabel({ parent: this.control, location: [0, 15 + i * 13], size: [size[0] - 16, 16], backColour: "rgb(20, 20, 20)", visible: false });
+      o.el.addEventListener("pointerenter", () => { o.el.style.backgroundColor = "rgb(140, 70, 0)"; });
+      o.el.addEventListener("pointerleave", () => { o.el.style.backgroundColor = "rgb(20, 20, 20)"; });
+      o.onClick(() => { this.close(); if (i < this.items.length) this.onChange?.(i); });
+      this.options.push(o);
+    }
+    this.control.el.addEventListener("pointerleave", () => this.close());
+  }
+
+  setItems(items: string[], selected: number): void {
+    this.items = items;
+    this.selectedIndex = selected;
+    this.close();
+    this.label.text = items.length === 0 ? "None" : selected < 0 ? " " : items[selected] ?? " ";
+  }
+
+  private toggle(): void {
+    if (this.options[0]!.visible) { this.close(); return; }
+    // OpenDropDown
+    this.options.forEach((o, i) => { o.visible = i < this.items.length; o.text = this.items[i] ?? ""; });
+    this.control.el.parentElement?.append(this.control.el);
+  }
+
+  private close(): void {
+    for (const o of this.options) o.visible = false;
+  }
+}
+
 export class NpcServices {
   private readonly o: Required<NpcServicesOptions>;
   private rate = 1; // GameScene.NPCRate (the NPC packets these panels follow)
 
-  // NPCDropDialog
-  private readonly drop = el("div", { class: "window npc-drop npc-service-drop", hidden: true });
-  private dropType: DropType = PanelType.Refine;
-  private target: bigint | null = null; // NPCDropDialog.TargetItem (its cell is OldCell, locked)
-  private dropHook: ((index: number) => boolean) | null = null;
-
   // RefineDialog
-  private readonly refine = el("div", { class: "window npc-refine", hidden: true });
+  private readonly refine: MirWindow;
 
   // NPCAwakeDialog
-  private readonly awake = el("div", { class: "window npc-awake", hidden: true });
+  private readonly awake: MirWindow;
   private readonly awakeItems: (UserItem | null)[] = new Array<UserItem | null>(AWAKE_CELLS).fill(null);
+  private readonly awakeViews: ItemView[] = [];
+  private readonly awakeType: DropDownBox;
+  private readonly goldLabel: MirLabel;
+  private readonly needLabels: MirLabel[];
   private materials: ({ info: ItemInfo; count: number } | null)[] = [null, null]; // ItemCells[1] / [2]
   private awakeTypes: { text: string; type: number }[] = [];
   private awakeSelected = 0;
   private currentAwakeType: number = AwakeType.None;
-  private awakeGold = "";
   /** Inventory items this port locked locally for the awakening cells (MirItemCell.Locked). */
   private readonly awakeLocks = new Set<string>();
 
   // NPCCraftGoodsDialog + CraftDialog
   private readonly recipes = new Map<number, ClientRecipeInfo>(); // GameScene.RecipeInfoList (by Item.ItemIndex)
-  private readonly craftGoods = el("div", { class: "window npc-goods npc-craft-goods", hidden: true });
-  private craftList: UserItem[] = [];
-  private readonly craft = el("div", { class: "window npc-craft", hidden: true });
+  private readonly craftGoods: GoodsDialog;
+  private readonly craft: MirWindow;
+  private readonly craftViews: ItemView[] = [];
+  private readonly recipeLabel: MirLabel;
+  private readonly possibilityLabel: MirLabel;
+  private readonly craftGoldLabel: MirLabel;
+  private readonly craftButton: MirButton;
   private recipeItem: UserItem | null = null; // CraftDialog.RecipeItem
   /** CraftDialog.Selected: craft cell -> the inventory slot + UniqueID put there (insertion order = C.CraftItem.Slots). */
   private readonly selected = new Map<number, { slot: number; id: bigint }>();
 
-  // NPCGoodsDialog (UsePearls)
-  private readonly pearlGoods = el("div", { class: "window npc-goods npc-pearl-goods", hidden: true });
-  private pearlList: UserItem[] = [];
-
   constructor(options: NpcServicesOptions) {
     this.o = { stat: () => 0, pearls: () => null, ...options };
-    const { stage, invWindow, npc } = this.o;
-    for (const w of [this.drop, this.refine, this.awake, this.craftGoods, this.craft, this.pearlGoods]) {
-      w.addEventListener("mousedown", (e) => e.stopPropagation());
-      w.addEventListener("contextmenu", (e) => e.preventDefault());
-      stage.append(w);
+    const { invWindow, npc } = this.o;
+    npc.pearlCount = () => this.o.pearls();
+
+    // RefineDialog ctor
+    this.refine = new MirWindow({ library: Lib.Prguse, index: 1002, location: [0, 225], sort: true });
+    new MirImage({ parent: this.refine, library: Lib.Title, index: 18, location: [28, 8] });
+    for (let x = 0; x < 4; x++) {
+      for (let y = 0; y < 4; y++) {
+        const idx = 4 * y + x;
+        if (idx < REFINE_SLOTS) placeCell(invWindow.boundCell("refine", idx, [34, 32]), this.refine, [x * 34 + 12 + x, y * 32 + 37 + y]);
+      }
     }
+
+    // NPCAwakeDialog ctor (Location = (0, NPCDialog.Size.Height) when GameScene builds it)
+    this.awake = new MirWindow({ library: Lib.Title, index: 710, location: [0, 0], movable: true, sort: true });
+    void libSize(Lib.Prguse, 995).then(([, h]) => { if (!this.awake.visible) this.awake.location = [0, h]; });
+    this.goldLabel = new MirLabel({ parent: this.awake, autoSize: true, location: [112, 354], notControl: true });
+    this.needLabels = [
+      new MirLabel({ parent: this.awake, autoSize: true, location: [67, 317], notControl: true }),
+      new MirLabel({ parent: this.awake, autoSize: true, location: [192, 317], notControl: true }),
+    ];
+    new MirButton({ parent: this.awake, library: Lib.Title, index: 712, hoverIndex: 713, pressedIndex: 714, location: [115, 391], sound: SoundList.ButtonA, onClick: () => this.awaken() });
+    closeButton(this.awake, [284, 4], () => this.hideAwake());
+    const cellAt: [number, number][] = [[202, 91], [31, 316], [155, 316], [175, 199], [230, 199], [175, 256], [230, 256]];
+    cellAt.forEach((at, i) => this.awakeViews.push(new ItemView(this.awake, at, invWindow, () => this.awakeCellClick(i))));
+    this.awakeType = new DropDownBox(this.awake, [35, 141], [109, 14]);
+    this.awakeType.onChange = (i) => { this.onAwakeTypeSelect(i); this.render(); };
+
+    // NPCCraftGoodsDialog (NPCGoodsDialog with PanelType.Craft)
+    this.craftGoods = new GoodsDialog(PanelType.Craft, {
+      inv: this.o.inv, infos: this.o.infos, invWindow, send: this.o.send, chat: (t) => this.system(t), rate: () => this.rate,
+      hideAdded: () => false, npcHeight: () => npc.dialogHeight, pearls: () => this.o.pearls(),
+      recipeGold: (itemIndex) => this.recipes.get(itemIndex)?.Gold,
+    });
+    this.craftGoods.onSelect = (item) => this.selectRecipe(item);
+    this.craftGoods.onHide = () => this.hideCraft();
+
+    // CraftDialog ctor
+    this.craft = new MirWindow({ library: Lib.Prguse, index: 1109, location: [0, 0], movable: true, sort: true });
+    this.recipeLabel = new MirLabel({ parent: this.craft, autoSize: true, location: [22, 5], font: "bold 10pt Arial", foreColour: "#deb887", notControl: true });
+    this.possibilityLabel = new MirLabel({ parent: this.craft, autoSize: true, location: [10, 135], notControl: true });
+    this.craftGoldLabel = new MirLabel({ parent: this.craft, autoSize: true, location: [30, 190], notControl: true });
+    for (let x = 0; x < TOOL_COUNT + INGREDIENT_COUNT; x++) {
+      const at: [number, number] = x >= TOOL_COUNT ? [(x - TOOL_COUNT) * 40 + 52, 86] : [x * 44 + 108, 44];
+      this.craftViews.push(new ItemView(this.craft, at, invWindow, () => this.craftCellClick(x), [35, 32], true));
+    }
+    closeButton(this.craft, [312, 3], () => this.hideCraft());
+    new MirButton({ parent: this.craft, library: Lib.Title, index: 180, hoverIndex: 181, pressedIndex: 182, location: [165, 185], sound: SoundList.ButtonA, onClick: () => this.autoFill() });
+    this.craftButton = new MirButton({ parent: this.craft, library: Lib.Title, index: 336, hoverIndex: 337, pressedIndex: 338, location: [215, 185], sound: SoundList.ButtonA, grayScale: true, enabled: false,
+      onClick: () => this.craftItem() });
+
     // NPCDialog.Hide hides every NPC panel
     const prevClose = npc.onClose;
     npc.onClose = () => { prevClose(); this.closeAll(); };
     // Cells share the inventory window's pick: redraw with it (CraftDialog.BeforeDraw also hides the craft dialog with the bag)
     const prevRender = invWindow.onRender;
     invWindow.onRender = () => { prevRender(); this.render(); };
+    const signal = gameSignal();
     // GameScene Escape: NPCAwakeDialog.Hide + RefineDialog.Hide
     window.addEventListener("keydown", (e) => {
       if (!matches(e, KeybindOptions.Closeall)) return;
       this.hideAwake();
       this.hideRefine();
-    }, { signal: gameSignal() });
+    }, { signal });
+    signal.addEventListener("abort", () => { this.refine.dispose(); this.awake.dispose(); this.craft.dispose(); });
+    this.itemCellClick();
   }
 
   private get inv(): Inventory { return this.o.inv; }
@@ -132,56 +288,46 @@ export class NpcServices {
 
   /** Server packets for these panels (Inventory.handle has already run for the item packets). */
   handle(p: ServerPacket): void {
-    const npcVisible = this.o.npc.visible;
+    const npc = this.o.npc;
+    const npcVisible = npc.visible;
     switch (p.type) {
       case "NPCResponse": this.closeAll(); break; // GameScene.NPCResponse hides the panels
       // GameScene.NPCRefine
       case "NPCRefine":
         this.rate = p.Rate;
         if (!npcVisible) break;
-        this.dropType = PanelType.Refine;
-        if (p.Refining) { this.hideDrop(); this.o.npc.close(); }
-        else this.showDrop(PanelType.Refine);
+        if (p.Refining) { npc.drop.hide(); npc.close(); }
+        else { npc.drop.show(PanelType.Refine, p.Rate); this.showRefine(); } // NPCDropDialog BeforeDraw: RefineDialog.Show()
         break;
-      case "NPCCheckRefine": if (npcVisible) this.showDrop(PanelType.CheckRefine); break; // GameScene.NPCCheckRefine
-      case "NPCCollectRefine": if (npcVisible) this.o.npc.close(); break; // GameScene.NPCCollectRefine
+      case "NPCCheckRefine": if (npcVisible) npc.drop.show(PanelType.CheckRefine); break; // GameScene.NPCCheckRefine
+      case "NPCCollectRefine": if (npcVisible) npc.close(); break; // GameScene.NPCCollectRefine
       case "NPCReplaceWedRing": // GameScene.NPCReplaceWedRing
         if (!npcVisible) break;
         this.rate = p.Rate;
-        this.showDrop(PanelType.ReplaceWedRing);
+        npc.drop.show(PanelType.ReplaceWedRing, p.Rate);
         break;
-      case "NPCDisassemble": if (npcVisible) this.showDrop(PanelType.Disassemble); break; // GameScene.NPCDisassemble
-      case "NPCDowngrade": if (npcVisible) this.showDrop(PanelType.Downgrade); break; // GameScene.NPCDowngrade
-      case "NPCReset": if (npcVisible) this.showDrop(PanelType.Reset); break; // GameScene.NPCReset
+      case "NPCDisassemble": if (npcVisible) npc.drop.show(PanelType.Disassemble); break; // GameScene.NPCDisassemble
+      case "NPCDowngrade": if (npcVisible) npc.drop.show(PanelType.Downgrade); break; // GameScene.NPCDowngrade
+      case "NPCReset": if (npcVisible) npc.drop.show(PanelType.Reset); break; // GameScene.NPCReset
       // GameScene.RefineItem: RefineReset + NPCDialog.Hide (Inventory removed the item and cleared the grid)
-      case "RefineItem": this.o.npc.close(); break;
+      case "RefineItem": npc.close(); break;
       case "RefineCancel": this.render(); break;
       // MirScene.NewRecipeInfo
-      case "NewRecipeInfo": this.recipes.set(p.Info.Item.ItemIndex, p.Info); if (!this.craftGoods.hidden) this.renderCraftGoods(); break;
+      case "NewRecipeInfo": this.recipes.set(p.Info.Item.ItemIndex, p.Info); this.craftGoods.refresh(); break;
       // GameScene.NPCGoods, PanelType.Craft (Buy / BuySub are npcWindow.ts)
       case "NPCGoods":
         if (p.Type !== PanelType.Craft) break;
         this.rate = p.Rate;
         if (!npcVisible) break;
-        this.craftList = p.List;
-        this.pearlGoods.hidden = true;
-        this.craftGoods.hidden = false;
-        this.o.invWindow.toggle(true); // NPCGoodsDialog.Show
-        this.renderCraftGoods();
-        this.showCraft(); // CraftDialog.Show
+        this.craftGoods.usePearls = false;
+        this.craftGoods.newGoods(p.List);
+        this.craftGoods.show();
+        this.showCraft();
         break;
       case "CraftItem": if (p.Success) this.updateCraftCells(); break; // GameScene.CraftItem
-      // GameScene.NPCPearlGoods
-      case "NPCPearlGoods":
-        this.rate = p.Rate;
-        if (!npcVisible) break;
-        this.pearlList = p.List;
-        this.hideCraftGoods();
-        this.pearlGoods.hidden = false;
-        this.o.invWindow.toggle(true);
-        this.renderPearlGoods();
-        break;
-      case "NPCAwakening": if (this.awake.hidden) this.showAwake(); break; // GameScene.NPCAwakening
+      // GameScene.NPCPearlGoods: NPCGoodsDialog with UsePearls
+      case "NPCPearlGoods": this.rate = p.Rate; npc.showPearlGoods(p.List, p.Rate); break;
+      case "NPCAwakening": if (!this.awake.visible) this.showAwake(); break; // GameScene.NPCAwakening
       case "AwakeningNeedMaterials": this.setNeedItems(p.Materials, p.MaterialsCount); break;
       case "AwakeningLockedItem": // GameScene.AwakeningLockedItem
         if (this.findInv(p.UniqueID) < 0) break;
@@ -193,168 +339,32 @@ export class NpcServices {
     }
   }
 
-  /** NPCDialog.Hide / GameScene.NPCResponse: every panel here. */
+  /** NPCDialog.Hide / GameScene.NPCResponse: every panel here (the drop panel is NpcWindow's). */
   private closeAll(): void {
-    this.hideDrop();
-    this.hideCraftGoods();
-    this.pearlGoods.hidden = true;
+    this.craftGoods.hide();
+    this.hideCraft();
     this.hideAwake();
     this.hideRefine();
   }
 
-  // — NPCDropDialog —
-
-  /** NPCDropDialog.Show (+ RefineDialog.Show for Refine, from its BeforeDraw). */
-  private showDrop(type: DropType): void {
-    this.clearTarget();
-    this.dropType = type;
-    this.o.invWindow.toggle(true);
-    // A click on an inventory item targets it (like npcWindow's sell panel); Refine keeps the plain pick for its grid.
-    if (type !== PanelType.Refine) {
-      this.dropHook = (index) => { this.takeTarget(index); return true; };
-      this.o.invWindow.itemClickHook = this.dropHook;
-    } else if (this.o.invWindow.itemClickHook === this.dropHook) this.o.invWindow.itemClickHook = null;
-    this.drop.hidden = false;
-    if (type === PanelType.Refine) this.refine.hidden = false;
-    this.render();
-  }
-
-  /** NPCDropDialog.Hide: the targeted cell unlocks. */
-  private hideDrop(): void {
-    this.clearTarget();
-    this.drop.hidden = true;
-    if (this.dropHook && this.o.invWindow.itemClickHook === this.dropHook) this.o.invWindow.itemClickHook = null;
-    this.dropHook = null;
-  }
-
-  private clearTarget(): void {
-    if (this.target !== null) { this.setLock(this.target, false); this.inv.onChange(); }
-    this.target = null;
-  }
-
-  /** NPCDropDialog.ItemCell_Click with GameScene.SelectedCell = inventory slot `index` (-1 = nothing picked). */
-  private takeTarget(index: number): void {
-    this.clearTarget();
-    const item = index >= 0 ? this.inv.inventory[index] ?? null : null;
-    if (!item || this.inv.isLocked(item)) { this.render(); return; }
-    const info = this.info(item);
-    const type = this.dropType;
-    if (type === PanelType.Disassemble || type === PanelType.Downgrade || type === PanelType.Reset) {
-      const ok = type === PanelType.Disassemble ? !!info && info.Grade !== ItemGrade.None && info.Type !== ItemType.Awakening
-        : type === PanelType.Downgrade ? awakeLevel(item) !== 0
-        : addedCount(item) > 0 || (!!info && item.Slots.length > info.Slots); // UserItem.IsAdded
-      if (ok) this.target = item.UniqueID;
-    } else if (!(info && info.Durability === 0)) {
-      this.target = item.UniqueID; // the other panels refuse items without durability
-    }
-    if (this.target !== null) { this.setLock(this.target, true); this.inv.onChange(); }
-    this.render();
-  }
-
-  /** The panel's cell: takes the picked inventory item (NPCDropDialog.ItemCell_Click). */
-  private dropCellClick(): void {
-    const slot = this.o.invWindow.pickedInventorySlot;
-    if (slot >= 0) this.o.invWindow.clearPick();
-    this.takeTarget(slot);
-  }
-
-  /** NPCDropDialog.Confirm for this file's PanelTypes. */
-  private confirm(): void {
-    const index = this.findInv(this.target);
-    const item = index >= 0 ? this.inv.inventory[index]! : null;
-    if (!item) { this.clearTarget(); this.render(); return; }
-    const info = this.info(item);
-    const send = this.o.send;
-    switch (this.dropType) {
-      case PanelType.Disassemble: send(ClientPackets.DisassembleItem({ UniqueID: item.UniqueID })); break;
-      case PanelType.Downgrade: send(ClientPackets.DowngradeAwakening({ UniqueID: item.UniqueID })); break;
-      case PanelType.Reset: if (info && !info.NeedIdentify) send(ClientPackets.ResetAddedItem({ UniqueID: item.UniqueID })); break;
-      case PanelType.Refine: {
-        if (!this.inv.refine.some((i) => i)) { this.system(`You haven't deposited any items to refine your ${this.name(item)} with.`); return; }
-        if (this.inv.gold < (info?.RequiredAmount ?? 0) * 10 * this.rate) { this.system(`You don't have enough gold to refine your ${this.name(item)}.`); return; }
-        send(ClientPackets.RefineItem({ UniqueID: item.UniqueID }));
-        this.target = null; // stays locked: the server's S.RepairItem unlocks it, S.RefineItem removes it
-        this.render();
-        return;
-      }
-      case PanelType.CheckRefine:
-        if (item.RefineAdded === 0) { this.system(`Your ${this.name(item)} hasn't been refined so it doesn't need checking.`); return; }
-        send(ClientPackets.CheckRefine({ UniqueID: item.UniqueID }));
-        break;
-      case PanelType.ReplaceWedRing:
-        if (info?.Type !== ItemType.Ring) { this.system(`${this.name(item)} isn't a ring.`); return; }
-        send(ClientPackets.ReplaceWedRing({ UniqueID: item.UniqueID }));
-        break;
-    }
-    this.clearTarget();
-    this.render();
-  }
-
-  /** NPCDropDialog_BeforeDraw: the label and the price for the target. */
-  private dropText(item: UserItem | null): string {
-    const info = item ? this.info(item) : undefined;
-    const grade = info?.Grade ?? 0;
-    const label: Record<number, string> = {
-      [PanelType.Disassemble]: "Item will be destroyed. ", [PanelType.Downgrade]: "Downgrade: ", [PanelType.Reset]: "Reset: ",
-      [PanelType.Refine]: "Refine: ", [PanelType.CheckRefine]: "Check Refine", [PanelType.ReplaceWedRing]: "Replace: ",
-    };
-    let text = label[this.dropType] ?? "";
-    if (!item || !info) return text;
-    switch (this.dropType) {
-      // UserItem.DisassemblePrice / DowngradePrice / ResetPrice (uint casts of float products)
-      case PanelType.Disassemble: text += Math.trunc(1500 * grade * Math.fround((addedCount(item) + awakeLevel(item)) * 0.1 + 1)); break;
-      case PanelType.Downgrade: text += 3000 * (1 + (awakeLevel(item) + 1) * 2) * grade; break;
-      case PanelType.Reset: text += Math.trunc(3000 * grade * Math.fround(addedCount(item) * 0.2 + 1)); break;
-      case PanelType.Refine: case PanelType.ReplaceWedRing: text += floatText(info.RequiredAmount * 10 * this.rate); break;
-      default: return text; // CheckRefine shows no price
-    }
-    return text + " Gold";
-  }
-
-  private renderDrop(): void {
-    const index = this.findInv(this.target);
-    if (index < 0 && this.target !== null) this.target = null;
-    const item = index >= 0 ? this.inv.inventory[index]! : null;
-    const titles: Record<number, string> = {
-      [PanelType.Refine]: "Refine", [PanelType.CheckRefine]: "Check Refine", [PanelType.ReplaceWedRing]: "Replace Wedding Ring",
-      [PanelType.Disassemble]: "Disassemble", [PanelType.Downgrade]: "Downgrade Awakening", [PanelType.Reset]: "Reset Added Stats",
-    };
-    const cell = this.o.invWindow.viewCell(item);
-    cell.classList.add("npc-drop-cell");
-    cell.onmousedown = (e) => { e.stopPropagation(); if (e.button === 0) this.dropCellClick(); };
-    const hint = this.dropType === PanelType.Refine ? "Pick an item in your bag, then click the cell." : "Click an item in your bag.";
-    this.drop.replaceChildren(
-      el("div", { class: "window-title" }, el("span", {}, titles[this.dropType] ?? "NPC"), el("button", { class: "window-close", onclick: () => this.hideDrop() }, "×")),
-      el("div", { class: "npc-drop-body" }, cell, el("div", {},
-        el("div", {}, item ? `${this.name(item)}${item.Count > 1 ? ` x${item.Count}` : ""}` : hint),
-        el("div", { class: "npc-goods-price" }, this.dropText(item)))),
-      el("div", { class: "row" }, el("button", { class: "primary", disabled: !item, onclick: () => this.confirm() }, "Confirm")),
-    );
-  }
-
   // — RefineDialog —
+
+  private showRefine(): void {
+    this.refine.show();
+  }
 
   /** RefineDialog.Hide: C.RefineCancel (the server returns the items with S.RetrieveRefineItem). */
   private hideRefine(): void {
-    if (this.refine.hidden) return;
-    this.refine.hidden = true;
+    if (!this.refine.visible) return;
+    this.refine.hide();
     this.o.send(ClientPackets.RefineCancel());
-  }
-
-  private renderRefine(): void {
-    const cells: HTMLElement[] = [];
-    for (let i = 0; i < REFINE_SLOTS; i++) cells.push(this.o.invWindow.refineCell(i));
-    this.refine.replaceChildren(
-      el("div", { class: "window-title" }, el("span", {}, "Refine"), el("button", { class: "window-close", title: "Cancel the refine (items go back to the bag)", onclick: () => this.hideRefine() }, "×")),
-      el("div", { class: "inv-grid npc-refine-grid" }, ...cells),
-    );
   }
 
   // — NPCAwakeDialog —
 
   /** NPCAwakeDialog.Show (+ InventoryDialog.Show). */
   private showAwake(): void {
-    this.awake.hidden = false;
+    this.awake.show();
     this.o.invWindow.toggle(true);
     this.itemCellClick();
     this.render();
@@ -362,20 +372,22 @@ export class NpcServices {
 
   /** NPCAwakeDialog.Hide: unlock every cell's item through the server (S.AwakeningLockedItem echo), clear, reset. */
   private hideAwake(): void {
-    if (this.awake.hidden) return;
+    if (!this.awake.visible) return;
     for (let i = 0; i < AWAKE_CELLS; i++) {
       const item = this.awakeItems[i];
       if (item) this.o.send(ClientPackets.AwakeningLockedItem({ UniqueID: item.UniqueID, Locked: false }));
       this.awakeItems[i] = null;
     }
     this.itemCellClick();
-    this.awake.hidden = true;
+    this.awake.hide();
+    hideItemLabel();
   }
 
   /** NPCAwakeDialog.ItemCellClear. */
   private itemCellClear(): void {
     this.materials = [null, null];
-    this.awakeGold = "";
+    for (const l of this.needLabels) l.text = "";
+    this.goldLabel.text = "";
   }
 
   /** NPCAwakeDialog.ItemCell_Click: rebuild the glyph list for the base item. */
@@ -384,30 +396,30 @@ export class NpcServices {
     this.awakeTypes = [];
     const base = this.awakeItems[0];
     if (!base) {
-      this.awakeTypes.push({ text: "Select Upgrade Item.", type: AwakeType.None });
+      this.awakeTypes.push({ text: T.SelectUpgradeItem, type: AwakeType.None });
       this.awakeSelected = 0;
       this.currentAwakeType = AwakeType.None;
-      return;
-    }
-    if (awakeLevel(base) === 0) {
-      this.awakeTypes.push({ text: "Select Upgrade Type.", type: AwakeType.None });
+    } else if (awakeLevel(base) === 0) {
+      this.awakeTypes.push({ text: T.SelectUpgradeType, type: AwakeType.None });
       const t = this.info(base)?.Type;
       const types = t === ItemType.Weapon ? [AwakeType.DC, AwakeType.MC, AwakeType.SC]
         : t === ItemType.Helmet ? [AwakeType.AC, AwakeType.MAC] : [AwakeType.HPMP];
       for (const type of types) this.awakeTypes.push({ text: AWAKE_TYPE_TEXT[type]!, type });
     } else {
-      this.awakeTypes.push({ text: AWAKE_TYPE_TEXT[base.AwakeType] ?? "Select Upgrade Item.", type: base.AwakeType });
+      this.awakeTypes.push({ text: AWAKE_TYPE_TEXT[base.AwakeType] ?? T.SelectUpgradeItem, type: base.AwakeType });
       if (this.currentAwakeType !== base.AwakeType) {
         this.currentAwakeType = base.AwakeType;
         this.onAwakeTypeSelect(0);
       }
     }
     if (this.awakeSelected >= this.awakeTypes.length) this.awakeSelected = 0;
+    this.awakeType.setItems(this.awakeTypes.map((t) => t.text), this.awakeSelected);
   }
 
   /** NPCAwakeDialog.OnAwakeTypeSelect: ask the server for the materials of this glyph. */
   private onAwakeTypeSelect(index: number): void {
     this.awakeSelected = index;
+    this.awakeType.setItems(this.awakeTypes.map((t) => t.text), index);
     const type = this.awakeTypes[index]?.type ?? AwakeType.None;
     this.currentAwakeType = type;
     const base = this.awakeItems[0];
@@ -419,12 +431,13 @@ export class NpcServices {
     for (let i = 0; i < 2; i++) {
       const info = materials?.[i] ?? null, count = counts?.[i] ?? 0;
       this.materials[i] = info && count !== 0 ? { info, count } : null;
+      this.needLabels[i]!.text = info && count !== 0 ? T.NeedItemQuantity(info.Name.replace(/[\d-]/g, ""), count) : "";
     }
     const base = this.awakeItems[0];
     if (base) {
       // UserItem.AwakeningPrice
       const grade = this.info(base)?.Grade ?? 0;
-      this.awakeGold = String(1500 * (1 + awakeLevel(base) * 2) * grade);
+      this.goldLabel.text = String(1500 * (1 + awakeLevel(base) * 2) * grade);
     }
     this.render();
   }
@@ -519,57 +532,37 @@ export class NpcServices {
     if (text[result]) messageBox(this.o.stage, text[result]);
   }
 
-  private awakeCell(slot: number): HTMLElement {
-    let c: HTMLElement;
-    if (slot === 1 || slot === 2) {
-      const need = this.materials[slot - 1];
-      c = el("div", { class: "inv-cell npc-awake-need", title: need ? need.info.Name : "" });
-      if (need) {
-        const img = el("img", { alt: need.info.Name, draggable: false });
-        void itemIcon(need.info.Image).then((url) => { if (url) img.src = url; });
-        c.append(img);
-        if (need.count > 1) c.append(el("span", { class: "inv-count" }, String(need.count)));
-      }
-    } else {
-      c = this.o.invWindow.viewCell(this.awakeItems[slot] ?? null);
-      c.onmousedown = (e) => { e.stopPropagation(); if (e.button === 0) this.awakeCellClick(slot); };
-    }
-    return c;
-  }
-
+  /** The awakening cells (MirItemCell GridType AwakenItem). */
   private renderAwake(): void {
-    const select = el("select", { class: "npc-awake-type" });
-    this.awakeTypes.forEach((t, i) => select.append(el("option", { value: String(i), selected: i === this.awakeSelected }, t.text)));
-    select.onchange = () => this.onAwakeTypeSelect(Number(select.value));
-    const needText = this.materials.map((m) => m ? `${m.info.Name.replace(/[\d-]/g, "")}  x${m.count}` : "").filter(Boolean).join("   ");
-    this.awake.replaceChildren(
-      el("div", { class: "window-title" }, el("span", {}, "Awakening"), el("button", { class: "window-close", onclick: () => this.hideAwake() }, "×")),
-      el("div", { class: "npc-awake-top" }, el("div", {}, el("div", { class: "inv-label" }, "Item"), this.awakeCell(0)), el("div", {}, el("div", { class: "inv-label" }, "Glyph"), select)),
-      el("div", { class: "inv-label" }, "Materials"), el("div", { class: "npc-awake-row" }, this.awakeCell(3), this.awakeCell(4)),
-      el("div", { class: "inv-label" }, "Extra"), el("div", { class: "npc-awake-row" }, this.awakeCell(5), this.awakeCell(6)),
-      el("div", { class: "inv-label" }, "Needed"), el("div", { class: "npc-awake-row" }, this.awakeCell(1), this.awakeCell(2), el("span", { class: "npc-awake-need-text" }, needText)),
-      el("div", { class: "npc-goods-price" }, this.awakeGold ? `Cost: ${this.awakeGold} gold` : ""),
-      el("div", { class: "row" }, el("button", { class: "primary", disabled: !this.awakeItems[0], onclick: () => this.awaken() }, "Awaken")),
-    );
+    for (let slot = 0; slot < AWAKE_CELLS; slot++) {
+      const view = this.awakeViews[slot]!;
+      if (slot === 1 || slot === 2) {
+        const need = this.materials[slot - 1];
+        view.set(need ? need.info.Image : -1, false, need && need.info.StackSize > 1 ? String(need.count) : "", "#ffff00", null);
+        view.control.hint = need ? need.info.Name : "";
+        continue;
+      }
+      const item = this.awakeItems[slot];
+      const info = item ? this.info(item) : undefined;
+      view.set(info ? info.Image : -1, false, item && info && info.StackSize > 1 ? String(item.Count) : "", "#ffff00", item);
+    }
   }
 
   // — NPCCraftGoodsDialog + CraftDialog —
 
-  /** NPCGoodsDialog.Hide (PanelType.Craft) also hides the CraftDialog. */
-  private hideCraftGoods(): void {
-    this.craftGoods.hidden = true;
-    this.hideCraft();
-  }
-
+  /** CraftDialog.Show: under the inventory dialog. */
   private showCraft(): void {
-    this.craft.hidden = false;
+    const root = this.o.invWindow.root;
+    this.craft.location = [(parseInt(root.style.left) || 0) - 12, (parseInt(root.style.top) || 0) + 236];
+    this.craft.show();
     this.render();
   }
 
   /** CraftDialog.Hide -> ResetCells. */
   private hideCraft(): void {
-    if (this.craft.hidden) return;
-    this.craft.hidden = true;
+    if (!this.craft.visible) return;
+    this.craft.hide();
+    hideItemLabel();
     this.resetCells();
   }
 
@@ -601,12 +594,11 @@ export class NpcServices {
     return item && item.UniqueID === s.id ? item : null;
   }
 
-  /** NPCCraftGoodsDialog cell click: select the recipe (ResetCells + RefreshCraftCells, CraftDialog.Show). */
+  /** NPCCraftGoodsDialog cell click: ResetCells + RefreshCraftCells, CraftDialog.Show. */
   private selectRecipe(item: UserItem): void {
     this.resetCells();
     this.recipeItem = item;
-    this.showCraft();
-    this.renderCraftGoods();
+    if (!this.craft.visible) this.showCraft(); else this.render();
   }
 
   /** CraftDialog.Grid_Click with the picked inventory slot. */
@@ -669,7 +661,7 @@ export class NpcServices {
     return true;
   }
 
-  /** CraftDialog.CraftItem. */
+  /** CraftDialog.CraftItem (MirAmountBox for more than one). */
   private craftItem(): void {
     const r = this.recipe, recipeItem = this.recipeItem;
     if (!r || !recipeItem) return;
@@ -681,20 +673,18 @@ export class NpcServices {
       const temp = i >= TOOL_COUNT ? Math.trunc(item.Count / Math.max(1, shadow?.Count ?? 1)) : Math.floor(item.CurrentDura / 1000);
       if (temp < max) max = temp;
     }
-    const stack = this.info(recipeItem)?.StackSize ?? 1;
-    const perCraft = Math.trunc(stack / Math.max(1, recipeItem.Count));
+    const info = this.info(recipeItem);
+    const perCraft = Math.trunc((info?.StackSize ?? 1) / Math.max(1, recipeItem.Count));
     if (max > perCraft) max = perCraft;
     const slots = [...this.selected.values()].map((s) => s.slot);
-    if (max === 1 && r.Gold > this.inv.gold) { this.system("You do not have enough gold."); return; }
+    if (max === 1 && r.Gold > this.inv.gold) { this.system(T.YouDoNotHaveEnoughGold); return; }
     if (max > 1) {
-      const answer = prompt(`Craft Amount: (1-${max})`, String(max));
-      if (answer === null) return;
-      const amount = Math.trunc(Number(answer));
-      if (!(amount > 0)) return;
-      const n = Math.min(amount, max);
-      if (!this.hasCraftItems(n)) { this.system("You do not have the required tools or ingredients."); return; }
-      if (r.Gold * n > this.inv.gold) { this.system("You do not have enough gold."); return; }
-      this.o.send(ClientPackets.CraftItem({ UniqueID: recipeItem.UniqueID, Count: n, Slots: slots }));
+      amountBox(T.CraftAmount, info?.Image ?? -1, max, (amount) => {
+        if (amount <= 0) return;
+        if (!this.hasCraftItems(amount)) { this.system(T.YouDoNotHaveRequiredToolsOrIngredients); return; }
+        if (r.Gold * amount > this.inv.gold) { this.system(T.YouDoNotHaveEnoughGold); return; }
+        this.o.send(ClientPackets.CraftItem({ UniqueID: recipeItem.UniqueID, Count: amount, Slots: slots }));
+      }, 0, max);
       return;
     }
     this.o.send(ClientPackets.CraftItem({ UniqueID: recipeItem.UniqueID, Count: 1, Slots: slots }));
@@ -714,106 +704,39 @@ export class NpcServices {
     if (changed) this.inv.onChange(); else this.render();
   }
 
-  private renderCraftGoods(): void {
-    const rows = this.craftList.map((item) => {
-      const info = this.info(item), recipe = this.recipes.get(item.ItemIndex);
-      const img = el("img", { class: "npc-goods-icon", alt: "" });
-      if (info) void itemIcon(info.Image).then((url) => { if (url) img.src = url; });
-      const price = recipe ? Math.trunc(Math.fround(recipe.Gold * this.rate)) : 0; // MirGoodsCell (Recipe): recipe.Gold * NPCRate
-      const chosen = this.recipeItem === item;
-      return el("div", { class: `npc-goods-row${chosen ? " selected" : ""}`, title: info?.Name ?? "", onclick: () => this.selectRecipe(item) },
-        img, el("span", { class: "npc-goods-name" }, info?.Name ?? `Item #${item.ItemIndex}`, item.Count > 1 ? ` (${item.Count})` : ""),
-        el("span", { class: "npc-goods-price" }, `${price.toLocaleString()} gold`));
-    });
-    this.craftGoods.replaceChildren(
-      el("div", { class: "window-title" }, el("span", {}, "Craft"), el("button", { class: "window-close", onclick: () => this.hideCraftGoods() }, "×")),
-      el("div", { class: "npc-goods-list" }, ...rows));
-  }
-
+  /** CraftDialog.RefreshCraftCells + the cells' DrawControl (shadow items DimGray over Prguse 1121, "have/need" counts). */
   private renderCraft(): void {
     const r = this.recipe;
-    const cell = (i: number) => {
-      const item = this.craftCellItem(i), shadow = this.shadow(i);
-      const c = item ? this.o.invWindow.viewCell(item) : this.o.invWindow.viewCell(shadow);
-      if (!item && shadow) c.classList.add("npc-craft-shadow");
-      if (!shadow) c.classList.add("npc-craft-unused");
-      c.onmousedown = (e) => { e.stopPropagation(); if (e.button === 0) this.craftCellClick(i); };
-      return c;
-    };
-    // CraftDialog.RefreshCraftCells: Craft is enabled when every needed cell holds enough
     let ready = !!r;
-    for (let i = 0; i < TOOL_COUNT + INGREDIENT_COUNT && r; i++) {
-      const shadow = this.shadow(i);
-      if (!shadow) continue;
-      const item = this.craftCellItem(i);
-      if (!item || item.Count < shadow.Count) ready = false;
-    }
-    const rate = this.o.stat(Stat.CraftRatePercent);
-    const chance = r ? (rate > 0 ? `${Math.min(100, r.Chance + rate)}% (+${rate}%)` : `${r.Chance}%`) + " Chance of Success" : "";
-    const tools: HTMLElement[] = [], ingredients: HTMLElement[] = [];
-    for (let i = 0; i < TOOL_COUNT; i++) tools.push(cell(i));
-    for (let i = TOOL_COUNT; i < TOOL_COUNT + INGREDIENT_COUNT; i++) ingredients.push(cell(i));
-    this.craft.replaceChildren(
-      el("div", { class: "window-title" }, el("span", {}, r ? this.name(r.Item) : "Select a recipe"), el("button", { class: "window-close", onclick: () => this.hideCraft() }, "×")),
-      el("div", { class: "inv-label" }, "Tools"), el("div", { class: "npc-craft-row" }, ...tools),
-      el("div", { class: "inv-label" }, "Ingredients"), el("div", { class: "npc-craft-row" }, ...ingredients),
-      el("div", { class: "npc-craft-chance" }, chance),
-      el("div", { class: "npc-goods-price" }, r ? `Gold: ${r.Gold.toLocaleString("en-US")}` : ""),
-      el("div", { class: "row" },
-        el("button", { disabled: !r, onclick: () => this.autoFill() }, "Auto Fill"),
-        el("button", { class: "primary", disabled: !ready, onclick: () => this.craftItem() }, "Craft")),
-    );
-  }
-
-  // — NPCGoodsDialog (UsePearls) —
-
-  private renderPearlGoods(): void {
-    const rows = this.pearlList.map((item) => {
-      const info = this.info(item);
-      const img = el("img", { class: "npc-goods-icon", alt: "" });
-      if (info) void itemIcon(info.Image).then((url) => { if (url) img.src = url; });
-      const price = Math.trunc(Math.fround(itemPrice(item, info) * this.rate)); // MirGoodsCell: PricePearl, Price() * NPCRate
-      return el("div", { class: "npc-goods-row", title: info?.Name ?? "", onclick: () => this.buyPearl(item) },
-        img, el("span", { class: "npc-goods-name" }, info?.Name ?? `Item #${item.ItemIndex}`, item.Count > 1 ? ` (${item.Count})` : ""),
-        el("span", { class: "npc-goods-price" }, `${price.toLocaleString()} pearl${itemPrice(item, info) > 1 ? "s" : ""}`));
-    });
-    this.pearlGoods.replaceChildren(
-      el("div", { class: "window-title" }, el("span", {}, "Pearl Goods"), el("button", { class: "window-close", onclick: () => (this.pearlGoods.hidden = true) }, "×")),
-      el("div", { class: "npc-goods-list" }, ...rows));
-  }
-
-  /** NPCGoodsDialog.BuyItem with UsePearls (the desktop's stack check divides the gold; this port uses the pearl count
-   *  when it is known and otherwise leaves the check to the server). */
-  private buyPearl(item: UserItem): void {
-    const info = this.info(item);
-    if (!info) return;
-    const pearls = this.o.pearls();
-    let count = 1;
-    if (info.StackSize > 1) {
-      const unit = Math.max(1, itemPrice({ ...item, Count: 1 }, info));
-      let max = info.StackSize;
-      if (pearls !== null && unit * max > pearls) {
-        max = Math.min(0xffff, Math.trunc(pearls / unit));
-        if (max === 0) { this.system("You do not have enough Pearls."); return; }
+    for (let i = 0; i < TOOL_COUNT + INGREDIENT_COUNT; i++) {
+      const view = this.craftViews[i]!;
+      const item = this.craftCellItem(i), shadow = this.shadow(i);
+      if (shadow && (!item || item.Count < shadow.Count)) ready = false;
+      if (!shadow) {
+        const info = item ? this.info(item) : undefined;
+        view.set(info ? info.Image : -1, false, "", "#ffff00", item);
+        continue;
       }
-      const answer = prompt(`Purchase Amount: (1-${max})`, String(Math.min(item.Count, max)));
-      if (answer === null) return;
-      count = Math.trunc(Number(answer));
-      if (!(count >= 1 && count <= max)) return;
-    } else {
-      if (pearls !== null && info.Price > pearls) { this.system("You do not have enough Pearls."); return; }
-      if (!this.inv.inventory.some((i) => !i)) { this.system("You do not have enough space."); return; }
+      const image = this.info(item ?? shadow)?.Image ?? -1;
+      const short = !item || shadow.Count > item.Count;
+      view.set(image, !item, `${item ? item.Count : 0}/${shadow.Count}`, short ? "#ff0000" : "#32cd32", item ?? shadow, true,
+        item ? {} : { hideDura: shadow.CurrentDura === shadow.MaxDura });
     }
-    this.o.send(ClientPackets.BuyItem({ ItemIndex: item.UniqueID, Count: count, Type: PanelType.Buy }));
+    this.craftButton.enabled = ready;
+    this.craftButton.grayScale = !ready;
+    if (r) {
+      const rate = this.o.stat(Stat.CraftRatePercent);
+      this.recipeLabel.text = this.name(r.Item);
+      this.possibilityLabel.text = (rate > 0 ? `${Math.min(100, r.Chance + rate)}% (+${rate}%)` : `${r.Chance}%`) + " Chance of Success";
+      this.craftGoldLabel.text = r.Gold.toLocaleString("en-US");
+    } else this.recipeLabel.text = this.possibilityLabel.text = this.craftGoldLabel.text = "";
   }
 
   // — Redraw (chained on the inventory window's render) —
 
   render(): void {
-    if (!this.craft.hidden && !this.o.invWindow.visible) this.hideCraft(); // CraftDialog.BeforeDraw
-    if (!this.drop.hidden) this.renderDrop();
-    if (!this.refine.hidden) this.renderRefine();
-    if (!this.awake.hidden) this.renderAwake();
-    if (!this.craft.hidden) this.renderCraft();
+    if (this.craft.visible && !this.o.invWindow.visible) this.hideCraft(); // CraftDialog.BeforeDraw
+    if (this.awake.visible) this.renderAwake();
+    if (this.craft.visible) this.renderCraft();
   }
 }

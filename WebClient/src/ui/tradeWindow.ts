@@ -1,15 +1,26 @@
-// Trade: TradeDialog (the user's 5 x 2 grid, gold, lock/confirm, close = cancel) + GuestTradeDialog (the partner's
-// offer) + GameScene's trade handlers (TradeRequest / TradeAccept / TradeGold / TradeItem / TradeConfirm / TradeCancel).
-// The user's grid, gold and lock live in Inventory (they move with the item packets); the guest side lives here.
-// Request a trade with T (KeybindOptions.Trade) or the Trade button: the server pairs you with the player you face.
-// The request asks with confirm() (MirMessageBox Yes/No); the gold amount with prompt() (MirAmountBox).
+// Trade: TradeDialog + GuestTradeDialog (Client/MirScenes/Dialogs/TradeDialogs.cs) with the desktop artwork (Prguse
+// 389 / 390) + GameScene's trade handlers (TradeRequest / TradeAccept / TradeGold / TradeItem / TradeConfirm /
+// TradeCancel). The user's grid, gold and lock live in Inventory (they move with the item packets); the guest side
+// lives here. Request a trade with T (KeybindOptions.Trade) or the Trade button: the server pairs you with the player
+// you face. The request is a MirMessageBox Yes/No, the gold a MirAmountBox, the cancel notice a MirMessageBox OK.
 
 import type { ServerPacket, UserItem } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
-import { ChatType } from "../protocol/enums.generated.ts";
 import { TRADE_SLOTS, type Inventory } from "../game/inventory.ts";
-import type { InventoryWindow } from "./inventoryWindow.ts";
-import { el } from "./screens.ts";
+import { placeCell, type InventoryWindow } from "./inventoryWindow.ts";
+import { MirWindow, MirButton, MirLabel, closeButton, Lib, uiSound, SCREEN_WIDTH, SCREEN_HEIGHT } from "./mir/controls.ts";
+import { messageBox, amountBox } from "./messageBox.ts";
+import { SoundList } from "../game/audio.ts";
+import { gameSignal } from "../game/scope.ts";
+
+/** TradeDialog / GuestTradeDialog Size. */
+const DIALOG_SIZE: readonly [number, number] = [204, 152];
+
+/** Grid[2 * x + y] Location (both dialogs). */
+function cellLocation(slot: number): [number, number] {
+  const x = Math.trunc(slot / 2), y = slot % 2;
+  return [x * 36 + 10 + x, y * 32 + 39 + y];
+}
 
 export class TradeWindow {
   /** GuestTradeDialog.GuestName / GuestGold / GuestItems. */
@@ -19,40 +30,52 @@ export class TradeWindow {
   private readonly inv: Inventory;
   private readonly invWindow: InventoryWindow;
   private readonly send: (f: Uint8Array) => void;
-  private readonly chat: (text: string, type: number) => void;
   private readonly me: () => string;
-  private readonly root = el("div", { class: "window trade-window", hidden: true });
-  private readonly myName = el("div", { class: "trade-name" });
-  private readonly myGrid = el("div", { class: "inv-grid trade-grid" });
-  private readonly myGold = el("button", { class: "trade-gold", title: "Add gold" });
-  private readonly lockButton = el("button", { class: "trade-lock" });
-  private readonly guestLabel = el("div", { class: "trade-name" });
-  private readonly guestGrid = el("div", { class: "inv-grid trade-grid" });
-  private readonly guestGoldLabel = el("div", { class: "trade-gold" });
+  private readonly stage: HTMLElement;
+  // TradeDialog
+  private readonly win: MirWindow;
+  private readonly nameLabel: MirLabel;
+  private readonly goldLabel: MirLabel;
+  private readonly confirmButton: MirButton;
+  // GuestTradeDialog
+  private readonly guestWin: MirWindow;
+  private readonly guestNameLabel: MirLabel;
+  private readonly guestGoldLabel: MirLabel;
+  private guestCells: HTMLElement[] = [];
+  private shownGuestItems: (UserItem | null)[] | null = null;
 
-  constructor(stage: HTMLElement, inv: Inventory, invWindow: InventoryWindow, send: (f: Uint8Array) => void, chat: (text: string, type: number) => void, me: () => string) {
+  constructor(stage: HTMLElement, inv: Inventory, invWindow: InventoryWindow, send: (f: Uint8Array) => void, _chat: (text: string, type: number) => void, me: () => string) {
+    this.stage = stage;
     this.inv = inv;
     this.invWindow = invWindow;
     this.send = send;
-    this.chat = chat;
-    this.myGold.onclick = () => this.addGold();
-    this.lockButton.onclick = () => { inv.toggleTradeLock(); this.render(); };
-    this.root.append(
-      el("div", { class: "window-title" }, el("span", {}, "Trade"), el("button", { class: "window-close", title: "Cancel the trade", onclick: () => this.cancel() }, "×")),
-      el("div", { class: "trade-sides" },
-        el("div", { class: "trade-side" }, this.myName, this.myGrid, el("div", { class: "row" }, this.myGold, this.lockButton)),
-        el("div", { class: "trade-side" }, this.guestLabel, this.guestGrid, el("div", { class: "row" }, this.guestGoldLabel))),
-    );
-    this.root.addEventListener("mousedown", (e) => e.stopPropagation());
-    this.root.addEventListener("contextmenu", (e) => e.preventDefault());
-    stage.append(this.root);
     this.me = me;
+
+    // TradeDialog ctor
+    this.win = new MirWindow({ library: Lib.Prguse, index: 389, movable: true, sort: true, size: DIALOG_SIZE,
+      location: [Math.trunc(SCREEN_WIDTH / 2) - DIALOG_SIZE[0] - 10, SCREEN_HEIGHT - 350] });
+    this.confirmButton = new MirButton({ parent: this.win, library: Lib.Title, index: 520, hoverIndex: 521, pressedIndex: 522, location: [135, 120], size: [48, 25], sound: SoundList.ButtonA,
+      onClick: () => { inv.toggleTradeLock(); this.render(); } }); // ChangeLockState(!TradeLocked) + C.TradeConfirm
+    closeButton(this.win, [DIALOG_SIZE[0] - 23, 3], () => this.cancel());
+    this.nameLabel = new MirLabel({ parent: this.win, location: [20, 10], size: [150, 14], center: true, notControl: true });
+    this.goldLabel = new MirLabel({ parent: this.win, location: [35, 123], size: [90, 15], center: true, onClick: () => this.addGold() });
+    for (let slot = 0; slot < TRADE_SLOTS; slot++) placeCell(invWindow.boundCell("trade", slot), this.win, cellLocation(slot));
+
+    // GuestTradeDialog ctor
+    this.guestWin = new MirWindow({ library: Lib.Prguse, index: 390, movable: true, sort: true, size: DIALOG_SIZE,
+      location: [Math.trunc(SCREEN_WIDTH / 2) + 10, SCREEN_HEIGHT - 350] });
+    this.guestNameLabel = new MirLabel({ parent: this.guestWin, location: [0, 10], size: [204, 14], center: true, notControl: true });
+    this.guestGoldLabel = new MirLabel({ parent: this.guestWin, location: [35, 123], size: [90, 15], center: true, notControl: true });
+
+    this.win.el.addEventListener("contextmenu", (e) => e.preventDefault());
+    this.guestWin.el.addEventListener("contextmenu", (e) => e.preventDefault());
     const prevRender = invWindow.onRender;
     invWindow.onRender = () => { prevRender(); this.render(); };
+    gameSignal().addEventListener("abort", () => { this.win.dispose(); this.guestWin.dispose(); });
   }
 
   get open(): boolean {
-    return !this.root.hidden;
+    return this.win.visible;
   }
 
   /** KeybindOptions.Trade: ask the player you face. */
@@ -62,17 +85,16 @@ export class TradeWindow {
 
   /** TradeDialog.CloseButton: hide both dialogs and tell the server (it hands the items back, then S.TradeCancel). */
   private cancel(): void {
-    this.root.hidden = true;
+    this.win.hide();
+    this.guestWin.hide();
     this.send(ClientPackets.TradeCancel());
   }
 
-  /** TradeDialog.GoldLabel click (MirAmountBox up to GameScene.Gold). */
+  /** TradeDialog.GoldLabel click (Sound = Gold): MirAmountBox (TradeAmount, Items 116) up to GameScene.Gold. */
   private addGold(): void {
-    if (this.inv.gold <= 0) return;
-    const text = prompt(`Trade Amount: (max ${this.inv.gold.toLocaleString()})`, String(this.inv.gold));
-    if (text === null) return;
-    const amount = Math.min(this.inv.gold, Math.trunc(Number(text.replace(/[,\s]/g, ""))));
-    if (amount > 0) this.inv.offerGold(amount);
+    uiSound(SoundList.Gold);
+    if (this.invWindow.pickedInventorySlot >= 0 || this.invWindow.heroPick || this.inv.gold <= 0) return; // SelectedCell == null
+    amountBox("Trade Amount:", 116, this.inv.gold, (amount) => { if (amount > 0) this.inv.offerGold(amount); });
   }
 
   /** Server packets; returns true when handled. Inventory.handle has already updated the user's side. */
@@ -80,23 +102,27 @@ export class TradeWindow {
     switch (p.type) {
       case "TradeRequest": {
         // GameScene.TradeRequest (MirMessageBox Yes/No)
-        const yes = confirm(`Player ${p.Name} has requested to trade with you.`);
-        this.send(ClientPackets.TradeReply({ AcceptInvite: yes }));
+        const answer = (yes: boolean) => this.send(ClientPackets.TradeReply({ AcceptInvite: yes }));
+        messageBox(this.stage, `Player ${p.Name} has requested to trade with you.`, [{ label: "Yes", onClick: () => answer(true) }, { label: "No", onClick: () => answer(false) }]);
         break;
       }
       case "TradeAccept":
-        // GameScene.TradeAccept -> TradeDialog.TradeAccept: open both dialogs and the inventory
+        // GameScene.TradeAccept -> TradeDialog.TradeAccept: show the inventory and both dialogs
         this.guestName = p.Name;
-        this.root.hidden = false;
+        // TradeDialog.TradeAccept: InventoryDialog to the top right
+        this.invWindow.location = [SCREEN_WIDTH - this.invWindow.size[0], 0];
         if (!this.invWindow.visible) this.invWindow.toggle(true);
+        this.win.show();
+        this.guestWin.show();
         break;
       case "TradeGold": this.guestGold = p.Amount; break;
       case "TradeItem": this.guestItems = p.TradeItems.slice(0, TRADE_SLOTS); break;
       case "TradeConfirm": this.reset(); break;
       case "TradeCancel":
         if (p.Unlock) break;
+        // GameScene.TradeCancel: TradeReset + MirMessageBox (DealCancelledMustFace)
         this.reset();
-        this.chat("Deal cancelled. To deal correctly you must face the other party.", ChatType.System);
+        messageBox(this.stage, "Deal cancelled.\nTo deal correctly you must face the other party.", [{ label: "OK" }]);
         break;
       default: return false;
     }
@@ -104,25 +130,28 @@ export class TradeWindow {
     return true;
   }
 
-  /** GuestTradeDialog.TradeReset + hide (the user's side is reset by Inventory). */
+  /** TradeDialog.TradeReset -> GuestTradeDialog.TradeReset + hide both (the user's side is reset by Inventory). */
   private reset(): void {
     this.guestItems = new Array<UserItem | null>(TRADE_SLOTS).fill(null);
     this.guestName = "";
     this.guestGold = 0;
-    this.root.hidden = true;
+    this.win.hide();
+    this.guestWin.hide();
   }
 
-  /** TradeDialog.RefreshInterface + GuestTradeDialog.RefreshInterface. Cells are column-major like Grid[2 * x + y]. */
+  /** TradeDialog.RefreshInterface + ChangeLockState (ConfirmButton.Index) + GuestTradeDialog.RefreshInterface. The
+   *  user's cells are bound cells (refreshed by the inventory render); the guest's are read-only view cells. */
   render(): void {
-    if (this.root.hidden) return;
-    this.myName.textContent = this.me();
-    this.guestLabel.textContent = this.guestName;
-    const order = Array.from({ length: TRADE_SLOTS }, (_, i) => 2 * (i % 5) + Math.trunc(i / 5));
-    this.myGrid.replaceChildren(...order.map((slot) => this.invWindow.tradeCell(slot)));
-    this.guestGrid.replaceChildren(...order.map((slot) => this.invWindow.viewCell(this.guestItems[slot] ?? null)));
-    this.myGold.textContent = `Gold ${this.inv.tradeGold.toLocaleString()}`;
-    this.guestGoldLabel.textContent = `Gold ${this.guestGold.toLocaleString()}`;
-    this.lockButton.textContent = this.inv.tradeLocked ? "Locked ✓" : "Lock";
-    this.lockButton.classList.toggle("on", this.inv.tradeLocked);
+    this.confirmButton.index = this.inv.tradeLocked ? 521 : 520;
+    this.nameLabel.text = this.me();
+    this.goldLabel.text = this.inv.tradeGold.toLocaleString("en-US");
+    this.guestNameLabel.text = this.guestName;
+    this.guestGoldLabel.text = this.guestGold.toLocaleString("en-US");
+    if (this.shownGuestItems !== this.guestItems) {
+      this.shownGuestItems = this.guestItems;
+      for (const c of this.guestCells) c.remove();
+      this.guestCells = Array.from({ length: TRADE_SLOTS }, (_, slot) =>
+        placeCell(this.invWindow.viewCell(this.guestItems[slot] ?? null), this.guestWin, cellLocation(slot)));
+    }
   }
 }

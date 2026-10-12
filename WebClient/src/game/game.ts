@@ -1,5 +1,6 @@
 // In-game scene: world state from server packets (GameScene.ProcessPacket subset), the frame loop, mouse/keyboard
-// input (MapControl.CheckInput subset: walk, run, turn, attack) and the HUD (status line, chat, name labels).
+// input (MapControl.CheckInput subset: walk, run, turn, attack) and the HUD wiring (MainDialog, ChatDialog +
+// ChatControlBar, MenuDialog, MiniMapDialog, BuffDialog, DuraStatusDialog, hero panels: src/ui/*) + the name labels.
 // The user moves like the desktop: an action is queued and its packet sent when it starts; the next move waits for
 // the server's S.UserLocation (MapControl.NextAction, 2.5 s fallback).
 
@@ -27,8 +28,13 @@ import { spellHooks, moveHooks } from "./objects.ts";
 import { SoundManager, SoundList } from "./audio.ts";
 import { addBuffEffect, removeBuffEffect, processBuffs, setEffects, actionRefresh, poisonDots, userBuff, type UserBuff } from "./buffs.ts";
 import { BuffBar } from "../ui/buffBar.ts";
-import { el } from "../ui/screens.ts";
 import { Doors } from "./doors.ts";
+import { MainDialog, AMODE_TEXT, PMODE_TEXT } from "../ui/mainDialog.ts";
+import { MenuDialog } from "../ui/menuDialog.ts";
+import { ChatDialog } from "../ui/chatDialog.ts";
+import { DuraPanel } from "../ui/duraPanel.ts";
+import { setUiRoot, setUiSound, setScreenSize } from "../ui/mir/controls.ts";
+import { amountBox } from "../ui/messageBox.ts";
 import { MiniMap } from "../ui/miniMap.ts";
 import { BigMap } from "../ui/bigMap.ts";
 import { Group } from "../ui/groupWindow.ts";
@@ -57,10 +63,9 @@ import { HeroCharacterWindow } from "../ui/heroCharacterWindow.ts";
 import { HeroItems } from "./heroItems.ts";
 import { Weather } from "./weather.ts";
 import { gameSettings } from "./settings.ts";
-import { tryLightingCommand } from "./lightingEnhanced.ts";
 import { OptionWindow } from "../ui/optionWindow.ts";
 import { HelpWindow, HELP_DEFAULT_KEYS } from "../ui/helpWindow.ts";
-import { ChatOptionWindow, chatVisible } from "../ui/chatOptionWindow.ts";
+import { ChatOptionWindow } from "../ui/chatOptionWindow.ts";
 import { installClickSounds } from "../ui/clickSounds.ts";
 import { KeyboardLayoutWindow } from "../ui/keyboardLayoutWindow.ts";
 import { monsterActionStart, setMonsterSpecialsWorld } from "./monsterSpecials.ts";
@@ -81,7 +86,7 @@ import { Guild } from "../ui/guildWindow.ts";
 import { findPath } from "./pathFinder.ts";
 import { monsterSound, playerSound, fishingFrame, intelligentCreaturePickupSound, type SoundWorld } from "./sounds.ts";
 import { canFish, canRideAttack, canCastNextMagic, canUseSpell, canHarvest, canRangeAttack, isFishingAction, isIdleAction, runDistance, transformTypeFromBuffs } from "./riding.ts";
-import { PoisonType, MirClass, BuffType, AttackMode, PetMode, MirGridType, EquipmentSlot } from "../protocol/enums.generated.ts";
+import { PoisonType, MirClass, BuffType, AttackMode, PetMode, MirGridType, EquipmentSlot, BindMode, StatName } from "../protocol/enums.generated.ts";
 import { KeybindOptions, keyLabel, matches, matchesAny, matchesAnyBinding, type KeybindOption } from "./keybinds.ts";
 
 export interface Game { handle(p: ServerPacket): void; dispose(): void }
@@ -89,15 +94,6 @@ export interface Game { handle(p: ServerPacket): void; dispose(): void }
 /** Scene exits (GameScene.LogOutSuccess -> SelectScene, ReturnToLogin -> LoginScene). */
 export interface GameExits { logOut(characters: SelectInfo[]): void; returnToLogin(): void }
 
-/** GameScene.ChangeAMode / ChangePMode chat lines (ClientTextKeys.AttackMode_* / PetMode_*). */
-const AMODE_TEXT: Record<number, string> = {
-  [AttackMode.Peace]: "[Mode: Peaceful]", [AttackMode.Group]: "[Mode: Group]", [AttackMode.Guild]: "[Mode: Guild]",
-  [AttackMode.EnemyGuild]: "[Mode: Enemy Guild]", [AttackMode.RedBrown]: "[Mode: Red/Brown]", [AttackMode.All]: "[Mode: Attack All]",
-};
-const PMODE_TEXT: Record<number, string> = {
-  [PetMode.Both]: "[Pet: Attack and Move]", [PetMode.MoveOnly]: "[Pet: Do Not Attack]", [PetMode.AttackOnly]: "[Pet: Do Not Move]",
-  [PetMode.None]: "[Pet: Do Not Attack or Move]", [PetMode.FocusMasterTarget]: "[Pet: Focus Master Target]",
-};
 /** GameScene.ChangeAttackMode / ChangePetMode cycles. */
 const AMODE_NEXT: Record<number, number> = {
   [AttackMode.Peace]: AttackMode.Group, [AttackMode.Group]: AttackMode.Guild, [AttackMode.Guild]: AttackMode.EnemyGuild,
@@ -119,23 +115,20 @@ function friendlyName(name: string, count: number): string {
   return count > 1 ? `${base} (${count})` : base;
 }
 
-const CHAT_COLOURS: Record<number, string> = {
-  [ChatType.Normal]: "#ffffff", [ChatType.Shout]: "#ffff00", [ChatType.System]: "#ff6060", [ChatType.Hint]: "#ffa500",
-  [ChatType.Announcement]: "#7fd0ff", [ChatType.Group]: "#ffc0cb", [ChatType.WhisperIn]: "#00ffff", [ChatType.WhisperOut]: "#00c0c0",
-  [ChatType.Guild]: "#80ff80",
-};
-
 const argbCss = (c: number) => `rgb(${(c >> 16) & 255},${(c >> 8) & 255},${c & 255})`;
 
 export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvasElement, exits: GameExits): Game {
   const signal = gameSignal();
-  const width = start.resolution >= 1280 ? 1280 : 1024;
+  // SelectScene StartGame: Settings.Resolution (default 1024; "crystal.resolution" = 1280 opts in) capped by the server's
+  const preferred = (() => { try { return Number(localStorage.getItem("crystal.resolution")) || 1024; } catch { return 1024; } })();
+  const width = Math.min(start.resolution || 1024, preferred) >= 1280 ? 1280 : 1024;
   const height = width === 1280 ? 800 : 768;
   canvas.width = width;
   canvas.height = height;
   const stage = document.getElementById("stage")!;
   stage.style.width = width + "px";
   stage.style.height = height + "px";
+  setScreenSize(width, height);
 
   const renderer = WebGl2Renderer.create(canvas);
   if (!renderer) throw new Error("WebGL2 is not available in this browser.");
@@ -160,19 +153,47 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   overlay.width = width;
   overlay.height = height;
   overlay.style.cssText = "position:absolute;inset:0;pointer-events:none;width:100%;height:100%";
-  stage.insertBefore(overlay, document.getElementById("hud"));
+  stage.insertBefore(overlay, canvas.nextSibling);
   const g2 = overlay.getContext("2d")!;
-
-  const hud = document.getElementById("hud")!;
-  hud.hidden = false;
-  const status = document.getElementById("status")!;
-  const chatLog = document.getElementById("chat-log")!;
-  const chatForm = document.getElementById("chat-form") as HTMLFormElement;
-  const chatInput = document.getElementById("chat-input") as HTMLInputElement;
-  const hudButtons = document.getElementById("hud-buttons")!;
-  // dispose() removes whatever this scene adds to the stage and the HUD button row
+  // dispose() removes whatever this scene adds to the stage
   const stageBefore = new Set(Array.from(stage.children));
-  const hudButtonsBefore = new Set(Array.from(hudButtons.children));
+  // The desktop-look controls (src/ui/mir/controls.ts) attach to the stage and play MirButton sounds through the scene
+  setUiRoot(stage);
+  const screen: [number, number] = [width, height];
+
+  // — HUD (GameScene ctor): MainDialog, ChatDialog + ChatControlBar, MenuDialog; the rest below —
+  /** GameScene.PickedUpGold: the GoldLabel was clicked; the next map click asks how much gold to drop. */
+  let pickedUpGold = false;
+  const mainDialog = new MainDialog(screen, {
+    inventory: () => inventoryWindow.toggle(),
+    character: () => characterWindow.openPage("character"),
+    skills: () => magicBar.toggle(),
+    quests: () => questWindow.toggleDiary(),
+    options: () => optionWindow.toggle(),
+    menu: () => menuDialog.toggle(),
+    gameShop: () => gameShop.toggle(),
+    gold: () => { if (inventoryWindow.pickedInventorySlot < 0) pickedUpGold = !pickedUpGold && inventory.gold > 0; },
+  });
+  const chatDialog = new ChatDialog({
+    screen, mainX: mainDialog.location[0], send: (f) => session.send(f),
+    chatItem: (id) => chatItems.get(id),
+    describe: (item) => inventoryWindow.describe(item),
+    chatNotice: (text) => extras.showChatNotice(text),
+    chatOptions: () => chatOptions.toggle(),
+    trade: () => trade.request(),
+  });
+  /** GameScene.LogOut / QuitGame: the MirMessageBox, then C.LogOut (back to character select). */
+  const logOut = (exit: boolean) => {
+    messageBox(stage, exit ? "Do you want to quit Legend of Mir?" : "Do you want to log out of Legend of Mir?", [
+      { label: "Yes", onClick: () => session.send(ClientPackets.LogOut()) }, { label: "No" }]);
+  };
+  const menuDialog = new MenuDialog(width, mainDialog.location[1], {
+    exit: () => logOut(true), logOut: () => logOut(false),
+    help: () => helpWindow.toggle(), keyboard: () => keyboardLayout.toggle(), ranking: () => ranking.toggle(),
+    creatures: () => creatureWindow.toggle(), mount: () => mountWindow.toggle(), fishing: () => fishingWindow.toggle(),
+    friends: () => friends.toggle(), mentor: () => mentor.toggle(), relationship: () => relationship.toggle(),
+    group: () => group.toggle(), guild: () => guild.toggle(),
+  });
 
   // — World state —
   let map: MapCells = blankMap();
@@ -185,7 +206,6 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   /** The user's hero (hero.ts): GameScene.Hero + spawn state, storage, behaviour. */
   const hero = new Hero(() => performance.now(), (text) => chat(text, ChatType.Hint));
   const inventoryWindow = new InventoryWindow(stage, inventory, () => performance.now());
-  document.getElementById("bag-button")!.onclick = () => inventoryWindow.toggle();
   const npcWindow = new NpcWindow(stage, session, inventory, itemInfos, inventoryWindow, () => performance.now(), gameInfo);
   /** TrustMerchantDialog (NPCMarket / NPCMarketPage / MarketFail / MarketSuccess; closes with the NPC dialog). */
   const market = new MarketWindow(stage, inventory, inventoryWindow, (f) => session.send(f), (t, ty) => chat(t, ty), () => performance.now(), npcWindow);
@@ -201,14 +221,12 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   new SocketWindow(stage, inventory, inventoryWindow, itemChanges, (i) => gameInfo.requestItem(i)); // sets inventoryWindow.changes, inventory.useSlotItem
   const rental = new RentalWindow(stage, inventory, inventoryWindow, itemChanges, (f) => session.send(f),
     (t, ty) => chat(t, ty), () => user?.name ?? "", (i) => gameInfo.requestItem(i), () => performance.now());
-  document.getElementById("hud-buttons")!.prepend(el("button", { title: "Item rental", onclick: () => rental.toggle() }, "Rental"));
   /** MountDialog, FishingDialog, FishingStatusDialog (J / M / N / Esc are registered by the windows). */
   const mountWindow = new MountWindow(stage, inventory, inventoryWindow, itemChanges, (f) => session.send(f),
     () => user && { id: user.id, mountType: user.mountType, ridingMount: user.ridingMount, action: user.action, fishing: user.fishing },
     (i) => gameInfo.requestItem(i), () => performance.now());
   const fishingWindow = new FishingWindow(stage, inventory, inventoryWindow, (f) => session.send(f), (i) => gameInfo.requestItem(i), () => performance.now());
   const fishingStatus = new FishingStatusWindow(stage, inventory, inventoryWindow, (f) => session.send(f));
-  document.getElementById("hud-buttons")!.prepend(mountWindow.hudButton, fishingWindow.hudButton);
   let magicObjectId = 0; // MapObject.MagicObjectID
   const magic = new Magic({
     send: (f) => session.send(f),
@@ -226,26 +244,29 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   const heroMagicWindow = new HeroMagicWindow(stage, magic);
   const sound = new SoundManager();
   const play = (id: number) => sound.play(id);
-  const buffBar = new BuffBar(stage);
+  setUiSound((id) => sound.play(id));
+  /** GameScene.BuffsDialog. */
+  const buffBar = new BuffBar(stage, { screenWidth: width, guildStats: () => guildBuffText() });
   /** BuffsDialog.Buffs (the user's). */
   let userBuffs: UserBuff[] = [];
-  const soundButton = el("button", { title: "Sound on/off" });
-  const showVolume = () => { soundButton.textContent = sound.volume > 0 ? "♪" : "♪×"; };
-  soundButton.onclick = () => { sound.volume = sound.volume > 0 ? 0 : 70; sound.musicVolume = sound.volume > 0 ? 40 : 0; showVolume(); };
-  showVolume();
-  document.getElementById("hud-buttons")!.prepend(soundButton);
   const doors = new Doors();
   // quests / lightState are read only from the frame loop, after they exist
-  const miniMap = new MiniMap(stage, { questIcon: (id) => quests.npcQuestIcon(id), timeOfDay: () => lightState.timeOfDay });
+  const miniMap = new MiniMap(stage, {
+    questIcon: (id) => quests.npcQuestIcon(id), timeOfDay: () => lightState.timeOfDay, screenWidth: width,
+    openMail: () => mail.toggle(), openBigMap: () => bigMap.toggle(), newMail: () => mail.newMail,
+  });
+  /** DuraStatusDialog + CharacterDuraPanel (under the minimap). */
+  const duraPanel = new DuraPanel(width, miniMap.location[0], miniMap.height, {
+    equipment: () => inventory.equipment, info: (item) => inventory.info(item),
+  });
   /** OptionDialog (F12 / O), HelpDialog (H), ChatOptionDialog; MirButton click sounds on every stage button. */
   const optionWindow = new OptionWindow(stage, (f) => session.send(f), (t, ty) => chat(t, ty), sound);
   const helpWindow = new HelpWindow(stage, (o) => { // the shortcut pages show the live bindings (keybinds.ts)
     const opt = (KeybindOptions as Record<string, KeybindOption | undefined>)[o];
     return opt === undefined ? HELP_DEFAULT_KEYS[o] ?? "" : keyLabel(opt);
   });
-  const chatOptions = new ChatOptionWindow(stage, chatLog);
+  const chatOptions = new ChatOptionWindow(stage); // ChatDialog follows the [Filters] / TransparentChat settings itself
   const keyboardLayout = new KeyboardLayoutWindow(stage); // KeyboardLayoutDialog (U), rebinding through keybinds.ts
-  document.getElementById("hud-buttons")!.prepend(optionWindow.hudButton, keyboardLayout.hudButton, helpWindow.hudButton, chatOptions.hudButton);
   installClickSounds(stage, (id) => sound.play(id));
   const bigMap = new BigMap(stage, gameInfo, (f) => session.send(f), () => inventory.gold);
   const group = new Group(stage, (f) => session.send(f), (t, ty) => chat(t, ty), () => user?.name ?? "");
@@ -257,11 +278,9 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     if (!path || path.length === 0) { chat("Could not find a path.", ChatType.System); return; }
     autoPath = path;
   };
-  const groupButton = el("button", { title: "Group (P)", onclick: () => group.toggle() }, "Group");
-  document.getElementById("hud-buttons")!.prepend(groupButton);
   const trade = new TradeWindow(stage, inventory, inventoryWindow, (f) => session.send(f), (t, ty) => chat(t, ty), () => user?.name ?? "");
   const guild = new Guild(stage, (f) => session.send(f), (t, ty) => chat(t, ty), () => user?.name ?? "", () => performance.now(),
-    () => { chatInput.value = "!~"; chatInput.focus(); }, inventoryWindow, () => inventory.gold,
+    () => chatDialog.setText("!~"), inventoryWindow, () => inventory.gold,
     (stats) => {
       // GameScene.GuildBuffList: a local, infinite BuffType.Guild buff while any guild buff is active
       userBuffs = userBuffs.filter((b) => b.Type !== BuffType.Guild);
@@ -269,29 +288,24 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
       statsDirty = true;
       if (stats && user) userBuffs.push({ Type: BuffType.Guild, Visible: false, ObjectID: user.id, expire: 0, Infinite: true, Paused: false, Stats: stats, Values: [] });
     });
-  document.getElementById("hud-buttons")!.prepend(
-    el("button", { title: "Guild (G)", onclick: () => guild.toggle() }, "Guild"),
-    el("button", { title: "Trade with the player you face (T)", onclick: () => trade.request() }, "Trade"));
   const extras = new HudExtras({
-    stage, send: (f) => session.send(f), chat: (parts, type) => chat(parts, type), now: () => performance.now(), play: (id) => sound.play(id),
+    stage, send: (f) => session.send(f), now: () => performance.now(), play: (id) => sound.play(id), screen,
     callNpcPage: (page) => npcWindow.callPage(page),
   });
   const characterWindow = new CharacterWindow(stage, () => ({
     name: user?.name ?? "", cls: user?.look.class ?? 0, level, hp, mp, experience, maxExperience, stats: userStats,
+    gender: user?.look.gender, hair: user?.look.hair, guildName: user?.guildName,
   }));
-  document.getElementById("hud-buttons")!.prepend(
-    el("button", { title: "Character (C)", onclick: () => characterWindow.toggle() }, "Char"),
-    el("button", { title: "Log out to character select", onclick: () => session.send(ClientPackets.LogOut()) }, "Log out"));
+  // ItemLabel context for the inventory's item labels (GameScene.CreateItemLabel)
+  inventoryWindow.labelContext = () => ({
+    info: (i) => itemInfos.get(i.ItemIndex), realItem: (info) => itemInfos.realItem(info, level, user?.look.class ?? 0),
+    level, job: user?.look.class ?? 0, gender: user?.look.gender ?? 0, stat: (k) => userStats?.stats[k] ?? 0,
+  });
   // ChatDialog.LinkedItems: Shift+right-click puts "<FriendlyName> " in the chat box (MirItemCell)
   inventoryWindow.onLink = (item) => {
     const info = itemInfos.get(item.ItemIndex);
     if (!info) return;
-    const title = friendlyName(info.Name, item.Count);
-    const text = `<${title}> `;
-    if (chatInput.value.length + text.length > chatInput.maxLength) { chat("Unable to link item, message exceeds allowed length", ChatType.System); return; }
-    linkedItems.push({ UniqueID: item.UniqueID, Title: title, Grid: MirGridType.Inventory });
-    chatInput.value += text;
-    chatInput.focus();
+    if (!chatDialog.addLink(item.UniqueID, friendlyName(info.Name, item.Count), MirGridType.Inventory)) chat("Unable to link item, message exceeds allowed length", ChatType.System);
   };
   inventoryWindow.notify = (text) => chat(text, ChatType.System);
   inventory.refuse = (text) => chat(text, ChatType.System);
@@ -313,6 +327,17 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
       cls: user.look.class, level, inventory: inventory.inventory, equipment: inventory.equipment, infos: itemInfos,
       magics: magic.magics, buffs: userBuffs.filter((b) => b.Type !== BuffType.Guild), guildBuffStats, baseStats, hp,
     });
+  }
+
+  /** GuildDialog.UpdateActiveStats: the Guild buff's hint lines (ClientTextKeys.ValueByOwnerPercent). */
+  function guildBuffText(): string {
+    let text = "";
+    for (const [k, v] of Object.entries(guildBuffStats ?? {})) {
+      if (!v) continue;
+      const name = StatName[Number(k)] ?? k;
+      text += `${v < 0 ? "Decreases" : "Increases"} ${name} by: ${v}${name.includes("Percent") ? "%" : ""}.\n`;
+    }
+    return text;
   }
 
   /** GameScene: the DiedTip box once the user is dead (Yes = C.TownRevive while still dead). */
@@ -341,6 +366,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   const heroItems = new HeroItems(hero, inventory, (f) => session.send(f));
   const heroInventoryWindow = new HeroInventoryWindow(stage, hero, heroItems, inventoryWindow, () => performance.now());
   heroItems.refuse = (text) => chat(text, ChatType.System);
+  heroItems.ask = (text, yes) => { messageBox(stage, text, [{ label: "Yes", onClick: yes }, { label: "No" }]); };
   // MirItemCell.CanWearItem with the hero as the wearer (UserHeroObject stats from heroCharacterWindow)
   heroItems.canWear = (item, slot) => {
     const h = hero.info, stats = heroChar.stats(), info = itemInfos.get(item.ItemIndex);
@@ -355,14 +381,19 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     openSkills: () => heroMagicWindow.toggle(),
     openInventory: () => openHeroInventory(),
     openCharacter: () => heroChar.toggle(),
-  }, () => heroChar.maxHp(), () => heroChar.maxMp());
+  }, {
+    main: mainDialog.win, mainLocation: mainDialog.location, screen,
+    maxHp: () => heroChar.maxHp(), maxMp: () => heroChar.maxMp(), itemImage: (i) => itemInfos.get(i)?.Image,
+  });
   new HeroManageWindow(stage, hero, (f) => session.send(f));
   new NewHeroWindow(stage, hero, (f) => session.send(f));
-  document.getElementById("hud-buttons")!.prepend(heroPanels.summonButton, heroPanels.menuButton, heroInventoryWindow.hudButton);
   /** Quests: state (quests.ts) + the NPC quest list, details, log (Q), tracking panel, quest items. */
   const quests = new Quests((f) => session.send(f), itemInfos);
   const questWindow = new QuestWindow(stage, quests, npcWindow, inventoryWindow, itemInfos, gameInfo);
-  document.getElementById("hud-buttons")!.prepend(el("button", { title: "Quests (Q)", onclick: () => questWindow.toggleDiary() }, "Quests"));
+  questWindow.onHelp = () => helpWindow.displayPageNamed("Quests");
+  mountWindow.onHelp = () => helpWindow.displayPageNamed("Mounts");
+  npcWindow.onHelp = () => helpWindow.displayPageNamed("Purchasing");
+  inventoryWindow.onQuestTab = () => questWindow.toggleItems(true);
   view.npcQuestImage = (ob) => { const icon = quests.npcQuestIcon(ob.id); return icon === null ? null : questIconImage(icon, performance.now()); };
   let miniMapIndex = 0; // MapControl.MiniMap
   /** MapControl.CheckDoorOpen for a cell. */
@@ -449,19 +480,22 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   let userStats: UserStats | null = null; // UserObject.Stats & co (RefreshStats)
   let statsDirty = true;
   let closeRevive: (() => void) | null = null;
-  /** ChatDialog.LinkedItems (outgoing) and GameScene.ChatItemList (S.NewChatItem, for incoming links). */
-  let linkedItems: { UniqueID: bigint; Title: string; Grid: number }[] = [];
+  /** GameScene.ChatItemList (S.NewChatItem, for incoming chat links). */
   const chatItems = new Map<string, UserItem>();
   let disposed = false, rafId = 0;
   // — Section 4: social windows (after the state above: RankingWindow renders in its constructor and reads user) —
-  const prefillChat = (text: string) => { chatInput.value = text; chatInput.focus(); };
+  const prefillChat = (text: string) => chatDialog.setText(text);
   const relationship = new RelationshipWindow(stage, (f) => session.send(f), (t, ty) => chat(t, ty), prefillChat);
   const mentor = new MentorWindow(stage, (f) => session.send(f), (t, ty) => chat(t, ty), () => ({ name: user?.name ?? "", level, cls: user?.look.class ?? 0 }));
   const inspect = new InspectWindow(stage, (f) => session.send(f), (t, ty) => chat(t, ty), prefillChat,
     () => group.list, () => user?.name ?? "", () => performance.now(), inventoryWindow, gameInfo);
   const ranking = new RankingWindow(stage, (f) => session.send(f), () => user?.name ?? "", inspect);
   const mail = new MailWindow(stage, inventory, inventoryWindow, (f) => session.send(f), (t, ty) => chat(t, ty), (i) => gameInfo.requestItem(i));
+  inspect.composeMail = (n) => mail.composeLetter(n);
+  market.mailTo = (name, msg) => mail.composeLetter(name, msg);
+  mail.onHelp = () => helpWindow.toggle(true);
   const friends = new FriendWindow(stage, (f) => session.send(f), (t, ty) => chat(t, ty), (name) => mail.composeLetter(name));
+  relationship.composeMail = (n) => mail.composeLetter(n);
   /** Section 5: game shop (Y / Shop button) and the guild territory list (opened by the server). */
   const gameShop = new GameShopWindow(stage, inventoryWindow, (f) => session.send(f), (t, ty) => chat(t, ty),
     () => inventory.gold, () => inventory.credit, () => user?.look.class ?? 0);
@@ -470,10 +504,6 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   const creatures = new Creatures();
   const creatureWindow = new CreatureWindow(stage, creatures, (f) => session.send(f), (t, ty) => chat(t, ty),
     () => (user ? view.mapLocation(mouse.x, mouse.y, user) : null));
-  document.getElementById("hud-buttons")!.prepend(creatureWindow.hudButton, gameShop.hudButton, mail.hudButton, friends.hudButton,
-    el("button", { title: "Relationship (L)", onclick: () => relationship.toggle() }, "Lover"),
-    el("button", { title: "Mentor", onclick: () => mentor.toggle() }, "Mentor"),
-    el("button", { title: "Ranking", onclick: () => ranking.toggle() }, "Ranking"));
   /** GameScene.DefaultNPCID (S.DefaultNPC). */
   let defaultNpcId = 0;
   const orbSound = { play: (id: number, loop: boolean) => sound.play(id, loop), stop: (id: number) => sound.stop(id) };
@@ -501,26 +531,9 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   };
   const now = () => performance.now();
 
-  /** ChatDialog.ReceiveChat: "<Title/UniqueID>" links show the title, hover shows the item (GameScene.ChatItemList). */
-  function chat(text: string | (string | Node)[], type: number): void {
-    const line = document.createElement("div");
-    if (typeof text !== "string") line.append(...text);
-    else {
-      let last = 0;
-      for (const m of text.matchAll(CHAT_LINK)) {
-        line.append(text.slice(last, m.index));
-        const item = chatItems.get(m[2]!);
-        line.append(el("span", { class: "chat-link", title: item ? inventoryWindow.describe(item) : "" }, m[1]!));
-        last = m.index! + m[0].length;
-      }
-      line.append(text.slice(last));
-    }
-    line.style.color = CHAT_COLOURS[type] ?? "#ffffff";
-    // ChatDialog.Update: the [Filters] settings hide lines (kept in the history so a filter change re-shows them)
-    line.dataset.chatType = String(type);
-    line.hidden = !chatVisible(type);
-    chatLog.append(line);
-    while (chatLog.childElementCount > 40) chatLog.firstElementChild!.remove();
+  /** ChatDialog.ReceiveChat (chatDialog.ts). */
+  function chat(text: string, type: number): void {
+    chatDialog.receiveChat(text, type);
   }
 
   async function loadMap(fileName: string): Promise<void> {
@@ -644,7 +657,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     switch (p.type) {
       case "GainExperience":
         // GameScene.GainExperience (OutputMessage)
-        chat(`Experience Gained ${p.Amount}`, ChatType.Hint);
+        extras.output(`Experience Gained ${p.Amount}`);
         experience += BigInt(p.Amount);
         break;
       case "BaseStatsInfo": baseStats = p.Stats; break;
@@ -658,17 +671,17 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
         experience = p.Experience; maxExperience = p.MaxExperience;
         level = p.Level;
         refreshUserLooks(); // level-based items change shape (GetRealItem)
-        chat("Level up!", ChatType.System);
+        extras.output("Congratulations! You have leveled up. Your HP and MP have been restored."); // GameScene.LevelChanged
         play(SoundList.LevelUp);
         break;
       case "GainedItem": {
         const info = itemInfos.get(p.Item.ItemIndex);
-        chat(`You gained ${info?.Name ?? "an item"}${p.Item.Count > 1 ? ` (${p.Item.Count})` : ""}.`, ChatType.Hint);
+        extras.output(`You gained ${info ? friendlyName(info.Name, p.Item.Count) : "an item"}.`); // GameScene.GainedItem
         break;
       }
-      case "GainedGold": chat(`You gained ${p.Gold} gold.`, ChatType.Hint); play(SoundList.Gold); break;
-      // GameScene.GainedCredit / LoseCredit (inventory.ts keeps the amount)
-      case "GainedCredit": if (p.Credit !== 0) { chat(`You gained ${p.Credit.toLocaleString("en-US")} Credit`, ChatType.Hint); play(SoundList.Gold); } break;
+      // GameScene.GainedGold / GainedCredit / LoseCredit (inventory.ts keeps the amounts); "{0:###,###,###} {1}"
+      case "GainedGold": extras.output(`You gained ${p.Gold > 0 ? p.Gold.toLocaleString("en-US") : ""} Gold`); play(SoundList.Gold); break;
+      case "GainedCredit": if (p.Credit !== 0) { extras.output(`You gained ${p.Credit.toLocaleString("en-US")} Credit`); play(SoundList.Gold); } break;
       case "LoseCredit": play(SoundList.Gold); break;
       case "NewItemInfo":
         itemInfos.add(p.Info);
@@ -1048,7 +1061,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   canvas.addEventListener("contextmenu", (e) => e.preventDefault(), { signal });
   canvas.addEventListener("mousedown", (e) => {
     mouse = toCanvas(e);
-    chatInput.blur();
+    chatDialog.input.blur();
     // MapControl.OnMouseClick: Ctrl + right-click on another player inspects them
     if (e.button === 2 && e.ctrlKey && user) {
       const ob = objectAt(objects.values(), view.mapLocation(mouse.x, mouse.y, user), user);
@@ -1058,15 +1071,22 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     if (e.button === 0 && heroInventoryWindow.mapDrop()) return; // a picked hero item dropped on the map
     const slot = inventoryWindow.pickedInventorySlot;
     if (slot >= 0 && e.button === 0) {
+      // MapControl.OnMouseClick with GameScene.SelectedCell: DontDrop refusal, YesNo for one item, MirAmountBox for a stack
       const item = inventory.inventory[slot];
-      const name = item ? itemInfos.get(item.ItemIndex)?.Name ?? "this item" : "";
-      if (item && item.Count > 1) {
-        // MirAmountBox for a stack
-        const text = prompt(`Drop how many ${name}? (1-${item.Count})`, String(item.Count));
-        if (text !== null && Number(text) > 0) inventory.drop(slot, Number(text));
-      } else if (item && confirm(`Drop ${name}?`)) inventory.drop(slot);
+      const info = item ? itemInfos.get(item.ItemIndex) : undefined;
+      if (item) {
+        const name = info ? friendlyName(info.Name, item.Count) : "this item";
+        if (info && (info.Bind & BindMode.DontDrop)) messageBox(stage, `You cannot drop ${name}`, [{ label: "OK" }]);
+        else if (item.Count === 1) messageBox(stage, `Are you sure you want to drop ${name}?`, [{ label: "Yes", onClick: () => inventory.drop(slot) }, { label: "No" }]);
+        else amountBox("Drop Amount:", info?.Image ?? 0, item.Count, (n) => { if (n > 0) inventory.drop(slot, n); });
+      }
       inventoryWindow.clearPick();
       return;
+    }
+    // GameScene.PickedUpGold: MirAmountBox (Items 116) -> C.DropGold
+    if (pickedUpGold && e.button === 0) {
+      pickedUpGold = false;
+      amountBox("Drop Amount:", 116, inventory.gold, (n) => { if (n > 0) inventory.dropGold(n); });
     }
     // Left-click on an NPC talks to it (MapControl.OnMouseClick -> C.CallNPC "[@Main]")
     if (e.button === 0 && user) {
@@ -1078,8 +1098,11 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   window.addEventListener("mouseup", (e) => { buttons = e.buttons; if (!(buttons & 2)) canRun = false; }, { signal });
   canvas.addEventListener("mousemove", (e) => { mouse = toCanvas(e); buttons = e.buttons; shift = e.shiftKey; }, { signal });
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && document.activeElement !== chatInput) { chatInput.focus(); e.preventDefault(); }
-    if (document.activeElement === chatInput) return; // every binding below ignores chat typing
+    // ChatDialog opens itself on Enter / '@' / '!' / Space / '/'. While typing, only F1-F12 and Tab reach the bindings
+    // below (ChatTextBox_KeyDown -> CMain_KeyDown; chatDialog.ts re-dispatches them).
+    if (chatDialog.typing && !/^F([1-9]|1[0-2])$|^Tab$/.test(e.key)) return;
+    // KeybindOptions.Logout (Alt+X) / Exit (Alt+Q): MenuDialog's Log Out / Exit
+    if (matches(e, KeybindOptions.Logout) || matches(e, KeybindOptions.Exit)) { e.preventDefault(); logOut(matches(e, KeybindOptions.Exit)); return; }
     // A Ctrl / Alt game binding (desktop "don't care" modifiers: Ctrl+F friends, Ctrl+P group, ...) must not also reach the
     // browser (find, print, address bar). Text inputs keep their keys; Ctrl+C with a text selection still copies.
     const active = document.activeElement;
@@ -1129,17 +1152,6 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     [KeybindOptions.AttackmodeRedbrown, AttackMode.RedBrown], [KeybindOptions.AttackmodeAll, AttackMode.All]];
   const SET_PMODE: [KeybindOption, PetMode][] = [[KeybindOptions.PetmodeBoth, PetMode.Both], [KeybindOptions.PetmodeMoveonly, PetMode.MoveOnly],
     [KeybindOptions.PetmodeAttackonly, PetMode.AttackOnly], [KeybindOptions.PetmodeNone, PetMode.None], [KeybindOptions.PetmodeFocusMasterTarget, PetMode.FocusMasterTarget]];
-  chatForm.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const text = chatInput.value.trim();
-    // ChatDialog.TryLightingCommand: "@light new" / "@light old" switch the lighting mode locally (never sent)
-    if (text && tryLightingCommand(text, (t, ty) => chat(t, ty))) { linkedItems = []; chatInput.value = ""; chatInput.blur(); return; }
-    // ChatDialog: send the links whose "<Title>" is still in the text, then clear them
-    if (text) session.send(ClientPackets.Chat({ Message: text, LinkedItems: linkedItems.filter((i) => text.includes(`<${i.Title}>`)) }));
-    linkedItems = [];
-    chatInput.value = "";
-    chatInput.blur();
-  }, { signal });
 
   /** MapControl.MouseDirection: the 8-way direction of the cursor from the user's cell. */
   function mouseDirection(): number {
@@ -1207,7 +1219,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
 
   function checkInput(t: number): void {
     const u = user;
-    if (!u || u.dead || document.activeElement === chatInput) return;
+    if (!u || u.dead || chatDialog.typing) return;
     if (u.fishing) return; // MapControl.CheckInput: no input while fishing
     if (t < nextAction || t < inputDelay) return;
     // GameScene.CheckInput: nothing new while Blizzard / Reincarnation is still being cast
@@ -1224,7 +1236,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     const archerBow = canRangeAttack(u.look.class === MirClass.Archer && u.hasClassWeapon, u); // a riding archer falls back to melee
     const rideAttack = canRideAttack(u.ridingMount, inventory.equipment[EquipmentSlot.Mount]);
     const inRange = (ob: MapObj) => Math.max(Math.abs(ob.location.X - u.location.X), Math.abs(ob.location.Y - u.location.Y)) <= MAX_ATTACK_RANGE;
-    const tooFar = () => { if (t >= outputDelay) { outputDelay = t + 1000; chat("Target is too far.", ChatType.Hint); } };
+    const tooFar = () => { if (t >= outputDelay) { outputDelay = t + 1000; extras.output("Target is too far."); } };
     const shoot = (direction: number, targetId: number, point: WirePoint) =>
       u.queue(A.AttackRange1, direction, u.location, { spell: Spell.None, targetId, targetPoint: { ...point }, cast: false, level: 0, secondaryTargetIds: [] });
 
@@ -1401,9 +1413,16 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     }
     frames++;
     if (t - fpsAt >= 1000) { fps = frames; frames = 0; fpsAt = t; }
-    status.textContent = user
-      ? `${mapTitle}  (${user.location.X}, ${user.location.Y})   HP ${hp}/${userStats?.stats[Stat.HP] ?? "?"}  MP ${mp}/${userStats?.stats[Stat.MP] ?? "?"}   Lv ${level}  Exp ${maxExperience > 0n ? ((Number(experience) * 100) / Number(maxExperience)).toFixed(2) : "0.00"}%   ${AMODE_TEXT[aMode] ?? ""}   ${fps} fps${loadingCount() ? `   loading ${loadingCount()}` : ""}`
-      : "Entering the game…";
+    // MainDialog.Process (+ MiniMapDialog's placement of the mode labels and DuraStatusDialog)
+    if (user) {
+      mainDialog.update({
+        name: user.name, cls: user.look.class, level, hp, mp, maxHp: userStats?.stats[Stat.HP] ?? 0, maxMp: userStats?.stats[Stat.MP] ?? 0,
+        experience, maxExperience, gold: inventory.gold, freeSlots: inventory.inventory.filter((it) => it == null).length,
+        bagWeight: userStats?.currentBagWeight ?? 0, maxBagWeight: userStats?.stats[Stat.BagWeight] ?? 0, aMode, pMode, miniMapHeight: miniMap.height,
+      });
+    }
+    duraPanel.place(miniMap.location[0], miniMap.height);
+    duraPanel.update();
   }
   const frame = () => { if (disposed) return; step(); rafId = requestAnimationFrame(frame); };
   rafId = requestAnimationFrame(frame);
@@ -1416,15 +1435,13 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     endGameScope();
     sound.stopAll();
     for (const c of Array.from(stage.children)) if (!stageBefore.has(c)) c.remove();
-    for (const c of Array.from(hudButtons.children)) if (!hudButtonsBefore.has(c)) c.remove();
-    chatLog.replaceChildren();
-    status.textContent = "";
-    hud.hidden = true;
+    setUiSound(null);
     renderer?.clear();
   }
 
   (window as unknown as { crystalGame: unknown }).crystalGame = {
     objects, get user() { return user; }, get map() { return map; }, view, step, doors, miniMap, bigMap, group, trade, guild, gameInfo, market, storageWindow, npcServices, itemChanges, rental, relationship, mentor, inspect, ranking, mail, friends, gameShop, territories, optionWindow, helpWindow, chatOptions, keyboardLayout, weather, creatures, creatureWindow, mountWindow, fishingWindow, fishingStatus, hero, heroItems, heroInventoryWindow, heroChar, heroPanels, heroMagicWindow, quests, questWindow, get autoPath() { return autoPath; }, lightState, itemInfos, inventory, inventoryWindow, npcWindow, magic, magicBar, mapEffects, sound, get userBuffs() { return userBuffs; },
+    mainDialog, chatDialog, menuDialog, duraPanel, extras, get fps() { return fps; }, get loading() { return loadingCount(); },
     /** Debug/test hook: hold a mouse button at a canvas pixel (buttons: 1 left, 2 right, 0 release). */
     mouse(x: number, y: number, b: number) { mouse = { x, y }; buttons = b; if (!(b & 2)) canRun = false; },
   };

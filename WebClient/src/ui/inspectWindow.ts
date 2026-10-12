@@ -1,19 +1,43 @@
-// Inspect + observe: InspectDialog (S.PlayerInspect; Ctrl+right-click on another player, or a RankingDialog row) and
-// the AllowObserve flag (S.AllowObserve, OptionDialog.ToggleObserve = the "@ALLOWOBSERVE" chat command).
-// Deliberate difference: the paperdoll (CharacterPage.AfterDraw: StateItems armour / weapon / helmet, hair) is not drawn;
-// the equipment shows as the inventory window's EQUIP_LAYOUT grid with icons + tooltips, and the level is shown as text.
-// Observe only sends C.Observe: the observer mode (UserInformation.Observer, GameScene.Observing) is not ported, and the
-// server ends the observer's own game (StopGame) when the request succeeds. Mail is not ported (no Mail button).
+// Inspect + observe: InspectDialog (Client/MirScenes/Dialogs/MainDialogs.cs; S.PlayerInspect, Ctrl+right-click on another
+// player, or a RankingDialog row) with the desktop artwork: Prguse 430 at (536, 0), the CharacterPage (Prguse 340 +
+// gender) at (8, 70) with the 14 MirGridType.Inspect cells at the CharacterDialog positions and the CharacterPage.AfterDraw
+// paperdoll over them (StateItem armour / weapon / helmet or Prguse hair, Prguse2 wings, at the dialog's location - 20),
+// the name / guild labels, class image, LoverButton (Prguse 604, hint = LoverName) and the Group / Friend / Mail / Trade /
+// Observe buttons (Prguse 431 / 434 / 437 / 523, Title 854), hidden for a hero. Escape hides it (GameScene Closeall).
+// The item labels use the inspected player's level and class (GameScene.CreateItemLabel with Inspect).
+// Also the AllowObserve flag (S.AllowObserve; OptionDialog.ToggleObserve = the "@ALLOWOBSERVE" chat command).
+// Deliberate differences: the Observe button stays hidden (a granted C.Observe ends the requester's own game (StopGame)
+// and the observer mode is not ported); the Mail button calls `composeMail` (set by game.ts; inert while null); the
+// name label takes a click (the desktop's NameLabel.Click never fires: NotControl).
 
 import type { ServerPacket, UserItem } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
-import { ChatType, EquipmentSlotName, MirClassName } from "../protocol/enums.generated.ts";
+import { ChatType, EquipmentSlot, MirClass, MirGender } from "../protocol/enums.generated.ts";
 import type { GameInfo } from "../game/gameInfo.ts";
-import { EQUIP_LAYOUT, type InventoryWindow } from "./inventoryWindow.ts";
-import { el } from "./screens.ts";
+import { gameSignal } from "../game/scope.ts";
+import { SoundList } from "../game/audio.ts";
+import { KeybindOptions, matches } from "../game/keybinds.ts";
+import { MirWindow, MirImage, MirButton, MirLabel, Lib, closeButton, setPicture } from "./mir/controls.ts";
+import { showItemLabel, type ItemLabelContext } from "./itemLabel.ts";
+import { placeCell, type InventoryWindow } from "./inventoryWindow.ts";
+import { gameItemInfos, gameUser } from "./userRefs.ts";
 
 const MAX_GROUP = 11; // Globals.MaxGroup
 const INSPECT_DELAY = 500; // GameScene.InspectTime = CMain.Time + 500
+
+const T = { // ClientTextKeys (English.json)
+  InviteToGroup: "Invite to Group", AddToFriendsList: "Add to Friends List", SendMail: "Send Mail", Trade: "Trade", Observe: "Observe",
+  GroupHasMaxMembers: "Your group already has the maximum number of members.", YouNotGroupLeader: "You are not the leader of your group.",
+  PlayerDisabledObservation: "That player has disabled observation.",
+};
+
+/** InspectDialog cell Locations (Parent = CharacterPage). */
+const CELLS: [number, [number, number]][] = [
+  [EquipmentSlot.Weapon, [123, 7]], [EquipmentSlot.Armour, [163, 7]], [EquipmentSlot.Helmet, [203, 7]], [EquipmentSlot.Torch, [203, 134]],
+  [EquipmentSlot.Necklace, [203, 98]], [EquipmentSlot.BraceletL, [8, 170]], [EquipmentSlot.BraceletR, [203, 170]], [EquipmentSlot.RingL, [8, 206]],
+  [EquipmentSlot.RingR, [203, 206]], [EquipmentSlot.Amulet, [8, 242]], [EquipmentSlot.Boots, [48, 242]], [EquipmentSlot.Belt, [88, 242]],
+  [EquipmentSlot.Stone, [128, 242]], [EquipmentSlot.Mount, [203, 62]],
+];
 
 export class InspectWindow {
   // InspectDialog fields
@@ -32,6 +56,8 @@ export class InspectWindow {
   inspectId = 0;
   /** GameScene.AllowObserve (the user's own flag); null until the server says (UserInformation's flag is not decoded). */
   userAllowObserve: boolean | null = null;
+  /** MailButton: MailComposeLetterDialog.ComposeMail(Name) (game.ts: `= (n) => mail.composeLetter(n)`). */
+  composeMail: ((name: string) => void) | null = null;
   private inspectTime = 0;
   private readonly send: (f: Uint8Array) => void;
   private readonly chat: (text: string, type: number) => void;
@@ -41,17 +67,18 @@ export class InspectWindow {
   private readonly now: () => number;
   private readonly invWindow: InventoryWindow;
   private readonly gameInfo: GameInfo;
-  private readonly root = el("div", { class: "window inspect-window", hidden: true });
-  private readonly nameLabel = el("div", { class: "inspect-name", title: "Whisper" });
-  private readonly guildLabel = el("div", { class: "magic-meta" });
-  private readonly classLabel = el("div", {});
-  private readonly loverLabel = el("div", { class: "magic-meta" });
-  private readonly equipGrid = el("div", { class: "inv-equip" });
-  private readonly playerButtons = el("div", { class: "row" });
-  /** The user's own observe toggle (OptionDialog ObserveOn / ObserveOff), shown in this window's footer. */
-  readonly observeToggle = el("button", { title: "Allow other players to observe you (@ALLOWOBSERVE)" });
 
-  constructor(stage: HTMLElement, send: (f: Uint8Array) => void, chat: (text: string, type: number) => void, prefillChat: (text: string) => void,
+  private readonly win: MirWindow;
+  private readonly characterPage: MirImage;
+  private readonly cellLayer: HTMLDivElement;
+  private readonly doll: { armour: HTMLDivElement; wing: HTMLDivElement; weapon: HTMLDivElement; head: HTMLDivElement };
+  private readonly nameLabel: MirLabel;
+  private readonly guildLabel: MirLabel;
+  private readonly classImage: MirImage;
+  private readonly loverButton: MirButton;
+  private readonly playerButtons: MirButton[];
+
+  constructor(_stage: HTMLElement, send: (f: Uint8Array) => void, chat: (text: string, type: number) => void, prefillChat: (text: string) => void,
     groupList: () => string[], me: () => string, now: () => number, invWindow: InventoryWindow, gameInfo: GameInfo) {
     this.send = send;
     this.chat = chat;
@@ -61,35 +88,56 @@ export class InspectWindow {
     this.now = now;
     this.invWindow = invWindow;
     this.gameInfo = gameInfo;
-    // InspectDialog.NameLabel.Click: "/Name " in the chat box
-    this.nameLabel.onclick = () => this.prefillChat(`/${this.name} `);
-    this.observeToggle.onclick = () => this.toggleObserve();
-    this.playerButtons.append(
-      el("button", { title: "Invite to Group", onclick: () => this.group() }, "Group"),
-      el("button", { title: "Add to Friends List", onclick: () => this.send(ClientPackets.AddFriend({ Name: this.name, Blocked: false })) }, "Friend"),
-      el("button", { title: "Trade (the player you face)", onclick: () => this.send(ClientPackets.TradeRequest()) }, "Trade"),
-      // Hidden until observer mode is ported: a granted C.Observe ends the requester's own game (StopGame) and streams the target's view
-      el("button", { title: "Observe", hidden: true, onclick: () => this.observe() }, "Observe"));
-    this.root.append(
-      el("div", { class: "window-title" }, el("span", {}, "Inspect"), el("button", { class: "window-close", onclick: () => this.toggle(false) }, "×")),
-      this.nameLabel, this.guildLabel, this.classLabel, this.loverLabel,
-      el("div", { class: "inv-label" }, "Equipment"), this.equipGrid,
-      this.playerButtons,
-      el("div", { class: "row inspect-footer" }, this.observeToggle),
-    );
-    this.root.addEventListener("mousedown", (e) => e.stopPropagation());
-    this.root.addEventListener("contextmenu", (e) => e.preventDefault());
-    stage.append(this.root);
+
+    // InspectDialog ctor
+    this.win = new MirWindow({ library: Lib.Prguse, index: 430, location: [536, 0], movable: true, sort: true });
+    this.win.el.addEventListener("contextmenu", (e) => e.preventDefault());
+    this.characterPage = new MirImage({ parent: this.win, library: Lib.Prguse, index: 340, location: [8, 70] });
+    // the cells (Parent = CharacterPage), then CharacterPage.AfterDraw over them at the dialog's DisplayLocation + (0, -20)
+    this.cellLayer = document.createElement("div");
+    this.characterPage.el.append(this.cellLayer);
+    const dollLayer = document.createElement("div");
+    dollLayer.className = "mir";
+    Object.assign(dollLayer.style, { left: "-8px", top: "-90px", pointerEvents: "none" });
+    const layer = () => { const d = document.createElement("div"); d.className = "mir-pic"; dollLayer.append(d); return d; };
+    this.doll = { armour: layer(), wing: layer(), weapon: layer(), head: layer() };
+    this.doll.wing.style.mixBlendMode = "plus-lighter"; // Prguse2.DrawBlend
+    this.characterPage.el.append(dollLayer);
+
+    closeButton(this.win, [241, 3], () => this.toggle(false));
+    const button = (library: string, index: number, x: number, hint: string, onClick: () => void) =>
+      new MirButton({ parent: this.win, library, index, hoverIndex: index + 1, pressedIndex: index + 2, location: [x, 357], sound: SoundList.ButtonA, hint, onClick });
+    this.playerButtons = [
+      button(Lib.Prguse, 431, 55, T.InviteToGroup, () => this.group()),
+      button(Lib.Prguse, 434, 85, T.AddToFriendsList, () => this.send(ClientPackets.AddFriend({ Name: this.name, Blocked: false }))),
+      button(Lib.Prguse, 437, 115, T.SendMail, () => this.composeMail?.(this.name)),
+      button(Lib.Prguse, 523, 145, T.Trade, () => this.send(ClientPackets.TradeRequest())),
+    ];
+    // ObserveButton (Title 854): hidden until observer mode is ported
+    const observe = button(Lib.Title, 854, 175, T.Observe, () => this.observe());
+    observe.visible = false;
+    // NameLabel.Click: "/Name " in the chat box
+    this.nameLabel = new MirLabel({ parent: this.win, location: [50, 12], size: [190, 20], center: true, onClick: () => this.prefillChat(`/${this.name} `) });
+    this.loverButton = new MirButton({ parent: this.win, library: Lib.Prguse, index: 604, location: [17, 17], sound: 0 });
+    this.guildLabel = new MirLabel({ parent: this.win, location: [50, 33], size: [190, 30], center: true, notControl: true });
+    this.classImage = new MirImage({ parent: this.win, library: Lib.Prguse, index: 100, location: [15, 33], notControl: true });
+
     // GameScene.Bind -> RequestItemInfo: redraw when a missing ItemInfo arrives
     gameInfo.onChange((kind, index) => {
-      if (kind === "item" && !this.root.hidden && this.items.some((i) => i?.ItemIndex === index)) this.render();
+      if (kind === "item" && this.win.visible && this.items.some((i) => i?.ItemIndex === index)) this.render();
     });
-    this.renderObserveToggle();
+    const signal = gameSignal();
+    window.addEventListener("keydown", (e) => {
+      const a = document.activeElement;
+      if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement) return;
+      if (matches(e, KeybindOptions.Closeall)) this.toggle(false); // InspectDialog.Hide()
+    }, { signal });
+    signal.addEventListener("abort", () => this.win.dispose());
   }
 
-  toggle(show = this.root.hidden): void {
-    this.root.hidden = !show;
-    if (show) this.render();
+  toggle(show = !this.win.visible): void {
+    if (show) { this.win.show(); this.render(); }
+    else this.win.hide();
   }
 
   /** MapControl.OnMouseClick (Right + Ctrl on another PlayerObject / HeroObject) and RankingRow.Inspect, with the shared
@@ -132,48 +180,76 @@ export class InspectWindow {
   /** GameScene.UserInformation sets AllowObserve too; game.ts may call this if it decodes that flag. */
   setUserAllowObserve(allow: boolean): void {
     this.userAllowObserve = allow;
-    this.renderObserveToggle();
   }
 
   /** InspectDialog.GroupButton.Click (the desktop still sends after the not-leader line; the server refuses). */
   private group(): void {
     const list = this.groupList();
-    if (list.length >= MAX_GROUP) { this.chat("Your group already has the maximum number of members.", ChatType.System); return; }
-    if (list.length > 0 && list[0] !== this.me()) this.chat("You are not the leader of your group.", ChatType.System);
+    if (list.length >= MAX_GROUP) { this.chat(T.GroupHasMaxMembers, ChatType.System); return; }
+    if (list.length > 0 && list[0] !== this.me()) this.chat(T.YouNotGroupLeader, ChatType.System);
     this.send(ClientPackets.AddMember({ Name: this.name }));
   }
 
   /** InspectDialog.ObserveButton.Click. */
   private observe(): void {
     if (this.allowObserve) this.send(ClientPackets.Observe({ Name: this.name }));
-    else this.chat("That player has disabled observation.", ChatType.System);
+    else this.chat(T.PlayerDisabledObservation, ChatType.System);
   }
 
-  /** OptionDialog.ToggleObserve: one toggle here (the desktop's On / Off buttons skip a no-op change). */
-  private toggleObserve(): void {
-    this.send(ClientPackets.Chat({ Message: "@ALLOWOBSERVE" }));
+  /** GameScene.CreateItemLabel with Inspect: the inspected player's level and class are the wearer's. */
+  private labelContext(): ItemLabelContext {
+    const base = this.invWindow.labelContext();
+    const infos = gameItemInfos();
+    const level = this.level, job = this.cls;
+    return { ...base, level, job, realItem: (info) => (infos ? infos.realItem(info, level, job) : info) };
   }
 
-  private renderObserveToggle(): void {
-    this.observeToggle.textContent = `My observation: ${this.userAllowObserve === null ? "?" : this.userAllowObserve ? "Allowed" : "Blocked"}`;
-  }
-
+  /** InspectDialog.RefreshInferface (+ the cells, which show InspectDialog.Items). */
   private render(): void {
-    if (this.root.hidden) return;
-    this.nameLabel.textContent = this.name;
-    this.guildLabel.textContent = `${this.guildName} ${this.guildRank}`.trim();
-    this.classLabel.textContent = `Lv ${this.level} ${MirClassName[this.cls] ?? ""}`;
-    this.loverLabel.textContent = this.loverName !== "" ? `Lover: ${this.loverName}` : ""; // LoverButton (hint = LoverName)
-    this.loverLabel.hidden = this.loverName === "";
-    this.equipGrid.replaceChildren(...EQUIP_LAYOUT.flat().map((slot) => {
-      if (slot < 0) return el("div", { class: "inv-gap" });
+    if (!this.win.visible) return;
+    this.characterPage.index = 340 + (this.gender === MirGender.Male ? 0 : 1);
+    this.classImage.index = 100 + Math.min(4, Math.max(0, this.cls)); // Warrior 100 .. Archer 104
+    this.nameLabel.text = this.name;
+    this.guildLabel.text = `${this.guildName} ${this.guildRank}`;
+    this.loverButton.visible = this.loverName !== "";
+    this.loverButton.hint = this.loverName;
+    for (const b of this.playerButtons) b.visible = !this.isHero; // Trade / Mail / Friend / Group hidden for a hero
+    // the MirGridType.Inspect cells: read-only, item labels with the inspected player as the wearer
+    const cells: HTMLElement[] = [];
+    for (const [slot, loc] of CELLS) {
       const item = this.items[slot] ?? null;
-      const c = this.invWindow.viewCell(item);
-      if (!item) { c.title = EquipmentSlotName[slot] ?? ""; c.append(el("span", { class: "inv-slot-label" }, EquipmentSlotName[slot] ?? "")); }
-      return c;
-    }));
-    // RefreshInferface: Observe / Trade / Mail / Friend / Group hidden for a hero
-    this.playerButtons.hidden = this.isHero;
-    this.renderObserveToggle();
+      const c = placeCell(this.invWindow.viewCell(item), this.cellLayer, loc);
+      if (item) c.addEventListener("pointerenter", (e) => showItemLabel(item, this.labelContext(), e.clientX, e.clientY, { inspect: true }));
+      cells.push(c);
+    }
+    this.cellLayer.replaceChildren(...cells);
+    this.drawDoll();
+  }
+
+  /** CharacterPage.AfterDraw. */
+  private drawDoll(): void {
+    const info = (it: UserItem) => this.invWindow.itemInfo(it) ?? gameItemInfos()?.get(it.ItemIndex);
+    const real = (it: UserItem) => { const i = info(it); const infos = gameItemInfos(); return i && infos ? infos.realItem(i, this.level, this.cls) : i; };
+    const armour = this.items[EquipmentSlot.Armour] ?? null, weapon = this.items[EquipmentSlot.Weapon] ?? null, helmet = this.items[EquipmentSlot.Helmet] ?? null;
+    const armourInfo = armour ? real(armour) : undefined;
+    void setPicture(this.doll.armour, armourInfo ? Lib.StateItems : null, armourInfo?.Image ?? -1, true);
+    // RealItem.Effect 1 / 2: Prguse2 1200 + 2 / 4 + the gender offset, which the desktop takes from MapObject.User
+    const effect = armourInfo?.Effect ?? 0;
+    const userMale = (gameUser()?.look.gender ?? MirGender.Male) === MirGender.Male;
+    const wing = effect > 0 ? 1200 + (effect === 1 ? 2 : 4) + (userMale ? 0 : 1) : -1;
+    void setPicture(this.doll.wing, wing >= 0 ? Lib.Prguse2 : null, wing, true);
+    const weaponInfo = weapon ? real(weapon) : undefined;
+    void setPicture(this.doll.weapon, weaponInfo ? Lib.StateItems : null, weaponInfo?.Image ?? -1, true);
+    const helmetInfo = helmet ? info(helmet) : undefined;
+    if (helmet) {
+      this.doll.head.style.transform = "";
+      void setPicture(this.doll.head, helmetInfo ? Lib.StateItems : null, helmetInfo?.Image ?? -1, true);
+    } else {
+      const assassin = this.cls === MirClass.Assassin, male = this.gender === MirGender.Male;
+      const index = 441 + this.hair + (assassin ? 20 : 0) + (male ? 0 : 40);
+      const ox = assassin ? (male ? 6 : 4) : 0, oy = assassin ? (male ? 25 : 18) : 0;
+      this.doll.head.style.transform = `translate(${ox}px, ${oy}px)`;
+      void setPicture(this.doll.head, Lib.Prguse, index, true);
+    }
   }
 }

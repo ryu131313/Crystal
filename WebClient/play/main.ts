@@ -5,6 +5,18 @@ import { Screens } from "../src/ui/screens.ts";
 import { startGame } from "../src/game/game.ts";
 import type { ServerPacket } from "../src/protocol/server.ts";
 
+// The interface is laid out in desktop pixels on a 1024 x 768 stage (src/ui/mir/controls.ts); scale it to the window.
+const stage = document.getElementById("stage") as HTMLElement;
+const fit = () => {
+  const w = stage.offsetWidth || 1024, h = stage.offsetHeight || 768; // game.ts switches to 1280 x 800 by resolution
+  const s = Math.min(window.innerWidth / w, window.innerHeight / h);
+  stage.style.transform = `scale(${s})`;
+  stage.style.left = Math.max(0, (window.innerWidth - w * s) / 2) + "px";
+  stage.style.top = Math.max(0, (window.innerHeight - h * s) / 2) + "px";
+};
+window.addEventListener("resize", fit);
+fit();
+
 const session = new Session();
 let route: (p: ServerPacket) => void;
 const backlog: ServerPacket[] = [];

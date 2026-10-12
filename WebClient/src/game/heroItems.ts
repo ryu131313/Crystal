@@ -55,7 +55,8 @@ export class HeroItems {
   /** Prints a client-side refusal (system chat line). */
   refuse: (text: string) => void = () => {};
   /** MirMessageBox Yes/No stand-in (the shape-4 potion question). */
-  ask: (text: string) => boolean = (text) => confirm(text);
+  /** MirMessageBox YesNo: `yes` runs only on Yes (non-blocking; the UI sets this to messageBox). */
+  ask: (text: string, yes: () => void) => void = (_text, yes) => yes();
   /** GameScene.UseItemTime for hero items. */
   private useItemTime = 0;
   private readonly display = new Map<number, UserItem>();
@@ -483,26 +484,36 @@ export class HeroItems {
       case ItemType.Potion: case ItemType.Scroll: case ItemType.Book: case ItemType.Food: case ItemType.Script:
       case ItemType.Pets: case ItemType.Transform: case ItemType.Deco: case ItemType.MonsterSpawn: case ItemType.SealedHero: {
         if (now < this.useItemTime) return;
-        if (info.Type === ItemType.Potion && info.Shape === 4 && !this.ask(T.AreYouWantUsePotion)) return;
-        this.send(ClientPackets.UseItem({ UniqueID: item.UniqueID, Grid: MirGridType.HeroInventory }));
-        const refill: UserItem[] = [];
-        if (item.Count === 1 && index < HERO_BELT_IDX) {
-          for (let i = HERO_BELT_IDX; i < h.inventory.length; i++) {
-            const other = h.inventory[i];
-            if (other && other.ItemIndex === item.ItemIndex) {
-              this.send(ClientPackets.MoveItem({ Grid: MirGridType.HeroInventory, From: i, To: index }));
-              refill.push(other);
-              break;
-            }
-          }
+        if (info.Type === ItemType.Potion && info.Shape === 4) {
+          this.ask(T.AreYouWantUsePotion, () => this.useNow(item, index, now));
+          return;
         }
-        this.lock(item, ...refill);
-        this.useItemTime = now + 300;
+        this.useNow(item, index, now);
         return;
       }
       default: return; // mount / fishing / socket parts: UseSlotItem works on the user's own dialogs (not ported for the hero)
     }
     this.equip(index, slot);
+  }
+
+  /** The use half of UseItem (after the AreYouWantUsePotion box for Shape 4 potions). */
+  private useNow(item: UserItem, index: number, now: number): void {
+    const h = this.hero.info;
+    if (!h) return;
+    this.send(ClientPackets.UseItem({ UniqueID: item.UniqueID, Grid: MirGridType.HeroInventory }));
+    const refill: UserItem[] = [];
+    if (item.Count === 1 && index < HERO_BELT_IDX) {
+      for (let i = HERO_BELT_IDX; i < h.inventory.length; i++) {
+        const other = h.inventory[i];
+        if (other && other.ItemIndex === item.ItemIndex) {
+          this.send(ClientPackets.MoveItem({ Grid: MirGridType.HeroInventory, From: i, To: index }));
+          refill.push(other);
+          break;
+        }
+      }
+    }
+    this.lock(item, ...refill);
+    this.useItemTime = now + 300;
   }
 
   /** GameScene map click with a hero cell picked: C.DropItem with HeroInventory = true (`count` defaults to the stack). */
