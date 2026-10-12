@@ -1,0 +1,11 @@
+{
+  "name": "BuyItem",
+  "dir": "client",
+  "id": 51,
+  "hex": "0F003300011A711802000000140001",
+  "fields": {
+    "ItemIndex": 9000000001,
+    "Count": 20,
+    "Type": 1
+  }
+}

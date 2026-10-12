@@ -1,0 +1,10 @@
+{
+  "name": "ObjectLevelEffects",
+  "dir": "server",
+  "id": 221,
+  "hex": "0A00DD004D0000000300",
+  "fields": {
+    "ObjectID": 77,
+    "LevelEffects": 3
+  }
+}

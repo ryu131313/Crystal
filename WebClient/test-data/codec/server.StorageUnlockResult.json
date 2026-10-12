@@ -1,0 +1,10 @@
+{
+  "name": "StorageUnlockResult",
+  "dir": "server",
+  "id": 277,
+  "hex": "060015010201",
+  "fields": {
+    "Result": 2,
+    "HasPassword": true
+  }
+}

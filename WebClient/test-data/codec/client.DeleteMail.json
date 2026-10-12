@@ -1,0 +1,9 @@
+{
+  "name": "DeleteMail",
+  "dir": "client",
+  "id": 120,
+  "hex": "0C007800031A711802000000",
+  "fields": {
+    "MailID": 9000000003
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "ObjectName",
+  "dir": "server",
+  "id": 129,
+  "hex": "180081004D0000000F52656E616D656420E2809420E5908D",
+  "fields": {
+    "ObjectID": 77,
+    "Name": "Renamed — 名"
+  }
+}

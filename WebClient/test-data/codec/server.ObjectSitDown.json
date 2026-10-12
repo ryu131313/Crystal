@@ -1,0 +1,15 @@
+{
+  "name": "ObjectSitDown",
+  "dir": "server",
+  "id": 160,
+  "hex": "1200A0004D0000007B000000C80100000601",
+  "fields": {
+    "ObjectID": 77,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 6,
+    "Sitting": true
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "DeleteQuestItem",
+  "dir": "server",
+  "id": 206,
+  "hex": "0E00CE00011A7118020000000300",
+  "fields": {
+    "UniqueID": 9000000001,
+    "Count": 3
+  }
+}

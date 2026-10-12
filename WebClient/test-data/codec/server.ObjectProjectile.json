@@ -1,0 +1,11 @@
+{
+  "name": "ObjectProjectile",
+  "dir": "server",
+  "id": 125,
+  "hex": "0D007D001F0100000002000000",
+  "fields": {
+    "Spell": 31,
+    "Source": 1,
+    "Destination": 2
+  }
+}

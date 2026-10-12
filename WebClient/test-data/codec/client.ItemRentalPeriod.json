@@ -1,0 +1,9 @@
+{
+  "name": "ItemRentalPeriod",
+  "dir": "client",
+  "id": 140,
+  "hex": "08008C0007000000",
+  "fields": {
+    "Days": 7
+  }
+}

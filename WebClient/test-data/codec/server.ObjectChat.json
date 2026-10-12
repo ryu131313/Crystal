@@ -1,0 +1,11 @@
+{
+  "name": "ObjectChat",
+  "dir": "server",
+  "id": 31,
+  "hex": "12001F004D000000084865726F3A20686900",
+  "fields": {
+    "ObjectID": 77,
+    "Text": "Hero: hi",
+    "Type": 0
+  }
+}

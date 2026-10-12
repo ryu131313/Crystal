@@ -1,0 +1,11 @@
+{
+  "name": "HeroLevelChanged",
+  "dir": "server",
+  "id": 88,
+  "hex": "160058000D003930000000000000EA16B04C02000000",
+  "fields": {
+    "Level": 13,
+    "Experience": 12345,
+    "MaxExperience": 9876543210
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "NPCImageUpdate",
+  "dir": "server",
+  "id": 188,
+  "hex": "0E00BC005800000021001020FFFF",
+  "fields": {
+    "ObjectID": 88,
+    "Image": 33,
+    "Colour": -57328
+  }
+}

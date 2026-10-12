@@ -363,9 +363,11 @@ Every deploy runs: manual save → stop → off-box snapshot → `deploy-with-ba
 - Linux hosting.
 - Retiring the vendored .NET Framework DLLs.
 
+**W — web client (fork, approved 2026-10-12):** a browser client in `WebClient/` (TypeScript, WebGL2 renderer lifted from WoOOLcraft) behind the `WebRelay/` sidecar (WebSocket <-> TCP, raw Crystal frames, read-only asset serving). The server and `Shared/` are unchanged; packets are hand-ported to TS per packet with C#-generated goldens. Scope and rules: `Knowledgebase/WebClient/webclient.md`. Light verification only (typecheck, codec goldens, a browser run on a scratch server), by the user's choice.
+
 **Not doing:**
 - **Packet "encryption":** the key would ship in the client. TLS only, if public.
-- **A web client or any second client:** about 40 % of WoOOLcraft's commits, and every later wire change then had to ship to four places.
+- ~~**A web client or any second client**~~: **overridden 2026-10-12** (see §8 and "W — web client" below). The cost warning stands: about 40 % of WoOOLcraft's commits went to its web client.
 - **Premature optimisation:** none before P6, and no .NET 8 server baseline.
 - **New features on old paths:** no new MirCraft game-data editing on `Envir.Edit` before P7, and no new client UI or effects on D3D9.
 - **Runtime splits:** no player-facing net10 client while SlimDX remains, and no net10-only `Shared` while any consumer is on net8.
@@ -389,6 +391,7 @@ Every deploy runs: manual save → stop → off-box snapshot → `deploy-with-ba
 | NEVER add blocking I/O, `Thread.Sleep` or waits on the game thread | server.md §3.2 | P6 | One bounded (≤1 ms) wake-on-work park; amend §3.2 in the same commit |
 | ALWAYS set `DeviceLost` on `Direct3D9Exception` | client.md §3.3 | C3 | The seam's `IsDeviceLost` replaces it; amend §3.3 in the same commit |
 | NEVER touch the device or textures off the UI thread | client.md §3.2 | C6 | Off-thread texture creation on D3D11 only |
+| "Not doing: a web client or any second client" | roadmap §7 | W | **User, 2026-10-12:** "let's do a webclient like what we did for WoOOLcraft project"; chose a raw-bytes relay + TS codec and the WoOOLcraft WebGL2 renderer. WoOOLcraft web-client code may be copied and adapted (note the source in each file) |
 | Known debt and Known defects are fixed only as an explicitly requested task | AGENTS.md directive 5 | P2, P5, P6, P7, P8, P9, C1, C3, C5, C6 | Approve each phase when it starts |
 
 ---

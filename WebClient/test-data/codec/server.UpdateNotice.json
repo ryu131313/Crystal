@@ -1,0 +1,13 @@
+{
+  "name": "UpdateNotice",
+  "dir": "server",
+  "id": 271,
+  "hex": "29000F010B4D61696E74656E616E6365184261636B2061742031303A303020E2809420E7BBB4E68AA4",
+  "fields": {
+    "Notice": {
+      "Title": "Maintenance",
+      "Message": "Back at 10:00 — 维护",
+      "LastUpdate": "0"
+    }
+  }
+}

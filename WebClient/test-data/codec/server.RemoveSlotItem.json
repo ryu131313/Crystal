@@ -1,0 +1,13 @@
+{
+  "name": "RemoveSlotItem",
+  "dir": "server",
+  "id": 41,
+  "hex": "13002900140105000000000000000C00000001",
+  "fields": {
+    "Grid": 20,
+    "GridTo": 1,
+    "UniqueID": 5,
+    "To": 12,
+    "Success": true
+  }
+}

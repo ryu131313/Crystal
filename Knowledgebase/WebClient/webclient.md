@@ -1,0 +1,191 @@
+# Crystal Web Client — Agent Reference
+
+> Browser client for the Crystal server: `WebClient/` (TypeScript, WebGL2) behind the `WebRelay/` sidecar.
+> Approved 2026-10-12 as roadmap **W** (overrides §7 "Not doing: a web client", see roadmap §8).
+> Read AGENTS.md first. A packet change also needs Server §3.5/§4.2 and Client §3.5.
+
+---
+
+## 1. ROLE & IDENTITY
+
+Browser-client engineer: keep the web client **wire-exact** with the desktop client while the server stays **unchanged**. Iterate fast: the user wants light verification (typecheck, codec goldens, one browser run), not long test batteries or mutation passes.
+
+---
+
+## 2. SYSTEM ARCHITECTURE OVERVIEW
+
+```
+browser (WebClient, TS/WebGL2) --WS binary, 1 Crystal frame per message--> WebRelay :5690 --TCP--> Crystal server (unchanged)
+                               --HTTP GET/Range--> WebRelay /play/*, /js/*   (WebClient/ from the repo, no-cache)
+                                                            /data/*, /map/*, /sound/*  (client folder, READ-ONLY)
+```
+
+### 2.1 WebRelay (`WebRelay/`, `$(ServerTfm)`, own `bin\`)
+| File | Role |
+|---|---|
+| `Program.cs` | Options (`--upstream`, `--client-data`, `--map-path`, `--version-path`, `--web-root`, `--origin`, `--max-per-ip`, `--max-total`, `--listen`); `--emit-ts`, `--emit-fixtures` |
+| `RelayHost.cs` | `HttpListener` front door: `/ws` (Origin check + `ConnectionBudget` before the upgrade), static web root, client data |
+| `RelaySession.cs` | One tab = one upstream `TcpClient`. Splits the server stream on `[u16 len][i16 id]` and sends one WS message per packet. Browser messages must be exactly one well-formed frame with a known `ClientPacketIds` id, or the session is closed. **Rewrites `C.ClientVersion`** with the MD5 of `--version-path` (the browser cannot supply a hash) |
+| `StaticFiles.cs` | Read-only (`FileAccess.Read`, `FileShare.ReadWrite`) GET/HEAD + single Range, ETag, traversal guard |
+| `ConnectionBudget.cs`, `IpKey.cs` | Lifted from WoOOLcraft: per-IP/total/per-minute caps (IPv6 keyed by /64) |
+| `TsEmitter.cs` | `--emit-ts`: `WebClient/src/protocol/enums.generated.ts` from the compiled Shared enums |
+| `Fixtures.cs` | `--emit-fixtures`: codec goldens written by the real Shared `GetPacketBytes` |
+
+Shared is referenced for the enums and the generators only; relayed packets are never decoded.
+
+### 2.2 WebClient (`WebClient/`, `tsc` to unbundled ES modules in `WebClient/js/`, git-ignored)
+| Path | Role | Source |
+|---|---|---|
+| `src/protocol/binaryCodec.ts` | BinaryReader/Writer rules, Crystal framing, Point | lifted from WoOOLcraft |
+| `src/protocol/server.ts`, `client.ts` | **Hand-ported** packets (ReadPacket / WritePacket bodies) | new |
+| `src/protocol/enums.generated.ts` | Packet ids + shared enums | generated, do not edit |
+| `src/assets/crystalLib.ts` | `.Lib` v2/v3 reader: header + offsets, one Range GET per image span, gzip BGRA → RGBA, v3 frame table | new (port of `MLibrary`/`MImage`) |
+| `src/map/mapReader.ts` | Map formats 0–7 and 100 | port of `Client/MirObjects/MapCode.cs` |
+| `src/render/*` | WebGL2 backend, sprite batcher, shaders, atlas, colour | lifted from WoOOLcraft (+ `setOpacity`) |
+| `src/game/libraries.ts` | `Libraries` paths, async GPU sprite cache (`sprite()` = undefined while loading); `monsterLibPath` (MonsterObject.Load: Dragon, Siege 940+, Gate 950+, Pet 10000+, else Monster/NNN) and `npcLibPath` (Flag 1000+) | port |
+| `src/game/frames.ts` | `FrameSet.Player/DefaultMonster/DefaultNPC` | port of `Frames.cs` |
+| `src/game/objects.ts` | `MapObj`: action feed, frames, `OffSetMove`, `PlayerObject.SetLibraries` | port (subset) |
+| `src/game/mapView.ts` | `MapControl.DrawFloor` + `DrawObjects`, player layer order, 40 % user redraw | port (subset) |
+| `src/game/items.ts` | ItemInfo table (`S.NewItemInfo`), `GetRealItem`, the user's equipment looks + light | port |
+| `src/game/inventory.ts` | User inventory/equipment/gold kept in step with the server (GameScene item handlers) + the MirItemCell requests (move, merge, equip, unequip, use, drop) | port |
+| `src/ui/inventoryWindow.ts` | Inventory window (I / Bag button): equipment, belt (keys 1-6), bag, gold; left-click pick + place, right-click use/equip/unequip, picked item + map click = drop | new |
+| `src/ui/npcWindow.ts` | NPC dialog (page markup, links, big buttons), goods list + buy, sell/repair/special-repair panel; talk on NPC click (NPCTime gating) | port (DOM) |
+| `src/game/effects.ts` | Effect / Missile / DelayedExplosionEffect (Effect.cs), Direction16, library names | port |
+| `src/game/magic.ts` | User magic: Magics, warrior toggles, UseSpell / UseMagic targeting, magic packets | port |
+| `src/game/spellVisuals.ts` | Spell visuals: SetAction cast effects, ProcessFrames completion (missiles, hits), attack overlays, ObjectEffect, MapEffect, ObjectProjectile, SpellObject | port (mechanical) |
+| `src/ui/magicBar.ts` | Magic window (K, key assignment via C.MagicKey) + F1-F8 skill bar with cooldown shading | new |
+| `src/game/buffs.ts` | Buff visuals (AddBuffEffect / RemoveBuffEffect), MagicShield / ElementalBarrier refresh, poison DrawColour + dots, the user's buff list, BuffImage | port |
+| `src/ui/buffBar.ts` | Buff icons (top right) with time left and tooltip | new |
+| `src/game/audio.ts` | SoundManager on Web Audio: SoundList.lst + NNN-N / MNN-N names, one-shots, loops, map music, volume (localStorage), unlock on first input | port |
+| `src/game/sounds.ts` | Per-object sound choice: MonsterObject.Play*Sound, PlayerObject step (map tile tables) / struck / flinch / attack / die | port (mechanical) |
+| `src/game/doors.ts` | Doors: GetDoor / Processdoors / OpenDoor / CheckDoorOpen; door frames in DrawFloor and DrawObjects | port |
+| `src/ui/miniMap.ts` | Minimap: MMap image cropped around the user, object dots, map name + location | port (canvas 2D) |
+| `src/ui/bigMap.ts` | Big map (B): BigMapDialog — any map via `C.RequestMapInfo` / `S.NewMapInfo` (image, movement icons, NPC icons), NPC list, search (`C.SearchMap`), teleport-to-NPC (`C.TeleportToNPC`), world map (`S.WorldMapSetup`), object / group dots, click to walk on your own map | port (canvas 2D + DOM) |
+| `src/game/pathFinder.ts` | PathFinder A* (+ MapControl.AutoPath stepping in game.ts) | port |
+| `src/ui/groupWindow.ts` | Group (P): GroupDialog + group packets (invite, add, remove, switch, member maps / locations) | port (DOM) |
+| `src/ui/tradeWindow.ts` | Trade (T / Trade button): TradeDialog + GuestTradeDialog + the trade handlers; the user's grid, gold and lock live in `Inventory` (Deposit/RetrieveTradeItem, MoveItem/MergeItem with Grid = Trade), cells share the inventory window's pick | port (DOM) |
+| `src/ui/guildWindow.ts` | Guild (G / Guild button): status, notice (view/edit), members by rank with online state, recruit / kick / change rank, invite + create prompts, "Guild chat" (prefills `!~`); Storage page (112 cells sharing the inventory pick, gold deposit / leader-only retrieve; items live in `Inventory.guildStorage`); Ranks page (rename, Add New, the 8 option bits); Buffs page (GuildSkill icons, buy / activate, hint) + the local BuffType.Guild icon; the war prompt | port (DOM) |
+| `src/game/stats.ts` | UserObject.RefreshStats and helpers (level formulas from `S.BaseStatsInfo`, equipment, sockets, sets, skills, buffs, guild buffs, caps), BaseStat.Calculate with float emulation | port (mechanical) |
+| `src/game/canWear.ts` | MirItemCell.CanWearItem before `C.EquipItem` (gender, class, RequiredType, hand / wear weight, fishing / mount parts) | port |
+| `src/game/scope.ts` | The game scene's lifetime: window listeners take `{ signal: gameSignal() }`; `dispose()` (log out) aborts them | new |
+| `src/ui/characterWindow.ts` | Character window (C): CharacterDialog status page from `stats.ts` | port (DOM) |
+| `src/ui/hudExtras.ts` | `SendOutputMessage`, notice, timers, compass, roll (die / yut), `OpenBrowser` (chat link), NPC input box | port (DOM) |
+| `src/ui/messageBox.ts` | Non-blocking MirMessageBox (the revive prompt) | new |
+| `src/game/gameInfo.ts` | GameScene MonsterInfoList / NPCInfoList / MapInfoList + world-map setup, deduped `C.Request*Info` | port |
+| `src/ui/storageWindow.ts` | StorageDialog (S.NPCStorage): 2 x 80 cells sharing the inventory pick (items in `Inventory.storage`), password unlock / first-time setup / change, rent extra storage (`@ADDSTORAGE`) | port (DOM) |
+| `src/ui/npcServices.ts` | NPC item services: the NPCDropDialog types (refine, check refine, wedding ring, disassemble, downgrade, reset), RefineDialog (`Inventory.refine`), crafting (NPCCraftGoodsDialog + CraftDialog), NPCAwakeDialog, pearl goods | port (DOM) |
+| `src/ui/marketWindow.ts` | TrustMerchantDialog: market / consignment / auction tabs, category filters, search, pages, buy / bid, get back, collect sold, sell now, consigning; the NPC consign panel | port (DOM) |
+| `src/game/itemChanges.ts` | Sockets, mount / fishing slot items, seal, combine, upgrade, the rental item model | port |
+| `src/ui/socketWindow.ts`, `src/ui/rentalWindow.ts` | SocketDialog (Ctrl+right-click an item with sockets); item rental between two players (ItemRental* dialogs, HUD Rental button) and the rented-items list | port (DOM) |
+| `src/game/quests.ts`, `src/ui/questWindow.ts` | Quests: QuestInfoList / current / completed / quest items / tracking (localStorage per character), NPCObject quest offers + icon (drawn by `MapView.npcQuestImage`), the NPC quest list (accept / finish with reward choice), details (share, abandon), quest log (Q), tracking panel, shared-quest invitations | port (DOM) |
+| `src/ui/mailWindow.ts`, `src/ui/friendWindow.ts` | Mail list / read letter or parcel / compose letter or parcel (stamp, gold, items, cost); friends + blacklist (F), memos, whisper / mail shortcuts | port (DOM) |
+| `src/ui/relationshipWindow.ts`, `src/ui/inspectWindow.ts`, `src/ui/rankingWindow.ts` | Marriage (L) and mentor windows; inspect (Ctrl+right-click a player; equipment grid instead of the paperdoll); rankings (tabs, paging, online only, inspect from the list) | port (DOM) |
+| `src/game/lighting.ts`, `src/game/lightingEnhanced.ts` | Classic `MapControl.DrawLights` (object, effect and spell-object lights, blindness ramp) and the Enhanced mode (`MapControl.Lighting.cs`, RGBA16F target, needs `EXT_color_buffer_float`, else Classic); `SceneLights` picks by `gameSettings.Lighting`; `@light new` / `@light old`; true grayscale (death: whole scene; paralysis: the body) via the Grayscale shader | port |
+| `src/game/weather.ts` | `MapControl.Weather` / `UpdateWeather` + ParticleEngine (fog, embers, snow, rain, leaves) from `S.MapInformation.WeatherParticles` / `S.MapChanged.Weather`, drawn after the objects | port |
+| `src/game/monsterSpecials.ts` | MonsterObject.SetAction / ProcessFrames / action-end per-`Monster` specials (effects, projectiles, sounds; 221 monsters), hooked from objects.ts and game.ts `spellHooks.action` | port (mechanical) |
+| `src/game/settings.ts`, `src/game/keybinds.ts` | The desktop [Game] / [Chat] / [Filters] / Lighting options (localStorage `crystal.settings`); the central `KeybindOptions` map (KeyBindSettings defaults, localStorage `crystal.keybinds`): every key handler uses `matches(e, KeybindOptions.X)`, and game.ts keeps matched Ctrl / Alt bindings from the browser | port |
+| `src/ui/optionWindow.ts`, `src/ui/helpWindow.ts`, `src/ui/chatOptionWindow.ts`, `src/ui/keyboardLayoutWindow.ts`, `src/ui/clickSounds.ts` | OptionDialog (F12 / O: toggles, volumes, allow observe, lighting), HelpDialog (H: shortcut pages with the live keys + Help.Lib pages), ChatOptionDialog (filters, transparency; `chatVisible` hides chat lines), KeyboardLayoutDialog (U: rebind, conflicts, reset), MirButton click sounds | port (DOM) |
+| `src/game/gameData.ts` | `S.GameDataChanged` (web admin LiveDb push): upserts through the New*Info handlers, CopyMagicInfo, shop rows, big-map invalidation; refresh on `Last` | port |
+| `src/game/riding.ts` | Mount / transform / fishing rules: `canFish` (map `fishing` cells), `canRideAttack`, `runDistance` (3 cells riding), the riding / fishing input gates, `isIdleAction`, `transformTypeFromBuffs` | port (pure) |
+| `src/ui/mountWindow.ts`, `src/ui/fishingWindow.ts` | MountDialog (J; M = `@ride`; mount picture, loyalty, MountSlot cells); FishingDialog (N; rod + FishingSlot cells) + FishingStatusDialog (chance / progress, Reel, auto-cast) | port (DOM) |
+| `src/game/hero.ts`, `src/game/heroItems.ts` | The user's hero: GameScene.Hero state (spawn state, behaviour, info, base stats, buffs, storage / manage / create) with `onChange()`; the hero's bag, belt, equipment and auto-pot kept in step with the item packets (hero grids, TakeBack / TransferHeroItem) + their requests | port |
+| `src/ui/heroPanels.ts`, `src/ui/heroInventoryWindow.ts`, `src/ui/heroCharacterWindow.ts`, `src/ui/heroMagicWindow.ts`, `src/ui/heroManageWindow.ts` | HeroInfoPanel / HeroMenuPanel / HeroBehaviourPanel / hero buffs / Summon button (bottom right); hero bag + belt (7 / 8) + equipment + auto-pot (Ctrl+I, cells share the inventory pick); hero stats (Ctrl+C, `refreshStats` with the hero as wearer); hero skills + key assignment (Ctrl+S; Shift+F1-F8 cast via `C.Magic { ObjectID = hero }`, magic.ts `useHeroSpell`); HeroManageDialog + NewHeroDialog | port (DOM) |
+| `src/game/creatures.ts`, `src/ui/creatureWindow.ts` | Intelligent creatures: UserObject.IntelligentCreatures / CreatureSummoned / PearlCount from UserInformation + the creature packets (`SetItemFilter` ported exactly); IntelligentCreatureDialog (E): list, picture, fullness, expiry, pearls, blackstones, summon / dismiss / release (name check), rename, pickup mode, options (filters, grade); the non-blocking name prompt (`inputBox` in messageBox.ts); X / Alt+A send `C.IntelligentCreaturePickup` at the mouse cell | port (DOM) |
+| `src/ui/gameShopWindow.ts`, `src/ui/guildTerritoryWindow.ts` | GameShopDialog (Y / Shop button: tabs, class / category filters, search, paging, gold or credit buy) and the shop list; GuildTerritoryDialog (server-opened list + paging; purchase disabled) | port (DOM) |
+| `src/game/game.ts` | Packet handling, frame loop, input (walk/run/turn/attack), HUD, chat. Debug: `window.crystalGame.step()` / `.mouse(x, y, buttons)` | new |
+| `src/game/session.ts` | WebSocket, `C.ClientVersion` on `S.Connected`, `C.KeepAlive` when idle 4 s | new |
+| `src/ui/screens.ts` | DOM login / new account / select / new character | new |
+| `play/index.html`, `play/main.ts`, `play/play.css` | Page shell (keep it thin) | new |
+
+### 2.3 Threads
+| Part | Model |
+|---|---|
+| WebRelay | Async on pool threads; each session has two pumps, each the only writer of its side (no locks). No game state |
+| Browser | One `requestAnimationFrame` loop (update + render), async fetch/decode. A hidden tab is throttled to ~1 fps (the server still gets `C.KeepAlive` from a timer) |
+
+### 2.4 Server constraints (no server change)
+- **Version check:** pass `--version-path` = the exe the server's `[General] VersionPath` hashes, or run the server with `CheckVersion=False`.
+- **MaxIP:** every relay session reaches the server from the relay's address. Scratch servers exempt loopback (`[LoadTest] ExemptLoopback`). On a real server, `Settings.MaxIP` caps the **total** number of web players; per-IP limits live in the relay (`--max-per-ip`).
+
+---
+
+## 3. CRITICAL RULES
+
+### 3.1 Wire
+- **ALWAYS** port a packet from its C# `ReadPacket`/`WritePacket` field by field, add a sample to `WebRelay/Fixtures.cs`, run `npm run codec:regen` + `npm run codec:test`. A full port must consume the whole payload (strict test); a deliberate prefix port goes in `PREFIX_ONLY`.
+- **ALWAYS** re-run `--emit-ts` after a `Shared/Enums.cs` change (ids are implicit ordinals).
+- **ALWAYS** update the TS port in the same commit when a ported packet changes in `Shared/` (this is the "fifth place" of the AGENTS.md packet rule).
+- **NEVER** hand-edit `enums.generated.ts`.
+- A packet whose C# `Compressed` is true goes in `COMPRESSED` (`server.ts`) and is decoded by `decodeServerPacketAsync` (whole payload inflated; the session keeps packet order while it inflates). Ported so far: `NPCGoods`.
+- A malformed client frame closes the relay session; the server would IP-block a desktop client for the same. Keep `client.ts` exact.
+
+### 3.2 Relay
+- **NEVER** let the relay write to the client folder or anything under `Build\` (read-only file opens only).
+- **NEVER** let the browser choose the version hash, the upstream address or a file outside the configured roots.
+- **ALWAYS** keep the Origin check and the connection budget before the WebSocket upgrade.
+
+### 3.3 Client
+- **NEVER** block the frame loop on a load: `sprite()` returns undefined while loading and the frame skips it.
+- **ALWAYS** mirror desktop behaviour (draw order, offsets, movement gating via `S.UserLocation`) from the C# source; note the source method in a comment.
+- Copied WoOOLcraft files keep a header line naming their source.
+
+**Port notes (what differs from the desktop, and how to test):**
+- Items: `S.NewItemInfo` is fully decoded (stats, bind flags, tooltip). `CanWearItem` is pre-checked once stats exist (before that the server decides); `BindMode.DontTrade` and NPC `Bind` rules are not pre-checked (the server refuses and the cell unlocks). Shift+left-click splits a stack, Shift+right-click links an item in chat, a picked stack dropped on the map asks for a count, the gold line has a Drop button.
+- Section 6 (2026-10-12): client-only parts. Tested live: the new name labels (feet position, NPC names split on "_" with white later words, NameView / DropView), O / H / U open Options / Help / Keyboard, Ctrl+F opens Friends with the browser's find blocked, `@light new` -> "[Lighting: Enhanced]" (this browser has `EXT_color_buffer_float`) and `@light old`, the scene renders in both modes. Not tested live (type checks only): effect lights at night, blindness, death / paralysis grayscale, weather (Bichon has none), per-monster specials, chat filters, click sounds, minimap quest markers / light icon, `GameDataChanged` (codec golden only). Fixed on the way: object and effect lights were never drawn (`view.render` got a one-shot Map iterator that the first draw loop used up); monster `ObjectAttack` Type 1-4 now plays Attack2-5. Deliberate differences: the magic window is on Skills (F11) / Skills2 (S) like the desktop, K is Ranking; the desktop's "don't care" modifiers apply (Ctrl / Alt + a letter also opens its window), so game.ts preventDefaults any matched Ctrl / Alt binding outside text inputs (Ctrl+C with a selection still copies); the death grayscale leaves the 2D overlay (names, chat) in colour; Enhanced uses the effect light colour (no sprite light tints); Options Cancel / grade quirks as in section 5; every button plays ButtonA (desktop MirButton defaults vary). Missing client sound files (e.g. `139-0`) 404 in the console: the desktop builds the same names (monster `BaseSound = image * 10`) and also finds nothing.
+- Section 5, intelligent creatures (2026-10-12): monsters now use the desktop's per-range libraries (creatures from `Data/Pet/NN.Lib`, gates, siege, the dragon; `frames.ts monsterFrames` ports the hard-coded FrameSets), creature frame effects (BabySnowMan snow, OlympicFlame flame / smoke), `PlayPetSound` on attack and the PetPickup sound on `S.IntelligentCreaturePickup`. Tested live with WebHero: `@MAKE ChickEgg` / `BlackKittenEgg` + use (level 35 required) -> "Obtained a new creature", the non-blocking name prompt renames it (`C.UpdateIntelligentCreature`), the creature window lists both, Summon -> "Creature BlackKitten has been summoned." and the kitten draws from Pet/06.Lib, a dropped potion is picked up by the pet and returned. Not tested live: dismiss / release, rename after `IntelligentCreatureEnableRename`, the options filters and grade, Alt+A, pearls / blackstones, the creature effects. Notes: summoning silently fails when the cell in front of the player is not valid (the server spawns the pet at `Front`), e.g. facing water. Deliberate differences: Options Cancel restores the filter (the desktop edits the creature's filter live), the grade label follows the ItemGrade value (the desktop's label list swaps Legendary / Mythical), a creature name still draws on one line (the desktop splits on "_"), plain DOM instead of the dialog artwork, no Help button.
+- Section 5, heroes (2026-10-12): every hero packet is ported (18 server, 7 client). The hero on the map is a player MapObj with `ownerName` (race stays Player; the desktop's Race = Hero is only checked where it equals Player) drawn with the "{0}'s Hero" label and an always-on health bar for the user's own hero. Tested live with WebHero: `C.NewHero` (sent directly; the desktop opens the dialog from an NPC `[@CREATEHERO]`, which this server's scripts do not have) -> "Hero created successfully." + a SealedHero item -> using it adds and summons the hero (WebSide, Taoist L1); `@SUMMONHERO` / the Summon button toggle it; HeroInformation (bag 10, equipment 14), the info panel, stats (max HP / MP match the server's values), transfer a user item to the hero, equip the hero's WoodenSword + BaseDress (the map look updates), take an item back, behaviour Follow (server echo), the hero bag / character / skills windows. Not tested live (codec + type checks): hero casting and key assignment (a level 1 hero has no magic), auto-pot (locked until `UnlockHeroAutoPot`), the manage dialog / ChangeHero (needs an NPC `[@MANAGEHERO]`), the NewHero dialog itself, hero death / revive, `GainHeroExperience` / `HeroLevelChanged`, hero buffs. Deliberate differences: the panels sit bottom right (the desktop's are in the bottom HUD), hero equipment shows in the hero bag window (the web character windows have no paperdoll), hero toggles are display state only (the server does not forward hero `SpellToggle`), DeleteItem on a hero stack clears the hero's cell (the desktop clears `User.Inventory`, a typo), the hero bag merge sends `GridTo = HeroInventory` (the desktop sends `Inventory`, which the server refuses), Ctrl+C with nothing selected opens the hero window instead of copying. Hero pre-checks not ported (the server refuses): transfer weight, SoulBound, consumable class / level checks. MagicLeveled / MagicDelay / SpellToggle for the hero no longer change the user's spells.
+- Section 5, first pass (2026-10-12: mounts, transform, fishing, reincarnation, game shop, guild territories, the `UserInformation` tail): `UserInformation` is now a full port; the intelligent-creature packets are codec-only (UI next pass). Tested live with WebHero: 105 shop items arrive at login, a gold purchase from the shop window (`confirm()`, gold deducted; the server mails the item); mount (`@MAKE BlueTiger` + `Saddle` + `BronzeBell`, equip, the mount window, `@ride`): the rider draws on the tiger, MountWalking then a 3-cell MountRunning accepted by the server, dismount; fishing (`BlueFishingRod` + `FishingHook` + `FishBait` at 342,253 on Bichon facing Right): map click casts, FishingCast / FishingWait frames, ripples and sounds, the status window from `FishingUpdate`; the territory list (`C.GuildTerritoryPage`). Not tested live (codec + type checks): reeling a found fish, auto-cast, transforms (`TransformUpdate`, the user's transform from buffs), reincarnation (needs a Taoist reviving a dead player), credit purchases, removing mount / fishing slot items, `LeatherBridle` (refused: level). Deliberate differences: `C.PurchaseGuildTerritory` is never sent (no server decode case: Client §3.5 Known defect), the purchase button is disabled; the territory page resets to 0 when the server opens the window; no shop Preview (GameShopViewer); the Reel button follows `FoundFish` instead of the FishingWait frame; general `WingEffect` / weapon-effect libraries are not drawn (only transform 19 wings); a `TransformUpdate` changes the body at once. Guild voting has nothing to port: `GuildStatus.Voting` and `GuildMember.hasvoted` are stored, never used by either side. Fishing needs a shore cell whose forward and both side cells are blocked (the desktop `CanWalk` also tries the side directions first).
+- Section 4 (2026-10-12): tested live with WebHero + WebAlly: quest offer icon on Merchant_Sarah, accept via the NPC quest list, quest log (WebHero has "Bat Wings" in progress), a letter WebHero -> WebAlly (new-mail flag, read clears it), add friend, inspect (by call: synthetic canvas clicks need a visible browser pane), rankings. Not tested live: quest finish / share / tracking persistence, parcels, memos, marriage, divorce, mentor. Observe is hidden in the inspect window: a granted `C.Observe` ends the requester's own game (StopGame) and the web client has no observer mode. `C.ReportIssue` is not ported (the desktop never sends it). Windows that read `user` in their constructor must be built after the state block in `startGame` (temporal dead zone).
+- Section 3 (2026-10-12): NPC services open from the NPC pages like the desktop. Tested live on Bichon wall: storage (InnKeeper_Brittney; the forced first-time password setup, store / move / take back), the market (TrustMerchant_James: open, consign with the 5,000 fee, get back), crafting (CraftsLady_Alice: recipe, Auto Fill, craft) and disassemble (Master_Joffrey). Not tested live (codec + type checks only): refine (no Bichon NPC has the key), wedding ring, awakening / downgrade / reset results, pearl shop, sockets (need an item with sockets), combine, seal, upgrade, rental (two players). Notes: the buy-back list is the existing goods panel (`[@BUYBACK]` sends NPCGoods; the server's `C.BuyItemBack` handler is commented out, so it is not sent); `S.RefineCancel` is handled (the desktop never decodes it: Client §3.5 Known defect). Deliberate differences: the rental fee sends only the amount added (the desktop resends the running total, which the server charges again) and the guest sees the sum of fee packets; map / market prompts use prompt() / confirm(); awakening cells only take items picked from the bag.
+- Section 2 (2026-10-12): `MapObj` plays the desktop's per-spell frames and actions (`objects.ts spellAction`: ShoulderDash -> DashL, BackStep -> Jump, FlashDash -> DashAttack, ExplosiveTrap -> Harvest, archer shots -> AttackRange2, Attack1/2/3 frames for warrior skills) with the dash / jump / dash-attack movement offsets; an Archer with a bow walks / runs with the Bow frames, left-click on a monster in range 9 (or Shift+left) shoots (`C.RangeAttack`, arrow at frame 5), Alt+left harvests (`C.Harvest`). The user's skill sends mirror PlayerObject.SetAction (ShoulderDash / BackStep / FlashDash / ExplosiveTrap send `C.Magic` without a target). Object packets (level-up effect, rename, hide / show, sit, harvest, mana %, deco objects from `Deco.Lib`, NPC image change), Concentration / element orbs / Binding Shot effects, InTrapRock (no walking or jumps) are handled. Testing archers on the test server: `AllowCreateArcher=False` there, so create a warrior and `@CHANGECLASS Archer`, then relog; many `@` commands in a row get a 5-minute chat ban. Untested live (codec only): Concentration, SetElemental, Binding Shot, ObjectSitDown, ObjectHide/Show, ObjectDeco, NPCImageUpdate, RemoveDelayedExplosion, InTrapRock, the NPC page MONSTER/NPC/ITEM tooltips, the world map and teleport (this server has the world map off and no teleportable NPC). Deliberate differences in the big map: map search sends 3+ characters (the desktop check is inverted and never sends a usable search), click-to-walk only on your own map, a repeated `NewMapInfo` replaces the cached map.
+- Section 1 (2026-10-12): the status line shows HP / MP against the computed max, experience % and the attack mode (Ctrl+H cycles it, Ctrl+A the pet mode). Log out (HUD button) returns to character select on the same connection: `startGame(..., exits).dispose()` stops the loop, aborts the scene's listeners, closes its AudioContext and removes its DOM. The revive prompt opens 1.5 s after `S.Death` (the desktop waits for the death animation). The stats only recompute inside the frame loop, so a hidden (throttled) tab may lag. Testing death needs a non-GM character or a desktop GM: `@KILL` requires `IsGM`, and monsters ignore this test account. Untested live (codec only, they need NPC scripts): `NPCRequestInput`, `SetTimer`/`ExpireTimer`, `SetCompass`, `Roll`, `UpdateNotice`, `OpenBrowser`, `StartGameBanned`/`StartGameDelay`, `ReturnToLogin`.
+- Lighting: Classic `DrawLights` by default, Enhanced via `@light new` or Options; death and paralysis draw grayscale (section 6).
+- Magic testing needs `[General] TestServer=True` for `@GIVESKILL` / `@LEVEL`. Not ported there: hero magic, mana-penalty stats, the Archer bow checks, ElementsEffect orbs, FlashDash attack-speed scaling.
+- Trade: the partner needs `@ALLOWTRADE` once (the options toggle `C.ChangeTrade` is not ported); the cancel message box is a system chat line.
+- Guild: the invitee needs `@ALLOWGUILD`; create via an NPC script or `@CREATEGUILD name` on a test server (level 22, 1,000,000 gold and a WoomaHorn by default). Storage works only in a safe zone and the server sends the list once per login. War declaration needs an NPC script (`S.GuildRequestWar`), the leader rank and `[Guilds] WarCost`; the war shows only as server name colours (own guild blue, enemies orange). Buffs: the Guild buff icon shows the summed active stats; the user's stats are not recomputed. Deliberate difference: a `GuildMemberChange` status 7 for the user's own rank updates their rights even when the member list was never loaded (the desktop drops it). Crystal has no guild alliances (only the unused `GuildRankOptions.CanAlterAlliance` bit).
+- `confirm()` / `prompt()` / `alert()` stand in for MirMessageBox / MirInputBox / MirAmountBox.
+
+### 3.4 Backlog (not ported yet, surveyed 2026-10-12)
+
+Survey: 116 of 280 `ServerPacketIds` and 48 of 153 `ClientPacketIds` ported; every unported server packet is handled by the desktop. Work top to bottom; strike items here as they land.
+
+**1. Basic play** — done 2026-10-12 (see the port notes above). Left: `UserInformation` tail (intelligent creatures, observe flags), the `DontTrade` / NPC bind pre-checks.
+
+**2. Objects and class moves** — done 2026-10-12 (see the port notes above). Left: Sprint (running 3 cells), assassin sneaking frames, FlashDash attack-speed scaling, the custom scrollbar / button art of the big map.
+
+**3. NPC services** — done 2026-10-12 (see the port notes above). Left: the riding-mount check in CanRemoveItem, swapping between awakening material cells, the separate Mount / Fishing dialogs, the sealed overlay icon, desktop artwork.
+
+**4. Social** — done 2026-10-12 (see the port notes above). Left: observer mode (`UserInformation.Observer`, `GameScene.Observing`), the inspect paperdoll, mail / report buttons that need unported parts, the quest help button.
+
+**5. Large systems** — first pass done 2026-10-12: ~~mounts, fishing, transform, reincarnation, game shop, guild territories, guild voting (nothing to port), the `UserInformation` tail~~ (see the port notes above).
+- ~~Heroes~~ done 2026-10-12 (see the port notes). Left: hero casting / auto-pot / manage dialog live checks, the HeroAutoPotPreview icons, hero transfer weight / SoulBound pre-checks.
+- ~~Intelligent creatures~~ done 2026-10-12 (see the port notes). Left: multi-line creature names, the remaining per-monster ProcessFrames specials.
+- Left over: shop Preview, Sprint, `GameDataChanged` shop pushes, observer mode.
+
+**6. Client-only** — done 2026-10-12 (see the port notes). Left: the multi-line chat bubble, the image health bars (Prguse2), the hero mana bar, Shinsu / burrower Hide-Show body swaps, FrameLoop monsters, the mail / big-map minimap buttons, desktop keys without a web feature (Belt Z, Skillbar R, Autorun D, Cameramode, Screenshot, DropView Tab, Logout / Exit), spell sprite light tints in Enhanced.
+
+---
+
+## 4. CODE STYLE & PATTERNS
+
+### Recipe — port a server packet
+1. Read the C# class in `Shared/ServerPackets.cs` (ReadPacket order and widths: `ReadInt32` → `readI32`, `ReadString` → `readString`, `Point` → `readPoint`, `Color` → `readI32` ARGB, `DateTime` → `readI64` of `ToBinary`, `List<T>` → `ReadInt32` count + items).
+2. Add a decoder to `decoders` in `src/protocol/server.ts` (key = C# class name; add an `ID_NAME` alias when the `ServerPacketIds` member is spelled differently, e.g. `ObjectNPC` → `ObjectNpc`).
+3. Add a sample instance to `ServerSamples()` in `WebRelay/Fixtures.cs`, then `npm run codec:regen` and `npm run codec:test`.
+4. Handle it in `src/game/game.ts` `handle()`.
+
+### Recipe — run it
+```
+powershell -ExecutionPolicy Bypass -File tools\start-scratch-server.ps1 -Port 17000
+powershell -ExecutionPolicy Bypass -File tools\start-webrelay.ps1
+```
+Open `http://127.0.0.1:5690/play/`. The scratch world's synthetic map has no tile art; real maps need a server whose `Server.MirDB` points at real map files.
+
+---
+
+## 5. DEPLOYMENT & TELEMETRY
+
+- Checks: `powershell -File tools\verify.ps1 -Only WebRelay -NoTests`; `cd WebClient; npm run typecheck; npm run codec:test`.
+- Relay console: one line per session open/close with the reason.
+- Browser: `window.crystal.session.unported` counts the packet ids received but not ported.
+- Public hosting (TLS, a reverse proxy, real client IPs) is not designed yet; the relay listens on loopback by default.

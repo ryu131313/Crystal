@@ -1,0 +1,11 @@
+{
+  "name": "ObjectHealth",
+  "dir": "server",
+  "id": 139,
+  "hex": "0A008B004D0000003C05",
+  "fields": {
+    "ObjectID": 77,
+    "Percent": 60,
+    "Expire": 5
+  }
+}

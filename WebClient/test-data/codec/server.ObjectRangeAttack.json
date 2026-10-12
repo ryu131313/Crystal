@@ -1,0 +1,22 @@
+{
+  "name": "ObjectRangeAttack",
+  "dir": "server",
+  "id": 143,
+  "hex": "20008F004D0000007B000000C801000002090000000500000006000000027903",
+  "fields": {
+    "ObjectID": 77,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 2,
+    "TargetID": 9,
+    "Target": {
+      "X": 5,
+      "Y": 6
+    },
+    "Type": 2,
+    "Spell": 121,
+    "Level": 3
+  }
+}

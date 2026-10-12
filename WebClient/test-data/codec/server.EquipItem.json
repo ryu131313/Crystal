@@ -1,0 +1,12 @@
+{
+  "name": "EquipItem",
+  "dir": "server",
+  "id": 38,
+  "hex": "1200260001011A7118020000000100000001",
+  "fields": {
+    "Grid": 1,
+    "UniqueID": 9000000001,
+    "To": 1,
+    "Success": true
+  }
+}

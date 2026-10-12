@@ -1,0 +1,10 @@
+{
+  "name": "StoreItem",
+  "dir": "client",
+  "id": 15,
+  "hex": "0C000F000700000050000000",
+  "fields": {
+    "From": 7,
+    "To": 80
+  }
+}

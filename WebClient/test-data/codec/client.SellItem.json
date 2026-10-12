@@ -1,0 +1,10 @@
+{
+  "name": "SellItem",
+  "dir": "client",
+  "id": 52,
+  "hex": "0E00340005000000000000000200",
+  "fields": {
+    "UniqueID": 5,
+    "Count": 2
+  }
+}

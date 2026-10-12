@@ -1,0 +1,9 @@
+{
+  "name": "RemoveDelayedExplosion",
+  "dir": "server",
+  "id": 218,
+  "hex": "0800DA004D000000",
+  "fields": {
+    "ObjectID": 77
+  }
+}

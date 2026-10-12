@@ -1,0 +1,11 @@
+{
+  "name": "PauseBuff",
+  "dir": "server",
+  "id": 146,
+  "hex": "0A00920066D204000001",
+  "fields": {
+    "Type": 102,
+    "ObjectID": 1234,
+    "Paused": true
+  }
+}

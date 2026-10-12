@@ -1,0 +1,26 @@
+{
+  "name": "Rankings",
+  "dir": "server",
+  "id": 252,
+  "hex": "3A00FC00020500000001000000041A711802000000075765624865726F1E0000000002000000041A711802000000070000000000000002000000",
+  "fields": {
+    "RankType": 2,
+    "MyRank": 5,
+    "ListingDetails": [
+      {
+        "PlayerId": 9000000004,
+        "Name": "WebHero",
+        "Class": 0,
+        "level": 30,
+        "Experience": 0,
+        "info": null,
+        "LastUpdated": "0"
+      }
+    ],
+    "Listings": [
+      9000000004,
+      7
+    ],
+    "Count": 2
+  }
+}

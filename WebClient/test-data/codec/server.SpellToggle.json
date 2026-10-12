@@ -1,0 +1,11 @@
+{
+  "name": "SpellToggle",
+  "dir": "server",
+  "id": 138,
+  "hex": "0A008A00D20400000301",
+  "fields": {
+    "ObjectID": 1234,
+    "Spell": 3,
+    "CanUse": true
+  }
+}

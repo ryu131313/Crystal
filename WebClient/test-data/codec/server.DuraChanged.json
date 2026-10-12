@@ -1,0 +1,10 @@
+{
+  "name": "DuraChanged",
+  "dir": "server",
+  "id": 76,
+  "hex": "0E004C000A00000000000000D204",
+  "fields": {
+    "UniqueID": 10,
+    "CurrentDura": 1234
+  }
+}

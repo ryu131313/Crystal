@@ -1,0 +1,11 @@
+{
+  "name": "TakeBackHeroItem",
+  "dir": "server",
+  "id": 54,
+  "hex": "0D003600030000002E00000001",
+  "fields": {
+    "From": 3,
+    "To": 46,
+    "Success": true
+  }
+}

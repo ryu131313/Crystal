@@ -89,6 +89,11 @@ namespace Client.MirGraphics.Rendering
                 return new PixelShader(_device, bytecode);
         }
 
+        // Enhanced lighting is D3D11 only (D3D9 stays golden-identical until C5 removes it).
+        public bool SupportsEnhancedLighting => false;
+        public RenderTexture CreateLightTarget(int width, int height) => throw new NotSupportedException("Enhanced lighting needs the D3D11 backend.");
+        public void DrawLight(float x, float y, float width, float height, Color colour, float intensity) => throw new NotSupportedException("Enhanced lighting needs the D3D11 backend.");
+
         private PixelShader ShaderFor(PixelShaderKind kind) => kind switch
         {
             PixelShaderKind.Grayscale => _grayScale,

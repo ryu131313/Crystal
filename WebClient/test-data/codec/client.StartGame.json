@@ -1,0 +1,9 @@
+{
+  "name": "StartGame",
+  "dir": "client",
+  "id": 8,
+  "hex": "0800080007000000",
+  "fields": {
+    "CharacterIndex": 7
+  }
+}

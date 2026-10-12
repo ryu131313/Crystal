@@ -1,0 +1,11 @@
+{
+  "name": "DepositRefineItem",
+  "dir": "server",
+  "id": 46,
+  "hex": "0D002E00090000000200000001",
+  "fields": {
+    "From": 9,
+    "To": 2,
+    "Success": true
+  }
+}

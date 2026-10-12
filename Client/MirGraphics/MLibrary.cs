@@ -25,11 +25,11 @@ namespace Client.MirGraphics
             Title = new MLibrary(Settings.DataPath + "Title"),
             MagIcon = new MLibrary(Settings.DataPath + "MagIcon"),
             MagIcon2 = new MLibrary(Settings.DataPath + "MagIcon2"),
-            Magic = new MLibrary(Settings.DataPath + "Magic"),
-            Magic2 = new MLibrary(Settings.DataPath + "Magic2"),
-            Magic3 = new MLibrary(Settings.DataPath + "Magic3"),
-            Effect = new MLibrary(Settings.DataPath + "Effect"),
-            MagicC = new MLibrary(Settings.DataPath + "MagicC"),
+            Magic = new MLibrary(Settings.DataPath + "Magic") { ComputeLightTint = true },
+            Magic2 = new MLibrary(Settings.DataPath + "Magic2") { ComputeLightTint = true },
+            Magic3 = new MLibrary(Settings.DataPath + "Magic3") { ComputeLightTint = true },
+            Effect = new MLibrary(Settings.DataPath + "Effect") { ComputeLightTint = true },
+            MagicC = new MLibrary(Settings.DataPath + "MagicC") { ComputeLightTint = true },
             GuildSkill = new MLibrary(Settings.DataPath + "GuildSkill"),
             Weather = new MLibrary(Settings.DataPath + "Weather");
 
@@ -494,6 +494,23 @@ namespace Client.MirGraphics
             get { return _frames; }
         }
 
+        /// <summary>Spell/effect libraries: work out each frame's light tint while it is decoded (enhanced lighting).</summary>
+        public bool ComputeLightTint;
+
+        /// <summary>
+        /// The light tint of a frame of a <see cref="ComputeLightTint"/> library, known once the frame has been drawn.
+        /// Never decodes: false (use white) for a frame that has not been drawn yet.
+        /// </summary>
+        public bool TryGetLightTint(int index, out Color tint)
+        {
+            tint = Color.White;
+            if (!ComputeLightTint || _images == null || index < 0 || index >= _images.Length) return false;
+            MImage mi = _images[index];
+            if (mi == null || !mi.HasLightTint) return false;
+            tint = mi.LightTint;
+            return true;
+        }
+
         public MLibrary(string filename)
         {
             _fileName = Path.ChangeExtension(filename, Extention);
@@ -573,7 +590,7 @@ namespace Client.MirGraphics
                 if ((mi.Width == 0) || (mi.Height == 0))
                     return false;
                 _fStream.Seek(_indexList[index] + 17, SeekOrigin.Begin);
-                mi.CreateTexture(_reader);
+                mi.CreateTexture(_reader, ComputeLightTint && DXManager.EnhancedLightingAvailable);
             }
 
             return true;
@@ -630,7 +647,7 @@ namespace Client.MirGraphics
                         return Size.Empty;
 
                     _fStream.Seek(_indexList[index] + 17, SeekOrigin.Begin);
-                    mi.CreateTexture(_reader);
+                    mi.CreateTexture(_reader, ComputeLightTint && DXManager.EnhancedLightingAvailable);
                 }
                 return mi.GetTrueSize();
             }
@@ -877,6 +894,10 @@ namespace Client.MirGraphics
 
         public unsafe byte* Data;
 
+        /// <summary>Colour of the light this frame gives off (enhanced lighting), from its bright pixels; set at decode.</summary>
+        public Color LightTint = Color.White;
+        public bool HasLightTint;
+
         public MImage(BinaryReader reader)
         {
             //read layer 1
@@ -902,7 +923,7 @@ namespace Client.MirGraphics
             }
         }
 
-        public unsafe void CreateTexture(BinaryReader reader)
+        public unsafe void CreateTexture(BinaryReader reader, bool computeLightTint = false)
         {
             int w = Width;// + (4 - Width % 4) % 4;
             int h = Height;// + (4 - Height % 4) % 4;
@@ -912,6 +933,9 @@ namespace Client.MirGraphics
 
             using (var stream = new UnmanagedMemoryStream(Data, (long)w * h * 4, (long)w * h * 4, FileAccess.Write))
                 DecompressImage(reader.ReadBytes(Length), stream);
+
+            if (computeLightTint && !HasLightTint)
+                ComputeLightTint(w * h);
 
             DXManager.UnlockTexture(Image);
 
@@ -935,6 +959,36 @@ namespace Client.MirGraphics
 
             CleanTime = CMain.Time + Settings.CleanDelay;
         }
+
+        /// <summary>
+        /// Light tint from the freshly decoded BGRA pixels (called inside CreateTexture, while <see cref="Data"/> is being
+        /// written): an average weighted by alpha and brightness squared, so the glowing part decides, normalised to full
+        /// brightness and mixed 30 % towards white so lights stay soft. Black or empty frames stay white.
+        /// </summary>
+        private unsafe void ComputeLightTint(int pixels)
+        {
+            long r = 0, g = 0, b = 0, total = 0;
+            byte* p = Data;
+            for (int i = 0; i < pixels; i++, p += 4)
+            {
+                int max = Math.Max(p[2], Math.Max(p[1], p[0]));
+                long weight = (long)max * max * p[3];
+                if (weight == 0) continue;
+                b += p[0] * weight;
+                g += p[1] * weight;
+                r += p[2] * weight;
+                total += weight;
+            }
+
+            HasLightTint = true;
+            if (total == 0) return;
+
+            double peak = Math.Max(r, Math.Max(g, b));
+            if (peak <= 0) return;
+            LightTint = Color.FromArgb(255, Soften(r / peak), Soften(g / peak), Soften(b / peak));
+        }
+
+        private static int Soften(double channel) => (int)Math.Round(255 * (0.3 + 0.7 * channel));
 
         public unsafe void DisposeTexture()
         {

@@ -1,0 +1,11 @@
+{
+  "name": "NPCConfirmInput",
+  "dir": "client",
+  "id": 132,
+  "hex": "1500840058000000085B40494E5055545D03796573",
+  "fields": {
+    "NPCID": 88,
+    "PageName": "[@INPUT]",
+    "Value": "yes"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "DamageIndicator",
+  "dir": "server",
+  "id": 75,
+  "hex": "0D004B00F1FFFFFF024D000000",
+  "fields": {
+    "Damage": -15,
+    "Type": 2,
+    "ObjectID": 77
+  }
+}

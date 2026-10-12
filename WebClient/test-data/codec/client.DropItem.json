@@ -1,0 +1,11 @@
+{
+  "name": "DropItem",
+  "dir": "client",
+  "id": 23,
+  "hex": "0F0017000800000000000000020000",
+  "fields": {
+    "UniqueID": 8,
+    "Count": 2,
+    "HeroInventory": false
+  }
+}

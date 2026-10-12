@@ -1,0 +1,10 @@
+{
+  "name": "SearchMapResult",
+  "dir": "server",
+  "id": 20,
+  "hex": "0C0014000300000001286BEE",
+  "fields": {
+    "MapIndex": 3,
+    "NPCIndex": 4000000001
+  }
+}

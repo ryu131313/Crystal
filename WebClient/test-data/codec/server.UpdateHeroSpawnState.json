@@ -1,0 +1,9 @@
+{
+  "name": "UpdateHeroSpawnState",
+  "dir": "server",
+  "id": 179,
+  "hex": "0500B30002",
+  "fields": {
+    "State": 2
+  }
+}

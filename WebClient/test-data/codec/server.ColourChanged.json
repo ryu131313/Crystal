@@ -1,0 +1,9 @@
+{
+  "name": "ColourChanged",
+  "dir": "server",
+  "id": 82,
+  "hex": "080052001020FFFF",
+  "fields": {
+    "NameColour": -57328
+  }
+}

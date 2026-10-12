@@ -1,0 +1,10 @@
+{
+  "name": "ObjectTeleportIn",
+  "dir": "server",
+  "id": 100,
+  "hex": "090064004D00000000",
+  "fields": {
+    "ObjectID": 77,
+    "Type": 0
+  }
+}

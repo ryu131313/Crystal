@@ -1,0 +1,11 @@
+{
+  "name": "DepositTradeItem",
+  "dir": "server",
+  "id": 50,
+  "hex": "0D0032000C0000000300000001",
+  "fields": {
+    "From": 12,
+    "To": 3,
+    "Success": true
+  }
+}

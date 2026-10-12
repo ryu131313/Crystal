@@ -1,0 +1,14 @@
+{
+  "name": "ObjectDeco",
+  "dir": "server",
+  "id": 219,
+  "hex": "1400DB00630000007B000000C801000040E20100",
+  "fields": {
+    "ObjectID": 99,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Image": 123456
+  }
+}

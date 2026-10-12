@@ -1,0 +1,9 @@
+{
+  "name": "DelMember",
+  "dir": "client",
+  "id": 61,
+  "hex": "09003D0004416C6C79",
+  "fields": {
+    "Name": "Ally"
+  }
+}

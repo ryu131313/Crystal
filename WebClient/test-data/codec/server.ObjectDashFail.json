@@ -1,0 +1,14 @@
+{
+  "name": "ObjectDashFail",
+  "dir": "server",
+  "id": 153,
+  "hex": "110099004D0000007B000000C801000006",
+  "fields": {
+    "ObjectID": 77,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 6
+  }
+}

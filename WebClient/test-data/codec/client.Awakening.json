@@ -1,0 +1,11 @@
+{
+  "name": "Awakening",
+  "dir": "client",
+  "id": 113,
+  "hex": "110071000B000000000000000600286BEE",
+  "fields": {
+    "UniqueID": 11,
+    "Type": 6,
+    "PositionIdx": 4000000000
+  }
+}

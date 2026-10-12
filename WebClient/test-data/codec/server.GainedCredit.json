@@ -1,0 +1,9 @@
+{
+  "name": "GainedCredit",
+  "dir": "server",
+  "id": 69,
+  "hex": "0800450096000000",
+  "fields": {
+    "Credit": 150
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "EquipSlotItem",
+  "dir": "client",
+  "id": 101,
+  "hex": "1A0065000105000000000000000100000014011A711802000000",
+  "fields": {
+    "Grid": 1,
+    "UniqueID": 5,
+    "To": 1,
+    "GridTo": 20,
+    "ToUniqueID": 9000000001
+  }
+}

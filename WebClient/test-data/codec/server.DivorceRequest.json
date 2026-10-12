@@ -1,0 +1,9 @@
+{
+  "name": "DivorceRequest",
+  "dir": "server",
+  "id": 190,
+  "hex": "0C00BE0007576562416C6C79",
+  "fields": {
+    "Name": "WebAlly"
+  }
+}

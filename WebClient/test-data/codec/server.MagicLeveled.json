@@ -1,0 +1,12 @@
+{
+  "name": "MagicLeveled",
+  "dir": "server",
+  "id": 119,
+  "hex": "0C007700D20400001F024D00",
+  "fields": {
+    "ObjectID": 1234,
+    "Spell": 31,
+    "Level": 2,
+    "Experience": 77
+  }
+}

@@ -44,6 +44,7 @@ All projects are in `Legend of Mir.sln` (configs `Debug|Any CPU` / `Release|Any 
 | **Shared.Tests** | `Shared.Tests/…csproj` | — | `$(SharedTfm)`;net10.0 | AnyCPU | own `bin` (safe) | Packet safety net: factory cases, round trips, append-only wire manifest `packet-manifest.txt` (roadmap P1) |
 | **Server.Persistence.Tests** | `Server.Persistence.Tests/…csproj` | — | `$(ServerTfm)` | AnyCPU | own `bin` (safe) | DB harness: byte round trip + semantic oracle of `Server.MirDB`/`Server.MirADB` on synthetic data, or on a copy of real data via `MIR2_PERSISTENCE_DATA` (roadmap P1) |
 | **StressClient** | `StressClient/StressClient.csproj` | `StressClient.exe` | `$(ServerTfm)` | AnyCPU | own `bin` (safe) | Bot load generator on the real Shared codec (roadmap P6). Scratch servers only: `Knowledgebase/StressClient/stressclient.md` |
+| **WebRelay** | `WebRelay/WebRelay.csproj` | `WebRelay.exe` | `$(ServerTfm)` | AnyCPU | own `bin` (safe) | Web client sidecar (roadmap W): WebSocket <-> TCP relay of raw Crystal frames + read-only `Data\`/`Map\` serving for `WebClient/` (TypeScript/WebGL2, `tsc`, not in the sln): `Knowledgebase/WebClient/webclient.md` |
 | **ScratchWorld** | `tools/scratch-world/ScratchWorld.csproj` | `ScratchWorld.exe` | `$(ServerTfm)` | AnyCPU | own `bin` (safe) | Generates a synthetic map + `Server.MirDB` for scratch servers (`tools/start-scratch-server.ps1` / `stop-scratch-server.ps1`) |
 | **MirDbExport** (+ `.Tests`) | `tools/MirDbExport/MirDbExport.csproj` | `MirDbExport.exe` | `$(ServerTfm)` | AnyCPU | own `bin` (safe) | Read-only SQLite export + independent verifier of `Server.MirDB` (roadmap P7 step 1): `Knowledgebase/Future Ideas/P7-SQLite-Export.md` |
 | **AutoPatcherAdmin** | `AutoPatcherAdmin/…csproj` | `AutoPatcherAdmin.exe` | net8.0-windows7.0 | AnyCPU | project `bin` | Operator tool: diff client folder, upload gz files + `PList.gz` via FTP (WinSCP) |
@@ -136,6 +137,9 @@ What are you editing?
 ├─ LibraryEditor/, LibraryViewer/
 │     → client.md §2.5 / §3.3 (.Lib format) + §3.5 (`MirAction` stored in frame tables) + the tool's source
 │
+├─ WebClient/, WebRelay/   (browser client + its relay)
+│     → Knowledgebase/WebClient/webclient.md (+ BOTH child docs when a ported packet changes)
+│
 ├─ AutoPatcherAdmin/, AutoPatcherAdminV2/, PatcherWebSite/, Client/Forms/AMain.cs
 │     → no child doc; this index + source (Client/Forms/AMain.cs also client.md §2.1)
 │
@@ -168,6 +172,7 @@ What are you editing?
 2. `sealed class` in `Shared/ServerPackets.cs` (`S`) / `Shared/ClientPackets.cs` (`C`) with `ReadPacket`/`WritePacket` in identical field order and types.
 3. A `case` in `Shared/Packet.cs` `GetServerPacket` / `GetClientPacket` — **a missing case makes the receiver discard its whole receive buffer, silently.**
 4. Handler: server `MirConnection.ProcessPacket` (`Server/MirNetwork/MirConnection.cs`) → usually `PlayerObject`/`HumanObject`; client `GameScene.ProcessPacket` (or `LoginScene`/`SelectScene`/base `MirScene.ProcessPacket`).
+5. If the packet is ported to the web client (`WebClient/src/protocol/server.ts` / `client.ts`): update the TS port and its `WebRelay/Fixtures.cs` sample, then `npm run codec:regen` + `npm run codec:test` in `WebClient/` (webclient.md §3.1). Any `Shared/Enums.cs` change: re-run `WebRelay --emit-ts`.
 Also: ≤ 65 535 bytes per packet; private server packets `Observable => false`; hero-forwarded packets go in the `HeroObject.Enqueue` whitelist. `ReadPacket` runs on the socket/IOCP thread on both sides: no static/game state in packet classes. A read/write mismatch IP-blocks the player for 24 h (server) or crashes the client process (socket thread). There is no ID catalog file and no attribute serialisation (unlike WoOOLcraft's `WoooLPacketIds.ini`).
 
 **Shared / persisted-enum rule:** there is **one** copy of every shared enum, in `Shared/Enums.cs` (plus `Stat`/`StatFormula` in `Shared/Data/Stat.cs`, `ClientTextKeys`/`ServerTextKeys` in `Shared/Language.cs`). Enums stored by numeric value in the DB, on the wire or in `.Lib` files are **never renumbered, reordered or inserted into**: `MirAction` (implicitly numbered, stored by byte in every v3 `.Lib` frame table — append at the end only), `Stat : byte` (< 255, `Unknown = 255`), `Monster : ushort` (= `Data\Monster\NNN.Lib`), `ItemType`, `Spell`, `BuffType`, `ItemSet`, `ObjectType`, `MirClass`, `MirGridType`, `BindMode`, …. New members get an **explicit unused value**: at the end for sequential enums, or a free value in the right band for banded ones (`Spell` by class, `Stat` gaps < 255). Check `[Flags]` enums (e.g. `PoisonType`, `BindMode`, `SpecialItemMode`, `RequiredClass`, `RequiredGender`) before `Enum.IsDefined`; `BindMode` has no free bit. Details: server.md §3.4, client.md §3.5. Language keys (`ClientTextKeys`/`ServerTextKeys`) and `KeybindOptions` are looked up **by name** — order is free, renaming is not. Client-only enums live in `Client/`.
@@ -212,6 +217,7 @@ C:\Mir2\
 ├── Server.WebAdmin.Tests/  → server.md §5.5
 ├── Client/                 → client.md   (Forms/, MirGraphics/, MirControls/, MirScenes/,
 │                                          MirNetwork/, MirObjects/, MirSounds/, Localization/)
+├── WebClient/, WebRelay/  → Knowledgebase/WebClient/webclient.md (browser client + relay)
 ├── AutoPatcherAdmin/, AutoPatcherAdminV2/, PatcherWebSite/   → this index (no child doc)
 ├── LibraryEditor/, LibraryViewer/                            → client.md §2.5, §3.3 (.Lib format) + §3.5 (MirAction)
 ├── Controls/FixedListViewControl/   → CustomFormControl source (built into LibraryEditor/Viewer; Server uses the Components\ copy)
@@ -238,6 +244,7 @@ C:\Mir2\
 | **Client socket thread** | APM `Network.ReceiveData`: decode + enqueue into `ConcurrentQueue<Packet>` | No |
 | **Client loader thread** | `Libraries` → `LoadGameLibraries`: `MLibrary.Initialize()` only; publishes `Libraries.Loaded`/`Progress` | No |
 | **Patcher tools** | Client `AMain` (before the game form), AutoPatcherAdmin(V2): Task/HTTP/FTP/SFTP | **Yes** |
+| **Web client** | WebRelay: async pool threads, two pumps per session (no game state). Browser: one `requestAnimationFrame` loop + async loads | **Yes** (relay); n/a (browser) |
 
 Server details: `server.md` §2.3, §3.2. Client details: `client.md` §2.1, §3.2.
 
@@ -264,6 +271,7 @@ Server details: `server.md` §2.3, §3.2. Client details: `client.md` §2.1, §3
 | `Knowledgebase/roadmap.md` | **Proposed 2026-10-08** — ordered modernisation plan (.NET 10, SQLite, server optimisation, DX11 client track), phase gates, rule overrides (⚠), open decisions, status table. Check it before starting any modernisation phase; per-phase mechanics and evidence are in `Future Ideas/Roadmap-Phase-Notes.md` |
 | `Knowledgebase/PatchHost/` | Empty placeholder (Crystal has no PatchHost project; patching = AutoPatcherAdmin(V2) + client `AMain`) |
 | `Knowledgebase/StressClient/` | `stressclient.md` (2026-10-10): the bot load generator, scratch servers, the baseline script |
+| `Knowledgebase/WebClient/` | `webclient.md` (2026-10-12): browser client + WebRelay, packet-port recipe, known gaps (roadmap W) |
 | `Knowledgebase/Websites/` | Empty placeholder (web admin rules live in `server.md` §2.7 / §3.7 / §4.10 + `Server/WebAdmin/README.md`) |
 | `Knowledgebase/Future Ideas/` | `Roadmap-Phase-Notes.md` (per-phase notes for `roadmap.md`), the overnight decisions log (`Overnight-Log-2026-10-10.md`, D1–D39+), `X1-Security-Review.md`, `Packet-Mutation-Audit.md`, `Review-P2-P6-Threading.md`, `P7-SQLite-Export.md` |
 | `Knowledgebase/Future Optimisation/` | Baselines (`Baseline-2026-10-10.md`) and one file per measured P9 change (`P9-NN-*.md`) |

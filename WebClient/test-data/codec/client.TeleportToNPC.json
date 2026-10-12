@@ -1,0 +1,9 @@
+{
+  "name": "TeleportToNPC",
+  "dir": "client",
+  "id": 40,
+  "hex": "0800280058000000",
+  "fields": {
+    "ObjectID": 88
+  }
+}

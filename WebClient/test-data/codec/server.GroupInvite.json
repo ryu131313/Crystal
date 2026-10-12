@@ -1,0 +1,9 @@
+{
+  "name": "GroupInvite",
+  "dir": "server",
+  "id": 134,
+  "hex": "0B008600064C6561646572",
+  "fields": {
+    "Name": "Leader"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "NewMonsterInfo",
+  "dir": "server",
+  "id": 33,
+  "hex": "380021000C000000074F6D614B696E67084F6D61204B696E677E0003012D00073202C409E80300286BEE0100010001010000000528000000",
+  "fields": {
+    "Info": {
+      "Index": 12,
+      "Name": "OmaKing",
+      "GameName": "Oma King",
+      "Image": 126,
+      "AI": 3,
+      "Effect": 1,
+      "ViewRange": 7,
+      "CoolEye": 50,
+      "Level": 45,
+      "Light": 2,
+      "AttackSpeed": 2500,
+      "MoveSpeed": 1000,
+      "Experience": 4000000000,
+      "CanTame": false,
+      "CanPush": true,
+      "AutoRev": true,
+      "Undead": false,
+      "CanRecall": true,
+      "Stats": {
+        "5": 40
+      }
+    }
+  }
+}

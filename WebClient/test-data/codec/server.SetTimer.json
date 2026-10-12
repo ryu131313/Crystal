@@ -1,0 +1,11 @@
+{
+  "name": "SetTimer",
+  "dir": "server",
+  "id": 269,
+  "hex": "0F000D01056576656E74012C010000",
+  "fields": {
+    "Key": "event",
+    "Type": 1,
+    "Seconds": 300
+  }
+}

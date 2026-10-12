@@ -1,0 +1,9 @@
+{
+  "name": "DeleteMember",
+  "dir": "server",
+  "id": 133,
+  "hex": "0900850004416C6C79",
+  "fields": {
+    "Name": "Ally"
+  }
+}

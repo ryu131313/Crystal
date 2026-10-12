@@ -1,0 +1,9 @@
+{
+  "name": "RefineCancel",
+  "dir": "server",
+  "id": 48,
+  "hex": "0500300001",
+  "fields": {
+    "Unlock": true
+  }
+}

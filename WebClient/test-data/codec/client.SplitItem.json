@@ -1,0 +1,11 @@
+{
+  "name": "SplitItem",
+  "dir": "client",
+  "id": 21,
+  "hex": "0F00150001011A7118020000000700",
+  "fields": {
+    "Grid": 1,
+    "UniqueID": 9000000001,
+    "Count": 7
+  }
+}

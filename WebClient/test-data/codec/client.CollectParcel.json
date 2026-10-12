@@ -1,0 +1,9 @@
+{
+  "name": "CollectParcel",
+  "dir": "client",
+  "id": 119,
+  "hex": "0C007700031A711802000000",
+  "fields": {
+    "MailID": 9000000003
+  }
+}

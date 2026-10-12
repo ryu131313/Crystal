@@ -1,0 +1,10 @@
+{
+  "name": "MarketBuy",
+  "dir": "client",
+  "id": 74,
+  "hex": "10004A00021A71180200000000286BEE",
+  "fields": {
+    "AuctionID": 9000000002,
+    "BidPrice": 4000000000
+  }
+}

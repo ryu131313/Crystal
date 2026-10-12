@@ -1,0 +1,26 @@
+{
+  "name": "LoginSuccess",
+  "dir": "server",
+  "id": 9,
+  "hex": "34000900020000000700000005416C70686116000101000049C2F327DF48090000000542C3AA7461010003000000000000000000",
+  "fields": {
+    "Characters": [
+      {
+        "Index": 7,
+        "Name": "Alpha",
+        "Level": 22,
+        "Class": 1,
+        "Gender": 1,
+        "LastAccess": "5250959618427387904"
+      },
+      {
+        "Index": 9,
+        "Name": "Bêta",
+        "Level": 1,
+        "Class": 3,
+        "Gender": 0,
+        "LastAccess": "0"
+      }
+    ]
+  }
+}

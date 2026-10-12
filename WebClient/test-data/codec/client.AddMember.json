@@ -1,0 +1,9 @@
+{
+  "name": "AddMember",
+  "dir": "client",
+  "id": 60,
+  "hex": "09003C0004416C6C79",
+  "fields": {
+    "Name": "Ally"
+  }
+}

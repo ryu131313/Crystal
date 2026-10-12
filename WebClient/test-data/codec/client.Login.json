@@ -1,0 +1,10 @@
+{
+  "name": "Login",
+  "dir": "client",
+  "id": 5,
+  "hex": "1300050004616363740970C3A47373776F7264",
+  "fields": {
+    "AccountID": "acct",
+    "Password": "pässword"
+  }
+}

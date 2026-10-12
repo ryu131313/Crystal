@@ -1,0 +1,15 @@
+{
+  "name": "ObjectStruck",
+  "dir": "server",
+  "id": 74,
+  "hex": "15004A004D000000420000007B000000C801000002",
+  "fields": {
+    "ObjectID": 77,
+    "AttackerID": 66,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 2
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "LoginBanned",
+  "dir": "server",
+  "id": 8,
+  "hex": "1F00080012426F7474696E6720E2809420E5B081E58FB780C07D0F7D68DF48",
+  "fields": {
+    "Reason": "Botting — 封号",
+    "ExpiryDate": "5251030576877387904"
+  }
+}

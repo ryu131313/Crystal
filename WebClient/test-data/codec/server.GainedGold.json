@@ -1,0 +1,9 @@
+{
+  "name": "GainedGold",
+  "dir": "server",
+  "id": 67,
+  "hex": "08004300005ED0B2",
+  "fields": {
+    "Gold": 3000000000
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "OpenBrowser",
+  "dir": "server",
+  "id": 267,
+  "hex": "1D000B011868747470733A2F2F6578616D706C652E696E76616C69642F",
+  "fields": {
+    "Url": "https://example.invalid/"
+  }
+}

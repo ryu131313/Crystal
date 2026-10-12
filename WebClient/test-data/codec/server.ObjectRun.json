@@ -1,0 +1,14 @@
+{
+  "name": "ObjectRun",
+  "dir": "server",
+  "id": 29,
+  "hex": "11001D004D0000007B000000C801000007",
+  "fields": {
+    "ObjectID": 77,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 7
+  }
+}

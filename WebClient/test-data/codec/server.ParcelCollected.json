@@ -1,0 +1,9 @@
+{
+  "name": "ParcelCollected",
+  "dir": "server",
+  "id": 235,
+  "hex": "0500EB00FE",
+  "fields": {
+    "Result": -2
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "GuildBuffUpdate",
+  "dir": "client",
+  "id": 131,
+  "hex": "090083000287D61200",
+  "fields": {
+    "Action": 2,
+    "Id": 1234567
+  }
+}

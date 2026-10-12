@@ -1,0 +1,10 @@
+{
+  "name": "Awakening",
+  "dir": "server",
+  "id": 230,
+  "hex": "1000E600FEFFFFFF011A711802000000",
+  "fields": {
+    "result": -2,
+    "removeID": 9000000001
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "Death",
+  "dir": "server",
+  "id": 80,
+  "hex": "0D0050007B000000C801000004",
+  "fields": {
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 4
+  }
+}

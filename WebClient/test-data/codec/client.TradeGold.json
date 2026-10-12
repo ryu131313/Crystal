@@ -1,0 +1,9 @@
+{
+  "name": "TradeGold",
+  "dir": "client",
+  "id": 98,
+  "hex": "08006200005ED0B2",
+  "fields": {
+    "Amount": 3000000000
+  }
+}

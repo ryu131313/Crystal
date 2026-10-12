@@ -1,0 +1,14 @@
+{
+  "name": "ObjectTurn",
+  "dir": "server",
+  "id": 27,
+  "hex": "11001B004D0000007B000000C801000000",
+  "fields": {
+    "ObjectID": 77,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 0
+  }
+}

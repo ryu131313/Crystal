@@ -1,0 +1,9 @@
+{
+  "name": "GuildInvite",
+  "dir": "client",
+  "id": 81,
+  "hex": "0500510000",
+  "fields": {
+    "AcceptInvite": false
+  }
+}

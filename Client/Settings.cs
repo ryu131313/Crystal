@@ -82,6 +82,8 @@ namespace Client
         // [Graphics] RebuildOptimisations: fewer UI/map render-target rebuilds (live skill-bar/minimap overlays, no blind 100 ms map
         // tick, off-screen frames skipped). False restores the old invalidation behaviour for A/B checks and rollback.
         public static bool RebuildOptimisations = true;
+        // [Graphics] Lighting: Classic (default) or Enhanced (D3D11 only; D3D9 always draws Classic). In game: @light new / @light old.
+        public static LightingMode Lighting = LightingMode.Classic;
 
         //Network
         public static bool UseConfig = false;
@@ -224,6 +226,7 @@ namespace Client
             Resolution = Reader.ReadInt32("Graphics", "Resolution", Resolution);
             DebugMode = Reader.ReadBoolean("Graphics", "DebugMode", DebugMode);
             RebuildOptimisations = Reader.ReadBoolean("Graphics", "RebuildOptimisations", RebuildOptimisations);
+            Lighting = Enum.TryParse(Reader.ReadString("Graphics", "Lighting", Lighting.ToString()), true, out LightingMode lighting) ? lighting : LightingMode.Classic;
             UseMouseCursors = Reader.ReadBoolean("Graphics", "UseMouseCursors", UseMouseCursors);
 
             //Network
@@ -355,6 +358,7 @@ namespace Client
             Reader.Write("Graphics", "Resolution", Resolution);
             Reader.Write("Graphics", "DebugMode", DebugMode);
             Reader.Write("Graphics", "RebuildOptimisations", RebuildOptimisations);
+            Reader.Write("Graphics", "Lighting", Lighting.ToString());
             Reader.Write("Graphics", "UseMouseCursors", UseMouseCursors);
 
             //Sound

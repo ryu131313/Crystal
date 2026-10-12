@@ -1,0 +1,11 @@
+{
+  "name": "NewHero",
+  "dir": "client",
+  "id": 63,
+  "hex": "0F003F0008536964656B69636B0102",
+  "fields": {
+    "Name": "Sidekick",
+    "Gender": 1,
+    "Class": 2
+  }
+}

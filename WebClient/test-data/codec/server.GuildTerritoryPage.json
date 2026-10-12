@@ -1,0 +1,31 @@
+{
+  "name": "GuildTerritoryPage",
+  "dir": "server",
+  "id": 276,
+  "hex": "560014010C00000002000000000000000B426963686F6E2057616C6C085765624775696C64075765624865726F00404B4C00070000000100000001000000084D6F6E6763686F6E000000000000000000000000000000",
+  "fields": {
+    "Listings": [
+      {
+        "index": 0,
+        "Name": "Bichon Wall",
+        "Owner": "WebGuild",
+        "Leader": "WebHero",
+        "Leader2": "",
+        "price": 5000000,
+        "days": 7,
+        "begin": 1
+      },
+      {
+        "index": 1,
+        "Name": "Mongchon",
+        "Owner": "",
+        "Leader": "",
+        "Leader2": "",
+        "price": 0,
+        "days": 0,
+        "begin": 0
+      }
+    ],
+    "length": 12
+  }
+}

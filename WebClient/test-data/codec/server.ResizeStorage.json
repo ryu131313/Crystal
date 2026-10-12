@@ -1,0 +1,11 @@
+{
+  "name": "ResizeStorage",
+  "dir": "server",
+  "id": 238,
+  "hex": "1100EE00A00000000100C0BE2D9A67DF48",
+  "fields": {
+    "Size": 160,
+    "HasExpandedStorage": true,
+    "ExpiryTime": "5251029602427387904"
+  }
+}

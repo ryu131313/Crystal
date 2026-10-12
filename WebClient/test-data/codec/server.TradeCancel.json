@@ -1,0 +1,9 @@
+{
+  "name": "TradeCancel",
+  "dir": "server",
+  "id": 197,
+  "hex": "0500C50001",
+  "fields": {
+    "Unlock": true
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "GameShopStock",
+  "dir": "server",
+  "id": 251,
+  "hex": "0C00FB000400000000000000",
+  "fields": {
+    "GIndex": 4,
+    "StockLevel": 0
+  }
+}

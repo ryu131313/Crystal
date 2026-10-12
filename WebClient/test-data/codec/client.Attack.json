@@ -1,0 +1,10 @@
+{
+  "name": "Attack",
+  "dir": "client",
+  "id": 47,
+  "hex": "06002F000200",
+  "fields": {
+    "Direction": 2,
+    "Spell": 0
+  }
+}

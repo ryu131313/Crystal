@@ -1,0 +1,11 @@
+{
+  "name": "MagicKey",
+  "dir": "client",
+  "id": 57,
+  "hex": "070039001F0201",
+  "fields": {
+    "Spell": 31,
+    "Key": 2,
+    "OldKey": 1
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "name": "NewMapInfo",
+  "dir": "server",
+  "id": 18,
+  "hex": "7D001200030000000F426963686F6E2050726F76696E6365BC020000BC02000002000000010000000400000004436176657B000000C80100000200000001000000050000000B426963686F6E2F53686F700D4D65726368616E745F4A6F686E010000007B000000C80100000E0078000107000000580000000300000001",
+  "fields": {
+    "MapIndex": 3,
+    "Info": {
+      "Width": 700,
+      "Height": 700,
+      "BigMap": 2,
+      "Title": "Bichon Province",
+      "Movements": [
+        {
+          "Destination": 4,
+          "Title": "Cave",
+          "Location": {
+            "X": 123,
+            "Y": 456
+          },
+          "Icon": 2
+        }
+      ],
+      "NPCs": [
+        {
+          "ObjectID": 88,
+          "Icon": 3,
+          "Index": 5,
+          "FileName": "Bichon/Shop",
+          "Name": "Merchant_John",
+          "MapIndex": 1,
+          "Location": {
+            "X": 123,
+            "Y": 456
+          },
+          "Rate": 120,
+          "Image": 14,
+          "ShowOnBigMap": true,
+          "BigMapIcon": 7,
+          "CanTeleportTo": true
+        }
+      ]
+    }
+  }
+}

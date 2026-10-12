@@ -1,0 +1,10 @@
+{
+  "name": "UseItem",
+  "dir": "client",
+  "id": 22,
+  "hex": "0D001600070000000000000001",
+  "fields": {
+    "UniqueID": 7,
+    "Grid": 1
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "MailCost",
+  "dir": "server",
+  "id": 236,
+  "hex": "0800EC00005ED0B2",
+  "fields": {
+    "Cost": 3000000000
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "NewAccount",
+  "dir": "client",
+  "id": 3,
+  "hex": "2900030004616363740870773132333435360040E4470222C148045573657201510141056140622E63",
+  "fields": {
+    "AccountID": "acct",
+    "Password": "pw123456",
+    "BirthDate": "5242508834427387904",
+    "UserName": "User",
+    "SecretQuestion": "Q",
+    "SecretAnswer": "A",
+    "EMailAddress": "a@b.c"
+  }
+}

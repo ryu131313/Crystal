@@ -1,0 +1,9 @@
+{
+  "name": "TradeReply",
+  "dir": "client",
+  "id": 97,
+  "hex": "0500610001",
+  "fields": {
+    "AcceptInvite": true
+  }
+}

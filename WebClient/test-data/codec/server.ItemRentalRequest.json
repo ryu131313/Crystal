@@ -1,0 +1,10 @@
+{
+  "name": "ItemRentalRequest",
+  "dir": "server",
+  "id": 255,
+  "hex": "0D00FF0007576562416C6C7901",
+  "fields": {
+    "Name": "WebAlly",
+    "Renting": true
+  }
+}

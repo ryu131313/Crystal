@@ -1,0 +1,9 @@
+{
+  "name": "RequestNPCInfo",
+  "dir": "client",
+  "id": 38,
+  "hex": "0800260005000000",
+  "fields": {
+    "NPCIndex": 5
+  }
+}

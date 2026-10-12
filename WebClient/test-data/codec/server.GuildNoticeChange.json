@@ -1,0 +1,13 @@
+{
+  "name": "GuildNoticeChange",
+  "dir": "server",
+  "id": 166,
+  "hex": "2500A600020000000757656C636F6D651452616964206174203920E2809420E6ACA2E8BF8E",
+  "fields": {
+    "update": 2,
+    "notice": [
+      "Welcome",
+      "Raid at 9 — 欢迎"
+    ]
+  }
+}

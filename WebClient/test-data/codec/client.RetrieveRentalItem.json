@@ -1,0 +1,10 @@
+{
+  "name": "RetrieveRentalItem",
+  "dir": "client",
+  "id": 142,
+  "hex": "0C008E00000000000C000000",
+  "fields": {
+    "From": 0,
+    "To": 12
+  }
+}

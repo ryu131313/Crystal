@@ -1,0 +1,9 @@
+{
+  "name": "Poisoned",
+  "dir": "server",
+  "id": 96,
+  "hex": "060060000900",
+  "fields": {
+    "Poison": 9
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "LoseCredit",
+  "dir": "server",
+  "id": 70,
+  "hex": "0800460019000000",
+  "fields": {
+    "Credit": 25
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "TimeOfDay",
+  "dir": "server",
+  "id": 61,
+  "hex": "05003D0003",
+  "fields": {
+    "Lights": 3
+  }
+}

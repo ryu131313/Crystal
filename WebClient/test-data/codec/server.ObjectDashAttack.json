@@ -1,0 +1,15 @@
+{
+  "name": "ObjectDashAttack",
+  "dir": "server",
+  "id": 212,
+  "hex": "1500D4004D0000007B000000C80100000504000000",
+  "fields": {
+    "ObjectID": 77,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 5,
+    "Distance": 4
+  }
+}

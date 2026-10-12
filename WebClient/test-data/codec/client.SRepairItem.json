@@ -1,0 +1,9 @@
+{
+  "name": "SRepairItem",
+  "dir": "client",
+  "id": 56,
+  "hex": "0C0038000700000000000000",
+  "fields": {
+    "UniqueID": 7
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "ShareQuest",
+  "dir": "client",
+  "id": 107,
+  "hex": "08006B000C000000",
+  "fields": {
+    "QuestIndex": 12
+  }
+}

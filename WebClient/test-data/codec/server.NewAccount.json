@@ -1,0 +1,9 @@
+{
+  "name": "NewAccount",
+  "dir": "server",
+  "id": 4,
+  "hex": "0500040008",
+  "fields": {
+    "Result": 8
+  }
+}

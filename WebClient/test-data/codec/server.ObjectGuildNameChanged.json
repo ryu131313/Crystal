@@ -1,0 +1,10 @@
+{
+  "name": "ObjectGuildNameChanged",
+  "dir": "server",
+  "id": 84,
+  "hex": "1000540001286BEE074372797374616C",
+  "fields": {
+    "ObjectID": 4000000001,
+    "GuildName": "Crystal"
+  }
+}

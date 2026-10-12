@@ -1,0 +1,45 @@
+{
+  "name": "NewItemInfo",
+  "dir": "server",
+  "id": 32,
+  "hex": "540020001F0000000E486561767941726D6F7572284D2902020001010004001700162C03A86101002823000000020518000100030101020200000001090000000CECFFFFFF010D486561767920E2809420E9878D",
+  "fields": {
+    "Info": {
+      "Index": 31,
+      "Name": "HeavyArmour(M)",
+      "Type": 2,
+      "Grade": 2,
+      "RequiredType": 0,
+      "RequiredClass": 1,
+      "RequiredGender": 1,
+      "Set": 0,
+      "Shape": 4,
+      "Weight": 23,
+      "Light": 0,
+      "RequiredAmount": 22,
+      "Image": 812,
+      "Durability": 25000,
+      "StackSize": 1,
+      "Price": 9000,
+      "StartItem": false,
+      "Effect": 2,
+      "NeedIdentify": true,
+      "ShowGroupPickup": false,
+      "ClassBased": true,
+      "LevelBased": false,
+      "CanMine": false,
+      "GlobalDropNotify": false,
+      "Bind": 24,
+      "Unique": 1,
+      "RandomStatsId": 3,
+      "CanFastRun": true,
+      "CanAwakening": true,
+      "Slots": 2,
+      "Stats": {
+        "1": 9,
+        "12": -20
+      },
+      "ToolTip": "Heavy — 重"
+    }
+  }
+}

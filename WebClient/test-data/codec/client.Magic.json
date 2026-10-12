@@ -1,0 +1,17 @@
+{
+  "name": "Magic",
+  "dir": "client",
+  "id": 58,
+  "hex": "17003A00D20400001F024D0000000A0000001400000001",
+  "fields": {
+    "Spell": 31,
+    "Direction": 2,
+    "TargetID": 77,
+    "Location": {
+      "X": 10,
+      "Y": 20
+    },
+    "ObjectID": 1234,
+    "SpellTargetLock": true
+  }
+}

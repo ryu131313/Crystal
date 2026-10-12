@@ -1,0 +1,33 @@
+{
+  "name": "ObjectMonster",
+  "dir": "server",
+  "id": 71,
+  "hex": "380047004D0000000348656EFFFFFFFF7B000000C80100000300060102030001020000630000000000000001010437000000030100000002",
+  "fields": {
+    "ObjectID": 77,
+    "Name": "Hen",
+    "NameColour": -1,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Image": 3,
+    "Direction": 6,
+    "Effect": 1,
+    "AI": 2,
+    "Light": 3,
+    "Dead": false,
+    "Skeleton": true,
+    "Poison": 2,
+    "Hidden": false,
+    "Extra": true,
+    "ExtraByte": 4,
+    "ShockTime": 99,
+    "BindingShotCenter": true,
+    "MasterObjectId": 55,
+    "Rarity": 3,
+    "Buffs": [
+      2
+    ]
+  }
+}

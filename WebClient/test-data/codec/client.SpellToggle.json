@@ -1,0 +1,10 @@
+{
+  "name": "SpellToggle",
+  "dir": "client",
+  "id": 69,
+  "hex": "060045000300",
+  "fields": {
+    "Spell": 3,
+    "canUse": 0
+  }
+}

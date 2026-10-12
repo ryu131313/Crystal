@@ -1,0 +1,9 @@
+{
+  "name": "TradeAccept",
+  "dir": "server",
+  "id": 193,
+  "hex": "0C00C10007576562416C6C79",
+  "fields": {
+    "Name": "WebAlly"
+  }
+}

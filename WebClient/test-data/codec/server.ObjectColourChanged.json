@@ -1,0 +1,10 @@
+{
+  "name": "ObjectColourChanged",
+  "dir": "server",
+  "id": 83,
+  "hex": "0C0053004D000000FF0000FF",
+  "fields": {
+    "ObjectID": 77,
+    "NameColour": -16776961
+  }
+}

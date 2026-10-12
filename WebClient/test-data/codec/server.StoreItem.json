@@ -1,0 +1,11 @@
+{
+  "name": "StoreItem",
+  "dir": "server",
+  "id": 43,
+  "hex": "0D002B00070000005000000001",
+  "fields": {
+    "From": 7,
+    "To": 80,
+    "Success": true
+  }
+}

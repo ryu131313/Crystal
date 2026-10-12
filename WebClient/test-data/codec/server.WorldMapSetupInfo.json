@@ -1,0 +1,19 @@
+{
+  "name": "WorldMapSetupInfo",
+  "dir": "server",
+  "id": 19,
+  "hex": "1C00130001010000000300000006426963686F6E0100000088130000",
+  "fields": {
+    "Setup": {
+      "Enabled": true,
+      "Icons": [
+        {
+          "ImageIndex": 3,
+          "Title": "Bichon",
+          "MapIndex": 1
+        }
+      ]
+    },
+    "TeleportToNPCCost": 5000
+  }
+}

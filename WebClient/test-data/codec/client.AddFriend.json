@@ -1,0 +1,10 @@
+{
+  "name": "AddFriend",
+  "dir": "client",
+  "id": 127,
+  "hex": "0D007F0007576562416C6C7901",
+  "fields": {
+    "Name": "WebAlly",
+    "Blocked": true
+  }
+}

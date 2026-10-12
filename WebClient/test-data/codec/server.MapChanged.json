@@ -1,0 +1,22 @@
+{
+  "name": "MapChanged",
+  "dir": "server",
+  "id": 98,
+  "hex": "25006200020000000444303031044361766504000000047B000000C8010000050107000000",
+  "fields": {
+    "MapIndex": 2,
+    "FileName": "D001",
+    "Title": "Cave",
+    "MiniMap": 4,
+    "BigMap": 0,
+    "Music": 7,
+    "Lights": 4,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 5,
+    "MapDarkLight": 1,
+    "Weather": 0
+  }
+}

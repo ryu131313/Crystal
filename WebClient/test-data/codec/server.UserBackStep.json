@@ -1,0 +1,13 @@
+{
+  "name": "UserBackStep",
+  "dir": "server",
+  "id": 209,
+  "hex": "0D00D1007B000000C801000002",
+  "fields": {
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 2
+  }
+}

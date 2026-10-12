@@ -1,0 +1,17 @@
+{
+  "name": "ObjectAttack",
+  "dir": "server",
+  "id": 72,
+  "hex": "140048004D0000007B000000C801000006020301",
+  "fields": {
+    "ObjectID": 77,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 6,
+    "Spell": 2,
+    "Level": 3,
+    "Type": 1
+  }
+}

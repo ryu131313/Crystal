@@ -1,0 +1,10 @@
+{
+  "name": "LockMail",
+  "dir": "client",
+  "id": 121,
+  "hex": "0D007900031A71180200000001",
+  "fields": {
+    "MailID": 9000000003,
+    "Lock": true
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "DepositRentalItem",
+  "dir": "server",
+  "id": 258,
+  "hex": "0D0002010C0000000000000001",
+  "fields": {
+    "From": 12,
+    "To": 0,
+    "Success": true
+  }
+}

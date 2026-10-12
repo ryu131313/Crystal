@@ -1,0 +1,27 @@
+{
+  "name": "ManageHeroes",
+  "dir": "server",
+  "id": 184,
+  "hex": "3300B80004000000010500000008536964656B69636B0C000201010300000000010500000008536964656B69636B0C00020100",
+  "fields": {
+    "MaximumCount": 4,
+    "CurrentHero": {
+      "Index": 5,
+      "Name": "Sidekick",
+      "Level": 12,
+      "Class": 2,
+      "Gender": 1
+    },
+    "Heroes": [
+      null,
+      {
+        "Index": 5,
+        "Name": "Sidekick",
+        "Level": 12,
+        "Class": 2,
+        "Gender": 1
+      },
+      null
+    ]
+  }
+}

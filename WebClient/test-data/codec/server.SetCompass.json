@@ -1,0 +1,12 @@
+{
+  "name": "SetCompass",
+  "dir": "server",
+  "id": 273,
+  "hex": "0C0011017B000000C8010000",
+  "fields": {
+    "Location": {
+      "X": 123,
+      "Y": 456
+    }
+  }
+}

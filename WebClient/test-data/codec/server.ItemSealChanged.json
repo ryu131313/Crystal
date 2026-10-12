@@ -1,0 +1,10 @@
+{
+  "name": "ItemSealChanged",
+  "dir": "server",
+  "id": 116,
+  "hex": "14007400050000000000000000C0F67ABF80DF48",
+  "fields": {
+    "UniqueID": 5,
+    "ExpiryDate": "5251057250427387904"
+  }
+}

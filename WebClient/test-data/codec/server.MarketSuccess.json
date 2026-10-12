@@ -1,0 +1,9 @@
+{
+  "name": "MarketSuccess",
+  "dir": "server",
+  "id": 159,
+  "hex": "16009F0011536F6C6420666F722031303020676F6C64",
+  "fields": {
+    "Message": "Sold for 100 gold"
+  }
+}

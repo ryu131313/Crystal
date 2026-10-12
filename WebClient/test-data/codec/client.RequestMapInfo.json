@@ -1,0 +1,9 @@
+{
+  "name": "RequestMapInfo",
+  "dir": "client",
+  "id": 36,
+  "hex": "0800240003000000",
+  "fields": {
+    "MapIndex": 3
+  }
+}

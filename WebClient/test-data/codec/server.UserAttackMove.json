@@ -1,0 +1,13 @@
+{
+  "name": "UserAttackMove",
+  "dir": "server",
+  "id": 213,
+  "hex": "0D00D5007B000000C801000006",
+  "fields": {
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 6
+  }
+}

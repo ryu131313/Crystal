@@ -1,0 +1,9 @@
+{
+  "name": "RequestChatItem",
+  "dir": "client",
+  "id": 78,
+  "hex": "0C004E00011A711802000000",
+  "fields": {
+    "ChatItemID": 9000000001
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "Turn",
+  "dir": "client",
+  "id": 10,
+  "hex": "05000A0006",
+  "fields": {
+    "Direction": 6
+  }
+}

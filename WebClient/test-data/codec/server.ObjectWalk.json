@@ -1,0 +1,14 @@
+{
+  "name": "ObjectWalk",
+  "dir": "server",
+  "id": 28,
+  "hex": "11001C004D0000007B000000C801000003",
+  "fields": {
+    "ObjectID": 77,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 3
+  }
+}

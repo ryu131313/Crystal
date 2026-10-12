@@ -1,0 +1,14 @@
+{
+  "name": "ObjectGold",
+  "dir": "server",
+  "id": 65,
+  "hex": "14004100F601000000286BEE7B000000C8010000",
+  "fields": {
+    "ObjectID": 502,
+    "Gold": 4000000000,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    }
+  }
+}

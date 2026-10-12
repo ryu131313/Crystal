@@ -1,0 +1,18 @@
+{
+  "name": "Chat",
+  "dir": "client",
+  "id": 13,
+  "hex": "26000D000E6C6F6F6B203C546F7263682F353E01000000050000000000000005546F72636801",
+  "fields": {
+    "Message": "look <Torch/5>",
+    "LinkedItems": [
+      {
+        "RegexInternalName": "<Torch>",
+        "InternalName": "<Torch/5>",
+        "UniqueID": 5,
+        "Title": "Torch",
+        "Grid": 1
+      }
+    ]
+  }
+}

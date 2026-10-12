@@ -1,0 +1,10 @@
+{
+  "name": "FinishQuest",
+  "dir": "client",
+  "id": 105,
+  "hex": "0C0069000C000000FFFFFFFF",
+  "fields": {
+    "QuestIndex": 12,
+    "SelectedItemIndex": -1
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "CombineItem",
+  "dir": "server",
+  "id": 214,
+  "hex": "1700D600010500000000000000011A7118020000000101",
+  "fields": {
+    "Grid": 1,
+    "IDFrom": 5,
+    "IDTo": 9000000001,
+    "Success": true,
+    "Destroy": true
+  }
+}

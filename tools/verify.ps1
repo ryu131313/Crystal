@@ -49,6 +49,7 @@ $Projects = [ordered]@{
     'MirDbExport'        = 'tools\MirDbExport\MirDbExport.csproj'
     'StressClient'       = 'StressClient\StressClient.csproj'
     'ScratchWorld'       = 'tools\scratch-world\ScratchWorld.csproj'
+    'WebRelay'           = 'WebRelay\WebRelay.csproj'
 }
 
 # Test projects build to their own bin\ (safe) and are run with `dotnet test`.

@@ -60,6 +60,22 @@ powershell -ExecutionPolicy Bypass -File tools\rendertest.ps1 -Mode Record  -Bac
 
 Kill switches for diagnosis only: environment variables `MIR2_D3D11_SAMPLER=point|linear|auto|anisotropic` and `MIR2_D3D11_SPRITE_PS=keep`. Defaults are the proven behaviour.
 
+## Enhanced lighting (D3D11 only, 2026-10-12)
+
+User decision (option A, 2026-10-12): new lighting ships now as an opt-in, D3D11-only mode instead of waiting for C5. This is a scoped exception to "D3D9 and D3D11 stay golden-identical": the **classic** lights stay the default and identical on both backends (S08/S15 goldens); only `[Graphics] Lighting=Enhanced` differs, and D3D9 always draws Classic.
+
+| Piece | Where |
+|---|---|
+| Setting / toggle | `Settings.Lighting` (`LightingMode` in `IRenderBackend.cs`), `[Graphics] Lighting=Classic|Enhanced`; in game `@light new` / `@light old` (client-only chat command in `ChatDialog.TryLightingCommand`, never sent to the server) |
+| Seam | `IRenderBackend.SupportsEnhancedLighting`, `CreateLightTarget` (R16G16B16A16_Float), `DrawLight`, `PixelShaderKind.Light` / `LightComposite`; D3D9 returns false / throws `NotSupportedException` |
+| Façade | `DXManager.EnhancedLightingAvailable`, `CreateLightTarget`, `SetEnhancedLightAdditiveBlend`, `EndEnhancedLightBlend`, `DrawLight`, `SetEnhancedLightCompositeBlend`; `EnhancedLightTexture` released in `CleanUp` |
+| Map code | `Client/MirScenes/MapControl.Lighting.cs` (partial `MapControl`); `CreateTexture` picks it when `MapControl.UseEnhancedLighting` |
+| Spell tints | `MLibrary.ComputeLightTint` (Magic, Magic2, Magic3, Effect, MagicC): `MImage.CreateTexture` averages the bright pixels while decoding (D3D11 only); `MLibrary.TryGetLightTint` never decodes. `Effect.LastDrawnIndex` names the frame |
+
+How it draws: same light sources, rectangles and classic quirks (offset by `LightSizes[r]`, size `LightSizes[r + 1]`). Lights add (One, One) into the float map through `Light_PS` (falloff (1 − r²)², intensity = vertex alpha × 4). `LightComposite_PS` soft-knees the map above 1 towards 2, outputs half, and the blend (DestinationColor, SourceColor) doubles it, so the result is scene × light with light in 0..2. Ambient: classic darkness colours, moonlit night `(6,8,16)`, warm evening, cool dawn, 4 s smoothstep fades (snap on map change). Lights scale down as the ambient brightens and are off in daylight, as in Classic. Flicker (candle/torch tiers, map lamps, spell objects) and fades request rebuilds through `NeedsTimedRebuild` ("light-flicker", "light-fade"), so at night with a flickering light in view the map texture rebuilds at the 100 ms tick (the pre-`RebuildOptimisations` rate).
+
+Test: `X01_enhanced_lights` (self-checked, see client.md §5.2.1); no golden.
+
 ## Fullscreen and input
 
 - **D3D9** keeps exclusive fullscreen.

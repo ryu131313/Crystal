@@ -1,0 +1,11 @@
+{
+  "name": "SetConcentration",
+  "dir": "server",
+  "id": 216,
+  "hex": "0A00D8004D0000000100",
+  "fields": {
+    "ObjectID": 77,
+    "Enabled": true,
+    "Interrupted": false
+  }
+}

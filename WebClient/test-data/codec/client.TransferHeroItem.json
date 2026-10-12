@@ -1,0 +1,10 @@
+{
+  "name": "TransferHeroItem",
+  "dir": "client",
+  "id": 33,
+  "hex": "0C0021002E00000003000000",
+  "fields": {
+    "From": 46,
+    "To": 3
+  }
+}

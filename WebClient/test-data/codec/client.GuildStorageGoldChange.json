@@ -1,0 +1,10 @@
+{
+  "name": "GuildStorageGoldChange",
+  "dir": "client",
+  "id": 84,
+  "hex": "0900540001005ED0B2",
+  "fields": {
+    "Type": 1,
+    "Amount": 3000000000
+  }
+}

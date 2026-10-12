@@ -1,0 +1,7 @@
+{
+  "name": "TradeCancel",
+  "dir": "client",
+  "id": 100,
+  "hex": "04006400",
+  "fields": {}
+}

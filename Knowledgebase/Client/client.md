@@ -131,7 +131,7 @@ private static void Application_Idle(object sender, EventArgs e)
 | Text | GDI `TextRenderer.DrawText` into a locked `Pool.Managed` texture | `MirControls/MirLabel.cs` |
 | Sprites/tiles | `MLibrary` / `MImage` (`.Lib` v2/v3), static registry `Libraries` | `MirGraphics/MLibrary.cs` |
 | Map | `MapControl` (own RT + `DXManager.FloorTexture` + `DXManager.LightTexture`) | `MirScenes/GameScene.cs` |
-| Lights | 10 GDI+ radial-gradient textures `DXManager.Lights` | `DXManager.cs` |
+| Lights | Classic: 10 GDI+ radial-gradient textures `DXManager.Lights` (both backends, golden-tested). Enhanced (`[Graphics] Lighting=Enhanced`, in game `@light new`/`@light old`, **D3D11 only**, 2026-10-12): float light map `DXManager.EnhancedLightTexture`, `Light`/`LightComposite` shaders, brightening lights, flicker, day/night fades, spell lights tinted from their sprite (`MLibrary.ComputeLightTint`) — see `D3D11-Parity.md` "Enhanced lighting" | `DXManager.cs`, `MirScenes/MapControl.Lighting.cs` |
 | Audio | NAudio 2.2.1 `WaveOutEvent` + `MixingSampleProvider` | `MirSounds/SoundManager.cs` |
 
 **Device (D3D9 backend):** `DXManager.Create()` → `D3D9Backend.Create` — `X8R8G8B8` back buffer sized `Settings.ScreenWidth x ScreenHeight`, `LockableBackBuffer`, `SwapEffect.Discard`, `Windowed = !Settings.FullScreen`, `HardwareVertexProcessing` (+`PureDevice` if capable). **No `CreateFlags.Multithreaded`.** If VS/PS major < 2 the device type falls back to **Reference** (software, unusably slow). **D3D11 backend:** hardware device (feature level 11_0/10_1/10_0, BGRA support), swap chain with `Scaling.Stretch`: flip-discard (3 buffers) with vsync, blit (`SwapEffect.Discard`, 1 buffer) when uncapped — faster than flip at uncapped rates (D3D11-Parity.md); max frame latency 1 with vsync, 3 uncapped. Fullscreen = **borderless window over the screen** with a game-sized back buffer (`DXManager.UsesBorderlessFullscreen`); `CMain` maps mouse input through `DXManager.ClientToScene`.
@@ -183,7 +183,7 @@ private static void Application_Idle(object sender, EventArgs e)
 
 | File (CWD-relative) | Owner | Contents |
 |---|---|---|
-| `.\Mir2Config.ini` (Release) / `.\Mir2Test.ini` (Debug or `-tc`) | `Settings.Load/Save` via `InIReader` (`Shared/Functions/IniReader.cs`) | `[Graphics]` FullScreen, Borderless, MouseClip, AlwaysOnTop, FPSCap, Resolution, DebugMode, UseMouseCursors; `[Network]` UseConfig, IPAddress, Port; `[Logs]`; `[Sound]` Volume, SoundOverLap, Music, CleanMinutes; `[Game]` AccountID, **Password (plaintext)**, view toggles, FontName, Language, `Skillbar{i}X/Y`, ...; `[Chat]`, `[Filter]`; `[Launcher]` Enabled, Host, PatchFile, Login, **Password (plaintext)**, ConcurrentDownloads (1..100), ... |
+| `.\Mir2Config.ini` (Release) / `.\Mir2Test.ini` (Debug or `-tc`) | `Settings.Load/Save` via `InIReader` (`Shared/Functions/IniReader.cs`) | `[Graphics]` FullScreen, Borderless, MouseClip, AlwaysOnTop, FPSCap, Resolution, DebugMode, UseMouseCursors, Renderer, RebuildOptimisations, Lighting (Classic/Enhanced); `[Network]` UseConfig, IPAddress, Port; `[Logs]`; `[Sound]` Volume, SoundOverLap, Music, CleanMinutes; `[Game]` AccountID, **Password (plaintext)**, view toggles, FontName, Language, `Skillbar{i}X/Y`, ...; `[Chat]`, `[Filter]`; `[Launcher]` Enabled, Host, PatchFile, Login, **Password (plaintext)**, ConcurrentDownloads (1..100), ... |
 | `.\KeyBinds.ini` | `KeyBindSettings` (`CMain.InputKeys`) | one section per `KeybindOptions` member **name** |
 | `.\Data\UserData\QuestTracking.ini` | `Settings.LoadTrackedQuests/SaveTrackedQuests(charName)` | tracked quests per character |
 | `.\Localization\<Language>.json` | `GameLanguage.LoadClientLanguage` | UI strings (`Settings.DbLanguageJsonPath` is a declared but unused const) |
@@ -664,6 +664,7 @@ No profiler, perf log, packet monitor, ILogger or telemetry exists.
 
 ### 5.2.1 Golden render tests (roadmap C1/C3/C4)
 - `tools\rendertest.ps1 -Mode Compare -Backend D3D9` (exact, must be IDENTICAL x15) and `-Mode Parity -Backend D3D11` after **any** change under `Client/MirGraphics`, `MirControls` texture code, `MapControl` drawing or the backends. `-Mode Smoke [-FullScreen]` runs the real loop for N seconds. Goldens live in `%USERPROFILE%\Mir2RenderGoldens\D3D9` (outside git). Details and the list of proven D3DX behaviours: `Knowledgebase/Client/D3D11-Parity.md`.
+- D3D11-only features with no D3D9 reference (enhanced lighting) get a **self-checked** scenario instead of a golden: `X01_enhanced_lights` runs in every D3D11 run, checks its image against `S02_objects` (ambient multiply, brightening, ≤ 2x under stacked lights) and fails the run (exit 1) on a mismatch; D3D9 runs log it as skipped. The classic paths keep their goldens.
 - **NEVER** re-record goldens to make a failing compare pass; record only after an intended D3D9 change has been reviewed.
 - **NEVER** add `using SlimDX.Direct3D9` or any `Vortice` namespace outside `Client/MirGraphics/Rendering/`; new device features go into `IRenderBackend` (both backends) plus a DXManager helper, and get a golden scenario.
 

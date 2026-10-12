@@ -1,0 +1,10 @@
+{
+  "name": "NPCRefine",
+  "dir": "server",
+  "id": 106,
+  "hex": "09006A000000C03F01",
+  "fields": {
+    "Rate": 1.5,
+    "Refining": true
+  }
+}

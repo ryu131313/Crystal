@@ -1,0 +1,9 @@
+{
+  "name": "ObjectRemove",
+  "dir": "server",
+  "id": 26,
+  "hex": "08001A004D000000",
+  "fields": {
+    "ObjectID": 77
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "CraftItem",
+  "dir": "server",
+  "id": 112,
+  "hex": "0500700001",
+  "fields": {
+    "Success": true
+  }
+}

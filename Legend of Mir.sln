@@ -68,6 +68,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "StressClient", "StressClien
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ScratchWorld", "tools\scratch-world\ScratchWorld.csproj", "{00F4AC2E-2FBF-4C5E-BD4D-85FB6D0EBF56}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "WebRelay", "WebRelay\WebRelay.csproj", "{2DE87566-3555-470E-9F5E-78355C88EB75}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -142,6 +144,10 @@ Global
 		{00F4AC2E-2FBF-4C5E-BD4D-85FB6D0EBF56}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{00F4AC2E-2FBF-4C5E-BD4D-85FB6D0EBF56}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{00F4AC2E-2FBF-4C5E-BD4D-85FB6D0EBF56}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2DE87566-3555-470E-9F5E-78355C88EB75}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2DE87566-3555-470E-9F5E-78355C88EB75}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2DE87566-3555-470E-9F5E-78355C88EB75}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2DE87566-3555-470E-9F5E-78355C88EB75}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

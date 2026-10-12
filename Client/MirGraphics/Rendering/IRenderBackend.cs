@@ -9,6 +9,16 @@ namespace Client.MirGraphics.Rendering
         D3D11,
     }
 
+    /// <summary>How the map lights are drawn ([Graphics] Lighting, in-game: @light new / @light old).</summary>
+    public enum LightingMode
+    {
+        /// <summary>The original light textures; both backends, golden-tested.</summary>
+        Classic,
+        /// <summary>Float light map, shader falloff, brightening lights, flicker, day/night fades, spell-tinted lights. D3D11 only;
+        /// D3D9 draws Classic.</summary>
+        Enhanced,
+    }
+
     /// <summary>D3D9 blend factors used by the client (values mirror D3DBLEND names, not numbers).</summary>
     public enum RenderBlend
     {
@@ -33,6 +43,11 @@ namespace Client.MirGraphics.Rendering
         Grayscale,
         Normal,
         Magic,
+        /// <summary>Enhanced lighting (D3D11 only): an analytic elliptical falloff; colour from the vertex colour, intensity = alpha * 4.</summary>
+        Light,
+        /// <summary>Enhanced lighting (D3D11 only): samples the float light map, soft-knees it into 0..2 and outputs half of it
+        /// for the 2x modulate blend (DestinationColor, SourceColor).</summary>
+        LightComposite,
     }
 
     public enum DeviceStatus
@@ -128,6 +143,18 @@ namespace Client.MirGraphics.Rendering
 
         /// <summary>ID3DXLine.Draw (width 1): a line strip through <paramref name="points"/>.</summary>
         void DrawLines(Vector2[] points, Color colour);
+
+        /// <summary>
+        /// Enhanced lighting ([Graphics] Lighting=Enhanced): a float light target, the <see cref="PixelShaderKind.Light"/> and
+        /// <see cref="PixelShaderKind.LightComposite"/> shaders and <see cref="DrawLight"/>. D3D11 only; D3D9 keeps the classic
+        /// lights until C5 removes it.
+        /// </summary>
+        bool SupportsEnhancedLighting { get; }
+        /// <summary>A render target with a 16-bit float colour per channel (light values above 1 do not clip).</summary>
+        RenderTexture CreateLightTarget(int width, int height);
+        /// <summary>Queues one light quad (UV 0..1 across it) for the <see cref="PixelShaderKind.Light"/> shader.
+        /// <paramref name="intensity"/> is 0..4, carried in the vertex alpha.</summary>
+        void DrawLight(float x, float y, float width, float height, Color colour, float intensity);
 
         DeviceStatus TestCooperativeLevel();
         /// <summary>Resets/resizes the device. DXManager has already released every texture it owns.</summary>

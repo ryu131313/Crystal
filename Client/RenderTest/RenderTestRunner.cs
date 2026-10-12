@@ -350,6 +350,87 @@ namespace Client.RenderTest
             DXManager.RestartSpriteAlphaBlend();
         }
 
+        // ------------------------------------------------------------------ enhanced lighting (D3D11 only, self-checked)
+
+        private static RenderTexture _enhancedLightRt;
+        private static readonly Color EnhancedAmbient = Color.FromArgb(255, 40, 40, 40);
+        private static readonly Point EnhancedSingle = new Point(300, 380), EnhancedStack = new Point(700, 380);
+
+        /// <summary>
+        /// X01: the enhanced lights through the same DXManager sequence as MapControl.DrawEnhancedLights: one warm light, and
+        /// a stack of six lights on one spot. There is no D3D9 golden (D3D11 only), so <see cref="CheckEnhancedLights"/>
+        /// checks the image against the plain objects scene instead.
+        /// </summary>
+        private static void DrawEnhancedLightsScenario()
+        {
+            DrawObjectsScenario();
+
+            if (_enhancedLightRt == null) _enhancedLightRt = DXManager.CreateLightTarget(Width, Height);
+            RenderTexture old = DXManager.CurrentSurface;
+            DXManager.SetSurface(_enhancedLightRt);
+            DXManager.Clear(EnhancedAmbient);
+
+            DXManager.SetBlend(true);
+            DXManager.SetEnhancedLightAdditiveBlend();
+            DXManager.DrawLight(EnhancedSingle.X - 140, EnhancedSingle.Y - 110, 280, 220, Color.FromArgb(255, 255, 205, 150), 1.3F);
+            for (int i = 0; i < 6; i++)
+                DXManager.DrawLight(EnhancedStack.X - 140, EnhancedStack.Y - 110, 280, 220, Color.White, 1F);
+            DXManager.EndEnhancedLightBlend();
+            DXManager.SetBlend(false);
+            DXManager.SetSurface(old);
+
+            DXManager.SetEnhancedLightCompositeBlend();
+            DXManager.Draw(_enhancedLightRt, new Rectangle(0, 0, Width, Height), Vector3.Zero, Color.White);
+            DXManager.RestartSpriteAlphaBlend();
+        }
+
+        /// <summary>
+        /// Compares X01 with the objects scene (<paramref name="baseline"/>) pixel by pixel:
+        /// far from the lights the scene is multiplied by the ambient; at the warm light's centre it is brighter than the
+        /// unlit scene (lights above 1 brighten); under the six stacked lights it is at most 2x (soft knee, no clipping to
+        /// garbage). Returns the failures (empty = pass).
+        /// </summary>
+        private static List<string> CheckEnhancedLights(byte[] baseline, byte[] lit)
+        {
+            var failures = new List<string>();
+            int ambientChecked = 0, brighter = 0, singleChecked = 0, stackChecked = 0;
+
+            for (int y = 0; y < Height; y += 3)
+                for (int x = 0; x < Width; x += 3)
+                {
+                    int i = (y * Width + x) * 4;
+                    int dSingle = Math.Abs(x - EnhancedSingle.X) + Math.Abs(y - EnhancedSingle.Y);
+                    int dStack = Math.Abs(x - EnhancedStack.X) + Math.Abs(y - EnhancedStack.Y);
+
+                    for (int c = 0; c < 3; c++)
+                    {
+                        int b = baseline[i + c], l = lit[i + c];
+                        if (dSingle > 300 && dStack > 300)
+                        {
+                            int expected = b * EnhancedAmbient.R / 255;
+                            ambientChecked++;
+                            if (Math.Abs(l - expected) > 3 && failures.Count < 10) failures.Add($"ambient ({x},{y}) c{c}: {l}, expected {expected}");
+                        }
+                        else if (dSingle <= 6 && b >= 30 && b <= 180)
+                        {
+                            singleChecked++;
+                            if (l > b) brighter++;
+                        }
+                        else if (dStack <= 6 && b >= 10)
+                        {
+                            stackChecked++;
+                            if (l > Math.Min(255, b * 2 + 2) && failures.Count < 10) failures.Add($"stack ({x},{y}) c{c}: {l} over 2x {b}");
+                        }
+                    }
+                }
+
+            if (ambientChecked == 0) failures.Add("no ambient pixels checked");
+            if (singleChecked == 0) failures.Add("no lit pixels under the single light (scene too dark or saturated there)");
+            else if (brighter * 2 < singleChecked) failures.Add($"single light did not brighten the scene: {brighter}/{singleChecked} channels brighter");
+            Log($"X01 checks: ambient {ambientChecked} channels, single light {brighter}/{singleChecked} brighter, stack {stackChecked} channels");
+            return failures;
+        }
+
         private static void DrawScaledScenario()
         {
             var imgs = ValidIndices(Libraries.Prguse, 0, 6);
@@ -526,6 +607,7 @@ namespace Client.RenderTest
             _target?.Dispose(); _target = null;
             _floorRt?.Dispose(); _floorRt = null;
             _lightRt?.Dispose(); _lightRt = null;
+            _enhancedLightRt?.Dispose(); _enhancedLightRt = null;
             _rtA?.Dispose(); _rtA = null;
             _rtB?.Dispose(); _rtB = null;
             DXManager.ResetDevice();
@@ -562,6 +644,28 @@ namespace Client.RenderTest
                     SavePng(bytes, Path.Combine(OutDir, s.Name + ".png"));
                     Log($"{s.Name} captured sha256={Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes))[..16]}");
                 }
+
+                if (DXManager.EnhancedLightingAvailable)
+                {
+                    var objects = scenarios.Find(s => s.Name == "S02_objects");
+                    RenderScenario(objects, toTarget: true);
+                    var baseline = DXManager.Backend.CaptureRenderTarget(_target);
+
+                    var enhanced = new Scenario { Name = "X01_enhanced_lights", Draw = DrawEnhancedLightsScenario };
+                    RenderScenario(enhanced, toTarget: true);
+                    RenderScenario(enhanced, toTarget: true);
+                    var lit = DXManager.Backend.CaptureRenderTarget(_target);
+                    // Written to the run folder for viewing; Compare reads only the golden folder's files, so it is never compared.
+                    File.WriteAllBytes(Path.Combine(OutDir, enhanced.Name + ".bgra"), lit);
+                    SavePng(lit, Path.Combine(OutDir, enhanced.Name + ".png"));
+
+                    var failures = CheckEnhancedLights(baseline, lit);
+                    foreach (var f in failures) Log("X01 FAIL " + f);
+                    Log(failures.Count == 0 ? "X01_enhanced_lights CHECK PASS" : $"X01_enhanced_lights CHECK FAIL ({failures.Count})");
+                    if (failures.Count > 0) return 1;
+                }
+                else
+                    Log("X01_enhanced_lights skipped: backend has no enhanced lighting");
 
                 if (BenchFrames > 0)
                 {
@@ -602,7 +706,7 @@ namespace Client.RenderTest
             finally
             {
                 try { File.WriteAllLines(Path.Combine(OutDir, "rendertest.log"), _log); } catch { }
-                _target?.Dispose(); _floorRt?.Dispose(); _lightRt?.Dispose(); _rtA?.Dispose(); _rtB?.Dispose();
+                _target?.Dispose(); _floorRt?.Dispose(); _lightRt?.Dispose(); _enhancedLightRt?.Dispose(); _rtA?.Dispose(); _rtB?.Dispose();
             }
         }
 

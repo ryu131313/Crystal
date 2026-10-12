@@ -1,0 +1,9 @@
+{
+  "name": "Struck",
+  "dir": "server",
+  "id": 73,
+  "hex": "0800490042000000",
+  "fields": {
+    "AttackerID": 66
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "MarketSearch",
+  "dir": "client",
+  "id": 71,
+  "hex": "150047000953776F726420E589910101FFFF2C0101",
+  "fields": {
+    "Match": "Sword 剑",
+    "Type": 1,
+    "Usermode": true,
+    "MinShape": -1,
+    "MaxShape": 300,
+    "MarketType": 1
+  }
+}

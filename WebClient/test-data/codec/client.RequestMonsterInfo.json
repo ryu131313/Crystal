@@ -1,0 +1,9 @@
+{
+  "name": "RequestMonsterInfo",
+  "dir": "client",
+  "id": 37,
+  "hex": "080025000C000000",
+  "fields": {
+    "MonsterIndex": 12
+  }
+}

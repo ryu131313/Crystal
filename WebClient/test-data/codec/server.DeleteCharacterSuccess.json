@@ -1,0 +1,9 @@
+{
+  "name": "DeleteCharacterSuccess",
+  "dir": "server",
+  "id": 13,
+  "hex": "08000D002A000000",
+  "fields": {
+    "CharacterIndex": 42
+  }
+}

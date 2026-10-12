@@ -1,0 +1,19 @@
+{
+  "name": "MapInformation",
+  "dir": "server",
+  "id": 17,
+  "hex": "250011000C00000001300F426963686F6E2050726F76696E63656500CA0000010503004000",
+  "fields": {
+    "MapIndex": 12,
+    "FileName": "0",
+    "Title": "Bichon Province",
+    "MiniMap": 101,
+    "BigMap": 202,
+    "Music": 3,
+    "Lights": 0,
+    "Lightning": true,
+    "Fire": false,
+    "MapDarkLight": 5,
+    "WeatherParticles": 64
+  }
+}

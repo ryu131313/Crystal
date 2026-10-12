@@ -1,0 +1,15 @@
+{
+  "name": "ObjectDied",
+  "dir": "server",
+  "id": 81,
+  "hex": "120051004D0000007B000000C80100000401",
+  "fields": {
+    "ObjectID": 77,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 4,
+    "Type": 1
+  }
+}

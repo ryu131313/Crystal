@@ -1,0 +1,10 @@
+{
+  "name": "HealthChanged",
+  "dir": "server",
+  "id": 77,
+  "hex": "0C004D00780000002D000000",
+  "fields": {
+    "HP": 120,
+    "MP": 45
+  }
+}

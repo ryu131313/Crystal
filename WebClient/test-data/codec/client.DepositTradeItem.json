@@ -1,0 +1,10 @@
+{
+  "name": "DepositTradeItem",
+  "dir": "client",
+  "id": 30,
+  "hex": "0C001E000C00000003000000",
+  "fields": {
+    "From": 12,
+    "To": 3
+  }
+}

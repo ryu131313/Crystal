@@ -1,0 +1,9 @@
+{
+  "name": "DowngradeAwakening",
+  "dir": "client",
+  "id": 115,
+  "hex": "0C0073000D00000000000000",
+  "fields": {
+    "UniqueID": 13
+  }
+}

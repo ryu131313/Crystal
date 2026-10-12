@@ -1,0 +1,9 @@
+{
+  "name": "DeleteCharacter",
+  "dir": "server",
+  "id": 12,
+  "hex": "05000C0001",
+  "fields": {
+    "Result": 1
+  }
+}

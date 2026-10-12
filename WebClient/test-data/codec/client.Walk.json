@@ -1,0 +1,9 @@
+{
+  "name": "Walk",
+  "dir": "client",
+  "id": 11,
+  "hex": "05000B0000",
+  "fields": {
+    "Direction": 0
+  }
+}

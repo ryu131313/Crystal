@@ -1,0 +1,17 @@
+{
+  "name": "@crystal/webclient",
+  "private": true,
+  "type": "module",
+  "description": "Crystal web client: browser-playable client for the Crystal server via WebRelay (Knowledgebase/WebClient/webclient.md).",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "watch": "tsc -p tsconfig.build.json --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "codec:test": "node --experimental-strip-types tools/codec-test.ts",
+    "codec:regen": "dotnet build ../WebRelay/WebRelay.csproj -o ../WebRelay/bin/gen -nologo -v:q && dotnet ../WebRelay/bin/gen/WebRelay.dll --emit-ts src/protocol/enums.generated.ts && dotnet ../WebRelay/bin/gen/WebRelay.dll --emit-fixtures test-data/codec"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "NPCResponse",
+  "dir": "server",
+  "id": 93,
+  "hex": "3D005D00030000002248656C6C6F203C4275792F404255593E2C207B667269656E642F59656C6C6F777D2E103C3C4269672F404249472F5265643E3E00",
+  "fields": {
+    "Page": [
+      "Hello <Buy/@BUY>, {friend/Yellow}.",
+      "<<Big/@BIG/Red>>",
+      ""
+    ]
+  }
+}

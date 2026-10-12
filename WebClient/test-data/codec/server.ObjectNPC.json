@@ -1,0 +1,23 @@
+{
+  "name": "ObjectNPC",
+  "dir": "server",
+  "id": 92,
+  "hex": "36005C00580000000A53686F706B656570657200FF00FF0E001020FFFF7B000000C8010000040300000001000000020000002C010000",
+  "fields": {
+    "ObjectID": 88,
+    "Name": "Shopkeeper",
+    "NameColour": -16711936,
+    "Image": 14,
+    "Colour": -57328,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 4,
+    "QuestIDs": [
+      1,
+      2,
+      300
+    ]
+  }
+}

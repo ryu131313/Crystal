@@ -1,0 +1,10 @@
+{
+  "name": "NPCRequestInput",
+  "dir": "server",
+  "id": 249,
+  "hex": "1100F90058000000085B40494E5055545D",
+  "fields": {
+    "NPCID": 88,
+    "PageName": "[@INPUT]"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "ResetAddedItem",
+  "dir": "client",
+  "id": 116,
+  "hex": "0C0074000E00000000000000",
+  "fields": {
+    "UniqueID": 14
+  }
+}

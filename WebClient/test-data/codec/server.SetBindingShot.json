@@ -1,0 +1,11 @@
+{
+  "name": "SetBindingShot",
+  "dir": "server",
+  "id": 222,
+  "hex": "1100DE004D00000001001A711802000000",
+  "fields": {
+    "ObjectID": 77,
+    "Enabled": true,
+    "Value": 9000000000
+  }
+}

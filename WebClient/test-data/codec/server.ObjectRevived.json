@@ -1,0 +1,10 @@
+{
+  "name": "ObjectRevived",
+  "dir": "server",
+  "id": 137,
+  "hex": "090089004D00000001",
+  "fields": {
+    "ObjectID": 77,
+    "Effect": true
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "ObjectSneaking",
+  "dir": "server",
+  "id": 220,
+  "hex": "0900DC004D00000001",
+  "fields": {
+    "ObjectID": 77,
+    "SneakingActive": true
+  }
+}

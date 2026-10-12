@@ -1,0 +1,9 @@
+{
+  "name": "GuildExpGain",
+  "dir": "server",
+  "id": 170,
+  "hex": "0800AA00D2040000",
+  "fields": {
+    "Amount": 1234
+  }
+}

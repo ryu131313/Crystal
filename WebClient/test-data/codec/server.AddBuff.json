@@ -1,0 +1,25 @@
+{
+  "name": "AddBuff",
+  "dir": "server",
+  "id": 144,
+  "hex": "2E0090000301D204000060EA00000000000000010200000001070000000EFEFFFFFF0200000003000000FCFFFFFF",
+  "fields": {
+    "Buff": {
+      "Type": 3,
+      "Caster": null,
+      "Visible": true,
+      "ObjectID": 1234,
+      "ExpireTime": 60000,
+      "Infinite": false,
+      "Stats": {
+        "1": 7,
+        "14": -2
+      },
+      "Paused": true,
+      "Values": [
+        3,
+        -4
+      ]
+    }
+  }
+}

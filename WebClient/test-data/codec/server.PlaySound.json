@@ -1,0 +1,9 @@
+{
+  "name": "PlaySound",
+  "dir": "server",
+  "id": 268,
+  "hex": "08000C01AC270000",
+  "fields": {
+    "Sound": 10156
+  }
+}

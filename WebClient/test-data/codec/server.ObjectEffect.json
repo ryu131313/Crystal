@@ -1,0 +1,13 @@
+{
+  "name": "ObjectEffect",
+  "dir": "server",
+  "id": 124,
+  "hex": "15007C004D000000030300000064000000D0070000",
+  "fields": {
+    "ObjectID": 77,
+    "Effect": 3,
+    "EffectType": 3,
+    "DelayTime": 100,
+    "Time": 2000
+  }
+}

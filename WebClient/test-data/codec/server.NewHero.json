@@ -1,0 +1,9 @@
+{
+  "name": "NewHero",
+  "dir": "server",
+  "id": 177,
+  "hex": "0500B1000A",
+  "fields": {
+    "Result": 10
+  }
+}

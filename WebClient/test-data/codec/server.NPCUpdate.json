@@ -1,0 +1,9 @@
+{
+  "name": "NPCUpdate",
+  "dir": "server",
+  "id": 187,
+  "hex": "0800BB0058000000",
+  "fields": {
+    "NPCID": 88
+  }
+}

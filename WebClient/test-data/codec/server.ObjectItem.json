@@ -1,0 +1,17 @@
+{
+  "name": "ObjectItem",
+  "dir": "server",
+  "id": 64,
+  "hex": "23004000F50100000B576F6F64656E53776F726400FFFFFF7B000000C80100002A0003",
+  "fields": {
+    "ObjectID": 501,
+    "Name": "WoodenSword",
+    "NameColour": -256,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Image": 42,
+    "grade": 3
+  }
+}

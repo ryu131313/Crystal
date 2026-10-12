@@ -1,0 +1,12 @@
+{
+  "name": "LoverUpdate",
+  "dir": "server",
+  "id": 246,
+  "hex": "1D00F60007576562416C6C7900C061DF9149DE4806426963686F6E1B01",
+  "fields": {
+    "Name": "WebAlly",
+    "Date": "5250715106427387904",
+    "MapName": "Bichon",
+    "MarriedDays": 283
+  }
+}

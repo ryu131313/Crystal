@@ -1,0 +1,10 @@
+{
+  "name": "Chat",
+  "dir": "server",
+  "id": 30,
+  "hex": "12001E000C48656C6C6F20E4B896E7958C01",
+  "fields": {
+    "Message": "Hello 世界",
+    "Type": 1
+  }
+}

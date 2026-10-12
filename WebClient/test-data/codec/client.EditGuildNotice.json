@@ -1,0 +1,13 @@
+{
+  "name": "EditGuildNotice",
+  "dir": "client",
+  "id": 80,
+  "hex": "1900500003000000084C696E65206F6E650006E7ACACE4B889",
+  "fields": {
+    "notice": [
+      "Line one",
+      "",
+      "第三"
+    ]
+  }
+}

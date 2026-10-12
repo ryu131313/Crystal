@@ -1,0 +1,9 @@
+{
+  "name": "AbandonQuest",
+  "dir": "client",
+  "id": 106,
+  "hex": "08006A000C000000",
+  "fields": {
+    "QuestIndex": 12
+  }
+}

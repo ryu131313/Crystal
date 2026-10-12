@@ -1,0 +1,9 @@
+{
+  "name": "TradeRequest",
+  "dir": "server",
+  "id": 192,
+  "hex": "0C00C00007576562416C6C79",
+  "fields": {
+    "Name": "WebAlly"
+  }
+}

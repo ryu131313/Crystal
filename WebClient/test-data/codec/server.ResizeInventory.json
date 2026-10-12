@@ -1,0 +1,9 @@
+{
+  "name": "ResizeInventory",
+  "dir": "server",
+  "id": 237,
+  "hex": "0800ED0056000000",
+  "fields": {
+    "Size": 86
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "KeepAlive",
+  "dir": "server",
+  "id": 3,
+  "hex": "0C000300CB04FB711F010000",
+  "fields": {
+    "Time": 1234567890123
+  }
+}

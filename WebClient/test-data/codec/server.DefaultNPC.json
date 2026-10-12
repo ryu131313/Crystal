@@ -1,0 +1,9 @@
+{
+  "name": "DefaultNPC",
+  "dir": "server",
+  "id": 186,
+  "hex": "0800BA0001286BEE",
+  "fields": {
+    "ObjectID": 4000000001
+  }
+}

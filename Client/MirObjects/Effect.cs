@@ -19,6 +19,8 @@ namespace Client.MirObjects
 
         public int Light = 6;
         public Color LightColour = Color.White;
+        /// <summary>Library frame drawn last (-1 = none yet): the enhanced lighting tints the effect's light from it.</summary>
+        public int LastDrawnIndex = -1;
 
         public bool Blend = true;
         public float Rate = 1F;
@@ -143,6 +145,7 @@ namespace Client.MirObjects
             }
 
 
+            LastDrawnIndex = BaseIndex + CurrentFrame;
             if (Blend)
                 Library.DrawBlend(BaseIndex + CurrentFrame, DrawLocation, Color.White, true, Rate);
             else
@@ -227,6 +230,7 @@ namespace Client.MirObjects
 
             DrawLocation.Offset(x * CurrentFrame / Count, y * CurrentFrame / Count);
 
+            LastDrawnIndex = index;
             if (!Blend)
                 Library.Draw(index, DrawLocation, Color.White, true);
             else

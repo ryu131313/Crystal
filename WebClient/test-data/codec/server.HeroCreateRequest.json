@@ -1,0 +1,15 @@
+{
+  "name": "HeroCreateRequest",
+  "dir": "server",
+  "id": 176,
+  "hex": "0D00B000050000000101000100",
+  "fields": {
+    "CanCreateClass": [
+      true,
+      true,
+      false,
+      true,
+      false
+    ]
+  }
+}

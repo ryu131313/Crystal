@@ -1,6 +1,7 @@
 ﻿using System.Text.RegularExpressions;
 using Client.MirControls;
 using Client.MirGraphics;
+using Client.MirGraphics.Rendering;
 using Client.MirNetwork;
 using Client.MirObjects;
 using Client.MirSounds;
@@ -713,6 +714,38 @@ namespace Client.MirScenes.Dialogs
             ChatTextBox.TextBox.SelectionStart = ChatTextBox.Text.Length;
         }
 
+        /// <summary>
+        /// @light new / @light old: switches between the enhanced (D3D11) and classic lighting for in-game comparison.
+        /// Client only (a local render setting, saved as [Graphics] Lighting); never sent to the server.
+        /// </summary>
+        private bool TryLightingCommand(string msg)
+        {
+            string[] parts = msg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0 || !parts[0].Equals("@LIGHT", StringComparison.OrdinalIgnoreCase)) return false;
+
+            string arg = parts.Length > 1 ? parts[1].ToUpperInvariant() : string.Empty;
+            if (arg == "NEW")
+            {
+                if (!DXManager.EnhancedLightingAvailable)
+                {
+                    ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.LightingEnhancedUnavailable), ChatType.Hint);
+                    return true;
+                }
+                Settings.Lighting = LightingMode.Enhanced;
+            }
+            else if (arg == "OLD")
+                Settings.Lighting = LightingMode.Classic;
+            else
+            {
+                ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.LightingUsage), ChatType.Hint);
+                return true;
+            }
+
+            if (GameScene.Scene?.MapControl != null) GameScene.Scene.MapControl.TextureValid = false;
+            ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(Settings.Lighting == LightingMode.Enhanced ? ClientTextKeys.LightingEnhanced : ClientTextKeys.LightingClassic), ChatType.Hint);
+            return true;
+        }
+
         private void ChatTextBox_KeyPress(object sender, KeyPressEventArgs e)
         {
             switch (e.KeyChar)
@@ -731,6 +764,14 @@ namespace Client.MirScenes.Dialogs
                         if (msg.ToUpper() == "@TARGETDEAD")
                         {
                             Settings.TargetDead = !Settings.TargetDead;
+                        }
+
+                        if (TryLightingCommand(msg))
+                        {
+                            ChatTextBox.Visible = false;
+                            ChatTextBox.Text = string.Empty;
+                            LinkedItems.Clear();
+                            break;
                         }
 
                         Network.Enqueue(new C.Chat

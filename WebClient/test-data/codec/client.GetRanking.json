@@ -1,0 +1,11 @@
+{
+  "name": "GetRanking",
+  "dir": "client",
+  "id": 135,
+  "hex": "0A008700021400000001",
+  "fields": {
+    "RankType": 2,
+    "RankIndex": 20,
+    "OnlineOnly": true
+  }
+}

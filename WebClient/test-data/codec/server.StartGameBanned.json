@@ -1,0 +1,10 @@
+{
+  "name": "StartGameBanned",
+  "dir": "server",
+  "id": 15,
+  "hex": "14000F0007426F7474696E6700001F3242DEDF48",
+  "fields": {
+    "Reason": "Botting",
+    "ExpiryDate": "5251160066427387904"
+  }
+}

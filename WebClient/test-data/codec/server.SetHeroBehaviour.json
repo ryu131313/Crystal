@@ -1,0 +1,9 @@
+{
+  "name": "SetHeroBehaviour",
+  "dir": "server",
+  "id": 183,
+  "hex": "0500B70002",
+  "fields": {
+    "Behaviour": 2
+  }
+}

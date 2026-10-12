@@ -1,0 +1,11 @@
+{
+  "name": "ConsignItem",
+  "dir": "client",
+  "id": 70,
+  "hex": "110046000F0000000000000000286BEE02",
+  "fields": {
+    "UniqueID": 15,
+    "Price": 4000000000,
+    "Type": 2
+  }
+}

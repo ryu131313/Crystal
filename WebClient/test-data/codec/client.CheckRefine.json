@@ -1,0 +1,9 @@
+{
+  "name": "CheckRefine",
+  "dir": "client",
+  "id": 28,
+  "hex": "0C001C000600000000000000",
+  "fields": {
+    "UniqueID": 6
+  }
+}

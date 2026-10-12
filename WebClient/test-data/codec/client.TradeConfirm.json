@@ -1,0 +1,9 @@
+{
+  "name": "TradeConfirm",
+  "dir": "client",
+  "id": 99,
+  "hex": "0500630001",
+  "fields": {
+    "Locked": true
+  }
+}

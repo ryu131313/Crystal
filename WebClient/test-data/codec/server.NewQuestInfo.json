@@ -1,0 +1,119 @@
+{
+  "name": "NewQuestInfo",
+  "dir": "server",
+  "id": 204,
+  "hex": "1101CC000C00000001286BEE0848656E2048756E7406426963686F6E02000000064C696E652031064C696E65203201000000094B696C6C2068656E73010000000C52657475726E20746F206D65010000001157656C6C20646F6E6520E2809420E5A5BD01000000280000000300000001025802000000286BEEF401000007000000010000004D00000005546F7263680C00001F030000000009000000B80B01000000000000001800000000000000000000000001000200010000001F0000000E486561767941726D6F7572284D2902020001010004001700162C03A86101002823000000020518000100030101020200000001090000000CECFFFFFF010D486561767920E2809420E9878D010058000000",
+  "fields": {
+    "Info": {
+      "SameFinishNPC": false,
+      "Index": 12,
+      "NPCIndex": 4000000001,
+      "Name": "Hen Hunt",
+      "Group": "Bichon",
+      "Description": [
+        "Line 1",
+        "Line 2"
+      ],
+      "TaskDescription": [
+        "Kill hens"
+      ],
+      "ReturnDescription": [
+        "Return to me"
+      ],
+      "CompletionDescription": [
+        "Well done — 好"
+      ],
+      "MinLevelNeeded": 1,
+      "MaxLevelNeeded": 40,
+      "QuestNeeded": 3,
+      "ClassNeeded": 1,
+      "Type": 2,
+      "TimeLimitInSeconds": 600,
+      "RewardGold": 4000000000,
+      "RewardExp": 500,
+      "RewardCredit": 7,
+      "RewardsFixedItem": [
+        {
+          "Item": {
+            "Index": 77,
+            "Name": "Torch",
+            "Type": 12,
+            "Grade": 0,
+            "RequiredType": 0,
+            "RequiredClass": 31,
+            "RequiredGender": 3,
+            "Set": 0,
+            "Shape": 0,
+            "Weight": 0,
+            "Light": 9,
+            "RequiredAmount": 0,
+            "Image": 0,
+            "Durability": 3000,
+            "StackSize": 1,
+            "Price": 0,
+            "StartItem": false,
+            "Effect": 0,
+            "NeedIdentify": false,
+            "ShowGroupPickup": false,
+            "ClassBased": false,
+            "LevelBased": true,
+            "CanMine": true,
+            "GlobalDropNotify": false,
+            "Bind": 0,
+            "Unique": 0,
+            "RandomStatsId": 0,
+            "CanFastRun": false,
+            "CanAwakening": false,
+            "Slots": 0,
+            "Stats": {},
+            "ToolTip": ""
+          },
+          "Count": 2
+        }
+      ],
+      "RewardsSelectItem": [
+        {
+          "Item": {
+            "Index": 31,
+            "Name": "HeavyArmour(M)",
+            "Type": 2,
+            "Grade": 2,
+            "RequiredType": 0,
+            "RequiredClass": 1,
+            "RequiredGender": 1,
+            "Set": 0,
+            "Shape": 4,
+            "Weight": 23,
+            "Light": 0,
+            "RequiredAmount": 22,
+            "Image": 812,
+            "Durability": 25000,
+            "StackSize": 1,
+            "Price": 9000,
+            "StartItem": false,
+            "Effect": 2,
+            "NeedIdentify": true,
+            "ShowGroupPickup": false,
+            "ClassBased": true,
+            "LevelBased": false,
+            "CanMine": false,
+            "GlobalDropNotify": false,
+            "Bind": 24,
+            "Unique": 1,
+            "RandomStatsId": 3,
+            "CanFastRun": true,
+            "CanAwakening": true,
+            "Slots": 2,
+            "Stats": {
+              "1": 9,
+              "12": -20
+            },
+            "ToolTip": "Heavy — 重"
+          },
+          "Count": 1
+        }
+      ],
+      "FinishNPCIndex": 88
+    }
+  }
+}

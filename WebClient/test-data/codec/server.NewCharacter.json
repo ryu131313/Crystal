@@ -1,0 +1,9 @@
+{
+  "name": "NewCharacter",
+  "dir": "server",
+  "id": 10,
+  "hex": "05000A0005",
+  "fields": {
+    "Result": 5
+  }
+}

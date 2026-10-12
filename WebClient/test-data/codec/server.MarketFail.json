@@ -1,0 +1,9 @@
+{
+  "name": "MarketFail",
+  "dir": "server",
+  "id": 158,
+  "hex": "05009E0006",
+  "fields": {
+    "Reason": 6
+  }
+}

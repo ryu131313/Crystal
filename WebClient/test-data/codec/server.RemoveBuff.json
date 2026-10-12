@@ -1,0 +1,10 @@
+{
+  "name": "RemoveBuff",
+  "dir": "server",
+  "id": 145,
+  "hex": "0900910002D2040000",
+  "fields": {
+    "Type": 2,
+    "ObjectID": 1234
+  }
+}

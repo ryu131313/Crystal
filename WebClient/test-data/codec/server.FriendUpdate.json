@@ -1,0 +1,24 @@
+{
+  "name": "FriendUpdate",
+  "dir": "server",
+  "id": 245,
+  "hex": "3300F500020000000300000007576562416C6C790D747261646520706172746E6572000109000000075370616D6D6572000100",
+  "fields": {
+    "Friends": [
+      {
+        "Index": 3,
+        "Name": "WebAlly",
+        "Memo": "trade partner",
+        "Blocked": false,
+        "Online": true
+      },
+      {
+        "Index": 9,
+        "Name": "Spammer",
+        "Memo": "",
+        "Blocked": true,
+        "Online": false
+      }
+    ]
+  }
+}

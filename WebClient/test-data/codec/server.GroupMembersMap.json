@@ -1,0 +1,10 @@
+{
+  "name": "GroupMembersMap",
+  "dir": "server",
+  "id": 274,
+  "hex": "1800120104416C6C790E426963686F6E50726F76696E6365",
+  "fields": {
+    "PlayerName": "Ally",
+    "PlayerMap": "BichonProvince"
+  }
+}

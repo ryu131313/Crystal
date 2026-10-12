@@ -1,0 +1,9 @@
+{
+  "name": "NPCCollectRefine",
+  "dir": "server",
+  "id": 108,
+  "hex": "05006C0001",
+  "fields": {
+    "Success": true
+  }
+}

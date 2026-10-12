@@ -1,0 +1,40 @@
+{
+  "name": "GuildBuffList",
+  "dir": "server",
+  "id": 248,
+  "hex": "5500F800010200000003000000012A00000009000000000000000001000000030000000C000000154D6178204865616C746820E2809420E7949FE591BD02017800000030750000020000000C320000006405000000",
+  "fields": {
+    "Remove": 1,
+    "ActiveBuffs": [
+      {
+        "UsingGuildSkillIcon": false,
+        "Id": 3,
+        "Info": null,
+        "Active": true,
+        "ActiveTimeRemaining": 42
+      },
+      {
+        "UsingGuildSkillIcon": false,
+        "Id": 9,
+        "Info": null,
+        "Active": false,
+        "ActiveTimeRemaining": 0
+      }
+    ],
+    "GuildBuffs": [
+      {
+        "Id": 3,
+        "Icon": 12,
+        "Name": "Max Health — 生命",
+        "LevelRequirement": 2,
+        "PointsRequirement": 1,
+        "TimeLimit": 120,
+        "ActivationCost": 30000,
+        "Stats": {
+          "12": 50,
+          "100": 5
+        }
+      }
+    ]
+  }
+}

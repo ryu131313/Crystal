@@ -1,0 +1,11 @@
+{
+  "name": "NewCharacter",
+  "dir": "client",
+  "id": 6,
+  "hex": "0B000600044865726F0104",
+  "fields": {
+    "Name": "Hero",
+    "Gender": 1,
+    "Class": 4
+  }
+}

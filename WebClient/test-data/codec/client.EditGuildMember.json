@@ -1,0 +1,12 @@
+{
+  "name": "EditGuildMember",
+  "dir": "client",
+  "id": 79,
+  "hex": "16004F00020107576562416C6C79074D656D62657273",
+  "fields": {
+    "ChangeType": 2,
+    "RankIndex": 1,
+    "Name": "WebAlly",
+    "RankName": "Members"
+  }
+}

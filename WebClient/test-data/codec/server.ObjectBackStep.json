@@ -1,0 +1,15 @@
+{
+  "name": "ObjectBackStep",
+  "dir": "server",
+  "id": 210,
+  "hex": "1500D2004D0000007B000000C80100000303000000",
+  "fields": {
+    "ObjectID": 77,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 3,
+    "Distance": 3
+  }
+}

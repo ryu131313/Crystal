@@ -1,0 +1,9 @@
+{
+  "name": "RepairItem",
+  "dir": "client",
+  "id": 54,
+  "hex": "0C0036000600000000000000",
+  "fields": {
+    "UniqueID": 6
+  }
+}

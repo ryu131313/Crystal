@@ -1,0 +1,13 @@
+{
+  "name": "UserLocation",
+  "dir": "server",
+  "id": 23,
+  "hex": "0D0017007B000000C801000002",
+  "fields": {
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 2
+  }
+}

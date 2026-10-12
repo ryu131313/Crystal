@@ -1,0 +1,11 @@
+{
+  "name": "MountUpdate",
+  "dir": "server",
+  "id": 198,
+  "hex": "0B00C600D2040000070001",
+  "fields": {
+    "ObjectID": 1234,
+    "MountType": 7,
+    "RidingMount": true
+  }
+}

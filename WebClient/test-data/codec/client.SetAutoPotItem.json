@@ -1,0 +1,10 @@
+{
+  "name": "SetAutoPotItem",
+  "dir": "client",
+  "id": 65,
+  "hex": "090041001829000000",
+  "fields": {
+    "Grid": 24,
+    "ItemIndex": 41
+  }
+}

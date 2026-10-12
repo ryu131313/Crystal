@@ -1,0 +1,41 @@
+{
+  "name": "NewIntelligentCreature",
+  "dir": "server",
+  "id": 239,
+  "hex": "4E00EF0002F5010000054B697474794C1D000002000000004093C077B1DF4840E201000000000000E8030000010B000000010700000000030000000100010000000000000102F1FB090000000000",
+  "fields": {
+    "Creature": {
+      "PetType": 2,
+      "Icon": 501,
+      "CustomName": "Kitty",
+      "Fullness": 7500,
+      "SlotIndex": 2,
+      "Expire": "5251110818427387904",
+      "BlackstoneTime": 123456,
+      "MaintainFoodTime": 654321,
+      "petMode": 0,
+      "CreatureRules": {
+        "MinimalFullness": 1000,
+        "MousePickupEnabled": true,
+        "MousePickupRange": 11,
+        "AutoPickupEnabled": true,
+        "AutoPickupRange": 7,
+        "SemiAutoPickupEnabled": false,
+        "SemiAutoPickupRange": 3,
+        "CanProduceBlackStone": true
+      },
+      "Filter": {
+        "PetPickupAll": false,
+        "PetPickupGold": true,
+        "PetPickupWeapons": false,
+        "PetPickupArmours": false,
+        "PetPickupHelmets": false,
+        "PetPickupBoots": false,
+        "PetPickupBelts": false,
+        "PetPickupAccessories": false,
+        "PetPickupOthers": true,
+        "PickupGrade": 2
+      }
+    }
+  }
+}

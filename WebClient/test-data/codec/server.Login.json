@@ -1,0 +1,9 @@
+{
+  "name": "Login",
+  "dir": "server",
+  "id": 7,
+  "hex": "0500070004",
+  "fields": {
+    "Result": 4
+  }
+}

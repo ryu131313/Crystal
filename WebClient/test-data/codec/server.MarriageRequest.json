@@ -1,0 +1,9 @@
+{
+  "name": "MarriageRequest",
+  "dir": "server",
+  "id": 189,
+  "hex": "0C00BD0007576562416C6C79",
+  "fields": {
+    "Name": "WebAlly"
+  }
+}

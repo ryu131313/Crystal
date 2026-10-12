@@ -1,0 +1,10 @@
+{
+  "name": "ObjectPoisoned",
+  "dir": "server",
+  "id": 97,
+  "hex": "0A0061004D0000002000",
+  "fields": {
+    "ObjectID": 77,
+    "Poison": 32
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "name": "GuildMemberChange",
+  "dir": "server",
+  "id": 167,
+  "hex": "6C00A7000000FF02000000064C6561646572FF0000000001000000075765624865726F0B00000080B75D6DFC27DF480101074D656D6265727308010000000200000007576562416C6C790C000000000000000000000000000554686972640D00000000000000000000000001",
+  "fields": {
+    "Name": "",
+    "Status": 255,
+    "RankIndex": 0,
+    "Ranks": [
+      {
+        "Members": [
+          {
+            "Name": "WebHero",
+            "Id": 11,
+            "Player": null,
+            "LastLogin": "5250959655657387904",
+            "hasvoted": true,
+            "Online": true
+          }
+        ],
+        "Name": "Leader",
+        "Index": 0,
+        "Options": 255
+      },
+      {
+        "Members": [
+          {
+            "Name": "WebAlly",
+            "Id": 12,
+            "Player": null,
+            "LastLogin": "0",
+            "hasvoted": false,
+            "Online": false
+          },
+          {
+            "Name": "Third",
+            "Id": 13,
+            "Player": null,
+            "LastLogin": "0",
+            "hasvoted": false,
+            "Online": true
+          }
+        ],
+        "Name": "Members",
+        "Index": 1,
+        "Options": 8
+      }
+    ]
+  }
+}

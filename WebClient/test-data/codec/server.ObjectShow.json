@@ -1,0 +1,9 @@
+{
+  "name": "ObjectShow",
+  "dir": "server",
+  "id": 95,
+  "hex": "08005F004D000000",
+  "fields": {
+    "ObjectID": 77
+  }
+}

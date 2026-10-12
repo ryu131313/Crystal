@@ -1,0 +1,10 @@
+{
+  "name": "DeleteItem",
+  "dir": "server",
+  "id": 79,
+  "hex": "0E004F0009000000000000000100",
+  "fields": {
+    "UniqueID": 9,
+    "Count": 1
+  }
+}

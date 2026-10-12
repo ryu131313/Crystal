@@ -1,0 +1,11 @@
+{
+  "name": "GameshopBuy",
+  "dir": "client",
+  "id": 133,
+  "hex": "0D008500040000000301000000",
+  "fields": {
+    "GIndex": 4,
+    "Quantity": 3,
+    "PType": 1
+  }
+}

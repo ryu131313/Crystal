@@ -1,0 +1,9 @@
+{
+  "name": "GainHeroExperience",
+  "dir": "server",
+  "id": 86,
+  "hex": "08005600005ED0B2",
+  "fields": {
+    "Amount": 3000000000
+  }
+}

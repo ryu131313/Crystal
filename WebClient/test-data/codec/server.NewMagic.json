@@ -1,0 +1,29 @@
+{
+  "name": "NewMagic",
+  "dir": "server",
+  "id": 117,
+  "hex": "30007500084669726542616C6C1F030206070B1032005E01E80302017B0008070000000000000915CD5B070000000000",
+  "fields": {
+    "Magic": {
+      "Name": "FireBall",
+      "Spell": 31,
+      "BaseCost": 3,
+      "LevelCost": 2,
+      "Icon": 6,
+      "Level1": 7,
+      "Level2": 11,
+      "Level3": 16,
+      "Need1": 50,
+      "Need2": 350,
+      "Need3": 1000,
+      "Level": 2,
+      "Key": 1,
+      "Range": 9,
+      "Experience": 123,
+      "IsTempSpell": false,
+      "CastTime": 123456789,
+      "Delay": 1800
+    },
+    "Hero": false
+  }
+}

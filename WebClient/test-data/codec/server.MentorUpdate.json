@@ -1,0 +1,12 @@
+{
+  "name": "MentorUpdate",
+  "dir": "server",
+  "id": 247,
+  "hex": "1700F70007576562416C6C791E0001001A711802000000",
+  "fields": {
+    "Name": "WebAlly",
+    "Level": 30,
+    "Online": true,
+    "MenteeEXP": 9000000000
+  }
+}

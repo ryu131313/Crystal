@@ -1,0 +1,9 @@
+{
+  "name": "ExpireTimer",
+  "dir": "server",
+  "id": 270,
+  "hex": "0A000E01056576656E74",
+  "fields": {
+    "Key": "event"
+  }
+}

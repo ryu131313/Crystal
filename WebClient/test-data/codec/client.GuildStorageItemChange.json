@@ -1,0 +1,11 @@
+{
+  "name": "GuildStorageItemChange",
+  "dir": "client",
+  "id": 85,
+  "hex": "0D005500000C0000006F000000",
+  "fields": {
+    "Type": 0,
+    "From": 12,
+    "To": 111
+  }
+}

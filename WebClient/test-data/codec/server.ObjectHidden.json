@@ -1,0 +1,10 @@
+{
+  "name": "ObjectHidden",
+  "dir": "server",
+  "id": 147,
+  "hex": "090093004D00000001",
+  "fields": {
+    "ObjectID": 77,
+    "Hidden": true
+  }
+}

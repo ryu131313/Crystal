@@ -1,0 +1,9 @@
+{
+  "name": "NPCReplaceWedRing",
+  "dir": "server",
+  "id": 109,
+  "hex": "08006D000000403F",
+  "fields": {
+    "Rate": 0.75
+  }
+}

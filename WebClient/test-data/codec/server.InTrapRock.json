@@ -1,0 +1,9 @@
+{
+  "name": "InTrapRock",
+  "dir": "server",
+  "id": 161,
+  "hex": "0500A10001",
+  "fields": {
+    "Trapped": true
+  }
+}

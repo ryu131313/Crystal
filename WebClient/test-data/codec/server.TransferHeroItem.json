@@ -1,0 +1,11 @@
+{
+  "name": "TransferHeroItem",
+  "dir": "server",
+  "id": 55,
+  "hex": "0D0037002E0000000300000000",
+  "fields": {
+    "From": 46,
+    "To": 3,
+    "Success": false
+  }
+}

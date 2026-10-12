@@ -1,0 +1,13 @@
+{
+  "name": "IntelligentCreaturePickup",
+  "dir": "client",
+  "id": 125,
+  "hex": "0D007D00012D01000001010000",
+  "fields": {
+    "MouseMode": true,
+    "Location": {
+      "X": 301,
+      "Y": 257
+    }
+  }
+}

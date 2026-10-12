@@ -1,0 +1,9 @@
+{
+  "name": "ItemRentalFee",
+  "dir": "client",
+  "id": 139,
+  "hex": "08008B00005ED0B2",
+  "fields": {
+    "Amount": 3000000000
+  }
+}

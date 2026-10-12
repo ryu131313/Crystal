@@ -1,0 +1,9 @@
+{
+  "name": "NPCSRepair",
+  "dir": "server",
+  "id": 105,
+  "hex": "0800690000003040",
+  "fields": {
+    "Rate": 2.75
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "RequestGuildInfo",
+  "dir": "client",
+  "id": 83,
+  "hex": "0500530001",
+  "fields": {
+    "Type": 1
+  }
+}

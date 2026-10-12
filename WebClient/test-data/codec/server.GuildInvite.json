@@ -1,0 +1,9 @@
+{
+  "name": "GuildInvite",
+  "dir": "server",
+  "id": 169,
+  "hex": "0C00A900074372797374616C",
+  "fields": {
+    "Name": "Crystal"
+  }
+}

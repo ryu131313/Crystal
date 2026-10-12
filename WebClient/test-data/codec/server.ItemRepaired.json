@@ -1,0 +1,11 @@
+{
+  "name": "ItemRepaired",
+  "dir": "server",
+  "id": 114,
+  "hex": "100072000A0000000000000088138713",
+  "fields": {
+    "UniqueID": 10,
+    "MaxDura": 5000,
+    "CurrentDura": 4999
+  }
+}

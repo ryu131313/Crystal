@@ -1,0 +1,14 @@
+{
+  "name": "RangeAttack",
+  "dir": "server",
+  "id": 126,
+  "hex": "11007E004D0000007B000000C801000079",
+  "fields": {
+    "TargetID": 77,
+    "Target": {
+      "X": 123,
+      "Y": 456
+    },
+    "Spell": 121
+  }
+}

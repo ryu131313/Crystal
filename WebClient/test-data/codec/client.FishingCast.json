@@ -1,0 +1,9 @@
+{
+  "name": "FishingCast",
+  "dir": "client",
+  "id": 102,
+  "hex": "0500660001",
+  "fields": {
+    "CastOut": true
+  }
+}

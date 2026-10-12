@@ -1,0 +1,10 @@
+{
+  "name": "StartGame",
+  "dir": "server",
+  "id": 14,
+  "hex": "09000E000400040000",
+  "fields": {
+    "Result": 4,
+    "Resolution": 1024
+  }
+}

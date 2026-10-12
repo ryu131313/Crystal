@@ -1,0 +1,10 @@
+{
+  "name": "ObjectMana",
+  "dir": "server",
+  "id": 140,
+  "hex": "09008C004D00000037",
+  "fields": {
+    "ObjectID": 77,
+    "Percent": 55
+  }
+}

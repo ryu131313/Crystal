@@ -1,0 +1,9 @@
+{
+  "name": "UnlockStorage",
+  "dir": "client",
+  "id": 150,
+  "hex": "0F0096000A70C3A4737377C3B67264",
+  "fields": {
+    "Password": "pässwörd"
+  }
+}

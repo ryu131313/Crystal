@@ -1,0 +1,9 @@
+{
+  "name": "GuildTerritoryPage",
+  "dir": "client",
+  "id": 147,
+  "hex": "0800930002000000",
+  "fields": {
+    "Page": 2
+  }
+}

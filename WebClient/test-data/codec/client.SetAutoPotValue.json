@@ -1,0 +1,10 @@
+{
+  "name": "SetAutoPotValue",
+  "dir": "client",
+  "id": 64,
+  "hex": "090040000C28000000",
+  "fields": {
+    "Stat": 12,
+    "Value": 40
+  }
+}

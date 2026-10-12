@@ -1,0 +1,10 @@
+{
+  "name": "CallNPC",
+  "dir": "client",
+  "id": 50,
+  "hex": "1000320058000000075B404D61696E5D",
+  "fields": {
+    "ObjectID": 88,
+    "Key": "[@Main]"
+  }
+}

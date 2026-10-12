@@ -1,0 +1,14 @@
+{
+  "name": "ObjectHarvested",
+  "dir": "server",
+  "id": 91,
+  "hex": "11005B004D0000007B000000C801000004",
+  "fields": {
+    "ObjectID": 77,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 4
+  }
+}

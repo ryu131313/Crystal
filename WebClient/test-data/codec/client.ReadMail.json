@@ -1,0 +1,9 @@
+{
+  "name": "ReadMail",
+  "dir": "client",
+  "id": 118,
+  "hex": "0C007600031A711802000000",
+  "fields": {
+    "MailID": 9000000003
+  }
+}

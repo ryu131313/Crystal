@@ -1,0 +1,9 @@
+{
+  "name": "RepairItem",
+  "dir": "server",
+  "id": 113,
+  "hex": "0C0071000C00000000000000",
+  "fields": {
+    "UniqueID": 12
+  }
+}

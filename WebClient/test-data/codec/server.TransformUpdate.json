@@ -1,0 +1,10 @@
+{
+  "name": "TransformUpdate",
+  "dir": "server",
+  "id": 244,
+  "hex": "0A00F400D2040000FFFF",
+  "fields": {
+    "ObjectID": 1234,
+    "TransformType": -1
+  }
+}

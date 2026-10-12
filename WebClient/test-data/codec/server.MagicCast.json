@@ -1,0 +1,9 @@
+{
+  "name": "MagicCast",
+  "dir": "server",
+  "id": 122,
+  "hex": "05007A003D",
+  "fields": {
+    "Spell": 61
+  }
+}

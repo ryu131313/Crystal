@@ -1,0 +1,10 @@
+{
+  "name": "TakeBackHeroItem",
+  "dir": "client",
+  "id": 32,
+  "hex": "0C002000030000002E000000",
+  "fields": {
+    "From": 3,
+    "To": 46
+  }
+}

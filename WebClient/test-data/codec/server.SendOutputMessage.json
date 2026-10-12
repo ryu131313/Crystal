@@ -1,0 +1,10 @@
+{
+  "name": "SendOutputMessage",
+  "dir": "server",
+  "id": 223,
+  "hex": "1300DF000D5175657374207570646174656401",
+  "fields": {
+    "Message": "Quest updated",
+    "Type": 1
+  }
+}

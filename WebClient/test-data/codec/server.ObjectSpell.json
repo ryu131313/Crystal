@@ -1,0 +1,16 @@
+{
+  "name": "ObjectSpell",
+  "dir": "server",
+  "id": 149,
+  "hex": "13009500580000007B000000C8010000270001",
+  "fields": {
+    "ObjectID": 88,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Spell": 39,
+    "Direction": 0,
+    "Param": true
+  }
+}

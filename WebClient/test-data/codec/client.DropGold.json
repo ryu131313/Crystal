@@ -1,0 +1,9 @@
+{
+  "name": "DropGold",
+  "dir": "client",
+  "id": 34,
+  "hex": "08002200005ED0B2",
+  "fields": {
+    "Amount": 3000000000
+  }
+}

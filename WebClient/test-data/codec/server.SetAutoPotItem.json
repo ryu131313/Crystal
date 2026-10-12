@@ -1,0 +1,10 @@
+{
+  "name": "SetAutoPotItem",
+  "dir": "server",
+  "id": 182,
+  "hex": "0900B6001728000000",
+  "fields": {
+    "Grid": 23,
+    "ItemIndex": 40
+  }
+}

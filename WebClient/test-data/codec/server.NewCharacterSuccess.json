@@ -1,0 +1,16 @@
+{
+  "name": "NewCharacterSuccess",
+  "dir": "server",
+  "id": 11,
+  "hex": "1A000B00030000000547616D6D61010002000000000000000000",
+  "fields": {
+    "CharInfo": {
+      "Index": 3,
+      "Name": "Gamma",
+      "Level": 1,
+      "Class": 2,
+      "Gender": 0,
+      "LastAccess": "0"
+    }
+  }
+}

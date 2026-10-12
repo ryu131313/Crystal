@@ -10525,7 +10525,7 @@ namespace Client.MirScenes
 
     }
 
-    public sealed class MapControl : MirControl
+    public sealed partial class MapControl : MirControl
     {
         public static UserObject User
         {
@@ -10680,6 +10680,7 @@ namespace Client.MirScenes
             if (GameScene.DropViewTime > last && GameScene.DropViewTime <= now) rebuild = Reason("drop-view");
             if (User.Poison.HasFlag(PoisonType.Blindness) && User.BlindCount < 25) rebuild = Reason("blindness"); // ramp advances in DrawLights
             if (AnimatedTileFrameChanged()) rebuild = Reason("tiles");
+            if (EnhancedLightingNeedsRebuild(out string lightReason)) rebuild = Reason(lightReason); // flicker, day/night fade
 
             bool damage = false, chat = false, health = false;
             for (int i = 0; i < ObjectsList.Count; i++)
@@ -10711,6 +10712,7 @@ namespace Client.MirScenes
             s = s * 31 + (int)GameScene.Scene.Lights;
             s = s * 31 + (int)Lights;
             s = s * 31 + MapDarkLight;
+            s = s * 31 + (UseEnhancedLighting ? 1 : 0);
             return s * 31 + (User != null ? (int)User.Poison : 0);
         }
 
@@ -11009,7 +11011,13 @@ namespace Client.MirScenes
 
             LightSetting setting = Lights == LightSetting.Normal ? GameScene.Scene.Lights : Lights;
 
-            if (setting != LightSetting.Day || GameScene.User.Poison.HasFlag(PoisonType.Blindness))
+            if (UseEnhancedLighting)
+            {
+                UpdateAmbient(setting);
+                if (setting != LightSetting.Day || AmbientFading || GameScene.User.Poison.HasFlag(PoisonType.Blindness))
+                    DrawEnhancedLights(setting);
+            }
+            else if (setting != LightSetting.Day || GameScene.User.Poison.HasFlag(PoisonType.Blindness))
             {
                 DrawLights(setting);
             }

@@ -1,0 +1,9 @@
+{
+  "name": "AllowObserve",
+  "dir": "server",
+  "id": 142,
+  "hex": "05008E0001",
+  "fields": {
+    "Allow": true
+  }
+}

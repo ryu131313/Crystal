@@ -1,0 +1,9 @@
+{
+  "name": "ChangePMode",
+  "dir": "server",
+  "id": 63,
+  "hex": "05003F0004",
+  "fields": {
+    "Mode": 4
+  }
+}

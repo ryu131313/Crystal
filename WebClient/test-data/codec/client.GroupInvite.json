@@ -1,0 +1,9 @@
+{
+  "name": "GroupInvite",
+  "dir": "client",
+  "id": 62,
+  "hex": "05003E0001",
+  "fields": {
+    "AcceptInvite": true
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "name": "ObjectHero",
+  "dir": "server",
+  "id": 25,
+  "hex": "5400190002286BEE08536964656B69636B00001020FFFF02000C007B000000C801000006010003000000020000000000000000FFFF0000FFFF00000000000000000000000001000000030000075765624865726F",
+  "fields": {
+    "OwnerName": "WebHero",
+    "ObjectID": 4000000002,
+    "Name": "Sidekick",
+    "GuildName": "",
+    "GuildRankName": "",
+    "NameColour": -57328,
+    "Class": 2,
+    "Gender": 0,
+    "Level": 12,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 6,
+    "Hair": 1,
+    "Light": 0,
+    "Weapon": 3,
+    "WeaponEffect": 0,
+    "Armour": 2,
+    "Poison": 0,
+    "Dead": false,
+    "Hidden": false,
+    "Effect": 0,
+    "WingEffect": 0,
+    "Extra": false,
+    "MountType": -1,
+    "RidingMount": false,
+    "Fishing": false,
+    "TransformType": -1,
+    "ElementOrbEffect": 0,
+    "ElementOrbLvl": 0,
+    "ElementOrbMax": 0,
+    "LevelEffects": 0,
+    "Buffs": [
+      3
+    ]
+  }
+}

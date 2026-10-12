@@ -1,0 +1,14 @@
+{
+  "name": "MapEffect",
+  "dir": "server",
+  "id": 141,
+  "hex": "0E008D007B000000C80100000309",
+  "fields": {
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Effect": 3,
+    "Value": 9
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "ItemRentalLock",
+  "dir": "server",
+  "id": 262,
+  "hex": "07000601010100",
+  "fields": {
+    "Success": true,
+    "GoldLocked": true,
+    "ItemLocked": false
+  }
+}

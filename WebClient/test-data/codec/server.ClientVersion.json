@@ -1,0 +1,9 @@
+{
+  "name": "ClientVersion",
+  "dir": "server",
+  "id": 1,
+  "hex": "0500010001",
+  "fields": {
+    "Result": 1
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "RemoveFriend",
+  "dir": "client",
+  "id": 128,
+  "hex": "0800800003000000",
+  "fields": {
+    "CharacterIndex": 3
+  }
+}

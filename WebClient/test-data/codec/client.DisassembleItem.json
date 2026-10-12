@@ -1,0 +1,9 @@
+{
+  "name": "DisassembleItem",
+  "dir": "client",
+  "id": 114,
+  "hex": "0C0072000C00000000000000",
+  "fields": {
+    "UniqueID": 12
+  }
+}

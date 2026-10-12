@@ -1,0 +1,10 @@
+{
+  "name": "Opendoor",
+  "dir": "server",
+  "id": 253,
+  "hex": "0600FD000C01",
+  "fields": {
+    "Close": true,
+    "DoorIndex": 12
+  }
+}

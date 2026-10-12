@@ -1,0 +1,11 @@
+{
+  "name": "RetrieveTradeItem",
+  "dir": "server",
+  "id": 51,
+  "hex": "0D003300030000002800000000",
+  "fields": {
+    "From": 3,
+    "To": 40,
+    "Success": false
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "NewHeroInfo",
+  "dir": "server",
+  "id": 35,
+  "hex": "190023000500000008536964656B69636B0C00020102000000",
+  "fields": {
+    "Info": {
+      "Index": 5,
+      "Name": "Sidekick",
+      "Level": 12,
+      "Class": 2,
+      "Gender": 1
+    },
+    "StorageIndex": 2
+  }
+}

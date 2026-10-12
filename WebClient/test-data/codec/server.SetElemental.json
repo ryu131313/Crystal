@@ -1,0 +1,14 @@
+{
+  "name": "SetElemental",
+  "dir": "server",
+  "id": 217,
+  "hex": "1600D9004D000000010100286BEE0300000063000000",
+  "fields": {
+    "ObjectID": 77,
+    "Enabled": true,
+    "Casted": true,
+    "Value": 4000000000,
+    "ElementType": 3,
+    "ExpLast": 99
+  }
+}

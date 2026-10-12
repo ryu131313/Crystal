@@ -1,0 +1,9 @@
+{
+  "name": "ObjectHide",
+  "dir": "server",
+  "id": 94,
+  "hex": "08005E004D000000",
+  "fields": {
+    "ObjectID": 77
+  }
+}

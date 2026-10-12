@@ -1,0 +1,32 @@
+{
+  "name": "RefreshItem",
+  "dir": "server",
+  "id": 148,
+  "hex": "3900940005000000000000004D0000000000B80B0100FFFFFFFF00000000000000000000000000000000000000000000FFFFFFFF0000000000",
+  "fields": {
+    "Item": {
+      "UniqueID": "5",
+      "ItemIndex": 77,
+      "CurrentDura": 0,
+      "MaxDura": 3000,
+      "Count": 1,
+      "SoulBoundId": -1,
+      "Identified": false,
+      "Cursed": false,
+      "Slots": [],
+      "GemCount": 0,
+      "AddedStats": {},
+      "AwakeType": 0,
+      "AwakeLevels": [],
+      "RefinedValue": 0,
+      "RefineAdded": 0,
+      "RefineSuccessChance": 0,
+      "WeddingRing": -1,
+      "ExpiryDate": null,
+      "Rental": null,
+      "IsShopItem": false,
+      "Sealed": null,
+      "GMMade": false
+    }
+  }
+}

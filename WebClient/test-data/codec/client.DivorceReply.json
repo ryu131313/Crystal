@@ -1,0 +1,9 @@
+{
+  "name": "DivorceReply",
+  "dir": "client",
+  "id": 91,
+  "hex": "05005B0000",
+  "fields": {
+    "AcceptInvite": false
+  }
+}

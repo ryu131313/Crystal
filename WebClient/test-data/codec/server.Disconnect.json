@@ -1,0 +1,9 @@
+{
+  "name": "Disconnect",
+  "dir": "server",
+  "id": 2,
+  "hex": "0500020002",
+  "fields": {
+    "Reason": 2
+  }
+}

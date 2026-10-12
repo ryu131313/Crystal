@@ -1,0 +1,10 @@
+{
+  "name": "ShareQuest",
+  "dir": "server",
+  "id": 203,
+  "hex": "1000CB000C00000007576562416C6C79",
+  "fields": {
+    "QuestIndex": 12,
+    "SharerName": "WebAlly"
+  }
+}

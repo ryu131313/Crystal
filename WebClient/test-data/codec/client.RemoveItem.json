@@ -1,0 +1,11 @@
+{
+  "name": "RemoveItem",
+  "dir": "client",
+  "id": 19,
+  "hex": "110013000105000000000000000A000000",
+  "fields": {
+    "Grid": 1,
+    "UniqueID": 5,
+    "To": 10
+  }
+}

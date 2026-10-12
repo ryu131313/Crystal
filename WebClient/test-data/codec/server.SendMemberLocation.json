@@ -1,0 +1,13 @@
+{
+  "name": "SendMemberLocation",
+  "dir": "server",
+  "id": 275,
+  "hex": "1100130104416C6C797B000000C8010000",
+  "fields": {
+    "MemberName": "Ally",
+    "MemberLocation": {
+      "X": 123,
+      "Y": 456
+    }
+  }
+}

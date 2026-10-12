@@ -1,0 +1,10 @@
+{
+  "name": "AddMemo",
+  "dir": "client",
+  "id": 130,
+  "hex": "1A0082000300000011747261646520706172746E657220E59586",
+  "fields": {
+    "CharacterIndex": 3,
+    "Memo": "trade partner 商"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "AwakeningLockedItem",
+  "dir": "server",
+  "id": 229,
+  "hex": "0D00E500050000000000000001",
+  "fields": {
+    "UniqueID": 5,
+    "Locked": true
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "GuildStatus",
+  "dir": "server",
+  "id": 168,
+  "hex": "3900A800074372797374616C064C656164657202351CDCDF02000000001EDC0C1700000000286BEE0307000000140000000108028201000000",
+  "fields": {
+    "GuildName": "Crystal",
+    "GuildRankName": "Leader",
+    "Level": 2,
+    "Experience": 12345678901,
+    "MaxExperience": 99000000000,
+    "Gold": 4000000000,
+    "SparePoints": 3,
+    "MemberCount": 7,
+    "MaxMembers": 20,
+    "Voting": true,
+    "ItemCount": 8,
+    "BuffCount": 2,
+    "MyOptions": 130,
+    "MyRankId": 1
+  }
+}

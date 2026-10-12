@@ -1,0 +1,33 @@
+{
+  "name": "UpdateRentalItem",
+  "dir": "server",
+  "id": 260,
+  "hex": "3A0004010105000000000000004D0000000000B80B0100FFFFFFFF00000000000000000000000000000000000000000000FFFFFFFF0000000000",
+  "fields": {
+    "HasData": true,
+    "LoanItem": {
+      "UniqueID": "5",
+      "ItemIndex": 77,
+      "CurrentDura": 0,
+      "MaxDura": 3000,
+      "Count": 1,
+      "SoulBoundId": -1,
+      "Identified": false,
+      "Cursed": false,
+      "Slots": [],
+      "GemCount": 0,
+      "AddedStats": {},
+      "AwakeType": 0,
+      "AwakeLevels": [],
+      "RefinedValue": 0,
+      "RefineAdded": 0,
+      "RefineSuccessChance": 0,
+      "WeddingRing": -1,
+      "ExpiryDate": null,
+      "Rental": null,
+      "IsShopItem": false,
+      "Sealed": null,
+      "GMMade": false
+    }
+  }
+}

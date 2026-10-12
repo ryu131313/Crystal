@@ -1,0 +1,10 @@
+{
+  "name": "ItemSlotSizeChanged",
+  "dir": "server",
+  "id": 115,
+  "hex": "10007300050000000000000003000000",
+  "fields": {
+    "UniqueID": 5,
+    "SlotSize": 3
+  }
+}

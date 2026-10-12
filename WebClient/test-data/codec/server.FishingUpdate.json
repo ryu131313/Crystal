@@ -1,0 +1,17 @@
+{
+  "name": "FishingUpdate",
+  "dir": "server",
+  "id": 200,
+  "hex": "1A00C800D2040000012D000000500000007B000000C801000001",
+  "fields": {
+    "ObjectID": 1234,
+    "Fishing": true,
+    "ProgressPercent": 45,
+    "ChancePercent": 80,
+    "FishingPoint": {
+      "X": 123,
+      "Y": 456
+    },
+    "FoundFish": true
+  }
+}

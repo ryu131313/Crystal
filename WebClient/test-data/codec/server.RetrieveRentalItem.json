@@ -1,0 +1,11 @@
+{
+  "name": "RetrieveRentalItem",
+  "dir": "server",
+  "id": 259,
+  "hex": "0D000301000000000C00000001",
+  "fields": {
+    "From": 0,
+    "To": 12,
+    "Success": true
+  }
+}

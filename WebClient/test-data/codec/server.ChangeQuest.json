@@ -1,0 +1,20 @@
+{
+  "name": "ChangeQuest",
+  "dir": "server",
+  "id": 201,
+  "hex": "3000C9000C00000002000000114B696C6C20352048656E732028322F35290C4272696E6720E79AAE2078330100010101",
+  "fields": {
+    "Quest": {
+      "Id": 12,
+      "TaskList": [
+        "Kill 5 Hens (2/5)",
+        "Bring 皮 x3"
+      ],
+      "Taken": true,
+      "Completed": false,
+      "New": true
+    },
+    "QuestState": 1,
+    "TrackQuest": true
+  }
+}

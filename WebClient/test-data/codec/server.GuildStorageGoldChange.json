@@ -1,0 +1,11 @@
+{
+  "name": "GuildStorageGoldChange",
+  "dir": "server",
+  "id": 172,
+  "hex": "1100AC00005ED0B201075765624865726F",
+  "fields": {
+    "Amount": 3000000000,
+    "Type": 1,
+    "Name": "WebHero"
+  }
+}

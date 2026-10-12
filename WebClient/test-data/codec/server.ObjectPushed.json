@@ -1,0 +1,14 @@
+{
+  "name": "ObjectPushed",
+  "dir": "server",
+  "id": 128,
+  "hex": "110080004D0000007B000000C801000002",
+  "fields": {
+    "ObjectID": 77,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 2
+  }
+}

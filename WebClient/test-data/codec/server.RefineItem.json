@@ -1,0 +1,9 @@
+{
+  "name": "RefineItem",
+  "dir": "server",
+  "id": 49,
+  "hex": "0C003100011A711802000000",
+  "fields": {
+    "UniqueID": 9000000001
+  }
+}

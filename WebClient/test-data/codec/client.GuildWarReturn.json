@@ -1,0 +1,9 @@
+{
+  "name": "GuildWarReturn",
+  "dir": "client",
+  "id": 86,
+  "hex": "0F0056000A456E656D794775696C64",
+  "fields": {
+    "Name": "EnemyGuild"
+  }
+}

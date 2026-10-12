@@ -1,0 +1,12 @@
+{
+  "name": "Roll",
+  "dir": "server",
+  "id": 272,
+  "hex": "1700100102000000095B40524F4C4C45445D0500000001",
+  "fields": {
+    "Type": 2,
+    "Page": "[@ROLLED]",
+    "Result": 5,
+    "AutoRoll": true
+  }
+}

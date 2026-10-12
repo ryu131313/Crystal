@@ -1,0 +1,44 @@
+{
+  "name": "ObjectPlayer",
+  "dir": "server",
+  "id": 24,
+  "hex": "5400180001286BEE044865726F054775696C64064C65616465721020FFFF000128007B000000C80100000103020C000100050005000001000101FFFF0001FFFF0100000002000000030000000200000003020100",
+  "fields": {
+    "ObjectID": 4000000001,
+    "Name": "Hero",
+    "GuildName": "Guild",
+    "GuildRankName": "Leader",
+    "NameColour": -57328,
+    "Class": 0,
+    "Gender": 1,
+    "Level": 40,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 1,
+    "Hair": 3,
+    "Light": 2,
+    "Weapon": 12,
+    "WeaponEffect": 1,
+    "Armour": 5,
+    "Poison": 5,
+    "Dead": false,
+    "Hidden": true,
+    "Effect": 0,
+    "WingEffect": 1,
+    "Extra": true,
+    "MountType": -1,
+    "RidingMount": false,
+    "Fishing": true,
+    "TransformType": -1,
+    "ElementOrbEffect": 1,
+    "ElementOrbLvl": 2,
+    "ElementOrbMax": 3,
+    "LevelEffects": 1,
+    "Buffs": [
+      3,
+      2
+    ]
+  }
+}

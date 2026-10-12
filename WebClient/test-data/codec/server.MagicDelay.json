@@ -1,0 +1,11 @@
+{
+  "name": "MagicDelay",
+  "dir": "server",
+  "id": 121,
+  "hex": "11007900D20400001FC409000000000000",
+  "fields": {
+    "ObjectID": 1234,
+    "Spell": 31,
+    "Delay": 2500
+  }
+}

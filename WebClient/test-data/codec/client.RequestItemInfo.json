@@ -1,0 +1,9 @@
+{
+  "name": "RequestItemInfo",
+  "dir": "client",
+  "id": 39,
+  "hex": "080027001F000000",
+  "fields": {
+    "ItemIndex": 31
+  }
+}

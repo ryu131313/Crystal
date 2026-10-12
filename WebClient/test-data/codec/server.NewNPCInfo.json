@@ -1,0 +1,25 @@
+{
+  "name": "NewNPCInfo",
+  "dir": "server",
+  "id": 34,
+  "hex": "40002200050000000B426963686F6E2F53686F700D4D65726368616E745F4A6F686E010000007B000000C80100000E0078000107000000580000000300000001",
+  "fields": {
+    "Info": {
+      "ObjectID": 88,
+      "Icon": 3,
+      "Index": 5,
+      "FileName": "Bichon/Shop",
+      "Name": "Merchant_John",
+      "MapIndex": 1,
+      "Location": {
+        "X": 123,
+        "Y": 456
+      },
+      "Rate": 120,
+      "Image": 14,
+      "ShowOnBigMap": true,
+      "BigMapIcon": 7,
+      "CanTeleportTo": true
+    }
+  }
+}

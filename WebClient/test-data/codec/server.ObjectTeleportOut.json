@@ -1,0 +1,10 @@
+{
+  "name": "ObjectTeleportOut",
+  "dir": "server",
+  "id": 99,
+  "hex": "090063004D00000001",
+  "fields": {
+    "ObjectID": 77,
+    "Type": 1
+  }
+}

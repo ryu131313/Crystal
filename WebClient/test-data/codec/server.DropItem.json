@@ -1,0 +1,12 @@
+{
+  "name": "DropItem",
+  "dir": "server",
+  "id": 53,
+  "hex": "10003500080000000000000002000001",
+  "fields": {
+    "UniqueID": 8,
+    "Count": 2,
+    "HeroItem": false,
+    "Success": true
+  }
+}

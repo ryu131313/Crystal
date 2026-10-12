@@ -1,0 +1,9 @@
+{
+  "name": "RemoveMagic",
+  "dir": "server",
+  "id": 118,
+  "hex": "0800760003000000",
+  "fields": {
+    "PlaceId": 3
+  }
+}

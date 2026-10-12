@@ -1,0 +1,12 @@
+{
+  "name": "SplitItem1",
+  "dir": "server",
+  "id": 45,
+  "hex": "10002D00040600000000000000030001",
+  "fields": {
+    "Grid": 4,
+    "UniqueID": 6,
+    "Count": 3,
+    "Success": true
+  }
+}

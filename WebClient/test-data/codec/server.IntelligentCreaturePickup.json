@@ -1,0 +1,9 @@
+{
+  "name": "IntelligentCreaturePickup",
+  "dir": "server",
+  "id": 242,
+  "hex": "0800F2004D000000",
+  "fields": {
+    "ObjectID": 77
+  }
+}

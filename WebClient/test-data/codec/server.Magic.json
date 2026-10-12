@@ -1,0 +1,20 @@
+{
+  "name": "Magic",
+  "dir": "server",
+  "id": 120,
+  "hex": "1F0078001F4D0000007B000000C80100000103020000000500000006000000",
+  "fields": {
+    "Spell": 31,
+    "TargetID": 77,
+    "Target": {
+      "X": 123,
+      "Y": 456
+    },
+    "Cast": true,
+    "Level": 3,
+    "SecondaryTargetIDs": [
+      5,
+      6
+    ]
+  }
+}

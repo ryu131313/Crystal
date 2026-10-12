@@ -33,6 +33,8 @@ namespace Client.MirGraphics
         public static RenderTexture PoisonDotBackground;
 
         public static RenderTexture FloorTexture, LightTexture;
+        /// <summary>Float light map of the enhanced lighting (D3D11 only, [Graphics] Lighting=Enhanced); released in CleanUp.</summary>
+        public static RenderTexture EnhancedLightTexture;
 
         public static bool GrayScale;
 
@@ -283,6 +285,48 @@ namespace Client.MirGraphics
         {
             Backend.SetSourceBlend(RenderBlend.Zero);
             Backend.SetDestinationBlend(RenderBlend.SourceColor);
+        }
+
+        /// <summary>True when the backend can draw the enhanced lighting (D3D11).</summary>
+        public static bool EnhancedLightingAvailable => Backend != null && Backend.SupportsEnhancedLighting;
+
+        /// <summary>A float render target for <see cref="EnhancedLightTexture"/> (D3D11 only).</summary>
+        public static RenderTexture CreateLightTarget(int width, int height) => Backend.CreateLightTarget(width, height);
+
+        /// <summary>Enhanced lights add (One, One) into the float light map through the Light shader. Call after SetBlend(true);
+        /// undo with <see cref="EndEnhancedLightBlend"/> before SetBlend(false).</summary>
+        public static void SetEnhancedLightAdditiveBlend()
+        {
+            Backend.SpriteFlush();
+            Backend.SetSourceBlend(RenderBlend.One);
+            Backend.SetDestinationBlend(RenderBlend.One);
+            Backend.SetPixelShader(PixelShaderKind.Light);
+        }
+
+        /// <summary>Back to the SetBlend(true) state (SourceAlpha, One, no shader), as the classic lights leave it.</summary>
+        public static void EndEnhancedLightBlend()
+        {
+            Backend.SpriteFlush();
+            Backend.SetPixelShader(PixelShaderKind.None);
+            Backend.SetSourceBlend(RenderBlend.SourceAlpha);
+            Backend.SetDestinationBlend(RenderBlend.One);
+        }
+
+        /// <summary>One enhanced light quad (see <see cref="IRenderBackend.DrawLight"/>).</summary>
+        public static void DrawLight(float x, float y, float width, float height, Color colour, float intensity)
+        {
+            Backend.DrawLight(x, y, width, height, colour, intensity);
+            CMain.DPSCounter++;
+        }
+
+        /// <summary>The enhanced light map modulates the scene 2x (DestinationColor, SourceColor) through the LightComposite shader,
+        /// so lights can brighten it. Undo with <see cref="RestartSpriteAlphaBlend"/>.</summary>
+        public static void SetEnhancedLightCompositeBlend()
+        {
+            Backend.SpriteFlush();
+            Backend.SetSourceBlend(RenderBlend.DestinationColor);
+            Backend.SetDestinationBlend(RenderBlend.SourceColor);
+            Backend.SetPixelShader(PixelShaderKind.LightComposite);
         }
 
         /// <summary>Ends and restarts the sprite in AlphaBlend mode, restoring the default sprite states.</summary>
@@ -551,6 +595,14 @@ namespace Client.MirGraphics
                     LightTexture.Dispose();
 
                 DXManager.LightTexture = null;
+            }
+
+            if (EnhancedLightTexture != null)
+            {
+                if (!EnhancedLightTexture.Disposed)
+                    EnhancedLightTexture.Dispose();
+
+                EnhancedLightTexture = null;
             }
 
             if (Lights != null)

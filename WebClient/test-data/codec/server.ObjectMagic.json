@@ -1,0 +1,26 @@
+{
+  "name": "ObjectMagic",
+  "dir": "server",
+  "id": 123,
+  "hex": "29007B004D0000007B000000C80100000624090000007B000000C80100000001010100000004000000",
+  "fields": {
+    "ObjectID": 77,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 6,
+    "Spell": 36,
+    "TargetID": 9,
+    "Target": {
+      "X": 123,
+      "Y": 456
+    },
+    "Cast": false,
+    "Level": 1,
+    "SelfBroadcast": true,
+    "SecondaryTargetIDs": [
+      4
+    ]
+  }
+}

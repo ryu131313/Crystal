@@ -1,0 +1,9 @@
+{
+  "name": "StartGameDelay",
+  "dir": "server",
+  "id": 16,
+  "hex": "0C0010003930000000000000",
+  "fields": {
+    "Milliseconds": 12345
+  }
+}

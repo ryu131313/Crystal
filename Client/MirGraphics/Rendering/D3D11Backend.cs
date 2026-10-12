@@ -100,7 +100,7 @@ namespace Client.MirGraphics.Rendering
         private SwapChainFlags _swapChainFlags;
 
         private ID3D11VertexShader _vs;
-        private ID3D11PixelShader _psModulate, _psGrayscale;
+        private ID3D11PixelShader _psModulate, _psGrayscale, _psLight, _psLightComposite;
         private ID3D11InputLayout _layout;
         private ID3D11Buffer _vertexBuffer, _indexBuffer, _frameBuffer, _pixelBuffer;
         private ID3D11SamplerState _samplerPoint, _samplerLinear, _samplerAnisotropic;
@@ -230,6 +230,23 @@ float4 Grayscale_PS(VSOut i) : SV_Target
     float l = saturate(dot(t.rgb, float3(0.3f, 0.59f, 0.11f)));
     return ApplyAlphaTest(float4(l, l, l, t.a));
 }
+// Enhanced lighting ([Graphics] Lighting=Enhanced). Light_PS: an elliptical falloff across the quad, (1 - r^2)^2, scaled
+// by the light colour and an intensity of alpha * 4, added (One, One) into a float light map, so lights never clip.
+float4 Light_PS(VSOut i) : SV_Target
+{
+    float2 d = i.uv * 2.0f - 1.0f;
+    float f = 1.0f - saturate(dot(d, d));
+    return float4(i.col.rgb * (i.col.a * 4.0f * f * f), 1.0f);
+}
+// LightComposite_PS: the light map soft-knees above 1 towards 2 (no hard clip) and is output halved; the blend
+// (DestinationColor, SourceColor) doubles it again: scene * light, with light in 0..2 so lights can brighten the scene.
+float4 LightComposite_PS(VSOut i) : SV_Target
+{
+    float3 l = max(SpriteTex.Sample(SpriteSmp, i.uv).rgb, 0.0f);
+    float3 over = max(l - 1.0f, 0.0f);
+    l = min(l, 1.0f) + over / (1.0f + over);
+    return float4(l * 0.5f, 0.5f);
+}
 ";
 
         private void CreatePipeline()
@@ -237,9 +254,13 @@ float4 Grayscale_PS(VSOut i) : SV_Target
             ReadOnlyMemory<byte> vs = Compiler.Compile(ShaderSource, "Sprite_VS", "Sprite.hlsl", "vs_4_0");
             ReadOnlyMemory<byte> psModulate = Compiler.Compile(ShaderSource, "Modulate_PS", "Sprite.hlsl", "ps_4_0");
             ReadOnlyMemory<byte> psGrayscale = Compiler.Compile(ShaderSource, "Grayscale_PS", "Sprite.hlsl", "ps_4_0");
+            ReadOnlyMemory<byte> psLight = Compiler.Compile(ShaderSource, "Light_PS", "Sprite.hlsl", "ps_4_0");
+            ReadOnlyMemory<byte> psLightComposite = Compiler.Compile(ShaderSource, "LightComposite_PS", "Sprite.hlsl", "ps_4_0");
             _vs = _device.CreateVertexShader(vs.Span);
             _psModulate = _device.CreatePixelShader(psModulate.Span);
             _psGrayscale = _device.CreatePixelShader(psGrayscale.Span);
+            _psLight = _device.CreatePixelShader(psLight.Span);
+            _psLightComposite = _device.CreatePixelShader(psLightComposite.Span);
 
             // D3D9 parity: the grayscale effect exists only when Data\Shaders\grayscale.ps does.
             _grayscaleAvailable = File.Exists(Settings.ShadersPath + "grayscale.ps");
@@ -392,6 +413,21 @@ float4 Grayscale_PS(VSOut i) : SV_Target
                 Srv = _device.CreateShaderResourceView(texture),
                 Cpu = (byte*)NativeMemory.AllocZeroed((nuint)((long)width * height * 4)),
             };
+            return t;
+        }
+
+        public bool SupportsEnhancedLighting => true;
+
+        public RenderTexture CreateLightTarget(int width, int height)
+        {
+            var texture = _device.CreateTexture2D(new Texture2DDescription
+            {
+                Width = (uint)width, Height = (uint)height, MipLevels = 1, ArraySize = 1,
+                Format = DxgiFormat.R16G16B16A16_Float, SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default, BindFlags = BindFlags.ShaderResource | BindFlags.RenderTarget,
+            });
+            var t = new RenderTexture(width, height, true);
+            t.Native = new TextureData { Texture = texture, Srv = _device.CreateShaderResourceView(texture), Rtv = _device.CreateRenderTargetView(texture) };
             return t;
         }
 
@@ -571,6 +607,33 @@ float4 Grayscale_PS(VSOut i) : SV_Target
             _count++;
         }
 
+        public void DrawLight(float x, float y, float width, float height, Color colour, float intensity)
+        {
+            if (_white == null || width <= 0f || height <= 0f) return;
+            if (_count >= MaxSprites) Flush();
+
+            float x1 = x + width, y1 = y + height;
+            uint c = (uint)colour.R | ((uint)colour.G << 8) | ((uint)colour.B << 16) | (ToByte(intensity * 0.25f) << 24);
+            int v = _count * 4;
+            if (_transformIdentity)
+            {
+                _vertices[v] = new Vertex { X = x, Y = y, U = 0f, V = 0f, Colour = c };
+                _vertices[v + 1] = new Vertex { X = x1, Y = y, U = 1f, V = 0f, Colour = c };
+                _vertices[v + 2] = new Vertex { X = x, Y = y1, U = 0f, V = 1f, Colour = c };
+                _vertices[v + 3] = new Vertex { X = x1, Y = y1, U = 1f, V = 1f, Colour = c };
+            }
+            else
+            {
+                _vertices[v] = Transformed(x, y, 0f, 0f, c);
+                _vertices[v + 1] = Transformed(x1, y, 1f, 0f, c);
+                _vertices[v + 2] = Transformed(x, y1, 0f, 1f, c);
+                _vertices[v + 3] = Transformed(x1, y1, 1f, 1f, c);
+            }
+            _textures[_count] = _white; // Light_PS reads only the UVs and the vertex colour
+            _scaled[_count] = false;
+            _count++;
+        }
+
         private Vertex Transformed(float x, float y, float u, float v, uint c) => new Vertex
         {
             X = x * _transform.M11 + y * _transform.M21 + _transform.M41,
@@ -668,7 +731,13 @@ float4 Grayscale_PS(VSOut i) : SV_Target
                 _boundBlend = blend;
                 _boundFactor = state.Factor;
             }
-            var shader = state.Shader == PixelShaderKind.Grayscale ? _psGrayscale : _psModulate;
+            var shader = state.Shader switch
+            {
+                PixelShaderKind.Grayscale => _psGrayscale,
+                PixelShaderKind.Light => _psLight,
+                PixelShaderKind.LightComposite => _psLightComposite,
+                _ => _psModulate,
+            };
             if (shader != _boundShader) { _context.PSSetShader(shader); _boundShader = shader; }
             uint alphaTest = state.AlphaTest ? 1u : 0u;
             if (alphaTest != _boundAlphaTest)
@@ -725,7 +794,12 @@ float4 Grayscale_PS(VSOut i) : SV_Target
         public void SetBlendOperationAdd() { }                 // the only blend operation the client uses
         public void SetBlendFactor(Color factor) => _state.Factor = factor;
 
-        private PixelShaderKind Effective(PixelShaderKind kind) => kind == PixelShaderKind.Grayscale && _grayscaleAvailable ? kind : PixelShaderKind.None;
+        private PixelShaderKind Effective(PixelShaderKind kind) => kind switch
+        {
+            PixelShaderKind.Grayscale => _grayscaleAvailable ? kind : PixelShaderKind.None,
+            PixelShaderKind.Light or PixelShaderKind.LightComposite => kind,
+            _ => PixelShaderKind.None,
+        };
         public bool IsPixelShaderAvailable(PixelShaderKind kind) => kind == PixelShaderKind.None || Effective(kind) == kind;
         public bool IsPixelShaderActive(PixelShaderKind kind) => _state.Shader == Effective(kind);
         public void SetPixelShader(PixelShaderKind kind) => _state.Shader = Effective(kind);
@@ -918,10 +992,10 @@ float4 Grayscale_PS(VSOut i) : SV_Target
             _blendStates.Clear();
             _depthOff?.Dispose(); _rasterizer?.Dispose(); _samplerAnisotropic?.Dispose(); _samplerLinear?.Dispose(); _samplerPoint?.Dispose();
             _pixelBuffer?.Dispose(); _frameBuffer?.Dispose(); _indexBuffer?.Dispose(); _vertexBuffer?.Dispose();
-            _layout?.Dispose(); _psGrayscale?.Dispose(); _psModulate?.Dispose(); _vs?.Dispose();
+            _layout?.Dispose(); _psLightComposite?.Dispose(); _psLight?.Dispose(); _psGrayscale?.Dispose(); _psModulate?.Dispose(); _vs?.Dispose();
             _depthOff = null; _rasterizer = null; _samplerAnisotropic = null; _samplerLinear = null; _samplerPoint = null;
             _pixelBuffer = null; _frameBuffer = null; _indexBuffer = null; _vertexBuffer = null;
-            _layout = null; _psGrayscale = null; _psModulate = null; _vs = null;
+            _layout = null; _psLightComposite = null; _psLight = null; _psGrayscale = null; _psModulate = null; _vs = null;
 
             ReleaseBackBuffer();
             _swapChain?.Dispose(); _swapChain = null;

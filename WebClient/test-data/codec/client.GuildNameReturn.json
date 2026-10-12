@@ -1,0 +1,9 @@
+{
+  "name": "GuildNameReturn",
+  "dir": "client",
+  "id": 82,
+  "hex": "0C005200074372797374616C",
+  "fields": {
+    "Name": "Crystal"
+  }
+}

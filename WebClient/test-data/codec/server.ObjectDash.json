@@ -1,0 +1,14 @@
+{
+  "name": "ObjectDash",
+  "dir": "server",
+  "id": 151,
+  "hex": "110097004D0000007B000000C801000000",
+  "fields": {
+    "ObjectID": 77,
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 0
+  }
+}

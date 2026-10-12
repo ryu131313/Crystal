@@ -1,0 +1,9 @@
+{
+  "name": "ObjectLeveled",
+  "dir": "server",
+  "id": 89,
+  "hex": "080059004D000000",
+  "fields": {
+    "ObjectID": 77
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "MailSent",
+  "dir": "server",
+  "id": 234,
+  "hex": "0500EA00FF",
+  "fields": {
+    "Result": -1
+  }
+}

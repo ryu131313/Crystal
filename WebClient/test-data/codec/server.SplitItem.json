@@ -1,0 +1,33 @@
+{
+  "name": "SplitItem",
+  "dir": "server",
+  "id": 44,
+  "hex": "3B002C000105000000000000004D0000000000B80B0100FFFFFFFF00000000000000000000000000000000000000000000FFFFFFFF000000000001",
+  "fields": {
+    "Item": {
+      "UniqueID": "5",
+      "ItemIndex": 77,
+      "CurrentDura": 0,
+      "MaxDura": 3000,
+      "Count": 1,
+      "SoulBoundId": -1,
+      "Identified": false,
+      "Cursed": false,
+      "Slots": [],
+      "GemCount": 0,
+      "AddedStats": {},
+      "AwakeType": 0,
+      "AwakeLevels": [],
+      "RefinedValue": 0,
+      "RefineAdded": 0,
+      "RefineSuccessChance": 0,
+      "WeddingRing": -1,
+      "ExpiryDate": null,
+      "Rental": null,
+      "IsShopItem": false,
+      "Sealed": null,
+      "GMMade": false
+    },
+    "Grid": 1
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "PlayerUpdate",
+  "dir": "server",
+  "id": 56,
+  "hex": "1000380001286BEE090C000300050002",
+  "fields": {
+    "ObjectID": 4000000001,
+    "Light": 9,
+    "Weapon": 12,
+    "WeaponEffect": 3,
+    "Armour": 5,
+    "WingEffect": 2
+  }
+}

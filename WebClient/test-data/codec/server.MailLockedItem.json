@@ -1,0 +1,10 @@
+{
+  "name": "MailLockedItem",
+  "dir": "server",
+  "id": 232,
+  "hex": "0D00E800050000000000000001",
+  "fields": {
+    "UniqueID": 5,
+    "Locked": true
+  }
+}

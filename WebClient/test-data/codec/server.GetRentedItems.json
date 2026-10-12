@@ -1,0 +1,16 @@
+{
+  "name": "GetRentedItems",
+  "dir": "server",
+  "id": 254,
+  "hex": "2600FE0001000000050000000000000005546F72636807576562416C6C7900008C12AB37DF48",
+  "fields": {
+    "RentedItems": [
+      {
+        "ItemId": 5,
+        "ItemName": "Torch",
+        "RentingPlayerName": "WebAlly",
+        "ItemReturnDate": "5250976898427387904"
+      }
+    ]
+  }
+}

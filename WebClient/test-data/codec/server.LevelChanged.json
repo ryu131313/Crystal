@@ -1,0 +1,11 @@
+{
+  "name": "LevelChanged",
+  "dir": "server",
+  "id": 87,
+  "hex": "1600570017000500000000000000001A711802000000",
+  "fields": {
+    "Level": 23,
+    "Experience": 5,
+    "MaxExperience": 9000000000
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "ReceiveMail",
+  "dir": "server",
+  "id": 231,
+  "hex": "6F00E70001000000031A71180200000007576562416C6C790D486920E2809420E4BDA0E5A5BD0100010000680D24FC27DF48005ED0B20100000005000000000000004D0000000000B80B0100FFFFFFFF00000000000000000000000000000000000000000000FFFFFFFF0000000000",
+  "fields": {
+    "Mail": [
+      {
+        "MailID": 9000000003,
+        "SenderName": "WebAlly",
+        "Message": "Hi — 你好",
+        "Opened": true,
+        "Locked": false,
+        "CanReply": true,
+        "Collected": false,
+        "DateSent": "5250959654427387904",
+        "Gold": 3000000000,
+        "Items": [
+          {
+            "UniqueID": "5",
+            "ItemIndex": 77,
+            "CurrentDura": 0,
+            "MaxDura": 3000,
+            "Count": 1,
+            "SoulBoundId": -1,
+            "Identified": false,
+            "Cursed": false,
+            "Slots": [],
+            "GemCount": 0,
+            "AddedStats": {},
+            "AwakeType": 0,
+            "AwakeLevels": [],
+            "RefinedValue": 0,
+            "RefineAdded": 0,
+            "RefineSuccessChance": 0,
+            "WeddingRing": -1,
+            "ExpiryDate": null,
+            "Rental": null,
+            "IsShopItem": false,
+            "Sealed": null,
+            "GMMade": false
+          }
+        ]
+      }
+    ]
+  }
+}

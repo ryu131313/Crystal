@@ -1,0 +1,9 @@
+{
+  "name": "MarketPage",
+  "dir": "client",
+  "id": 73,
+  "hex": "0800490004000000",
+  "fields": {
+    "Page": 4
+  }
+}

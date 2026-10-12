@@ -1,0 +1,9 @@
+{
+  "name": "RequestIntelligentCreatureUpdates",
+  "dir": "client",
+  "id": 126,
+  "hex": "05007E0001",
+  "fields": {
+    "Update": true
+  }
+}

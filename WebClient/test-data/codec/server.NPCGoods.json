@@ -1,0 +1,63 @@
+{
+  "name": "NPCGoods",
+  "dir": "server",
+  "id": 102,
+  "hex": "450066001F8B080000000000000A6362606038C1CF00061A108AC188E1FFFFFFFFA11C460606061E5628070AE0D227D1743222EB440348320BEC191801B0232F2E79000000",
+  "fields": {
+    "List": [
+      {
+        "UniqueID": "4040",
+        "ItemIndex": 40,
+        "CurrentDura": 0,
+        "MaxDura": 0,
+        "Count": 50,
+        "SoulBoundId": -1,
+        "Identified": false,
+        "Cursed": false,
+        "Slots": [],
+        "GemCount": 0,
+        "AddedStats": {
+          "12": 5
+        },
+        "AwakeType": 0,
+        "AwakeLevels": [],
+        "RefinedValue": 0,
+        "RefineAdded": 0,
+        "RefineSuccessChance": 0,
+        "WeddingRing": -1,
+        "ExpiryDate": null,
+        "Rental": null,
+        "IsShopItem": false,
+        "Sealed": null,
+        "GMMade": false
+      },
+      {
+        "UniqueID": "4041",
+        "ItemIndex": 40,
+        "CurrentDura": 0,
+        "MaxDura": 0,
+        "Count": 1,
+        "SoulBoundId": -1,
+        "Identified": false,
+        "Cursed": false,
+        "Slots": [],
+        "GemCount": 0,
+        "AddedStats": {},
+        "AwakeType": 0,
+        "AwakeLevels": [],
+        "RefinedValue": 0,
+        "RefineAdded": 0,
+        "RefineSuccessChance": 0,
+        "WeddingRing": -1,
+        "ExpiryDate": null,
+        "Rental": null,
+        "IsShopItem": false,
+        "Sealed": null,
+        "GMMade": false
+      }
+    ],
+    "Rate": 1.25,
+    "Type": 0,
+    "HideAddedStats": true
+  }
+}

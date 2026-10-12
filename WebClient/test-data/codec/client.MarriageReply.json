@@ -1,0 +1,9 @@
+{
+  "name": "MarriageReply",
+  "dir": "client",
+  "id": 88,
+  "hex": "0500580001",
+  "fields": {
+    "AcceptInvite": true
+  }
+}

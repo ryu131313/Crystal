@@ -1,0 +1,13 @@
+{
+  "name": "UserDash",
+  "dir": "server",
+  "id": 150,
+  "hex": "0D0096007B000000C801000007",
+  "fields": {
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 7
+  }
+}

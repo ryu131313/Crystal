@@ -1,0 +1,11 @@
+{
+  "name": "Inspect",
+  "dir": "client",
+  "id": 42,
+  "hex": "0A002A0001286BEE0100",
+  "fields": {
+    "ObjectID": 4000000001,
+    "Ranking": true,
+    "Hero": false
+  }
+}

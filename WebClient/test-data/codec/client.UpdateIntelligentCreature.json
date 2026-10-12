@@ -1,0 +1,44 @@
+{
+  "name": "UpdateIntelligentCreature",
+  "dir": "client",
+  "id": 124,
+  "hex": "50007C0001F60100000450656570282300000100000000809930F9E2DF48E11000000000000001F401000001090000000000000000010400000000000001000000000000043D22000000000000000100",
+  "fields": {
+    "Creature": {
+      "PetType": 1,
+      "Icon": 502,
+      "CustomName": "Peep",
+      "Fullness": 9000,
+      "SlotIndex": 1,
+      "Expire": "5251165250427387904",
+      "BlackstoneTime": 4321,
+      "MaintainFoodTime": 8765,
+      "petMode": 1,
+      "CreatureRules": {
+        "MinimalFullness": 500,
+        "MousePickupEnabled": true,
+        "MousePickupRange": 9,
+        "AutoPickupEnabled": false,
+        "AutoPickupRange": 0,
+        "SemiAutoPickupEnabled": true,
+        "SemiAutoPickupRange": 4,
+        "CanProduceBlackStone": false
+      },
+      "Filter": {
+        "PetPickupAll": false,
+        "PetPickupGold": false,
+        "PetPickupWeapons": true,
+        "PetPickupArmours": false,
+        "PetPickupHelmets": false,
+        "PetPickupBoots": false,
+        "PetPickupBelts": false,
+        "PetPickupAccessories": false,
+        "PetPickupOthers": false,
+        "PickupGrade": 4
+      }
+    },
+    "SummonMe": false,
+    "UnSummonMe": true,
+    "ReleaseMe": false
+  }
+}

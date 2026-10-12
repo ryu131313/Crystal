@@ -1,0 +1,9 @@
+{
+  "name": "SwitchGroup",
+  "dir": "server",
+  "id": 131,
+  "hex": "0500830001",
+  "fields": {
+    "AllowGroup": true
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "GainExperience",
+  "dir": "server",
+  "id": 85,
+  "hex": "0800550000286BEE",
+  "fields": {
+    "Amount": 4000000000
+  }
+}

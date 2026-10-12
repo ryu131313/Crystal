@@ -1,0 +1,13 @@
+{
+  "name": "MergeItem",
+  "dir": "server",
+  "id": 39,
+  "hex": "1700270002010B000000000000000C0000000000000000",
+  "fields": {
+    "GridFrom": 2,
+    "GridTo": 1,
+    "IDFrom": 11,
+    "IDTo": 12,
+    "Success": false
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "AwakeningNeedMaterials",
+  "dir": "client",
+  "id": 111,
+  "hex": "0D006F00090000000000000005",
+  "fields": {
+    "UniqueID": 9,
+    "Type": 5
+  }
+}

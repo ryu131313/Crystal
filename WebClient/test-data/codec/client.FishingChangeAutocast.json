@@ -1,0 +1,9 @@
+{
+  "name": "FishingChangeAutocast",
+  "dir": "client",
+  "id": 103,
+  "hex": "0500670001",
+  "fields": {
+    "AutoCast": true
+  }
+}

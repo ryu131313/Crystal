@@ -1,0 +1,13 @@
+{
+  "name": "Pushed",
+  "dir": "server",
+  "id": 127,
+  "hex": "0D007F007B000000C801000006",
+  "fields": {
+    "Location": {
+      "X": 123,
+      "Y": 456
+    },
+    "Direction": 6
+  }
+}

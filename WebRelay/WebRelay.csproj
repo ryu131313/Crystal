@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    WebRelay (web client, roadmap W): a sidecar that bridges the browser client (WebClient\) to an UNCHANGED Crystal
+    server. WebSocket (one Crystal packet per binary message) <-> TCP, plus read-only static/asset serving.
+    References Shared only for the packet-id enums and the emit-ts / emit-fixtures tools; packet bytes are never
+    decoded on the relay path. Builds to its own bin\ (never Build\). See Knowledgebase/WebClient/webclient.md.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(ServerTfm)</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>WebRelay</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Shared\Shared.csproj" />
+  </ItemGroup>
+
+</Project>

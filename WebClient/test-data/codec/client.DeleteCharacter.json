@@ -1,0 +1,9 @@
+{
+  "name": "DeleteCharacter",
+  "dir": "client",
+  "id": 7,
+  "hex": "080007002A000000",
+  "fields": {
+    "CharacterIndex": 42
+  }
+}
