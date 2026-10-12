@@ -288,6 +288,14 @@ export class MapObj {
    *  an Archer with a bow walks / runs with the Bow frames. Monsters and NPCs use their own table. */
   private frameAction = -1;
   private frameFor(action: number): Frame | null {
+    const override = this.frameAction;
+    this.frameAction = -1;
+    return this.pickFrame(action, override);
+  }
+
+  /** frameFor without its side effect: the frame `action` plays now (`override` = a spell's frameAction). Also asked
+   *  by the art warm-up (preload.ts). */
+  pickFrame(action: number, override = -1): Frame | null {
     const fs = this.frames;
     let a = action;
     if (this.race === ObjectType.Player) {
@@ -296,14 +304,14 @@ export class MapObj {
         case A.DashL: case A.DashR: a = A.Running; break;
         case A.DashFail: a = this.ridingMount ? A.MountStanding : A.Standing; break;
       }
-      if (this.frameAction >= 0) { a = this.frameAction; this.frameAction = -1; }
+      if (override >= 0) a = override;
       if (this.look.class === MirClass.Archer && this.hasClassWeapon) {
         if (action === A.Walking) a = A.WalkingBow;
         else if (action === A.Running) a = A.RunningBow;
       }
       // PlayerObject.SetLibraries transform region: a transformed body has one stand / walk / run / attack set
       if (this.transformType > -1) {
-        switch (this.action) {
+        switch (action) { // SetLibraries reads Action, which SetAction has just set to this action
           case A.Standing: case A.Jump: a = A.Standing; break;
           case A.Walking: case A.WalkingBow: a = A.Walking; break;
           case A.Running: case A.RunningBow: a = A.Running; break;
@@ -446,13 +454,13 @@ export class MapObj {
     }
   }
 
-  playerLibraries(): PlayerLibraries {
+  /** `act` defaults to the current action; the art warm-up (preload.ts) asks for others. */
+  playerLibraries(act = this.action): PlayerLibraries {
     const { class: cls, gender, hair, armour, weapon } = this.look;
     const female = gender === MirGender.Female;
     let altAnim = false;
     let body: string | null, hairLib: string | null, w1: string | null = null, w2: string | null = null, wing: string | null = null;
     let armourOff: number, hairOff: number, weaponOff: number;
-    const act = this.action;
     const { showMount, showFishing } = transformShows(this.transformType);
     if (this.transformType > -1) {
       // Transform: one body library, no hair / weapons; riding a big mount (MountType > 6) uses TransformRide2 at -416.

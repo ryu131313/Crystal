@@ -23,7 +23,7 @@ export const Lib = {
   Items: "Items", StateItems: "StateItem", FloorItems: "DNItems", UI_32bit: "UI_32bit", GuildSkill: "GuildSkill",
 } as const;
 
-/** Settings.ScreenWidth / ScreenHeight: 1024 x 768, or 1280 x 800 when the game starts at that resolution (live
+/** Settings.ScreenWidth / ScreenHeight: 1024 x 768, or the game resolution (1280 x 800, 1366 x 768, 1920 x 1080) in game (live
  *  bindings: always read them, never copy them at module load). */
 export let SCREEN_WIDTH = 1024;
 export let SCREEN_HEIGHT = 768;

@@ -9,14 +9,15 @@ import { SpriteBatch } from "../render/batcher.ts";
 import type { WebGl2Renderer } from "../render/backend.ts";
 import { MirAction as A, MirDirection as D, ObjectType } from "../protocol/enums.generated.ts";
 import type { MapCells } from "../map/mapReader.ts";
-import { MAP_LIBS, LibPath, sprite, monsterLibPath, npcLibPath } from "./libraries.ts";
-import { CELL_W, CELL_H, type MapObj } from "./objects.ts";
+import { MAP_LIBS, LibPath, sprite, monsterLibPath, npcLibPath, visiblePixel } from "./libraries.ts";
+import { CELL_W, CELL_H, type MapObj, type PlayerLibraries } from "./objects.ts";
 import { SceneLights, effectiveSetting, type LightSource, type LightState } from "./lighting.ts";
 import { poisonColour } from "./buffs.ts";
 import type { Effect } from "./effects.ts";
 import type { Doors } from "./doors.ts";
 
 const WHITE = { r: 1, g: 1, b: 1, a: 1 };
+type Colour = { r: number; g: number; b: number; a: number };
 type BlendKind = "normal" | "add" | "opacity";
 
 export class Painter {
@@ -94,6 +95,22 @@ export class Painter {
     this.batch.Draw(s.tex, null, x, y, colour);
   }
 
+  /** The hover outline's ring (from the WoOOLcraft web client's hoverOutline.ts, a port addition): the image drawn at
+   *  every OUTLINE_OFFSETS offset as a flat `colour` silhouette (ColorOp 1 keeps alpha, replaces colour; AlphaRef drops
+   *  the baked shadow and the faint rim), so the sprite drawn next on top leaves only the ring. */
+  drawSilhouette(lib: string | null, index: number, x: number, y: number, colour: Colour): void {
+    const s = sprite(lib, index);
+    if (!s || !s.tex) return;
+    x += s.x; y += s.y;
+    if (x >= this.width || y >= this.height || x + s.width < 0 || y + s.height < 0) return;
+    this.setBlend("normal");
+    this.batch.ColorOp = 1;
+    this.batch.AlphaRef = OUTLINE_ALPHA_REF;
+    for (const o of OUTLINE_OFFSETS) this.batch.Draw(s.tex, null, x + o.x, y + o.y, colour);
+    this.batch.ColorOp = 0;
+    this.batch.AlphaRef = 0;
+  }
+
   /** MLibrary.DrawUp: bottom-anchored. */
   drawUp(lib: string | null, index: number, x: number, y: number, blend = false): void {
     const s = sprite(lib, index);
@@ -123,6 +140,31 @@ const isGrayscalePoison = (poison: number): boolean => {
 
 const isCellSize = (s: { w: number; h: number }) => (s.w === CELL_W && s.h === CELL_H) || (s.w === CELL_W * 2 && s.h === CELL_H * 2);
 
+/** Hover outline (WoOOLcraft hoverOutline.ts): opaque red on a hovered live monster, DeepSkyBlue on a hovered NPC and
+ *  always on a party or guild member. */
+export const OUTLINE_RED: Colour = { r: 1, g: 0, b: 0, a: 1 };
+export const OUTLINE_BLUE: Colour = { r: 0, g: 191 / 255, b: 1, a: 1 };
+/** Silhouette texels at or below this alpha are dropped (WoOOLcraft measured 0.7: below it the ring traced shadows). */
+const OUTLINE_ALPHA_REF = 0.7;
+/** Every offset of a disc of radius 2 except the centre (a 2 px ring). */
+const OUTLINE_OFFSETS: readonly { x: number; y: number }[] = (() => {
+  const out: { x: number; y: number }[] = [];
+  for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if ((dx || dy) && dx * dx + dy * dy <= 5) out.push({ x: dx, y: dy });
+  return out;
+})();
+
+/** One drawn library of an object and the offset added to its DrawFrame. */
+type Layer = readonly [path: string | null, offset: number];
+
+/** PlayerObject.Draw's frame layers (what drawPlayer draws at DrawFrame + offset; wings use the effect frame). */
+function playerLayers(ob: MapObj, L: PlayerLibraries): Layer[] {
+  const layers: Layer[] = [[L.body, L.armourOff], [L.hair, L.hairOff]];
+  if (!ob.ridingMount && ob.look.weapon >= 0) layers.push([L.weapon1, L.weaponOff]);
+  if (!ob.ridingMount && ob.look.weapon !== -1) layers.push([L.weapon2, L.weaponOff]);
+  if (ob.mountType >= 0 && ob.ridingMount) layers.push([L.mount, L.mountOff]);
+  return layers;
+}
+
 export class MapView {
   readonly painter: Painter;
   /** Lights (Classic / Enhanced by gameSettings.Lighting), blindness and the dead-user grayscale (lighting.ts). */
@@ -136,6 +178,16 @@ export class MapView {
   /** GameScene.ParticleEngines (weather.ts Weather), drawn after the objects and before the lights; set by game.ts. */
   weather: { draw(painter: Painter): void } | null = null;
   offSetX = 0; offSetY = 0; viewRangeX = 0; viewRangeY = 0;
+  /** Frame blocks (first image + count + layers) whose every image is resident: they play normally. */
+  private readonly settledBlocks = new Set<string>();
+  /** The last frame each object drew in full (and the player libraries it drew with): the hold while a block loads. */
+  private readonly lastGood = new WeakMap<MapObj, { f: number; L: PlayerLibraries | null }>();
+  /** The outline colour for an object this frame, or null (game.ts: hover, party, guild; WoOOLcraft hoverOutline.ts). */
+  outline: (ob: MapObj) => Colour | null = () => null;
+  /** Render count, so `bodies` entries from an earlier frame (object out of view) are ignored. */
+  private frameNo = 0;
+  /** Each object's body as last drawn (BodyLibrary, DrawFrame, DrawLocation): what MouseOver tests. */
+  private readonly bodies = new WeakMap<MapObj, { lib: string | null; f: number; x: number; y: number; frame: number }>();
 
   constructor(renderer: WebGl2Renderer, width: number, height: number) {
     this.painter = new Painter(renderer);
@@ -180,6 +232,7 @@ export class MapView {
     const p = this.painter;
     // game.ts passes objects.values(), a ONE-SHOT iterator: materialise it once so every pass (objects, effects, lights) sees all objects
     if (!Array.isArray(v.objects)) v = { ...v, objects: [...v.objects] };
+    this.frameNo++;
     p.begin();
     this.lights.beginScene(p.batch, p.width, p.height, v.user.dead); // MapControl.DrawControl: SetGrayscale(true) while User.Dead
     this.drawFloor(v);
@@ -340,6 +393,76 @@ export class MapView {
     }
   }
 
+  /** The frame to draw while an animation block streams in (the WoOOLcraft web client's hold; the desktop loads
+   *  synchronously): the current frame once every image of the block (this direction, every layer) is resident, else
+   *  the block's first frame, else -1 (the caller keeps the last frame it drew). Asking kicks the block's loads. A dead
+   *  body shows its current frame when ready (the first frame of Die is still upright). */
+  private heldFrame(ob: MapObj, layers: readonly Layer[]): number {
+    const f = ob.drawFrame;
+    const fr = ob.frame;
+    if (!fr) return f;
+    const first = f - ob.frameIndex;
+    let key = first + ":" + fr.count;
+    for (const [path, off] of layers) if (path !== null) key += "|" + path + "@" + off;
+    if (this.settledBlocks.has(key)) return f;
+    const ready = (n: number) => {
+      for (const [path, off] of layers) if (path !== null && sprite(path, n + off) === undefined) return false;
+      return true;
+    };
+    let all = true;
+    for (let i = 0; i < fr.count; i++) if (!ready(first + i)) all = false; // no early exit: every frame's load is kicked
+    if (all) { this.settledBlocks.add(key); return f; }
+    if (ob.action === A.Dead) return ready(f) ? f : -1;
+    return ready(first) ? first : -1;
+  }
+
+  /** MonsterObject / NPCObject / PlayerObject.MouseOver: the mouse is on the object's cell, or within 2 px of a visible
+   *  pixel of its body as last drawn (BodyLibrary.VisiblePixel(DrawFrame, p - FinalDrawLocation, false)). Items: the
+   *  cell only (ItemObject.MouseOver); Deco: never. */
+  mouseOver(ob: MapObj, cell: { X: number; Y: number }, px: number, py: number): boolean {
+    if (ob.race === ObjectType.Deco) return false;
+    if (ob.location.X === cell.X && ob.location.Y === cell.Y) return true;
+    if (ob.race === ObjectType.Item) return false;
+    const b = this.bodies.get(ob);
+    if (!b || b.frame !== this.frameNo || b.lib === null) return false;
+    const s = sprite(b.lib, b.f);
+    if (!s) return false;
+    const lx = Math.trunc(px) - (b.x + s.x), ly = Math.trunc(py) - (b.y + s.y);
+    for (let dx = -2; dx <= 2; dx++) for (let dy = -2; dy <= 2; dy++) if (visiblePixel(s, lx + dx, ly + dy)) return true;
+    return false;
+  }
+
+  /** MapControl.CheckMouseOver -> MapObject.MouseObject: the cells 2 around the mouse cell, bottom-right first, each
+   *  cell's objects last-sorted first (CellInfo order: items, then the dead, then by ObjectID), the first whose
+   *  MouseOver holds; never the user; the dead only with Settings.TargetDead. */
+  mouseObject(px: number, py: number, user: MapObj, objects: Iterable<MapObj>, targetDead: boolean): MapObj | null {
+    const cell = this.mapLocation(px, py, user);
+    const near = new Map<number, MapObj[]>();
+    for (const ob of objects) {
+      if (ob === user || Math.abs(ob.location.X - cell.X) > 2 || Math.abs(ob.location.Y - cell.Y) > 2) continue;
+      const k = (ob.location.Y - cell.Y + 2) * 5 + (ob.location.X - cell.X + 2);
+      let list = near.get(k);
+      if (!list) near.set(k, (list = []));
+      list.push(ob);
+    }
+    if (!near.size) return null;
+    const rank = (o: MapObj) => (o.race === ObjectType.Item ? 0 : o.dead ? 1 : 2);
+    for (let y = 4; y >= 0; y--) {
+      for (let x = 4; x >= 0; x--) {
+        const list = near.get(y * 5 + x);
+        if (!list) continue;
+        list.sort((a, b) => rank(a) - rank(b) || a.id - b.id);
+        for (let i = list.length - 1; i >= 0; i--) {
+          const ob = list[i]!;
+          if (!this.mouseOver(ob, cell, px, py)) continue;
+          if (ob.dead && !targetDead) continue;
+          return ob;
+        }
+      }
+    }
+    return null;
+  }
+
   drawObject(ob: MapObj, user: MapObj): void {
     for (const e of ob.effects) if (e.drawBehind) e.draw(); // DrawBehindEffects
     if (ob.race === ObjectType.Item) {
@@ -359,9 +482,15 @@ export class MapView {
       // MonsterObject.Load "Library" switch / NPCObject.LoadLibrary (null = no body: Draw returns early)
       const lib = ob.race === ObjectType.Monster ? monsterLibPath(ob.image) : npcLibPath(ob.image);
       const gray = ob.race === ObjectType.Monster && isGrayscalePoison(ob.poison); // MonsterObject.Draw: ApplyDrawColour
+      let f = this.heldFrame(ob, [[lib, 0]]);
+      if (f >= 0) this.lastGood.set(ob, { f, L: null });
+      else f = this.lastGood.get(ob)?.f ?? ob.drawFrame;
+      this.bodies.set(ob, { lib, f, x, y, frame: this.frameNo });
+      const outline = ob.hidden ? null : this.outline(ob);
+      if (outline) this.painter.drawSilhouette(lib, f, x, y, outline);
       if (gray) this.painter.setGrayscale(true);
-      if (ob.frame?.blend) this.painter.drawBlend(lib, ob.drawFrame, x, y, true);
-      else this.painter.draw(lib, ob.drawFrame, x, y, true, ob.hidden ? 0.5 : 1, ob.race === ObjectType.Monster && !gray ? poisonColour(ob.poison) ?? undefined : undefined);
+      if (ob.frame?.blend) this.painter.drawBlend(lib, f, x, y, true);
+      else this.painter.draw(lib, f, x, y, true, ob.hidden ? 0.5 : 1, ob.race === ObjectType.Monster && !gray ? poisonColour(ob.poison) ?? undefined : undefined);
       if (gray) this.painter.setGrayscale(false);
       if (ob.race === ObjectType.Merchant) {
         // NPCObject.Draw: the quest icon at DrawLocation + GetOffSet(BaseIndex 0) + (Size.Width / 2 - 28, -40), no image offset
@@ -376,9 +505,20 @@ export class MapView {
    *  `ghost` = MapControl.DrawObjects' 40 % user redraw (body, head + wings; the mount is commented out there). */
   private drawPlayer(ob: MapObj, user: MapObj, opacity: number, ghost: boolean): void {
     const { x, y } = this.drawLocation(ob, user);
-    const L = ob.playerLibraries();
-    const f = ob.drawFrame;
+    let L = ob.playerLibraries();
+    let f = this.heldFrame(ob, playerLayers(ob, L));
+    if (f >= 0) this.lastGood.set(ob, { f, L });
+    else {
+      const last = this.lastGood.get(ob);
+      if (last?.L) { f = last.f; L = last.L; } else f = ob.drawFrame;
+    }
     const p = this.painter;
+    if (!ghost) {
+      this.bodies.set(ob, { lib: L.body, f: f + L.armourOff, x, y, frame: this.frameNo });
+      // the outline: every layer's silhouette first, so the layers drawn on top cover the whole inside
+      const outline = ob === user || ob.hidden ? null : this.outline(ob);
+      if (outline) for (const [path, off] of playerLayers(ob, L)) if (path !== null) p.drawSilhouette(path, f + off, x, y, outline);
+    }
     const d = ob.direction;
     const weapon = () => { if (ob.look.weapon >= 0 && L.weapon1) p.draw(L.weapon1, f + L.weaponOff, x, y, true, opacity); };
     const weapon2 = () => { if (ob.look.weapon !== -1 && L.weapon2) p.draw(L.weapon2, f + L.weaponOff, x, y, true, opacity); };
@@ -409,17 +549,6 @@ export class MapView {
     if (headFirst) { head(); if (ob !== user) wings(); } else { if (ob !== user) wings(); head(); }
     if (!ob.ridingMount) { if (d === D.UpRight || d === D.Right || d === D.DownRight || d === D.Down) weapon(); else weapon2(); }
   }
-}
-
-/** Mouse hit test: the object whose cell is under the cursor (front-most first). */
-export function objectAt(objects: Iterable<MapObj>, cell: { X: number; Y: number }, user: MapObj): MapObj | null {
-  let best: MapObj | null = null;
-  for (const ob of objects) {
-    if (ob === user || ob.race === ObjectType.Deco || ob.location.X !== cell.X || ob.location.Y !== cell.Y) continue; // DecoObject.MouseOver: never
-    const rank = (o: MapObj) => (o.race === ObjectType.Item ? 0 : o.dead ? 1 : 2);
-    if (!best || rank(ob) > rank(best)) best = ob;
-  }
-  return best;
 }
 
 export { A as MirActionIds };

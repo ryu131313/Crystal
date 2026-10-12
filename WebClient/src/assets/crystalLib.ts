@@ -23,6 +23,9 @@ export interface LibFrame {
 export class LibFormatError extends Error {}
 
 const IMAGE_HEADER = 17;
+/** CrystalLib.preload: a run of images is split at a byte gap over PRELOAD_GAP or a size over PRELOAD_MAX. */
+const PRELOAD_GAP = 64 * 1024;
+const PRELOAD_MAX = 4 * 1024 * 1024;
 
 import { gunzip } from "../protocol/binaryCodec.ts";
 export { gunzip };
@@ -36,12 +39,18 @@ function bgraToRgbaInPlace(px: Uint8Array): Uint8Array {
   return px;
 }
 
+/** The bytes [start, endExclusive). Checked: the HTTP cache can answer a range request from a partial entry with a
+ *  short 200 (seen live: a monster frame that then never drew), so a wrong length retries once past the cache. */
 async function rangeGet(url: string, start: number, endExclusive: number, signal?: AbortSignal): Promise<Uint8Array> {
-  const res = await fetch(url, { headers: { Range: `bytes=${start}-${endExclusive - 1}` }, signal });
-  if (res.status !== 206 && res.status !== 200) throw new Error(`GET ${url} [${start}..${endExclusive}) -> ${res.status}`);
-  const body = new Uint8Array(await res.arrayBuffer());
-  if (res.status === 200) return body.subarray(start, endExclusive); // Range ignored: slice the whole file
-  return body;
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, { headers: { Range: `bytes=${start}-${endExclusive - 1}` }, signal, cache: attempt === 0 ? "default" : "no-store" });
+    if (res.status !== 206 && res.status !== 200) throw new Error(`GET ${url} [${start}..${endExclusive}) -> ${res.status}`);
+    const body = new Uint8Array(await res.arrayBuffer());
+    // 200 = Range ignored: the whole file, sliced here
+    const got = res.status === 200 ? (body.length >= endExclusive ? body.subarray(start, endExclusive) : null) : body.length === endExclusive - start ? body : null;
+    if (got) return got;
+    if (attempt > 0) throw new Error(`GET ${url} [${start}..${endExclusive}) -> ${res.status} with ${body.length} bytes`);
+  }
 }
 
 export class CrystalLib {
@@ -124,17 +133,24 @@ export class CrystalLib {
     return new CrystalLib(url, version, offsets, spanEnd, frames);
   }
 
-  /** Decoded image (cached promise); null for an out-of-range, empty or zero-size entry. */
+  /** Decoded image (cached promise); null for an out-of-range, empty or zero-size entry. Rejects on a failed read or
+   *  decode, and forgets it, so a later call tries again. */
   image(index: number): Promise<LibImage | null> {
     let p = this.images.get(index);
     if (!p) {
-      p = this.load(index).catch((e) => {
-        console.warn(`[lib] ${this.url}#${index}:`, e);
-        return null;
-      });
-      this.images.set(index, p);
+      p = this.load(index);
+      this.track(index, p);
     }
     return p;
+  }
+
+  /** Cache `p` for `index`; a rejection drops the entry (the caller decides whether to retry). */
+  private track(index: number, p: Promise<LibImage | null>): void {
+    this.images.set(index, p);
+    p.catch((e) => {
+      console.warn(`[lib] ${this.url}#${index}:`, e);
+      if (this.images.get(index) === p) this.images.delete(index);
+    });
   }
 
   /** Forget a decoded image (its pixels; the GPU texture is owned by the caller). */
@@ -142,12 +158,47 @@ export class CrystalLib {
     this.images.delete(index);
   }
 
+  /** Whether image `index` has bytes to fetch (a 0 offset or a span shorter than the header is an absent image). */
+  private hasSpan(index: number): boolean {
+    return index >= 0 && index < this.count && this.offsets[index] > 0 && this.spanEnd[index] - this.offsets[index] >= IMAGE_HEADER;
+  }
+
+  /** Batched read for a warm-up: ONE Range GET per run of nearby images (a frame block: every direction of an action)
+   *  instead of one per image. Seeds the image cache, so `image(i)` shares the fetch. A run closes at a byte gap over
+   *  PRELOAD_GAP or a size over PRELOAD_MAX. Resolves when every run has settled (failures are logged per image). */
+  preload(indices: Iterable<number>): Promise<void> {
+    const want: number[] = [];
+    for (const i of indices) if (!this.images.has(i) && this.hasSpan(i)) want.push(i);
+    if (!want.length) return Promise.resolve();
+    want.sort((a, b) => this.offsets[a]! - this.offsets[b]!);
+    const runs: number[][] = [];
+    let run: number[] = [], runAt = 0, runEnd = 0;
+    for (const i of want) {
+      const at = this.offsets[i]!, end = this.spanEnd[i]!;
+      if (run.length && (at - runEnd > PRELOAD_GAP || Math.max(end, runEnd) - runAt > PRELOAD_MAX)) { runs.push(run); run = []; }
+      if (!run.length) { runAt = at; runEnd = end; }
+      run.push(i);
+      runEnd = Math.max(runEnd, end);
+    }
+    runs.push(run);
+    const all: Promise<unknown>[] = [];
+    for (const r of runs) {
+      let at = Infinity, end = 0;
+      for (const i of r) { at = Math.min(at, this.offsets[i]!); end = Math.max(end, this.spanEnd[i]!); }
+      const bytes = rangeGet(this.url, at, end);
+      all.push(bytes.catch(() => undefined));
+      for (const i of r) this.track(i, bytes.then((b) => this.parse(i, b.subarray(this.offsets[i]! - at, this.spanEnd[i]! - at))));
+    }
+    return Promise.all(all).then(() => undefined);
+  }
+
   private async load(index: number): Promise<LibImage | null> {
-    if (index < 0 || index >= this.count) return null;
-    const at = this.offsets[index];
-    const end = this.spanEnd[index];
-    if (at <= 0 || end - at < IMAGE_HEADER) return null;
-    const span = await rangeGet(this.url, at, end);
+    if (!this.hasSpan(index)) return null;
+    return this.parse(index, await rangeGet(this.url, this.offsets[index]!, this.spanEnd[index]!));
+  }
+
+  /** MImage: one image from its span bytes (header + payload + mask). */
+  private async parse(index: number, span: Uint8Array): Promise<LibImage | null> {
     const dv = new DataView(span.buffer, span.byteOffset, span.byteLength);
     const width = dv.getInt16(0, true), height = dv.getInt16(2, true);
     const x = dv.getInt16(4, true), y = dv.getInt16(6, true);

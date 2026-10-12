@@ -5,10 +5,10 @@ import { Screens } from "../src/ui/screens.ts";
 import { startGame } from "../src/game/game.ts";
 import type { ServerPacket } from "../src/protocol/server.ts";
 
-// The interface is laid out in desktop pixels on a 1024 x 768 stage (src/ui/mir/controls.ts); scale it to the window.
+// The interface is laid out in desktop pixels on the stage (1024 x 768 for the account screens, the game resolution in game; src/ui/mir/controls.ts); scale it to the window.
 const stage = document.getElementById("stage") as HTMLElement;
 const fit = () => {
-  const w = stage.offsetWidth || 1024, h = stage.offsetHeight || 768; // game.ts switches to 1280 x 800 by resolution
+  const w = stage.offsetWidth || 1024, h = stage.offsetHeight || 768; // game.ts sets the game resolution (up to 1920 x 1080)
   const s = Math.min(window.innerWidth / w, window.innerHeight / h);
   stage.style.transform = `scale(${s})`;
   stage.style.left = Math.max(0, (window.innerWidth - w * s) / 2) + "px";

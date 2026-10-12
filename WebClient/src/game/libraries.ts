@@ -10,6 +10,20 @@ import { Monster } from "../protocol/enums.generated.ts";
 export interface Sprite {
   tex: GLTextureRef | null; // null for a 0-size image (still has a size, e.g. a placeholder frame)
   width: number; height: number; x: number; y: number; shadowX: number; shadowY: number;
+  /** One bit per pixel, set where alpha > 0 (MImage.Data's alpha, kept for MImage.VisiblePixel); only for the body
+   *  libraries the mouse hit test reads (`hitMaskPath`), else null. */
+  mask: Uint8Array | null;
+}
+
+/** The libraries MapObject.MouseOver tests (monster / NPC / player bodies): they keep a hit mask. */
+const HIT_MASK_LIBS = /^(Monster|NPC|Pet|Gate|Siege|Flag|Dragon|CArmour|AArmour|ARArmour|Transform|TransformRide2)(\/|#)/;
+const hitMaskPath = (key: string) => HIT_MASK_LIBS.test(key);
+
+/** MImage.VisiblePixel: the pixel at (x, y) of the image is not fully transparent. */
+export function visiblePixel(s: Sprite, x: number, y: number): boolean {
+  if (!s.mask || x < 0 || y < 0 || x >= s.width || y >= s.height) return false;
+  const i = y * s.width + x;
+  return (s.mask[i >> 3]! & (1 << (i & 7))) !== 0;
 }
 
 // — Paths (Settings.cs + Libraries static ctor) —
@@ -128,24 +142,73 @@ export function libAsync(path: string): Promise<CrystalLib | null> {
 let renderer: WebGl2Renderer | null = null;
 const sprites = new Map<string, Sprite | null>();
 const pending = new Set<string>();
+
+/** A queued load. Draw-time misses go in `high` (one image each); warm-ups (`prefetch`) go in `low` (one batched block
+ *  read each) and are capped at MAX_LOW_INFLIGHT, so a draw always finds a free slot. A draw that asks for an image an
+ *  unstarted low job holds promotes that job to the front of `high`. */
+interface Job { run: () => Promise<unknown>; started: boolean; keys: string[] }
+const high: Job[] = [];
+const low: Job[] = [];
+/** Keys held by unstarted low jobs. */
+const waiting = new Map<string, Job>();
 let inflight = 0;
-const queue: (() => void)[] = [];
+let lowInflight = 0;
 const MAX_INFLIGHT = 24;
+const MAX_LOW_INFLIGHT = 8;
 
 export function attachRenderer(r: WebGl2Renderer): void {
   renderer = r;
 }
 
-function upload(img: LibImage): Sprite {
+function upload(img: LibImage, keepMask: boolean): Sprite {
   const tex = img.width > 0 && img.height > 0 && img.rgba.length ? renderer!.createRgbaTexture(img.rgba, img.width, img.height) : null;
-  return { tex, width: img.width, height: img.height, x: img.x, y: img.y, shadowX: img.shadowX, shadowY: img.shadowY };
+  let mask: Uint8Array | null = null;
+  if (keepMask && tex) {
+    const n = img.width * img.height;
+    mask = new Uint8Array((n + 7) >> 3);
+    for (let i = 0; i < n; i++) if (img.rgba[i * 4 + 3]! > 0) mask[i >> 3]! |= 1 << (i & 7);
+  }
+  return { tex, width: img.width, height: img.height, x: img.x, y: img.y, shadowX: img.shadowX, shadowY: img.shadowY, mask };
+}
+
+function start(job: Job, fromLow: boolean): void {
+  job.started = true;
+  for (const k of job.keys) waiting.delete(k);
+  inflight++;
+  if (fromLow) lowInflight++;
+  job.run().finally(() => {
+    inflight--;
+    if (fromLow) lowInflight--;
+    pump();
+  });
 }
 
 function pump(): void {
-  while (inflight < MAX_INFLIGHT && queue.length) {
-    inflight++;
-    queue.shift()!();
+  while (inflight < MAX_INFLIGHT) {
+    const h = high.shift();
+    if (h) { if (!h.started) start(h, false); continue; }
+    if (lowInflight >= MAX_LOW_INFLIGHT) return;
+    const l = low.shift();
+    if (!l) return;
+    if (!l.started) start(l, true);
   }
+}
+
+/** Failed reads per sprite key: a failure is retried (the next sprite() asks again) up to MAX_FAILS, then the image
+ *  counts as absent. Caching the first failure made a monster vanish on that frame for the whole session. */
+const failures = new Map<string, number>();
+const MAX_FAILS = 3;
+
+/** Decode `index` (already fetched or fetching) and keep it on the GPU. */
+function settle(l: CrystalLib, key: string, index: number): Promise<void> {
+  return l.image(index).then((img) => {
+    sprites.set(key, img && renderer ? upload(img, hitMaskPath(key)) : null);
+    l.evict(index); // pixels live on the GPU now
+  }, () => {
+    const n = (failures.get(key) ?? 0) + 1;
+    failures.set(key, n);
+    if (n >= MAX_FAILS) sprites.set(key, null);
+  }).finally(() => pending.delete(key));
 }
 
 /** The sprite, undefined while loading (kicks the load), null when absent. Call from the frame loop. */
@@ -154,24 +217,48 @@ export function sprite(path: string | null, index: number): Sprite | null | unde
   const key = path + "#" + index;
   const hit = sprites.get(key);
   if (hit !== undefined) return hit;
-  if (pending.has(key)) return undefined;
+  if (pending.has(key)) {
+    const w = waiting.get(key);
+    if (w) { high.unshift(w); pump(); } // a warm-up holds it: start that block now
+    return undefined;
+  }
   const l = lib(path);
   if (l === null) { sprites.set(key, null); return null; }
   if (l === undefined) return undefined; // header loading; ask again next frame
   if (index >= l.count) { sprites.set(key, null); return null; }
   pending.add(key);
-  queue.push(() => {
-    l.image(index).then((img) => {
-      sprites.set(key, img && renderer ? upload(img) : null);
-      l.evict(index); // pixels live on the GPU now
-    }).finally(() => {
-      pending.delete(key);
-      inflight--;
-      pump();
-    });
-  });
+  high.push({ run: () => settle(l, key, index), started: false, keys: [] });
   pump();
   return undefined;
+}
+
+/** Warm-up (the WoOOLcraft web client's art warm): load these images of `path` at low priority, in one batched read
+ *  per block (CrystalLib.preload), so they are resident before the frame loop asks. Already resident or loading
+ *  images are skipped; safe to call repeatedly. */
+export function prefetch(path: string | null, indices: readonly number[]): void {
+  if (path === null || !indices.length) return;
+  void libAsync(path).then((l) => {
+    if (!l || !renderer) return;
+    const want: number[] = [];
+    const keys: string[] = [];
+    for (const i of indices) {
+      if (i < 0 || i >= l.count) continue;
+      const key = path + "#" + i;
+      if (sprites.has(key) || pending.has(key)) continue;
+      pending.add(key);
+      want.push(i);
+      keys.push(key);
+    }
+    if (!want.length) return;
+    const job: Job = {
+      run: () => l.preload(want).then(() => Promise.all(want.map((i, n) => settle(l, keys[n]!, i)))),
+      started: false,
+      keys,
+    };
+    for (const k of keys) waiting.set(k, job);
+    low.push(job);
+    pump();
+  });
 }
 
 /** Number of sprite loads still queued or in flight (loading indicator). */

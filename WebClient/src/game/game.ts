@@ -13,8 +13,10 @@ import type { StartInfo } from "../ui/screens.ts";
 import { WebGl2Renderer } from "../render/backend.ts";
 import { readMap, blankMap, type MapCells } from "../map/mapReader.ts";
 import { attachRenderer, loadingCount } from "./libraries.ts";
+import { ArtWarmer } from "./preload.ts";
 import { MapObj, pointMove, directionFromPoint, creatureLabelOffset, CELL_W, CELL_H } from "./objects.ts";
-import { MapView, objectAt } from "./mapView.ts";
+import { MapView, OUTLINE_BLUE, OUTLINE_RED } from "./mapView.ts";
+import { setMouseCursor } from "../ui/cursors.ts";
 import { ItemInfos, equipmentLooks } from "./items.ts";
 import type { LightState } from "./lighting.ts";
 import { Inventory, BELT_IDX } from "./inventory.ts";
@@ -119,10 +121,12 @@ const argbCss = (c: number) => `rgb(${(c >> 16) & 255},${(c >> 8) & 255},${c & 2
 
 export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvasElement, exits: GameExits): Game {
   const signal = gameSignal();
-  // SelectScene StartGame: Settings.Resolution (default 1024; "crystal.resolution" = 1280 opts in) capped by the server's
-  const preferred = (() => { try { return Number(localStorage.getItem("crystal.resolution")) || 1024; } catch { return 1024; } })();
-  const width = Math.min(start.resolution || 1024, preferred) >= 1280 ? 1280 : 1024;
-  const height = width === 1280 ? 800 : 768;
+  // SelectScene StartGame: Settings.Resolution lowered to the server's [Permission] MaxResolution, then the desktop's
+  // switch (1024 x 768, 1280 x 800, 1366 x 768, 1920 x 1080; anything else 1024). The web client prefers 1920 x 1080
+  // (the desktop defaults to 1024); localStorage "crystal.resolution" = 1024 / 1280 / 1366 picks another.
+  const preferred = (() => { try { return Number(localStorage.getItem("crystal.resolution")) || 1920; } catch { return 1920; } })();
+  const resolution = start.resolution < preferred ? start.resolution : preferred;
+  const [width, height] = resolution === 1920 ? [1920, 1080] : resolution === 1366 ? [1366, 768] : resolution === 1280 ? [1280, 800] : [1024, 768];
   canvas.width = width;
   canvas.height = height;
   const stage = document.getElementById("stage")!;
@@ -134,6 +138,8 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   if (!renderer) throw new Error("WebGL2 is not available in this browser.");
   attachRenderer(renderer);
   const view = new MapView(renderer, width, height);
+  /** Loads the user's and the monsters' animation frames ahead of the draw (preload.ts). */
+  const artWarmer = new ArtWarmer();
   /** MapControl.Weather particles (weather.ts), drawn by MapView after the objects. */
   const weather = new Weather();
   view.weather = weather;
@@ -1064,7 +1070,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     chatDialog.input.blur();
     // MapControl.OnMouseClick: Ctrl + right-click on another player inspects them
     if (e.button === 2 && e.ctrlKey && user) {
-      const ob = objectAt(objects.values(), view.mapLocation(mouse.x, mouse.y, user), user);
+      const ob = mouseObject();
       if (ob && ob.race === ObjectType.Player && ob !== user) { inspect.inspect(ob.id); return; }
     }
     // An inventory item is picked: a click on the map drops it (GameScene: SelectedCell + map click -> DropItem)
@@ -1090,7 +1096,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     }
     // Left-click on an NPC talks to it (MapControl.OnMouseClick -> C.CallNPC "[@Main]")
     if (e.button === 0 && user) {
-      const target = objectAt(objects.values(), view.mapLocation(mouse.x, mouse.y, user), user);
+      const target = mouseObject();
       if (target && target.race === ObjectType.Merchant) { npcWindow.talk(target.id, target.name); return; }
     }
     buttons = e.buttons; shift = e.shiftKey;
@@ -1138,8 +1144,8 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
       e.preventDefault();
       const loc = user ? view.mapLocation(mouse.x, mouse.y, user) : null;
       // HeroSkill: GameScene.UseSpell(17..24), without the user's riding / fishing gate
-      if (user && loc && i >= 16) magic.useHeroSpell(i + 1, loc, objectAt(objects.values(), loc, user), mouseDirection());
-      else if (user && loc && canUseSpell(user)) magic.useSpell(i + 1, loc, objectAt(objects.values(), loc, user), mouseDirection());
+      if (user && loc && i >= 16) magic.useHeroSpell(i + 1, loc, mouseObject(), mouseDirection());
+      else if (user && loc && canUseSpell(user)) magic.useSpell(i + 1, loc, mouseObject(), mouseDirection());
       return;
     }
     // Belt keys 1-6 / NumPad1-6 (KeybindOptions.Belt1..6 / Belt1Alt..6Alt -> BeltDialog.Grid[i].UseItem)
@@ -1231,7 +1237,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
 
     let dir = mouseDirection();
     const cell = view.mapLocation(mouse.x, mouse.y, u);
-    const target = objectAt(objects.values(), cell, u);
+    const target = mouseObject();
 
     const archerBow = canRangeAttack(u.look.class === MirClass.Archer && u.hasClassWeapon, u); // a riding archer falls back to melee
     const rideAttack = canRideAttack(u.ridingMount, inventory.equipment[EquipmentSlot.Mount]);
@@ -1377,6 +1383,19 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   }
 
   let hoverId = -1;
+  /** MapObject.MouseObject (MapControl.CheckMouseOver): the object under the mouse pixel, by its drawn body. */
+  const mouseObject = (): MapObj | null => (user ? view.mouseObject(mouse.x, mouse.y, user, objects.values(), gameSettings.TargetDead) : null);
+  // The hover outline (WoOOLcraft hoverOutline.ts, with Settings.HighlightTarget): red on the hovered live monster,
+  // blue on the hovered NPC, blue always on a party or guild member.
+  view.outline = (ob) => {
+    if (!gameSettings.HighlightTarget || ob.dead) return null;
+    if (ob.id === hoverId) {
+      if (ob.race === ObjectType.Monster) return OUTLINE_RED;
+      if (ob.race === ObjectType.Merchant) return OUTLINE_BLUE;
+    }
+    if (ob.race === ObjectType.Player && ob !== user && (group.has(ob.name) || (!!user?.guildName && ob.guildName === user.guildName))) return OUTLINE_BLUE;
+    return null;
+  };
   let shiftHeld = false, altHeld = false;
   let outputDelay = 0; // MapControl.OutputDelay ("Target is too far.")
   const MAX_ATTACK_RANGE = 9; // Globals.MaxAttackRange
@@ -1403,9 +1422,13 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     heroChar.render();
     buffBar.update(userBuffs, t);
     if (user) {
-      const cell = view.mapLocation(mouse.x, mouse.y, user);
-      hoverId = objectAt(objects.values(), cell, user)?.id ?? -1;
+      const hovered = mouseObject();
+      hoverId = hovered?.id ?? -1;
+      // GameScene.UpdateMouseCursor: monster Attack, NPC NPCTalk, another player AttackRed with Shift, else Default
+      setMouseCursor(canvas, !hovered ? "Default" : hovered.race === ObjectType.Monster ? "Attack" : hovered.race === ObjectType.Merchant ? "NPCTalk"
+        : hovered.race === ObjectType.Player && shiftHeld ? "AttackRed" : "Default");
       weather.update(t, view.painter.width, view.painter.height);
+      artWarmer.warm(user, objects.values());
       view.render({ map, user, objects: objects.values(), animationCount, lights: lightState, mapEffects, doors, now: t });
       miniMap.draw(map, miniMapIndex, mapTitle, user, objects.values(), (n) => group.has(n));
       bigMap.draw(map, mapTitle, user, objects.values(), group);
@@ -1437,6 +1460,10 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     for (const c of Array.from(stage.children)) if (!stageBefore.has(c)) c.remove();
     setUiSound(null);
     renderer?.clear();
+    // GameScene.LogOutSuccess / ReturnToLogin: back to 1024 x 768 for the account screens
+    stage.style.width = "1024px";
+    stage.style.height = "768px";
+    setScreenSize(1024, 768);
   }
 
   (window as unknown as { crystalGame: unknown }).crystalGame = {

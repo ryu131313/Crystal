@@ -1,6 +1,8 @@
 [hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d12; color: #fff; font: 8pt Arial, sans-serif; }
-#stage { position: absolute; left: 0; top: 0; width: 1024px; height: 768px; overflow: hidden; transform-origin: 0 0; }
+#stage { position: absolute; left: 0; top: 0; width: 1024px; height: 768px; overflow: hidden; transform-origin: 0 0; cursor: url("/data/Cursors/Cursor_Default.CUR"), default; }
+/* MirTextBox: the TextPrompt cursor (CMain.Cursors, src/ui/cursors.ts) */
+#stage input, #stage textarea { cursor: url("/data/Cursors/Cursor_TextPrompt.CUR"), text; }
 #game { display: block; width: 100%; height: 100%; background: #000; image-rendering: pixelated; }
 /* Account screens (src/ui/screens.ts, loginScene.ts, selectScene.ts): the desktop scenes on a black 1024 x 768 layer */
 #screen { position: absolute; inset: 0; background: #000; }
@@ -12,7 +14,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d12; col
 .mir-pic { position: absolute; left: 0; top: 0; background-repeat: no-repeat; pointer-events: none; image-rendering: pixelated; }
 .mir-window { z-index: 10; }
 .mir-modal { position: absolute; inset: 0; z-index: 10; }
-button.mir-button { cursor: default; border-radius: 0; text-align: left; overflow: visible; }
+button.mir-button { cursor: inherit; border-radius: 0; text-align: left; overflow: visible; }
 button.mir-button:focus { outline: none; }
 button.mir-button:disabled { opacity: 1; }
 .mir-label { --mir-outline: #000; white-space: pre-wrap; overflow-wrap: break-word; overflow: visible;
