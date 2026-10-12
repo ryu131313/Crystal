@@ -713,6 +713,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
         miniMapIndex = p.MiniMap;
         bigMap.bigMapIndex = p.BigMap;
         autoPath = null;
+        attackTargetId = 0; // MapControl.ResetMap: TargetObjectID = 0
         sound.playMusic(p.Music);
         mapTitle = p.Title;
         lightState.mapLights = p.Lights;
@@ -1094,6 +1095,13 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
       pickedUpGold = false;
       amountBox("Drop Amount:", 116, inventory.gold, (n) => { if (n > 0) inventory.dropGold(n); });
     }
+    // MapControl.OnMouseDown (left): MapObject.TargetObject = the live mouse object, unless an item, an NPC or a
+    // monster with AI 64 / 70; anything else clears it. CheckInput melees it whenever it is adjacent.
+    if (e.button === 0 && user) {
+      const mo = mouseObject();
+      attackTargetId = mo && !mo.dead && mo.race !== ObjectType.Item && mo.race !== ObjectType.Merchant
+        && !(mo.race === ObjectType.Monster && (mo.ai === 64 || mo.ai === 70)) ? mo.id : 0;
+    }
     // Left-click on an NPC talks to it (MapControl.OnMouseClick -> C.CallNPC "[@Main]")
     if (e.button === 0 && user) {
       const target = mouseObject();
@@ -1186,8 +1194,17 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     for (let d = 0; d < 8; d++) if (hasTargetAt(pointMove(p, d, 1))) return true;
     return false;
   }
-  /** MapObject.TargetObject for the attack spell choice: the monster being attacked. */
+  /** MapObject.TargetObjectID: set on a left mouse-down (the mouse object), melee'd by CheckInput when adjacent; also
+   *  the attack spell choice's "has target". */
   let attackTargetId = 0;
+
+  /** MapControl.CanWalk(dir, out dir): `dir` when its cell is empty, else NextDir, else PreviousDir; -1 when none or
+   *  while InTrapRock. This side-step is what walks the user around an object while a button is held. */
+  function canWalkDir(u: MapObj, dir: number): number {
+    if (u.inTrapRock) return -1;
+    for (const d of [dir, (dir + 1) & 7, (dir + 7) & 7]) if (emptyCell(pointMove(u.location, d, 1))) return d;
+    return -1;
+  }
 
   function emptyCell(pt: WirePoint): boolean {
     if (pt.X < 0 || pt.Y < 0 || pt.X >= map.width || pt.Y >= map.height) return false;
@@ -1232,66 +1249,94 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     if (t < u.blizzardStopTime || t < u.reincarnationStopTime) return;
     const idle = isIdleAction(u.action) && u.feed.length === 0;
     if (!idle) return;
+    const archerBow = canRangeAttack(u.look.class === MirClass.Archer && u.hasClassWeapon, u); // a riding archer falls back to melee
+    const rideAttack = canRideAttack(u.ridingMount, inventory.equipment[EquipmentSlot.Mount]);
+    const dazed = (u.poison & PoisonType.Dazed) !== 0;
+    const inRange = (ob: MapObj) => Math.max(Math.abs(ob.location.X - u.location.X), Math.abs(ob.location.Y - u.location.Y)) <= MAX_ATTACK_RANGE;
+    const tooFar = () => { if (t >= outputDelay) { outputDelay = t + 1000; extras.output("Target is too far."); } };
+    const shoot = (direction: number, targetId: number, point: WirePoint) =>
+      u.queue(A.AttackRange1, direction, u.location, { spell: Spell.None, targetId, targetPoint: { ...point }, cast: false, level: 0, secondaryTargetIds: [] });
+
+    // MapControl.CheckInput, TargetObject first (button held or not): a monster (not a pet, "Name(Owner)"), or a
+    // pet / player with Shift, is shot by an Archer with a bow in range, else melee'd once adjacent.
+    let tgt = objects.get(attackTargetId);
+    if (tgt && tgt.race === ObjectType.Monster && tgt.ai === 64) { attackTargetId = 0; tgt = undefined; } // MapControl.Process
+    if (tgt && !tgt.dead) {
+      const pet = tgt.name.endsWith(")");
+      if (((pet || tgt.race === ObjectType.Player) && shiftHeld) || (!pet && tgt.race === ObjectType.Monster)) {
+        if (archerBow) {
+          if (!inRange(tgt)) tooFar();
+          else if (t > attackTime) { shoot(directionFromPoint(u.location, tgt.location), tgt.id, tgt.location); return; }
+        } else if (Math.max(Math.abs(tgt.location.X - u.location.X), Math.abs(tgt.location.Y - u.location.Y)) <= 1) {
+          if (t > attackTime && rideAttack && !dazed) { u.queue(A.Attack1, directionFromPoint(u.location, tgt.location), u.location); return; }
+        } else if (!(buttons & 2)) {
+          // Walk to the target (port addition from the WoOOLcraft client's "walk-to-target"; Crystal's desktop only walks
+          // while the left button is held): straight at it, else CanWalk's side-step, else turn towards it. The held
+          // right button (run) wins, any left mouse-down re-targets, a lost or dead target stops it.
+          const toward = directionFromPoint(u.location, tgt.location);
+          const wd = canWalkDir(u, toward);
+          if (wd >= 0 && doorOk(pointMove(u.location, wd, 1))) { u.queue(A.Walking, wd, pointMove(u.location, wd, 1)); return; }
+          if (toward !== u.direction) { u.queue(A.Standing, toward, u.location); return; }
+          if (!buttons) return;
+        }
+      }
+    }
+
     if (!buttons) { if (autoPath) autoPathStep(u); return; }
     autoPath = null; // MapControl.OnMouseClick: any map click ends AutoPath
 
     let dir = mouseDirection();
     const cell = view.mapLocation(mouse.x, mouse.y, u);
     const target = mouseObject();
-
-    const archerBow = canRangeAttack(u.look.class === MirClass.Archer && u.hasClassWeapon, u); // a riding archer falls back to melee
-    const rideAttack = canRideAttack(u.ridingMount, inventory.equipment[EquipmentSlot.Mount]);
-    const inRange = (ob: MapObj) => Math.max(Math.abs(ob.location.X - u.location.X), Math.abs(ob.location.Y - u.location.Y)) <= MAX_ATTACK_RANGE;
-    const tooFar = () => { if (t >= outputDelay) { outputDelay = t + 1000; extras.output("Target is too far."); } };
-    const shoot = (direction: number, targetId: number, point: WirePoint) =>
-      u.queue(A.AttackRange1, direction, u.location, { spell: Spell.None, targetId, targetPoint: { ...point }, cast: false, level: 0, secondaryTargetIds: [] });
+    /** CanWalk(dir, out dir) + CheckDoorOpen -> Walking, else a turn to the (side-stepped) direction. */
+    const walkOrTurn = (): boolean => {
+      const wd = canWalkDir(u, dir);
+      if (wd >= 0) {
+        dir = wd;
+        const to = pointMove(u.location, dir, 1);
+        if (doorOk(to)) { u.queue(A.Walking, dir, to); return true; }
+      }
+      if (dir !== u.direction) { u.queue(A.Standing, dir, u.location); return true; }
+      return false;
+    };
 
     if (buttons & 1) {
-      if (!(target && (target.race === ObjectType.Merchant || (target.race === ObjectType.Player && target !== u)))) {
-        // MapControl.CheckInput: Alt + left = harvest a corpse
-        if (altHeld && canHarvest(u)) { u.queue(A.Harvest, dir, u.location); return; }
+      if (target && (target.race === ObjectType.Merchant || (target.race === ObjectType.Player && target !== u))) return;
+      if (target && target.race === ObjectType.Monster && target.ai === 70) return;
+      // MapControl.CheckInput: Alt + left = harvest a corpse
+      if (altHeld && canHarvest(u)) { u.queue(A.Harvest, dir, u.location); return; }
+      if (shift) {
+        if (t <= attackTime || !rideAttack) return;
         // Shift + left with a bow: a shot towards the mouse (at the object under it when in range)
-        if (shift && archerBow) {
-          if (t <= attackTime) return;
-          const ob = target && !target.dead && (target.race === ObjectType.Monster || target.race === ObjectType.Player) ? target : null;
+        if (archerBow && !dazed) {
+          const ob = target && (target.race === ObjectType.Monster || target.race === ObjectType.Player) ? target : null;
           if (ob && !inRange(ob)) { tooFar(); return; }
           shoot(dir, ob?.id ?? 0, pointMove(u.location, dir, 9));
           return;
         }
-        // A monster with a bow: the ranged attack (ArcherTest - range attack)
-        if (archerBow && target && !target.dead && target.race === ObjectType.Monster) {
-          if (!inRange(target)) { tooFar(); return; }
-          attackTargetId = target.id;
-          if (t > attackTime) shoot(directionFromPoint(u.location, target.location), target.id, target.location);
-          return;
-        }
+        if (dazed) return;
+        u.queue(A.Attack1, dir, u.location);
+        return;
+      }
+      // A monster with a bow: the ranged attack (ArcherTest - range attack)
+      if (target && target.race === ObjectType.Monster && archerBow && tgt && !tgt.dead) {
+        if (!inRange(target)) tooFar();
+        else if (t > attackTime) shoot(dir, tgt.id, tgt.location);
+        return;
       }
       // Clicking the user's own cell picks up (MapControl.CheckInput)
       if (cell.X === u.location.X && cell.Y === u.location.Y) { pickUp(); return; }
-      const adjacent = target && !target.dead && target.race === ObjectType.Monster && Math.max(Math.abs(target.location.X - u.location.X), Math.abs(target.location.Y - u.location.Y)) === 1;
-      if (shift || adjacent) {
-        if (adjacent) dir = directionFromPoint(u.location, target!.location);
-        attackTargetId = adjacent ? target!.id : 0;
-        if (t > attackTime && rideAttack) u.queue(A.Attack1, dir, u.location);
-        return;
-      }
-      if (target && (target.race === ObjectType.Merchant || target.race === ObjectType.Player)) return;
-      for (const d of [dir, (dir + 1) & 7, (dir + 7) & 7]) {
-        const to = pointMove(u.location, d, 1);
-        if (emptyCell(to) && !u.inTrapRock) { // MapControl.CanWalk: no walking while InTrapRock
-          if (doorOk(to)) u.queue(A.Walking, d, to); // CanWalk picks the direction, then CheckDoorOpen
-          else if (d !== u.direction) u.queue(A.Standing, d, u.location);
-          return;
-        }
-      }
-      if (dir !== u.direction) { u.queue(A.Standing, dir, u.location); return; }
+      if (walkOrTurn()) return;
       // MapControl.CheckInput: facing water with a rod casts out (GameScene.CanFish)
       if (canFish(u, dir, map, t)) { u.fishingTime = t; session.send(ClientPackets.FishingCast({ CastOut: true })); return; }
     } else if (buttons & 2) {
+      // MapControl.CheckInput: the mouse within 2 cells only turns the user
+      if (Math.max(Math.abs(cell.X - u.location.X), Math.abs(cell.Y - u.location.Y)) <= 2) {
+        if (dir !== u.direction) u.queue(A.Standing, dir, u.location);
+        return;
+      }
       if (!u.inTrapRock && tryRun(u, dir)) return;
-      const to = pointMove(u.location, dir, 1);
-      if (emptyCell(to) && !u.inTrapRock && doorOk(to)) { u.queue(A.Walking, dir, to); return; }
-      if (dir !== u.direction) u.queue(A.Standing, dir, u.location);
+      walkOrTurn();
     }
   }
 
@@ -1389,7 +1434,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   // blue on the hovered NPC, blue always on a party or guild member.
   view.outline = (ob) => {
     if (!gameSettings.HighlightTarget || ob.dead) return null;
-    if (ob.id === hoverId) {
+    if (ob.id === hoverId || ob.id === attackTargetId) { // the target keeps it (MapControl: TargetObject.DrawBlend with HighlightTarget)
       if (ob.race === ObjectType.Monster) return OUTLINE_RED;
       if (ob.race === ObjectType.Merchant) return OUTLINE_BLUE;
     }
