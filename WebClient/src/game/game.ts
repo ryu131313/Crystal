@@ -7,7 +7,7 @@
 import type { Session } from "./session.ts";
 import type { ServerPacket, PacketOf } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
-import { MirAction as A, ObjectType, ChatType, Spell, LightSetting, Stat } from "../protocol/enums.generated.ts";
+import { MirAction as A, ObjectType, ChatType, Spell, LightSetting, Stat, DamageType } from "../protocol/enums.generated.ts";
 import type { WirePoint } from "../protocol/binaryCodec.ts";
 import type { StartInfo } from "../ui/screens.ts";
 import { WebGl2Renderer } from "../render/backend.ts";
@@ -91,6 +91,7 @@ import { canFish, canRideAttack, canCastNextMagic, canUseSpell, canHarvest, canR
 import { PoisonType, MirClass, BuffType, AttackMode, PetMode, MirGridType, EquipmentSlot, BindMode, StatName } from "../protocol/enums.generated.ts";
 import { KeybindOptions, keyLabel, matches, matchesAny, matchesAnyBinding, type KeybindOption } from "./keybinds.ts";
 import { mapCells, rememberMap } from "./mapFiles.ts";
+import { drawDamageNumber, makeDamageNumber, processDamageList, MAX_DAMAGE_NUMBERS, type DamageNumber } from "./damageNumbers.ts";
 
 export interface Game { handle(p: ServerPacket): void; dispose(): void }
 
@@ -477,6 +478,9 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   view.actionEffects = (ob) => drawActionEffects(ob, spellWorld);
   view.spellObjects = spellObjects;
   const objects = new Map<number, MapObj>();
+  /** Floating damage numbers per object id (damageNumbers.ts); `critAt` = when S.DamageIndicator Critical arrived, the next Hit is the crit. */
+  const damageNumbers = new Map<number, DamageNumber[]>();
+  const critAt = new Map<number, number>();
   let user: MapObj | null = null;
   let hp = 0, mp = 0, level = 0;
   let experience = 0n, maxExperience = 0n;
@@ -855,6 +859,24 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
         if (!p.SelfBroadcast && p.ObjectID === user?.id) break;
         objects.get(p.ObjectID)?.queue(A.Spell, p.Direction, p.Location,
           { spell: p.Spell, targetId: p.TargetID, targetPoint: p.Target, cast: p.Cast, level: p.Level, secondaryTargetIds: p.SecondaryTargetIDs });
+        break;
+      }
+      case "DamageIndicator": {
+        // GameScene.DamageIndicator (Settings.DisplayDamage, at most 10 per object), drawn in the WoOOLcraft style
+        const ob = objects.get(p.ObjectID);
+        if (!ob || !gameSettings.DisplayDamage) break;
+        const t = now();
+        if (p.Type === DamageType.Critical) { critAt.set(p.ObjectID, t); break; }
+        let list = damageNumbers.get(p.ObjectID);
+        if (!list) damageNumbers.set(p.ObjectID, list = []);
+        if (list.length >= MAX_DAMAGE_NUMBERS) break;
+        const isUserTarget = ob === user;
+        if (p.Type === DamageType.Miss) list.push(makeDamageNumber({ value: 0, text: "Miss", isUserTarget, startTime: t }));
+        else if (p.Damage !== 0) {
+          const crit = p.Damage < 0 && t - (critAt.get(p.ObjectID) ?? -Infinity) < 500;
+          critAt.delete(p.ObjectID);
+          list.push(makeDamageNumber({ value: p.Damage, critical: crit, isUserTarget, startTime: t }));
+        }
         break;
       }
       case "ObjectStruck": objects.get(p.ObjectID)?.queue(A.Struck, p.Direction, p.Location, undefined, struckWeaponOf(p.AttackerID)); break;
@@ -1423,6 +1445,15 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
         const chatOffset = ob.race === ObjectType.Monster ? creatureLabelOffset(ob.image).chat : 0; // MonsterObject.DrawChat
         label(text, x + 24, y - (60 + LABEL_H) - (ob.dead ? 35 : 0) + chatOffset, ob.dead ? "#808080" : "#fff");
       }
+    }
+    // Damage numbers last, over names and chat; lists of objects that left are dropped
+    for (const [id, list] of damageNumbers) {
+      const ob = objects.get(id);
+      if (ob) processDamageList(list, t);
+      if (!ob || list.length === 0) { damageNumbers.delete(id); critAt.delete(id); continue; }
+      const { x, y } = view.drawLocation(ob, user);
+      if (x < -200 || y < -200 || x > width + 200 || y > height + 200) continue;
+      for (const d of list) drawDamageNumber(g2, d, x, y);
     }
     g2.textBaseline = "alphabetic";
   }
