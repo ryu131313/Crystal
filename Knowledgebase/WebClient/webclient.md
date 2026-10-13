@@ -23,11 +23,12 @@ browser (WebClient, TS/WebGL2) --WS binary, 1 Crystal frame per message--> WebRe
 ### 2.1 WebRelay (`WebRelay/`, `$(ServerTfm)`, own `bin\`)
 | File | Role |
 |---|---|
-| `Program.cs` | Options (`--upstream`, `--client-data`, `--map-path`, `--version-path`, `--web-root`, `--origin`, `--max-per-ip`, `--max-total`, `--listen`); `--emit-ts`, `--emit-fixtures` |
-| `RelayHost.cs` | `HttpListener` front door: `/ws` (Origin check + `ConnectionBudget` before the upgrade), static web root, client data |
+| `Program.cs` | Options (`--upstream`, `--client-data`, `--map-path`, `--version-path`, `--web-root`, `--origin`, `--max-per-ip`, `--max-total`, `--connects-per-minute`, `--listen`; public relay: `--mount`, `--trust-proxy-header`, `--public`, `--accounts-per-hour`, `--characters-per-hour`); `--emit-ts`, `--emit-fixtures` |
+| `RelayHost.cs` | `HttpListener` front door: `/ws` (Origin check + `PlayerGuard` block + `ConnectionBudget` before the upgrade), static web root, client data; `--mount` strips the prefix (the mount itself redirects to `<mount>/play/`); `ResolveClientIp` takes the `--trust-proxy-header` address only from a loopback peer |
 | `RelaySession.cs` | One tab = one upstream `TcpClient`. Splits the server stream on `[u16 len][i16 id]` and sends one WS message per packet. Browser messages must be exactly one well-formed frame with a known `ClientPacketIds` id, or the session is closed. **Rewrites `C.ClientVersion`** with the MD5 of `--version-path` (the browser cannot supply a hash) |
 | `StaticFiles.cs` | Read-only (`FileAccess.Read`, `FileShare.ReadWrite`) GET/HEAD + single Range, ETag, traversal guard |
 | `ConnectionBudget.cs`, `IpKey.cs` | Lifted from WoOOLcraft: per-IP/total/per-minute caps (IPv6 keyed by /64) |
+| `PlayerGuard.cs` | `--public`: the server's per-IP failed-login (5/min), account (3/h) and character (5/h) limits re-applied per player address, from server packet ids + the first payload byte (S.Login 3/4, S.NewAccount 8, S.NewCharacterSuccess); over-quota C.NewAccount / C.NewCharacter are answered by the relay with Result 0 |
 | `TsEmitter.cs` | `--emit-ts`: `WebClient/src/protocol/enums.generated.ts` from the compiled Shared enums |
 | `Fixtures.cs` | `--emit-fixtures`: codec goldens written by the real Shared `GetPacketBytes` |
 
@@ -111,7 +112,7 @@ Shared is referenced for the enums and the generators only; relayed packets are 
 
 ### 2.4 Server constraints (no server change)
 - **Version check:** pass `--version-path` = the exe the server's `[General] VersionPath` hashes, or run the server with `CheckVersion=False`.
-- **MaxIP:** every relay session reaches the server from the relay's address. Scratch servers exempt loopback (`[LoadTest] ExemptLoopback`). On a real server, `Settings.MaxIP` caps the **total** number of web players; per-IP limits live in the relay (`--max-per-ip`).
+- **MaxIP:** every relay session reaches the server from the relay's address. A server behind a public relay runs with `[LoadTest] ExemptLoopback=True` (else `MaxIP` caps the **total** number of web players and one player's failed logins / 4th account IP-block every web player); the relay's `--public` mode re-applies the per-IP limits per player (`PlayerGuard`, `--max-per-ip`). Runbook §8.
 
 ---
 
@@ -211,4 +212,9 @@ Open `http://127.0.0.1:5690/play/`. The scratch world's synthetic map has no til
 - Checks: `powershell -File tools\verify.ps1 -Only WebRelay -NoTests`; `cd WebClient; npm run typecheck; npm run codec:test`.
 - Relay console: one line per session open/close with the reason.
 - Browser: `window.crystal.session.unported` counts the packet ids received but not ported.
-- Public hosting (TLS, a reverse proxy, real client IPs) is not designed yet; the relay listens on loopback by default.
+- **Private vs public relay** (alpha, 2026-10-13; operator steps in `Knowledgebase/Runbook.md` §8):
+  - Private (dev): `tools\start-webrelay.ps1`, `127.0.0.1:5690/play/`, serves the working tree.
+  - Public: `tools\publish-webclient.ps1` snapshots `WebClient\js` + `play` into `WebClient\publish\public` (git-ignored, `public.old` kept); `tools\start-public-webrelay.ps1` serves it on `127.0.0.1:5695` under `--mount /portal/mir2webclient`, `--origin https://worldofwooolcraft.uk`, `--trust-proxy-header CF-Connecting-IP`, `--public`, upstream = the live server's port, builds to `WebRelay\bin\public`, and refuses to start unless the server's `Setup.ini` has `ExemptLoopback=True`.
+  - Cloudflare: the WoOOLcraft tunnel routes `^/portal/mir2webclient(/|$)` to `127.0.0.1:5695` (TLS ends at Cloudflare). Every URL the client uses lives under the mount, so it never collides with WoOOLcraft's root `/js/`, `/Data/`, `/Map/` routes.
+- **ALWAYS** build relay URLs with `webUrl()` (`src/assets/root.ts`) and keep `play/index.html` / `play.css` references relative: the page runs at `<root>/play/` with root `""` (dev) or the mount (public). An absolute `/data/...` breaks the public site.
+- **NEVER** point the public relay at the working tree: players get only what `publish-webclient.ps1` snapshots.

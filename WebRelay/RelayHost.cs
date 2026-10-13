@@ -7,6 +7,8 @@ namespace WebRelay;
 ///   /ws                    WebSocket upgrade -> <see cref="RelaySession"/> (Origin check + per-IP budget first)
 ///   /play/*, /js/*         the web client from WebRoot (no-cache: edit, tsc, refresh)
 ///   /data/*, /map/*, /sound/*  read-only client files from ClientDataPath (GET + single Range, ETag)
+/// With --mount (public relay behind the Cloudflare tunnel, which forwards paths unstripped) all of these live under the
+/// mount, e.g. /portal/mir2webclient/ws, and the mount itself redirects to its /play/.
 /// Every handler is async on pool threads; nothing here touches game state (there is none in the relay).
 /// </summary>
 internal sealed class RelayHost
@@ -14,6 +16,7 @@ internal sealed class RelayHost
     private readonly RelayOptions _options;
     private readonly byte[]? _versionHash;
     private readonly ConnectionBudget _budget;
+    private readonly PlayerGuard? _guard;
     private readonly StaticFiles _web;
     private readonly StaticFiles _clientData;
     private readonly SemaphoreSlim _httpSlots = new(64, 64);
@@ -24,6 +27,7 @@ internal sealed class RelayHost
         _options = options;
         _versionHash = versionHash;
         _budget = new ConnectionBudget(options.MaxPerIp, options.MaxTotal, options.ConnectsPerMinutePerIp);
+        if (options.Public) _guard = new PlayerGuard(options.AccountsPerHourPerIp, options.CharactersPerHourPerIp);
         _web = new StaticFiles(new[] { options.WebRoot }, cacheImmutable: false);
         _clientData = new StaticFiles(new[] { options.ClientDataPath }, cacheImmutable: true);
     }
@@ -39,9 +43,13 @@ internal sealed class RelayHost
             Console.Error.WriteLine($"Cannot listen on {prefix}: {ex.Message} (non-loopback binds need: netsh http add urlacl url={prefix} user=Everyone)");
             return 1;
         }
-        Console.WriteLine($"WebRelay listening on {prefix}play/  ->  upstream {_options.UpstreamHost}:{_options.UpstreamPort}");
+        Console.WriteLine($"WebRelay listening on {prefix.TrimEnd('/')}{_options.Mount}/play/  ->  upstream {_options.UpstreamHost}:{_options.UpstreamPort}");
         Console.WriteLine($"  web root:    {_options.WebRoot}");
         Console.WriteLine($"  client data: {_options.ClientDataPath} (read-only)");
+        Console.WriteLine($"  origins:     {(_options.Origins.Count > 0 ? string.Join(", ", _options.Origins) : "the relay's own origin")}");
+        if (_options.Mount.Length > 0) Console.WriteLine($"  mount:       {_options.Mount}");
+        if (_options.TrustProxyHeader.Length > 0) Console.WriteLine($"  client IP:   {_options.TrustProxyHeader} (from loopback peers only)");
+        if (_guard != null) Console.WriteLine($"  public:      per-IP limits on (failed logins {PlayerGuard.FailedLoginLimit}/min, accounts {_options.AccountsPerHourPerIp}/h, characters {_options.CharactersPerHourPerIp}/h); the server needs [LoadTest] ExemptLoopback=True");
 
         using var reg = ct.Register(() => { try { listener.Stop(); } catch { } });
         _ = Task.Run(async () =>
@@ -50,6 +58,7 @@ internal sealed class RelayHost
             {
                 await Task.Delay(TimeSpan.FromMinutes(1), ct).ConfigureAwait(false);
                 _budget.PruneExpired();
+                _guard?.PruneExpired();
             }
         }, ct);
 
@@ -71,6 +80,19 @@ internal sealed class RelayHost
         string path = ctx.Request.Url?.AbsolutePath ?? "/";
         try
         {
+            string mount = _options.Mount;
+            if (mount.Length > 0)
+            {
+                if (path == mount || path == mount + "/")
+                {
+                    ctx.Response.Redirect(mount + "/play/");
+                    ctx.Response.Close();
+                    return;
+                }
+                if (!path.StartsWith(mount + "/", StringComparison.Ordinal)) { Respond(ctx, 404, "not found"); return; }
+                path = path[mount.Length..];
+            }
+
             if (path == "/ws")
             {
                 await HandleWebSocketAsync(ctx, ct).ConfigureAwait(false);
@@ -87,7 +109,7 @@ internal sealed class RelayHost
                 ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
                 if (path == "/" || path == "/play")
                 {
-                    ctx.Response.Redirect("/play/");
+                    ctx.Response.Redirect(mount + "/play/");
                     ctx.Response.Close();
                 }
                 else if (path.StartsWith("/play/", StringComparison.Ordinal) || path.StartsWith("/js/", StringComparison.Ordinal))
@@ -136,8 +158,8 @@ internal sealed class RelayHost
         if (!ctx.Request.IsWebSocketRequest) { Respond(ctx, 400, "websocket only"); return; }
         if (!OriginAllowed(ctx.Request)) { Respond(ctx, 403, "origin not allowed"); return; }
 
-        string ip = ctx.Request.RemoteEndPoint?.Address.ToString() ?? "?";
-        string? refusal = _budget.TryClaim(ip);
+        string ip = ResolveClientIp(ctx.Request.RemoteEndPoint?.Address, _options.TrustProxyHeader.Length > 0 ? ctx.Request.Headers[_options.TrustProxyHeader] : null);
+        string? refusal = _guard?.CheckBlocked(ip) ?? _budget.TryClaim(ip);
         if (refusal != null) { Respond(ctx, 503, refusal); return; }
 
         int id = Interlocked.Increment(ref _sessionSeq);
@@ -145,10 +167,21 @@ internal sealed class RelayHost
         {
             var wsCtx = await ctx.AcceptWebSocketAsync(subProtocol: null, receiveBufferSize: 16 * 1024, keepAliveInterval: TimeSpan.FromSeconds(20)).ConfigureAwait(false);
             Console.WriteLine($"[ws {id}] open from {ip}");
-            string reason = await new RelaySession(id, wsCtx.WebSocket, _options, _versionHash).RunAsync(ct).ConfigureAwait(false);
+            string reason = await new RelaySession(id, wsCtx.WebSocket, _options, _versionHash, ip, _guard).RunAsync(ct).ConfigureAwait(false);
             Console.WriteLine($"[ws {id}] closed: {reason}");
         }
         finally { _budget.Release(ip); }
+    }
+
+    /// <summary>
+    /// The player's address: the proxy header (CF-Connecting-IP) when the peer is loopback (cloudflared on this machine) and
+    /// the header is one valid address, else the peer itself. A remote peer can never pick its own address this way.
+    /// </summary>
+    internal static string ResolveClientIp(IPAddress? peer, string? proxyHeader)
+    {
+        string peerIp = peer?.ToString() ?? "?";
+        if (peer == null || !IPAddress.IsLoopback(peer) || string.IsNullOrWhiteSpace(proxyHeader)) return peerIp;
+        return IPAddress.TryParse(proxyHeader.Trim(), out var real) ? real.ToString() : peerIp;
     }
 
     private bool OriginAllowed(HttpListenerRequest request)

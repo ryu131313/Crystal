@@ -6,6 +6,7 @@
 // Volume (0-100, Settings.Volume / MusicVolume) is kept in localStorage.
 
 import { gameSignal } from "./scope.ts";
+import { webUrl } from "../assets/root.ts";
 
 const EXTENSIONS = [".wav", ".mp3"]; // SoundManager.SupportedFileTypes
 
@@ -56,7 +57,7 @@ export class SoundManager {
   /** SoundList.LoadSoundList: "index: file" lines (spaces removed, ':' or tab separated), first entry wins. */
   private async loadList(): Promise<void> {
     try {
-      const res = await fetch("/sound/SoundList.lst");
+      const res = await fetch(webUrl("/sound/SoundList.lst"));
       if (!res.ok) return;
       for (const raw of (await res.text()).split(/\r?\n/)) {
         const split = raw.replace(/ /g, "").split(/[:\t]/);
@@ -103,7 +104,7 @@ export class SoundManager {
         const candidates = hasExt ? [name] : EXTENSIONS.map((e) => name + e);
         for (const file of candidates) {
           if (hasExt && !EXTENSIONS.includes(file.slice(file.lastIndexOf(".")).toLowerCase())) return null;
-          const res = await fetch(`/sound/${file.split("/").map(encodeURIComponent).join("/")}`);
+          const res = await fetch(webUrl(`/sound/${file.split("/").map(encodeURIComponent).join("/")}`));
           if (!res.ok) continue;
           try { return await ctx.decodeAudioData(await res.arrayBuffer()); } catch { return null; }
         }

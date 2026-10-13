@@ -5,6 +5,7 @@
 import { decodeServerPacket, decodeServerPacketAsync, isCompressedFrame, type ServerPacket } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
 import { ServerPacketIdsName } from "../protocol/enums.generated.ts";
+import { webUrl } from "../assets/root.ts";
 
 export type SessionState = "connecting" | "open" | "closed";
 
@@ -35,7 +36,7 @@ export class Session {
   }
 
   static defaultUrl(): string {
-    return `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
+    return `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${webUrl("/ws")}`;
   }
 
   /** CMain.Time equivalent: ms since the session started. */

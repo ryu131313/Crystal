@@ -6,6 +6,7 @@
 import { CrystalLib, type LibImage } from "../assets/crystalLib.ts";
 import type { WebGl2Renderer, GLTextureRef } from "../render/backend.ts";
 import { Monster } from "../protocol/enums.generated.ts";
+import { webUrl } from "../assets/root.ts";
 
 export interface Sprite {
   tex: GLTextureRef | null; // null for a 0-size image (still has a size, e.g. a placeholder frame)
@@ -115,7 +116,7 @@ const libs = new Map<string, Promise<CrystalLib | null>>();
 const opened = new Map<string, CrystalLib | null>();
 
 function dataUrl(path: string): string {
-  return "/data/" + path.split("/").map(encodeURIComponent).join("/") + ".Lib";
+  return webUrl("/data/") + path.split("/").map(encodeURIComponent).join("/") + ".Lib";
 }
 
 /** Opens (once) and returns the library, or undefined while its header is still loading. */

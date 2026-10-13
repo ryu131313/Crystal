@@ -90,6 +90,7 @@ import { monsterSound, playerSound, fishingFrame, intelligentCreaturePickupSound
 import { canFish, canRideAttack, canCastNextMagic, canUseSpell, canHarvest, canRangeAttack, isFishingAction, isIdleAction, runDistance, transformTypeFromBuffs } from "./riding.ts";
 import { PoisonType, MirClass, BuffType, AttackMode, PetMode, MirGridType, EquipmentSlot, BindMode, StatName } from "../protocol/enums.generated.ts";
 import { KeybindOptions, keyLabel, matches, matchesAny, matchesAnyBinding, type KeybindOption } from "./keybinds.ts";
+import { webUrl } from "../assets/root.ts";
 
 export interface Game { handle(p: ServerPacket): void; dispose(): void }
 
@@ -546,7 +547,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     mapFile = fileName;
     map = blankMap();
     try {
-      const res = await fetch(`/map/${encodeURIComponent(fileName)}.map`);
+      const res = await fetch(webUrl(`/map/${encodeURIComponent(fileName)}.map`));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const parsed = readMap(new Uint8Array(await res.arrayBuffer()));
       if (mapFile === fileName) map = parsed;

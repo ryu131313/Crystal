@@ -87,3 +87,35 @@ powershell -ExecutionPolicy Bypass -File C:\Mir2\tools\stop-scratch-server.ps1  
    - **Storage passwords** stay v1 by design.
 4. Check: after a few logins, the count of `v2$` hashes grows. The web admin account page shows the accounts; a scratch copy of `Server.MirADB` can be checked with `Select-String -Pattern 'v2\$'`.
 5. To stop writing v2: set the flag back to `False`. Existing v2 hashes keep working.
+
+## 8. Web client alpha (public relay at worldofwooolcraft.uk/portal/mir2webclient)
+
+Two relays, same program (`WebRelay`), mirroring WoOOLcraft's private/public split (`Knowledgebase/WebClient/webclient.md` §5):
+
+| | Private (dev) relay | Public relay |
+|---|---|---|
+| Script | `tools\start-webrelay.ps1` | `tools\start-public-webrelay.ps1` |
+| Listens | `127.0.0.1:5690`, page at `/play/` | `127.0.0.1:5695`, page at `/portal/mir2webclient/play/` |
+| Serves | the working tree `WebClient\` (edit, tsc, refresh) | the snapshot `WebClient\publish\public` (`tools\publish-webclient.ps1`) |
+| Server | a scratch/test server (default 17000) | the live server (port from its `Setup.ini`, 7100) |
+| Limits | relay budget only | `CF-Connecting-IP` keyed budget + failed-login / account / character limits (`--public`) |
+
+**One-time setup (operator):**
+1. **Server setting.** Every web player reaches the server from `127.0.0.1`, so the live server needs `[LoadTest] ExemptLoopback=True`. Without it, `MaxIP=5` caps ALL web players at 5, and one player's 5 failed logins (1 min) or 4th account in an hour (24 h) IP-blocks every web player. Set it on the web admin settings page ("Load test: exempt loopback") or in `Build\Server\Release\Configs\Setup.ini` with the server stopped (`Settings.Save()` rewrites the file at exit). The relay re-applies those limits per player address. The exemption covers everything that connects from this machine; desktop players from other machines keep the server's own limits. `start-public-webrelay.ps1` refuses to start without it.
+2. **Cloudflare tunnel route** (Zero Trust → Networks → Tunnels → the "WoooL Home" tunnel → Published application routes → Add):
+   - Hostname `worldofwooolcraft.uk`, Path `^/portal/mir2webclient(/|$)`, Service `HTTP` → `127.0.0.1:5695` (not `localhost`: the relay listens on IPv4 only).
+   - Move it **above the catch-all** route (WebPortalHost on 5080). It does not overlap WoOOLcraft's `/portal/webclient` or `/js/`, `/Data/`, ... routes (everything Crystal uses is under the mount), but keeping it near the top avoids surprises.
+   - Leave HTTP Host Header empty (the relay accepts the forwarded host) and WebSockets on (zone → Network → WebSockets; already on for WoOOLcraft).
+   - If Rocket Loader is on for the zone: a Configuration Rule turning it off for URI path starts with `/portal/mir2webclient`.
+   - No cache rule for the alpha: the relay answers `no-cache` + ETag, so a publish or a client patch is picked up on the next page load without a purge.
+3. **Portal link** (WoOOLcraft site, `C:\WoOOLcraft\wwwroot\portal`, live on save): a plain `<a href="/portal/mir2webclient/">` where you want it. Add it after the live check below passes.
+
+**Each release:**
+1. `powershell -ExecutionPolicy Bypass -File tools\publish-webclient.ps1` (builds, snapshots to `WebClient\publish\public`, keeps `public.old`; no relay restart).
+2. If the relay is not running (or `WebRelay\` changed: stop it first, its exe is locked): `powershell -ExecutionPolicy Bypass -File tools\start-public-webrelay.ps1`. Check the banner shows the mount, origin `https://worldofwooolcraft.uk`, `CF-Connecting-IP` and the per-IP limits line. The window must stay open (no service yet: closed window = 502 on the site).
+3. Live check: `https://worldofwooolcraft.uk/portal/mir2webclient` redirects to `.../play/` and shows the login screen; log in; the relay console shows `[ws N] open from <your public IP>` (not `127.0.0.1`: if it does, the request did not come through cloudflared). A 404 from WoOOLcraft's portal = route order/path wrong; 502 = relay not running.
+4. Rollback of the web client: stop nothing, rename `WebClient\publish\public` ↔ `public.old`.
+
+**After a client patch** (`Build\Client\Release` updated): nothing to do. The relay reads `Data\`, `Map\` and `Sound\` per request. If the server turns on `CheckVersion`, restart the public relay so it re-hashes the server's `VersionPath` file.
+
+**Known gaps (alpha):** no autostart; no edge caching of `.Lib` range reads (every art read crosses the tunnel); a refusal by the relay's limits shows as "connection lost" in the browser.

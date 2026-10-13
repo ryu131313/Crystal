@@ -20,6 +20,7 @@ import { CELL_W, CELL_H, type MapObj } from "./objects.ts";
 import { Missile, type Effect } from "./effects.ts";
 import { gameSettings } from "./settings.ts";
 import { EnhancedLightLayer } from "./lightingEnhanced.ts";
+import { webUrl } from "../assets/root.ts";
 
 /** DXManager.LightSizes. */
 export const LIGHT_SIZES: [number, number][] = [
@@ -131,7 +132,7 @@ export class LightLayer {
 
   private async load(k: number): Promise<void> {
     try {
-      const res = await fetch(`/play/lights/light${k}.png`);
+      const res = await fetch(webUrl(`/play/lights/light${k}.png`));
       const bitmap = await createImageBitmap(await res.blob(), { premultiplyAlpha: "none", colorSpaceConversion: "none" });
       const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
       const g = canvas.getContext("2d")!;

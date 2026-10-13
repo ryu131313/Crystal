@@ -64,10 +64,20 @@ internal sealed class RelayOptions
     public int ConnectsPerMinutePerIp = 30;
     /// <summary>Allowed Origin headers for /ws. Empty = only the relay's own origin.</summary>
     public List<string> Origins = new();
+    /// <summary>URL prefix the whole site lives under (e.g. /portal/mir2webclient); the tunnel forwards paths unstripped.</summary>
+    public string Mount = "";
+    /// <summary>Header carrying the player's address (CF-Connecting-IP behind the Cloudflare tunnel); trusted only from a loopback peer.</summary>
+    public string TrustProxyHeader = "";
+    /// <summary>Public mode: needs --origin and --web-root, and turns on <see cref="PlayerGuard"/>.</summary>
+    public bool Public;
+    public int AccountsPerHourPerIp = 3;
+    public int CharactersPerHourPerIp = 5;
 
     public const string Usage =
         "WebRelay --client-data <client folder> [--listen 127.0.0.1:5690] [--upstream 127.0.0.1:7000] [--version-path <Client.exe>]\n" +
-        "         [--web-root <WebClient folder>] [--map-path <extra Maps folder>]... [--origin <url>]... [--max-per-ip 8] [--max-total 256]";
+        "         [--web-root <WebClient folder>] [--map-path <extra Maps folder>]... [--origin <url>]... [--max-per-ip 8] [--max-total 256]\n" +
+        "         [--connects-per-minute 30] [--mount /portal/mir2webclient] [--trust-proxy-header CF-Connecting-IP]\n" +
+        "         [--public [--accounts-per-hour 3] [--characters-per-hour 5]]";
 
     public static RelayOptions Parse(string[] args)
     {
@@ -93,11 +103,26 @@ internal sealed class RelayOptions
                 case "--origin": o.Origins.Add(Next().TrimEnd('/')); break;
                 case "--max-per-ip": o.MaxPerIp = int.Parse(Next()); break;
                 case "--max-total": o.MaxTotal = int.Parse(Next()); break;
+                case "--connects-per-minute": o.ConnectsPerMinutePerIp = int.Parse(Next()); break;
+                case "--mount":
+                    o.Mount = "/" + Next().Trim('/');
+                    if (o.Mount == "/" || o.Mount.Contains("..")) throw new ArgumentException("--mount must be a path such as /portal/mir2webclient");
+                    break;
+                case "--trust-proxy-header": o.TrustProxyHeader = Next(); break;
+                case "--public": o.Public = true; break;
+                case "--accounts-per-hour": o.AccountsPerHourPerIp = int.Parse(Next()); break;
+                case "--characters-per-hour": o.CharactersPerHourPerIp = int.Parse(Next()); break;
                 default: throw new ArgumentException($"Unknown argument {args[i]}");
             }
         }
         if (string.IsNullOrEmpty(o.ClientDataPath) || !Directory.Exists(o.ClientDataPath))
             throw new ArgumentException("--client-data <client folder> is required and must exist");
+        if (o.Public)
+        {
+            // A public relay never falls back to the dev defaults: an explicit origin allowlist and a published web root.
+            if (o.Origins.Count == 0 || o.Origins.Contains("*")) throw new ArgumentException("--public needs --origin <https://your.site>");
+            if (string.IsNullOrEmpty(o.WebRoot)) throw new ArgumentException("--public needs --web-root (the published copy, tools\\publish-webclient.ps1)");
+        }
         if (string.IsNullOrEmpty(o.WebRoot))
             o.WebRoot = FindWebRoot();
         if (!Directory.Exists(o.WebRoot))
