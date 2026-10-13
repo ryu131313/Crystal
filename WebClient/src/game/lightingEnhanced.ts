@@ -170,7 +170,7 @@ export class EnhancedLightLayer {
       }
       if (!effects) continue;
       for (const e of ob.effects) {
-        if (!e.blend || c.now < e.start || (!(e instanceof Missile) && e.light < ob.light)) continue;
+        if (!e.blend || c.now < e.start || e.held || (!(e instanceof Missile) && e.light < ob.light)) continue;
         this.addLight(batch, c.now, e.drawLocation.x, e.drawLocation.y, e.light, blindLight(effectLightColour(e)), 1.2 * lightScale, 0, 0, 0);
       }
     }
@@ -185,7 +185,7 @@ export class EnhancedLightLayer {
   private drawMapEffectLights(batch: SpriteBatch, c: LightContext, lightScale: number, blindLight: (c: Rgb) => Rgb): void {
     if (!gameSettings.Effect) return;
     for (const e of c.mapEffects) {
-      if (!e.blend || c.now < e.start || e.light === 0) continue;
+      if (!e.blend || c.now < e.start || e.held || e.light === 0) continue;
       this.addLight(batch, c.now, e.drawLocation.x, e.drawLocation.y, e.light, blindLight(effectLightColour(e)), 1.2 * lightScale, 0, 0, 0);
     }
   }

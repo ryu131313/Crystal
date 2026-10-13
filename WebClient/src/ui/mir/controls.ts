@@ -47,6 +47,8 @@ export interface LibPicture { url: string; width: number; height: number; x: num
 
 const pictures = new Map<string, Promise<LibPicture | null>>();
 const loaded = new Map<string, LibPicture | null>();
+/** The decoded <img> of each picture, held so the browser keeps the decoded bitmap (see libPicture). */
+const decoded = new Map<string, HTMLImageElement>();
 
 /** One .Lib image as an object URL (cached for the page's lifetime). null = no such image (or a 0 x 0 one). */
 export function libPicture(library: string, index: number): Promise<LibPicture | null> {
@@ -64,7 +66,14 @@ export function libPicture(library: string, index: number): Promise<LibPicture |
       canvas.getContext("2d")!.putImageData(new ImageData(new Uint8ClampedArray(img.rgba), img.width, img.height), 0, 0);
       const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve));
       if (!blob) return null;
-      return { url: URL.createObjectURL(blob), width: img.width, height: img.height, x: img.x, y: img.y };
+      const url = URL.createObjectURL(blob);
+      // Decode now and keep the element alive: a background-image swap to an image the browser has not decoded paints
+      // nothing until it has, so every animation frame (login door, select-screen preview + glow) strobed.
+      const decodedImg = new Image();
+      decodedImg.src = url;
+      await decodedImg.decode().catch(() => { /* still usable; it decodes on first paint */ });
+      decoded.set(key, decodedImg);
+      return { url, width: img.width, height: img.height, x: img.x, y: img.y };
     })().catch(() => null);
     p.then((pic) => loaded.set(key, pic));
     pictures.set(key, p);

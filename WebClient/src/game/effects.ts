@@ -2,11 +2,14 @@
 // `count` frames of `lib` from `baseIndex` over `duration` ms, either on an owner object (follows its DrawLocation,
 // drawn from its effect list) or at a map point (drawn from the map's effect list). Blend = additive (DrawBlend).
 // All times are the page clock (performance.now ms), standing in for CMain.Time.
+// Web: an effect holds its first frame (its clock does not run, its light is off) until every image it will draw is on
+// the GPU, at most HOLD_MAX_MS; the desktop loads synchronously, so a spell never plays half-loaded there. The art
+// warm-up (preload.ts) usually has them resident already; this covers the rest (first casts, server effects).
 
 import type { WirePoint } from "../protocol/binaryCodec.ts";
 import { CELL_W, CELL_H, type MapObj } from "./objects.ts";
 import { MirAction, Monster } from "../protocol/enums.generated.ts";
-import { LibPath } from "./libraries.ts";
+import { LibPath, sprite } from "./libraries.ts";
 
 /** Data\*.Lib names for Libraries.Magic / Magic2 / ... (Client/MirGraphics/MLibrary.cs). */
 export const Lib = {
@@ -40,6 +43,9 @@ export function effectWorld(): EffectWorld {
 
 const idiv = (a: number, b: number) => Math.trunc(a / b);
 
+/** The longest an effect waits for its images before playing anyway (a slow or failing read must not freeze a spell). */
+const HOLD_MAX_MS = 3000;
+
 export class Effect {
   lib: string;
   baseIndex: number;
@@ -64,6 +70,9 @@ export class Effect {
   private readonly completeHandlers: (() => void)[] = [];
   private readonly playedHandlers: (() => void)[] = [];
   removed = false;
+  /** Web: the frames have been checked resident (or the hold timed out); see the file header. */
+  private playing = false;
+  private holdUntil = 0;
 
   /** new Effect(library, baseIndex, count, duration, owner | source, starttime = 0, drawBehind = false). */
   constructor(lib: string, baseIndex: number, count: number, duration: number, at: MapObj | WirePoint, startTime = 0, drawBehind = false) {
@@ -95,8 +104,34 @@ export class Effect {
     this.nextFrame = this.start + idiv(this.duration, this.count) * (this.currentFrame + 1);
   }
 
+  /** Web: the images this effect draws (Effect.Draw: BaseIndex + CurrentFrame). */
+  protected frameIndices(): number[] {
+    const list: number[] = [];
+    for (let f = 0; f < this.count; f++) list.push(this.baseIndex + f);
+    return list;
+  }
+
+  /** Web: true while the effect waits for its images (no light, the clock restarts when they are in). */
+  get held(): boolean {
+    return !this.playing;
+  }
+
+  /** Web: checks the frames once the effect is due; asking for each one also starts its load. */
+  protected holding(now: number): boolean {
+    if (this.playing) return false;
+    if (now < this.start) return true;
+    if (this.holdUntil === 0) this.holdUntil = now + HOLD_MAX_MS;
+    let ready = true;
+    for (const i of this.frameIndices()) if (sprite(this.lib, i) === undefined) ready = false; // keep asking: every miss queues
+    if (!ready && now < this.holdUntil) return true;
+    this.playing = true;
+    if (now > this.start + 50) this.setStart(now); // it was held: play the whole cycle from frame 0
+    return false;
+  }
+
   process(): void {
     const now = effectWorld().now();
+    if (this.holding(now)) return;
     if (this.currentFrame === 1) for (const fn of this.playedHandlers) fn();
     if (now <= this.nextFrame) return;
     if (++this.currentFrame >= this.count) {
@@ -165,9 +200,17 @@ export class Missile extends Effect {
     this.direction = direction16 ? direction16Of(this.source, this.destination) : direction8Of(this.source, this.destination);
   }
 
+  /** Missile.Draw's frame row for the current direction. */
+  protected override frameIndices(): number[] {
+    const list: number[] = [];
+    for (let f = 0; f < this.frameCount; f++) list.push(this.baseIndex + f + this.direction * (this.skip + this.frameCount));
+    return list;
+  }
+
   override process(): void {
     const now = effectWorld().now();
     if (now < this.start) return;
+    if (this.holding(now)) return;
     if (this.target) this.destination = { ...this.target.location };
     else if (!this.explode && this.caster) {
       const dist = maxDistance(this.caster.location, this.destination);

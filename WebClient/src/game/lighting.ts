@@ -188,7 +188,7 @@ export class LightLayer {
       if (!effects) continue;
       // Object effect lights: blended effects that have started; non-missiles only when brighter than the owner
       for (const e of ob.effects) {
-        if (!e.blend || now < e.start || (!(e instanceof Missile) && e.light < ob.light)) continue;
+        if (!e.blend || now < e.start || e.held || (!(e instanceof Missile) && e.light < ob.light)) continue;
         const k = Math.min(Math.max(e.light, 0), LIGHT_COUNT - 1);
         drawLight(k, e.drawLocation.x, e.drawLocation.y, tint(e.lightColour));
       }
@@ -201,7 +201,7 @@ export class LightLayer {
     // Map effect lights (white)
     if (effects) {
       for (const e of c.mapEffects) {
-        if (!e.blend || now < e.start || e.light === 0) continue;
+        if (!e.blend || now < e.start || e.held || e.light === 0) continue;
         drawLight(Math.min(Math.max(e.light, 0), LIGHT_COUNT - 1), e.drawLocation.x, e.drawLocation.y, tint(WHITE_RGB));
       }
     }
