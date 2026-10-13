@@ -95,6 +95,7 @@ export class SelectScene {
     this.glow = new MirImage({ parent: background, library: Lib.ChrSel, index: 780, location: [260, 420], useOffset: true, notControl: true, visible: false });
     this.glow.el.style.mixBlendMode = "plus-lighter";
     this.characterDisplay.onFrame = (frame) => { this.glow.index = frame + 560; };
+    this.characterDisplay.companion = { library: Lib.ChrSel, offset: 560 }; // the cycle waits for the glow frames too
 
     const ys = [194, 298, 402, 506];
     ys.forEach((y, i) => {

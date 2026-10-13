@@ -14,6 +14,8 @@ type P<T extends ServerPacket["type"]> = Extract<ServerPacket, { type: T }>;
 const ACCOUNT_REG = new RegExp(`^[A-Za-z0-9]{${Globals.MinAccountIDLength},${Globals.MaxAccountIDLength}}$`);
 const PASSWORD_REG = new RegExp(`^[A-Za-z0-9]{${Globals.MinPasswordLength},${Globals.MaxPasswordLength}}$`);
 const EMAIL_REG = /\w+([-+.]\w+)*@\w+([-.]\w+)*\.\w+([-.]\w+)*/;
+/** Web: how long a login waits for the door cycle (ChrSel 0-18) to finish loading before skipping it. */
+const DOOR_WAIT_MS = 1000;
 
 /** Location = ((ScreenWidth - Size.Width) / 2, (ScreenHeight - Size.Height) / 2) once the picture's size is known. */
 function centre(c: MirImage, offset: [number, number] = [0, 0], then?: () => void): void {
@@ -500,10 +502,16 @@ export class LoginScene {
     this.login?.dispose();
     this.login = null;
     this.disposeViewKey();
-    // Web: on a cold cache the door cycle (~45 MB) is still streaming; go straight to the select screen rather than wait.
-    if (!this.background.framesReady()) { onSelect(characters); return; }
+    // Web: MirAnimated holds the door's first frame until the cycle has loaded. On a cold cache that is ~42 MB, so give it
+    // DOOR_WAIT_MS to become ready and otherwise go straight to the select screen (a returning player has it cached).
     this.background.afterAnimation = () => onSelect(characters);
     this.background.animated = true;
+    window.setTimeout(() => {
+      if (this.background.framesReady()) return; // playing (or played): afterAnimation opens the select screen
+      this.background.afterAnimation = null;
+      this.background.animated = false;
+      onSelect(characters);
+    }, DOOR_WAIT_MS);
   }
 
   private newAccount(p: P<"NewAccount">): void {

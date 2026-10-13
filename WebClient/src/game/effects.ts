@@ -151,6 +151,8 @@ export class Missile extends Effect {
   frameCount = 1;
   skip = 0;
   direction: number;
+  /** 16 or 8: the frame rows the missile picks from (the art warm-up loads them all, preload.ts). */
+  readonly directions: number;
   explode = false;
   /** Owner for the "flying away" target fallback; a point-sourced missile has none. */
   private readonly caster: MapObj | null;
@@ -159,6 +161,7 @@ export class Missile extends Effect {
     super(lib, baseIndex, count, duration, from);
     this.caster = "X" in from ? null : from;
     this.destination = { ...target };
+    this.directions = direction16 ? 16 : 8;
     this.direction = direction16 ? direction16Of(this.source, this.destination) : direction8Of(this.source, this.destination);
   }
 

@@ -1474,6 +1474,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
         : hovered.race === ObjectType.Player && shiftHeld ? "AttackRed" : "Default");
       weather.update(t, view.painter.width, view.painter.height);
       artWarmer.warm(user, objects.values());
+      artWarmer.warmSpells(user, magic.magics);
       view.render({ map, user, objects: objects.values(), animationCount, lights: lightState, mapEffects, doors, now: t });
       miniMap.draw(map, miniMapIndex, mapTitle, user, objects.values(), (n) => group.has(n));
       bigMap.draw(map, mapTitle, user, objects.values(), group);

@@ -4,14 +4,20 @@
 // priority and one batched read per block (libraries.ts prefetch):
 //   - the user: the actions they see constantly, all eight directions, every layer (body, hair, weapons, mount),
 //     again whenever their look, mount or transform changes;
-//   - each monster image on the map: its common actions, all eight directions, once per image.
+//   - each monster image on the map: its common actions, all eight directions, once per image;
+//   - the user's skill-bar spells (keys 1-16): a dry run of spellVisuals.ts on a throwaway caster and target records
+//     every effect the cast, the missile and the hit would create (and the warrior attack overlays), so the indices
+//     stay the ones copied from the C# in one place. Effects the server starts (S.ObjectEffect / MapEffect / spell
+//     objects) are not covered.
 // While a block is still loading MapView holds its first frame (or the last frame drawn): mapView.ts heldFrame.
 
 import { MirAction as A, MirClass, ObjectType } from "../protocol/enums.generated.ts";
 import { frameOffset, type Frame } from "./frames.ts";
 import { lib, monsterLibPath, prefetch } from "./libraries.ts";
-import type { MapObj } from "./objects.ts";
+import { MapObj } from "./objects.ts";
 import { mountAction } from "./riding.ts";
+import { Effect, Missile, effectWorld, setEffectWorld } from "./effects.ts";
+import { drawActionEffects, spellComplete, spellStart, type SpellWorld } from "./spellVisuals.ts";
 
 /** The user's warmed actions (mapped to the Mount* frames while riding, the Bow / transform frames by pickFrame). */
 const USER_ACTIONS: readonly number[] = [A.Standing, A.Walking, A.Running, A.Struck, A.Attack1, A.Spell, A.Die];
@@ -33,11 +39,90 @@ function add(wanted: Map<string, number[]>, path: string | null, frame: Frame, o
   blockIndices(frame, off, list);
 }
 
+/** The images an effect can draw: Effect.Draw's BaseIndex + CurrentFrame, Missile.Draw's frame rows per direction. */
+function effectImages(e: Effect, wanted: Map<string, Set<number>>): void {
+  let set = wanted.get(e.lib);
+  if (!set) wanted.set(e.lib, (set = new Set()));
+  if (e instanceof Missile) {
+    for (let d = 0; d < e.directions; d++) for (let f = 0; f < e.frameCount; f++) set.add(e.baseIndex + f + d * (e.skip + e.frameCount));
+  } else for (let f = 0; f < e.count; f++) set.add(e.baseIndex + f);
+}
+
+/** Dry run of one spell's visuals (spellStart, spellComplete, the missile's hit, the attack overlays) on throwaway
+ *  objects; returns library -> images. Nothing reaches the map: the world is a recorder and every effect is removed. */
+export function spellImages(user: MapObj, spell: number, level: number): Map<string, Set<number>> {
+  const wanted = new Map<string, Set<number>>();
+  const caster = new MapObj(-1, ObjectType.Player, user.location, user.direction);
+  caster.look = { ...user.look };
+  const target = new MapObj(-2, ObjectType.Monster, { X: user.location.X + 3, Y: user.location.Y + 2 }, 0);
+  target.frame = null;
+  const mapEffects: Effect[] = [];
+  const w: SpellWorld = {
+    getObject: (id) => (id === -2 ? target : id === -1 ? caster : undefined),
+    validPoint: () => true,
+    user: () => caster,
+    now: () => performance.now(),
+    playSound: () => {},
+    addMapEffect: (e) => { mapEffects.push(e); },
+  };
+  caster.spell = spell;
+  caster.spellLevel = level;
+  caster.targetId = target.id;
+  caster.targetPoint = { ...target.location };
+  caster.cast = true;
+  caster.action = A.Spell;
+  caster.frame = user.pickFrame(A.Spell);
+  const seen = new Set<Effect>();
+  const drain = () => {
+    // remove() fires Complete (a missile's hit adds the hit effect to the target), so repeat until nothing is new
+    for (let round = 0; round < 6; round++) {
+      const fresh = [...caster.effects, ...target.effects, ...mapEffects].filter((e) => !seen.has(e));
+      if (!fresh.length) return;
+      for (const e of fresh) { seen.add(e); effectImages(e, wanted); }
+      for (const e of fresh) e.remove();
+      for (let i = mapEffects.length - 1; i >= 0; i--) if (mapEffects[i]!.removed) mapEffects.splice(i, 1);
+    }
+  };
+  try {
+    spellStart(caster, w);
+    drain();
+    spellComplete(caster, w);
+    drain();
+    // PlayerObject.DrawEffects' attack overlays (warrior skills): record the draws through a stand-in effect world
+    const real = effectWorld();
+    setEffectWorld({ ...real, drawLocation: () => ({ x: 0, y: 0 }), draw: () => {},
+      drawBlend: (l, i) => { let set = wanted.get(l); if (!set) wanted.set(l, (set = new Set())); set.add(i); } });
+    try {
+      for (const action of [A.Attack1, A.Attack4]) {
+        caster.action = action;
+        for (let d = 0; d < 8; d++) for (let fi = 0; fi < 10; fi++) { caster.direction = d; caster.frameIndex = fi; drawActionEffects(caster, w); }
+      }
+    } finally { setEffectWorld(real); }
+  } catch (e) {
+    console.warn(`[preload] spell ${spell}:`, e);
+  }
+  return wanted;
+}
+
 export class ArtWarmer {
   /** The user look the warm last ran for (null = not yet, or a library header was still loading). */
   private userKey: string | null = null;
   /** Monster images (+ the frame-set selectors) already warmed. */
   private readonly monsters = new Set<string>();
+  /** Spell + level pairs already warmed. */
+  private readonly spells = new Set<string>();
+
+  /** The skill-bar spells (UserMagic.Key 1-16; 17-24 are the hero's): warm each spell + level once. */
+  warmSpells(user: MapObj | null, magics: readonly { Spell: number; Level: number; Key: number }[]): void {
+    if (!user) return;
+    for (const m of magics) {
+      if (m.Key < 1 || m.Key > 16) continue;
+      const k = m.Spell + ":" + m.Level;
+      if (this.spells.has(k)) continue;
+      this.spells.add(k);
+      for (const [path, set] of spellImages(user, m.Spell, m.Level)) prefetch(path, [...set]);
+    }
+  }
 
   /** Called once per rendered frame: cheap when nothing changed (a string compare + one Set lookup per monster). */
   warm(user: MapObj | null, objects: Iterable<MapObj>): void {

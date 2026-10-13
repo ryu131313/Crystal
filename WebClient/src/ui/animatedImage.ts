@@ -2,6 +2,8 @@
 // AnimationDelay ms up to AnimationCount, then looped or stopped (Loop) with AfterAnimation; optional FadeIn
 // (Opacity += FadeInRate every FadeInDelay ms). One shared timer drives every live control (MirAnimatedControl.Animations,
 // updated from CMain's loop); a control leaves it on dispose(), so a hidden scene stops animating.
+// Web: the cycle holds its first frame until every frame (and the companion layer's) has loaded, then plays; the
+// desktop loads them synchronously, so it never shows a half-loaded cycle.
 
 import { MirImage, libPicture, libPictureNow, type ImageOptions } from "./mir/controls.ts";
 
@@ -55,6 +57,9 @@ export class MirAnimated extends MirImage {
   afterAnimation: (() => void) | null = null;
   /** Called whenever the drawn frame changes (AfterDraw users such as the ChrSel blend layer). */
   onFrame: ((frame: number) => void) | null = null;
+  private _companion: { library: string; offset: number } | null = null;
+  /** The `Index + OffSet` frames of `readyFor` are known loaded (framesReady's cache). */
+  private readyFor = "";
 
   constructor(opts: AnimatedOptions) {
     super(opts);
@@ -73,6 +78,15 @@ export class MirAnimated extends MirImage {
     this.streamFrames = opts.streamFrames ?? false;
     this.preload();
     track(this);
+  }
+
+  /** A layer drawn with every frame at frame + offset (the ChrSel glow, CharacterDisplay.AfterDraw): loaded with the
+   *  cycle, and the cycle waits for it too. */
+  get companion(): { library: string; offset: number } | null { return this._companion; }
+  set companion(c: { library: string; offset: number } | null) {
+    this._companion = c;
+    this.readyFor = "";
+    this.preload();
   }
 
   /** Index + OffSet: the frame on screen. */
@@ -110,19 +124,28 @@ export class MirAnimated extends MirImage {
     const library = this.library;
     if (!library) return;
     const first = this.index, count = this.animationCount ?? 0;
-    void libPicture(library, first).then(async () => {
+    const companion = this._companion;
+    const load = (i: number) => Promise.all([libPicture(library, first + i), companion ? libPicture(companion.library, first + i + companion.offset) : null]);
+    void load(0).then(async () => {
       if (!this.streamFrames) {
-        for (let i = 1; i < count; i++) void libPicture(library, first + i);
+        for (let i = 1; i < count; i++) void load(i);
         return;
       }
-      for (let i = 1; i < count && !this.disposed && this.index === first; i++) await libPicture(library, first + i);
+      for (let i = 1; i < count && !this.disposed && this.index === first; i++) await load(i);
     });
   }
 
   /** Whether every frame of the cycle has loaded (a web addition: callers may skip a cycle that is still streaming). */
   framesReady(): boolean {
     if (!this.library) return true;
-    for (let i = 0; i < (this.animationCount ?? 0); i++) if (libPictureNow(this.library, this.index + i) === undefined) return false;
+    const key = this.library + "#" + this.index;
+    if (this.readyFor === key) return true;
+    const c = this._companion;
+    for (let i = 0; i < (this.animationCount ?? 0); i++) {
+      if (libPictureNow(this.library, this.index + i) === undefined) return false;
+      if (c && libPictureNow(c.library, this.index + i + c.offset) === undefined) return false;
+    }
+    this.readyFor = key;
     return true;
   }
 
@@ -138,6 +161,8 @@ export class MirAnimated extends MirImage {
     if (!this.visible || !this._animated || this.animationDelay === 0 || this.animationCount === 0) return;
     if (now < this.nextOffSet) return;
     this.nextOffSet = now + this.animationDelay;
+    // Web: hold the first frame until the whole cycle has loaded
+    if (!this.framesReady()) { this.setOffSet(0); return; }
 
     if (this.offSet + 1 < this.animationCount) { this.setOffSet(this.offSet + 1); return; }
     this.offSet++; // ++OffSet reached AnimationCount
