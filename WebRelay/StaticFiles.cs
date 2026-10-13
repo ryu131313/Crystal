@@ -85,7 +85,7 @@ internal sealed class StaticFiles
     }
 
     /// <summary>Maps "/a/b.c" onto the first root holding it; null for traversal attempts or missing files.</summary>
-    private string? Resolve(string urlPath)
+    internal string? Resolve(string urlPath)
     {
         string rel = Uri.UnescapeDataString(urlPath).TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
         if (rel.Length == 0 || rel.Contains(':') || rel.Contains("..")) return null;
@@ -118,7 +118,7 @@ internal sealed class StaticFiles
         return start >= 0 && start <= end;
     }
 
-    private static string ContentType(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+    internal static string ContentType(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {
         ".html" => "text/html; charset=utf-8",
         ".js" => "text/javascript; charset=utf-8",

@@ -4,6 +4,9 @@ import { Session } from "../src/game/session.ts";
 import { Screens } from "../src/ui/screens.ts";
 import { startGame } from "../src/game/game.ts";
 import type { ServerPacket } from "../src/protocol/server.ts";
+import { loadManifest } from "../src/assets/manifest.ts";
+
+void loadManifest(); // asset versions for every later request (src/assets/manifest.ts)
 
 // The interface is laid out in desktop pixels on the stage (1024 x 768 for the account screens, the game resolution in game; src/ui/mir/controls.ts); scale it to the window.
 const stage = document.getElementById("stage") as HTMLElement;

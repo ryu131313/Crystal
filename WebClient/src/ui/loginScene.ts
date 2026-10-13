@@ -404,7 +404,7 @@ export class LoginScene {
     this.host = host;
     // LoginScene ctor
     this.root = new MirControl({ parent, location: [0, 0], size: [SCREEN_WIDTH, SCREEN_HEIGHT] });
-    this.background = new MirAnimated({ parent: this.root, library: Lib.ChrSel, index: 0, animated: false, animationCount: 19, animationDelay: 100, loop: false });
+    this.background = new MirAnimated({ parent: this.root, library: Lib.ChrSel, index: 0, animated: false, animationCount: 19, animationDelay: 100, loop: false, streamFrames: true });
 
     const login = new LoginDialog(this.background, (f) => this.host.send(f));
     this.login = login;
@@ -500,6 +500,8 @@ export class LoginScene {
     this.login?.dispose();
     this.login = null;
     this.disposeViewKey();
+    // Web: on a cold cache the door cycle (~45 MB) is still streaming; go straight to the select screen rather than wait.
+    if (!this.background.framesReady()) { onSelect(characters); return; }
     this.background.afterAnimation = () => onSelect(characters);
     this.background.animated = true;
   }

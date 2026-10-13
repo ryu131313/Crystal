@@ -5,8 +5,10 @@ namespace WebRelay;
 /// <summary>
 /// The HTTP front door (HttpListener, so no hand-rolled RFC 6455):
 ///   /ws                    WebSocket upgrade -> <see cref="RelaySession"/> (Origin check + per-IP budget first)
-///   /play/*, /js/*         the web client from WebRoot (no-cache: edit, tsc, refresh)
-///   /data/*, /map/*, /sound/*  read-only client files from ClientDataPath (GET + single Range, ETag)
+///   /play/*, /js/*         the web client from WebRoot (no-cache: edit, tsc, refresh); /play/ and /js/<build id>/* via
+///                          <see cref="PageBuild"/> (hashed, immutable module URLs + modulepreload)
+///   /data/*, /map/*, /sound/*  read-only client files from ClientDataPath (GET + single Range, ETag); with ?v= the
+///                          checked, immutable <see cref="AssetHost"/> forms; /api/manifest and /libindex/* likewise
 /// With --mount (public relay behind the Cloudflare tunnel, which forwards paths unstripped) all of these live under the
 /// mount, e.g. /portal/mir2webclient/ws, and the mount itself redirects to its /play/.
 /// Every handler is async on pool threads; nothing here touches game state (there is none in the relay).
@@ -19,6 +21,9 @@ internal sealed class RelayHost
     private readonly PlayerGuard? _guard;
     private readonly StaticFiles _web;
     private readonly StaticFiles _clientData;
+    private readonly Compression _compression = new(256L * 1024 * 1024);
+    private readonly AssetHost _assets;
+    private readonly PageBuild _page;
     private readonly SemaphoreSlim _httpSlots = new(64, 64);
     private int _sessionSeq;
 
@@ -30,6 +35,8 @@ internal sealed class RelayHost
         if (options.Public) _guard = new PlayerGuard(options.AccountsPerHourPerIp, options.CharactersPerHourPerIp);
         _web = new StaticFiles(new[] { options.WebRoot }, cacheImmutable: false);
         _clientData = new StaticFiles(new[] { options.ClientDataPath }, cacheImmutable: true);
+        _assets = new AssetHost(options, _clientData, _compression);
+        _page = new PageBuild(options.WebRoot, _compression);
     }
 
     public async Task<int> RunAsync(CancellationToken ct)
@@ -112,10 +119,34 @@ internal sealed class RelayHost
                     ctx.Response.Redirect(mount + "/play/");
                     ctx.Response.Close();
                 }
+                else if (path == "/play/" || path == "/play/index.html")
+                {
+                    string? index = _web.Resolve("/play/index.html");
+                    if (index == null) Respond(ctx, 404, "not found");
+                    else await _page.ServePageAsync(ctx, index).ConfigureAwait(false);
+                }
+                else if (path.StartsWith("/js/", StringComparison.Ordinal) && path.IndexOf('/', 4) is int slash && slash > 4
+                         && PageBuild.IsBuildId(path[4..slash]))
+                {
+                    await _page.ServeModuleAsync(ctx, path[4..slash], path[(slash + 1)..], _web).ConfigureAwait(false);
+                }
                 else if (path.StartsWith("/play/", StringComparison.Ordinal) || path.StartsWith("/js/", StringComparison.Ordinal))
                 {
-                    string rel = path.EndsWith('/') ? path + "index.html" : path;
-                    await _web.ServeAsync(ctx, rel).ConfigureAwait(false);
+                    await _web.ServeAsync(ctx, path).ConfigureAwait(false);
+                }
+                else if (path == "/api/manifest")
+                {
+                    await _assets.ServeManifestAsync(ctx).ConfigureAwait(false);
+                }
+                else if (path.StartsWith("/libindex/", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!await _assets.TryServeLibIndexAsync(ctx, path["/libindex/".Length..], ctx.Request.QueryString["v"]).ConfigureAwait(false))
+                        Respond(ctx, 404, "not found");
+                }
+                else if (ctx.Request.QueryString["v"] is string v && (path.StartsWith("/data/", StringComparison.OrdinalIgnoreCase)
+                         || path.StartsWith("/sound/", StringComparison.OrdinalIgnoreCase) || path.StartsWith("/map/", StringComparison.OrdinalIgnoreCase)))
+                {
+                    if (!await _assets.TryServeVersionedAsync(ctx, path, v).ConfigureAwait(false)) Respond(ctx, 404, "not found");
                 }
                 else if (path.StartsWith("/data/", StringComparison.OrdinalIgnoreCase) || path.StartsWith("/sound/", StringComparison.OrdinalIgnoreCase))
                 {

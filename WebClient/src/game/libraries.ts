@@ -7,6 +7,7 @@ import { CrystalLib, type LibImage } from "../assets/crystalLib.ts";
 import type { WebGl2Renderer, GLTextureRef } from "../render/backend.ts";
 import { Monster } from "../protocol/enums.generated.ts";
 import { webUrl } from "../assets/root.ts";
+import { loadManifest, assetVersion } from "../assets/manifest.ts";
 
 export interface Sprite {
   tex: GLTextureRef | null; // null for a 0-size image (still has a size, e.g. a placeholder frame)
@@ -119,11 +120,18 @@ function dataUrl(path: string): string {
   return webUrl("/data/") + path.split("/").map(encodeURIComponent).join("/") + ".Lib";
 }
 
+/** Opens through the asset manifest: one /libindex/ request with a version, nothing for a library it does not list. */
+async function openLib(path: string): Promise<CrystalLib | null> {
+  await loadManifest();
+  const indexUrl = webUrl("/libindex/") + path.split("/").map(encodeURIComponent).join("/") + ".Lib";
+  return CrystalLib.open(dataUrl(path), assetVersion("data", path + ".Lib"), indexUrl);
+}
+
 /** Opens (once) and returns the library, or undefined while its header is still loading. */
 export function lib(path: string): CrystalLib | null | undefined {
   if (opened.has(path)) return opened.get(path);
   if (!libs.has(path)) {
-    const p = CrystalLib.open(dataUrl(path)).catch((e) => {
+    const p = openLib(path).catch((e) => {
       console.warn(`[lib] ${path}:`, e);
       return null;
     });

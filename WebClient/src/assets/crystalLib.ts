@@ -5,6 +5,10 @@
 //   frames   (v3) at frameSeek: i32 n, n x (u8 MirAction + Frame: 8 x i32 + 2 x bool)
 // An image spans [offset[i], next higher offset) so one Range GET fetches header + payload (+ mask). The span end is
 // the next offset in sorted order, else frameSeek (v3), else the file length.
+// With a version from the asset manifest (manifest.ts) a library opens with ONE request (the relay's /libindex/ blob:
+// header + offset table + frame table) instead of HEAD + header + table + frames, and every read is a checked
+// "?v=&o=&n=" URL the relay serves as an immutable 200, so the browser (and Cloudflare) keep it. Without one, the
+// original HEAD + Range path below is used.
 // Only CrystalLib is needed (WoOOLcraft's mirLibrary.ts also reads Wemade/Shanda formats Crystal never ships as .Lib).
 
 export interface LibImage {
@@ -28,6 +32,7 @@ const PRELOAD_GAP = 64 * 1024;
 const PRELOAD_MAX = 4 * 1024 * 1024;
 
 import { gunzip } from "../protocol/binaryCodec.ts";
+import { fetchAsset } from "./manifest.ts";
 export { gunzip };
 
 function bgraToRgbaInPlace(px: Uint8Array): Uint8Array {
@@ -53,6 +58,19 @@ async function rangeGet(url: string, start: number, endExclusive: number, signal
   }
 }
 
+/** A versioned slice: exactly endExclusive - start bytes as a 200 (retried once past the HTTP cache on a short body). */
+async function sliceGet(url: string, assetVersion: string, start: number, endExclusive: number): Promise<Uint8Array> {
+  const n = endExclusive - start;
+  const sliceUrl = `${url}?v=${assetVersion}&o=${start}&n=${n}`;
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetchAsset(sliceUrl, attempt === 0 ? undefined : { cache: "no-store" });
+    if (res.status !== 200) throw new Error(`GET ${sliceUrl} -> ${res.status}`);
+    const body = new Uint8Array(await res.arrayBuffer());
+    if (body.length === n) return body;
+    if (attempt > 0) throw new Error(`GET ${sliceUrl} -> ${body.length} bytes`);
+  }
+}
+
 export class CrystalLib {
   readonly url: string;
   readonly version: number;
@@ -61,9 +79,12 @@ export class CrystalLib {
   private readonly offsets: Int32Array;
   private readonly spanEnd: Int32Array;
   private readonly images = new Map<number, Promise<LibImage | null>>();
+  /** The file's version in the asset manifest (versioned slice reads), or undefined (Range reads). */
+  private readonly assetVersion: string | undefined;
 
-  private constructor(url: string, version: number, offsets: Int32Array, spanEnd: Int32Array, frames: Map<number, LibFrame> | null) {
+  private constructor(url: string, version: number, offsets: Int32Array, spanEnd: Int32Array, frames: Map<number, LibFrame> | null, assetVersion: string | undefined) {
     this.url = url;
+    this.assetVersion = assetVersion;
     this.version = version;
     this.count = offsets.length;
     this.offsets = offsets;
@@ -71,26 +92,55 @@ export class CrystalLib {
     this.frames = frames;
   }
 
-  /** Opens a library: HEAD for the length, one Range for the header + offset table, one for the v3 frame table. Null when the file is absent (404), like a missing MLibrary. */
-  static async open(url: string): Promise<CrystalLib | null> {
+  /** Opens a library. With `assetVersion` (manifest): one GET of `indexUrl`; null for a library the manifest does not
+   *  list. Without: HEAD for the length, one Range for the header + offset table, one for the v3 frame table. Null when
+   *  the file is absent (404), like a missing MLibrary. */
+  static async open(url: string, assetVersion?: string | null, indexUrl?: string): Promise<CrystalLib | null> {
+    if (assetVersion === null) return null;
+    if (assetVersion !== undefined && indexUrl) {
+      const res = await fetchAsset(`${indexUrl}?v=${assetVersion}`);
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`GET ${indexUrl} -> ${res.status}`);
+      const blob = new Uint8Array(await res.arrayBuffer());
+      const dv = new DataView(blob.buffer, blob.byteOffset, blob.byteLength);
+      if (blob.length < 21 || String.fromCharCode(...blob.subarray(0, 4)) !== "CLIX" || blob[4] !== 1) throw new LibFormatError(`${url}: bad index`);
+      const length = Number(dv.getBigInt64(5, true));
+      const headLen = dv.getInt32(13, true);
+      const head = blob.subarray(17, 17 + headLen);
+      const frameLen = dv.getInt32(17 + headLen, true);
+      const frames = blob.subarray(21 + headLen, 21 + headLen + frameLen);
+      return CrystalLib.fromIndex(url, length, head, frames.length ? frames : null, assetVersion);
+    }
+
     const head = await fetch(url, { method: "HEAD" });
     if (head.status === 404) return null;
     if (!head.ok) throw new Error(`HEAD ${url} -> ${head.status}`);
     const length = Number(head.headers.get("content-length"));
     if (!(length >= 12)) throw new LibFormatError(`${url}: length ${length}`);
 
-    let first = await rangeGet(url, 0, Math.min(length, 16));
-    let dv = new DataView(first.buffer, first.byteOffset, first.byteLength);
+    const first = await rangeGet(url, 0, Math.min(length, 16));
+    const dv = new DataView(first.buffer, first.byteOffset, first.byteLength);
+    const version = dv.getInt32(0, true);
+    const count = dv.getInt32(4, true);
+    if (version < 2 || count < 0 || count > 1_000_000) throw new LibFormatError(`${url}: version ${version}, count ${count}`);
+    const frameSeek = version >= 3 ? dv.getInt32(8, true) : 0;
+    const tableEnd = (version >= 3 ? 12 : 8) + count * 4;
+    if (tableEnd > length) throw new LibFormatError(`${url}: offset table past EOF`);
+    const table = await rangeGet(url, 0, tableEnd);
+    const frames = version >= 3 && frameSeek > 0 && frameSeek + 4 <= length ? await rangeGet(url, frameSeek, length) : null;
+    return CrystalLib.fromIndex(url, length, table, frames, undefined);
+  }
+
+  /** MLibrary.Initialize from the header + offset table bytes (file[0, tableEnd)) and the v3 frame table (file[frameSeek, EOF)). */
+  private static fromIndex(url: string, length: number, table: Uint8Array, ft: Uint8Array | null, assetVersion: string | undefined): CrystalLib {
+    if (table.length < 8) throw new LibFormatError(`${url}: length ${length}`);
+    const dv = new DataView(table.buffer, table.byteOffset, table.byteLength);
     const version = dv.getInt32(0, true);
     const count = dv.getInt32(4, true);
     if (version < 2 || count < 0 || count > 1_000_000) throw new LibFormatError(`${url}: version ${version}, count ${count}`);
     const tableAt = version >= 3 ? 12 : 8;
     const frameSeek = version >= 3 ? dv.getInt32(8, true) : 0;
-    const tableEnd = tableAt + count * 4;
-    if (tableEnd > length) throw new LibFormatError(`${url}: offset table past EOF`);
-
-    const table = await rangeGet(url, 0, tableEnd);
-    dv = new DataView(table.buffer, table.byteOffset, table.byteLength);
+    if (tableAt + count * 4 > table.length) throw new LibFormatError(`${url}: offset table past EOF`);
     const offsets = new Int32Array(count);
     for (let i = 0; i < count; i++) offsets[i] = dv.getInt32(tableAt + i * 4, true);
 
@@ -108,8 +158,7 @@ export class CrystalLib {
     }
 
     let frames: Map<number, LibFrame> | null = null;
-    if (version >= 3 && frameSeek > 0 && frameSeek + 4 <= length) {
-      const ft = await rangeGet(url, frameSeek, length);
+    if (ft) {
       const fv = new DataView(ft.buffer, ft.byteOffset, ft.byteLength);
       const n = fv.getInt32(0, true);
       if (n > 0 && 4 + n * 35 <= ft.length) {
@@ -130,7 +179,12 @@ export class CrystalLib {
         }
       }
     }
-    return new CrystalLib(url, version, offsets, spanEnd, frames);
+    return new CrystalLib(url, version, offsets, spanEnd, frames, assetVersion);
+  }
+
+  /** The bytes [start, end): a versioned slice when the manifest knows the file, else a Range read. */
+  private read(start: number, end: number): Promise<Uint8Array> {
+    return this.assetVersion !== undefined ? sliceGet(this.url, this.assetVersion, start, end) : rangeGet(this.url, start, end);
   }
 
   /** Decoded image (cached promise); null for an out-of-range, empty or zero-size entry. Rejects on a failed read or
@@ -185,7 +239,7 @@ export class CrystalLib {
     for (const r of runs) {
       let at = Infinity, end = 0;
       for (const i of r) { at = Math.min(at, this.offsets[i]!); end = Math.max(end, this.spanEnd[i]!); }
-      const bytes = rangeGet(this.url, at, end);
+      const bytes = this.read(at, end);
       all.push(bytes.catch(() => undefined));
       for (const i of r) this.track(i, bytes.then((b) => this.parse(i, b.subarray(this.offsets[i]! - at, this.spanEnd[i]! - at))));
     }
@@ -194,7 +248,7 @@ export class CrystalLib {
 
   private async load(index: number): Promise<LibImage | null> {
     if (!this.hasSpan(index)) return null;
-    return this.parse(index, await rangeGet(this.url, this.offsets[index]!, this.spanEnd[index]!));
+    return this.parse(index, await this.read(this.offsets[index]!, this.spanEnd[index]!));
   }
 
   /** MImage: one image from its span bytes (header + payload + mask). */

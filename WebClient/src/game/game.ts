@@ -11,7 +11,7 @@ import { MirAction as A, ObjectType, ChatType, Spell, LightSetting, Stat } from 
 import type { WirePoint } from "../protocol/binaryCodec.ts";
 import type { StartInfo } from "../ui/screens.ts";
 import { WebGl2Renderer } from "../render/backend.ts";
-import { readMap, blankMap, type MapCells } from "../map/mapReader.ts";
+import { blankMap, type MapCells } from "../map/mapReader.ts";
 import { attachRenderer, loadingCount } from "./libraries.ts";
 import { ArtWarmer } from "./preload.ts";
 import { MapObj, pointMove, directionFromPoint, creatureLabelOffset, CELL_W, CELL_H } from "./objects.ts";
@@ -90,7 +90,7 @@ import { monsterSound, playerSound, fishingFrame, intelligentCreaturePickupSound
 import { canFish, canRideAttack, canCastNextMagic, canUseSpell, canHarvest, canRangeAttack, isFishingAction, isIdleAction, runDistance, transformTypeFromBuffs } from "./riding.ts";
 import { PoisonType, MirClass, BuffType, AttackMode, PetMode, MirGridType, EquipmentSlot, BindMode, StatName } from "../protocol/enums.generated.ts";
 import { KeybindOptions, keyLabel, matches, matchesAny, matchesAnyBinding, type KeybindOption } from "./keybinds.ts";
-import { webUrl } from "../assets/root.ts";
+import { mapCells, rememberMap } from "./mapFiles.ts";
 
 export interface Game { handle(p: ServerPacket): void; dispose(): void }
 
@@ -547,9 +547,8 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     mapFile = fileName;
     map = blankMap();
     try {
-      const res = await fetch(webUrl(`/map/${encodeURIComponent(fileName)}.map`));
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const parsed = readMap(new Uint8Array(await res.arrayBuffer()));
+      rememberMap(fileName);
+      const parsed = await mapCells(fileName);
       if (mapFile === fileName) map = parsed;
     } catch (e) {
       chat(`Could not load map ${fileName}: ${(e as Error).message}`, ChatType.System);

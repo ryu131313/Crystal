@@ -6,7 +6,7 @@
 // Volume (0-100, Settings.Volume / MusicVolume) is kept in localStorage.
 
 import { gameSignal } from "./scope.ts";
-import { webUrl } from "../assets/root.ts";
+import { assetUrl, fetchAsset } from "../assets/manifest.ts";
 
 const EXTENSIONS = [".wav", ".mp3"]; // SoundManager.SupportedFileTypes
 
@@ -57,7 +57,9 @@ export class SoundManager {
   /** SoundList.LoadSoundList: "index: file" lines (spaces removed, ':' or tab separated), first entry wins. */
   private async loadList(): Promise<void> {
     try {
-      const res = await fetch(webUrl("/sound/SoundList.lst"));
+      const url = await assetUrl("sound", "SoundList.lst");
+      if (!url) return;
+      const res = await fetchAsset(url);
       if (!res.ok) return;
       for (const raw of (await res.text()).split(/\r?\n/)) {
         const split = raw.replace(/ /g, "").split(/[:\t]/);
@@ -104,7 +106,9 @@ export class SoundManager {
         const candidates = hasExt ? [name] : EXTENSIONS.map((e) => name + e);
         for (const file of candidates) {
           if (hasExt && !EXTENSIONS.includes(file.slice(file.lastIndexOf(".")).toLowerCase())) return null;
-          const res = await fetch(webUrl(`/sound/${file.split("/").map(encodeURIComponent).join("/")}`));
+          const url = await assetUrl("sound", file);
+          if (!url) continue; // not in the client folder: no request
+          const res = await fetchAsset(url);
           if (!res.ok) continue;
           try { return await ctx.decodeAudioData(await res.arrayBuffer()); } catch { return null; }
         }

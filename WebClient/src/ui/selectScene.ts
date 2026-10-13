@@ -11,6 +11,7 @@ import { NewCharacterDialog } from "./newCharacterDialog.ts";
 import { Globals, Text, format, banText, chrSelIndex, wallMs, isMinValue, formatDateTime, liveMessageBox, type SceneHost } from "./accountCommon.ts";
 import { SoundList } from "../game/audio.ts";
 import { MirClassName } from "../protocol/enums.generated.ts";
+import { warmCharacter, setPlayingCharacter } from "../game/mapFiles.ts";
 
 type P<T extends ServerPacket["type"]> = Extract<ServerPacket, { type: T }>;
 
@@ -246,6 +247,7 @@ export class SelectScene {
       case 3: this.host.box(Text.NoActiveMapOrStartPointFound); break;
       case 4: {
         const c = this.characters[this.selected];
+        if (c) setPlayingCharacter(c.Name);
         if (c) this.onStart(c);
         break;
       }
@@ -261,6 +263,7 @@ export class SelectScene {
     });
     const c = this.characters[this.selected];
     if (c) {
+      warmCharacter(c.Name);
       this.characterDisplay.visible = true;
       this.glow.visible = true;
       this.characterDisplay.index = chrSelIndex(c.Class, c.Gender);

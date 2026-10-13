@@ -3,7 +3,7 @@
 // (Opacity += FadeInRate every FadeInDelay ms). One shared timer drives every live control (MirAnimatedControl.Animations,
 // updated from CMain's loop); a control leaves it on dispose(), so a hidden scene stops animating.
 
-import { MirImage, libPicture, type ImageOptions } from "./mir/controls.ts";
+import { MirImage, libPicture, libPictureNow, type ImageOptions } from "./mir/controls.ts";
 
 export interface AnimatedOptions extends ImageOptions {
   animated?: boolean;
@@ -16,6 +16,9 @@ export interface AnimatedOptions extends ImageOptions {
   fadeInRate?: number;
   /** Starting Opacity (MirImageControl default 1). */
   opacity?: number;
+  /** Web: warm the frames after the first one at a time (a big cycle must not take the whole connection), stopping when
+   *  the control is disposed. */
+  streamFrames?: boolean;
 }
 
 const animations = new Set<MirAnimated>();
@@ -67,6 +70,7 @@ export class MirAnimated extends MirImage {
     this.nextOffSet = now;
     this.nextFadeTime = now + this.fadeInDelay;
     this.animated = opts.animated ?? false;
+    this.streamFrames = opts.streamFrames ?? false;
     this.preload();
     track(this);
   }
@@ -100,10 +104,26 @@ export class MirAnimated extends MirImage {
     return super.displayIndex() + (this.offSet ?? 0);
   }
 
-  /** Warms the picture cache for the whole cycle so frames swap without a gap. */
+  /** Warms the picture cache for the whole cycle so frames swap without a gap: the first frame alone, then the rest, so
+   *  a big cycle (the login door: 19 frames of ~2.5 MB) never holds up the picture already on screen. */
   private preload(): void {
-    if (!this.library) return;
-    for (let i = 0; i < (this.animationCount ?? 0); i++) void libPicture(this.library, this.index + i);
+    const library = this.library;
+    if (!library) return;
+    const first = this.index, count = this.animationCount ?? 0;
+    void libPicture(library, first).then(async () => {
+      if (!this.streamFrames) {
+        for (let i = 1; i < count; i++) void libPicture(library, first + i);
+        return;
+      }
+      for (let i = 1; i < count && !this.disposed && this.index === first; i++) await libPicture(library, first + i);
+    });
+  }
+
+  /** Whether every frame of the cycle has loaded (a web addition: callers may skip a cycle that is still streaming). */
+  framesReady(): boolean {
+    if (!this.library) return true;
+    for (let i = 0; i < (this.animationCount ?? 0); i++) if (libPictureNow(this.library, this.index + i) === undefined) return false;
+    return true;
   }
 
   /** MirAnimatedControl.UpdateOffSet. */
@@ -131,7 +151,11 @@ export class MirAnimated extends MirImage {
     after?.();
   }
 
+  private streamFrames = false;
+  private disposed = false;
+
   override dispose(): void {
+    this.disposed = true;
     untrack(this);
     this.afterAnimation = null;
     this.onFrame = null;

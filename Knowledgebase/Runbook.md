@@ -107,7 +107,9 @@ Two relays, same program (`WebRelay`), mirroring WoOOLcraft's private/public spl
    - Move it **above the catch-all** route (WebPortalHost on 5080). It does not overlap WoOOLcraft's `/portal/webclient` or `/js/`, `/Data/`, ... routes (everything Crystal uses is under the mount), but keeping it near the top avoids surprises.
    - Leave HTTP Host Header empty (the relay accepts the forwarded host) and WebSockets on (zone → Network → WebSockets; already on for WoOOLcraft).
    - If Rocket Loader is on for the zone: a Configuration Rule turning it off for URI path starts with `/portal/mir2webclient`.
-   - No cache rule for the alpha: the relay answers `no-cache` + ETag, so a publish or a client patch is picked up on the next page load without a purge.
+   - **Cache Rules** (zone → Caching → Cache Rules). Cloudflare's Browser Cache TTL otherwise rewrites the relay's `no-cache` to `max-age=14400` (seen 2026-10-13), and it never edge-caches `.Lib` / `.map`:
+     1. "Mir2 web: respect origin": When `starts_with(http.request.uri.path, "/portal/mir2webclient/")` → Browser TTL: **Respect origin TTL** (the page and `/api/manifest` must stay `no-cache`).
+     2. "Mir2 web: versioned assets": When `starts_with(http.request.uri.path, "/portal/mir2webclient/") and (http.request.uri.query contains "v=" or http.request.uri.path contains "/js/")` → **Eligible for cache**, Edge TTL: **Use cache-control header if present**, Browser TTL: **Respect origin TTL**. Every such URL is versioned and checked by the relay (412 when stale, never cached), so no purge is needed after a publish or a client patch.
 3. **Portal link** (WoOOLcraft site, `C:\WoOOLcraft\wwwroot\portal`, live on save): a plain `<a href="/portal/mir2webclient/">` where you want it. Add it after the live check below passes.
 
 **Each release:**
@@ -116,6 +118,6 @@ Two relays, same program (`WebRelay`), mirroring WoOOLcraft's private/public spl
 3. Live check: `https://worldofwooolcraft.uk/portal/mir2webclient` redirects to `.../play/` and shows the login screen; log in; the relay console shows `[ws N] open from <your public IP>` (not `127.0.0.1`: if it does, the request did not come through cloudflared). A 404 from WoOOLcraft's portal = route order/path wrong; 502 = relay not running.
 4. Rollback of the web client: stop nothing, rename `WebClient\publish\public` ↔ `public.old`.
 
-**After a client patch** (`Build\Client\Release` updated): nothing to do. The relay reads `Data\`, `Map\` and `Sound\` per request. If the server turns on `CheckVersion`, restart the public relay so it re-hashes the server's `VersionPath` file.
+**After a client patch** (`Build\Client\Release` updated): nothing to do. The relay reads `Data\`, `Map\` and `Sound\` per request and versions them by size + write time; open pages get a 412 for a changed file and show "The game files were updated. Reload the page". If the server turns on `CheckVersion`, restart the public relay so it re-hashes the server's `VersionPath` file.
 
-**Known gaps (alpha):** no autostart; no edge caching of `.Lib` range reads (every art read crosses the tunnel); a refusal by the relay's limits shows as "connection lost" in the browser.
+**Known gaps (alpha):** no autostart; a refusal by the relay's limits shows as "connection lost" in the browser; a first visit still downloads each sprite from home until Cloudflare's edge has it (Cache Rule 2).

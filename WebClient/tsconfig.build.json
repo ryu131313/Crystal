@@ -10,6 +10,7 @@
     "rootDir": ".",
     "outDir": "js",
     "sourceMap": true,
+    "removeComments": true,
     "types": []
   },
   "include": ["src", "play"]
