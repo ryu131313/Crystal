@@ -320,6 +320,8 @@
       input.value = value == null ? '' : value;
       input.addEventListener('input', touch);
       fieldWrap.appendChild(input);
+      // Number inputs are offered to the extensions (FormDrawer.EXTENSIONS), e.g. the map cell picker for X / Y pairs.
+      if (ctx.inputs) ctx.inputs[p.name] = { input: input, wrap: fieldWrap, set: function (v) { input.value = v; touch(); } };
       get = function () {
         if (input.value === '') return 0;
         var n = Number(input.value);
@@ -443,7 +445,7 @@
     }
 
     closePanels();
-    current = { endpoint: opts.endpoint, dirtyKey: opts.dirtyKey || opts.endpoint, entity: opts.entity || opts.endpoint, rowNode: opts.rowNode, schema: schema, lookups: lookups, appliers: [], row: row, panels: [], readOnly: !!opts.readOnly };
+    current = { endpoint: opts.endpoint, dirtyKey: opts.dirtyKey || opts.endpoint, entity: opts.entity || opts.endpoint, rowNode: opts.rowNode, schema: schema, lookups: lookups, appliers: [], row: row, panels: [], readOnly: !!opts.readOnly, inputs: Object.create(null) };
 
     var titleEl = document.getElementById('formDrawerTitle');
     var nameProp = row.ItemName || row.MonsterName || row.Name || row.NPCName || row.QuestName || ('#' + row.Index);
@@ -469,6 +471,12 @@
       });
       det.appendChild(grid);
       body.appendChild(det);
+    });
+
+    // Extensions add controls next to the fields (fn({ endpoint, entity, row, body, inputs })); one failing never breaks the drawer.
+    EXTENSIONS.forEach(function (fn) {
+      try { fn({ endpoint: opts.endpoint, entity: current.entity, row: row, body: body, inputs: current.inputs, readOnly: current.readOnly }); }
+      catch (e) { if (global.console) console.warn('[FormDrawer] extension failed', e); }
     });
 
     if (row.Index > 0) buildRelated(body, opts.endpoint, row);
@@ -693,7 +701,11 @@
     });
   }
 
+  var EXTENSIONS = [];
+
   global.FormDrawer = {
+    /** Functions called after the fields are built: fn({ endpoint, entity, row, body, inputs: { field: { input, wrap, set(v) } }, readOnly }). */
+    EXTENSIONS: EXTENSIONS,
     open: open,
     close: close,
     REFERENCED_BY: REFERENCED_BY,

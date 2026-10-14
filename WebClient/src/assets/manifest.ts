@@ -44,6 +44,11 @@ export async function assetUrl(folder: AssetFolder, relPath: string): Promise<st
   return v === undefined ? url : `${url}?v=${v}`;
 }
 
+/** Every file of `folder` the manifest lists (lower-case '/' paths), or [] without a manifest. Await loadManifest() first. */
+export function assetNames(folder: AssetFolder): string[] {
+  return manifest ? Object.keys(manifest[folder]) : [];
+}
+
 let staleShown = false;
 
 /** A versioned URL answered 412: the client folder was patched while this page was open. One notice, then the page keeps

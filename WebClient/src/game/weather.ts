@@ -31,7 +31,14 @@ const rgb = (r: number, g: number, b: number, a = 1): Colour => ({ r: r / 255, g
 // System.Drawing named colours used by ParticleEngine.GenerateNewParticle
 const WHITE = rgb(255, 255, 255), FIREBRICK = rgb(178, 34, 34), GOLDENROD = rgb(218, 165, 32), PURPLE = rgb(128, 0, 128);
 const DARK_RED = rgb(139, 0, 0), YELLOW = rgb(255, 255, 0);
-const RAIN = rgb(255, 255, 0x85); // ColorTranslator.FromHtml("#ffffff85") parses as ARGB 0xFFFFFF85
+// Web change (2026-10-13): the desktop's ColorTranslator.FromHtml("#ffffff85") parses as ARGB 0xFFFFFF85, a pale YELLOW at full alpha (meant as
+// translucent white); the web draws a cool translucent white instead.
+const RAIN = rgb(200, 210, 228, 0.55);
+
+/** Web atmosphere (atmosphere.ts): the particles that glow and light the Enhanced light map, with their light colour. */
+const EMBER_LIGHT = new Map<string, [number, number, number]>([
+  ["RedFogEmber", [255, 90, 40]], ["YellowEmber", [255, 200, 90]], ["WhiteEmber", [225, 225, 255]], ["FireyLeaves", [255, 110, 50]],
+]);
 
 /** CMain.Random.Next(max) / Next(min, max). */
 const rand = (max: number): number => Math.floor(Math.random() * max);
@@ -92,7 +99,7 @@ class Engine {
   private nextParticle = -Infinity; // NextParticleTime (DateTime default: the first Process generates)
   readonly updateDelay = STEP_MS; // UpdateDelay (Fog sets 20 ms, but it never generates)
 
-  constructor(private readonly textures: ImageInfo[], private readonly type: ParticleType, private readonly owner: Weather) {}
+  constructor(private readonly textures: ImageInfo[], readonly type: ParticleType, private readonly owner: Weather) {}
 
   /** ParticleEngine.GenerateNewParticle. Null when the engine has no textures (FireParticle). */
   newParticle(now: number): Particle | null {
@@ -158,7 +165,7 @@ class Engine {
       const x = Math.trunc(p.x), y = Math.trunc(p.y);
       // MLibrary.DrawBlend -> DXManager.SetBlend(true, rate) in BlendMode.NORMAL: SourceAlpha / One; the rate only feeds the
       // blend factor, which NORMAL never reads, so it is passed as 1.
-      if (p.blend) painter.drawBlend(WEATHER_LIB, index, x, y, true, 1, p.colour);
+      if (p.blend) painter.drawBlend(WEATHER_LIB, index, x, y, true, 1, p.colour, EMBER_LIGHT.has(this.type)); // web atmosphere: only embers glow
       // MLibrary.Draw(index, point, colour, offSet, opacity) -> DXManager.DrawOpaque: colour.Alpha = opacity, normal alpha blend
       else painter.draw(WEATHER_LIB, index, x, y, true, 1, { ...p.colour, a: p.blendRate });
     }
@@ -247,9 +254,26 @@ export class Weather {
     for (const e of this.engines) e.process(now);
   }
 
-  /** MapControl.CreateTexture: after DrawObjects, before the lights. */
-  draw(painter: Painter): void {
-    for (const e of this.engines) e.draw(painter);
+  /** MapControl.CreateTexture: after DrawObjects, before the lights. `skipFog` / `skipRain`: the web atmosphere draws shader fog / rain instead. */
+  draw(painter: Painter, skipFog = false, skipRain = false): void {
+    for (const e of this.engines) {
+      if ((skipFog && e.type === "Fog") || (skipRain && e.type === "Rain")) continue;
+      e.draw(painter);
+    }
+  }
+
+  /** Web atmosphere (atmosphere.ts EmberSource): each glowing particle's sprite centre on screen, its light colour and a flicker seed. */
+  forEachEmber(fn: (x: number, y: number, colour: [number, number, number], seed: number) => void): void {
+    for (const e of this.engines) {
+      const colour = EMBER_LIGHT.get(e.type);
+      if (!colour) continue;
+      for (let i = 0; i < e.particles.length; i++) {
+        const p = e.particles[i]!;
+        const s = sprite(WEATHER_LIB, p.image.baseIndex + p.image.current);
+        if (!s) continue;
+        fn(Math.trunc(p.x) + s.x + s.width / 2, Math.trunc(p.y) + s.y + s.height / 2, colour, i);
+      }
+    }
   }
 
   /** Particle.Update / FogParticle.Update / SnowParticle.Update: Position += Velocity every 50 ms. */

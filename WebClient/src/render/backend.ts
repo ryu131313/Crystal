@@ -76,7 +76,7 @@ export { renderTargetSourceRect } from "./batcher.ts";
 
 /** Programs a link failure must not take the renderer down with. The C# compiles exactly these inside their own `try/catch` (`SpriteBatch2D.cs:1679-1714`) and
  * reports availability; Sprite_VS / Sprite_PS / the four other mandatory programs are compiled OUTSIDE any catch (a syntax error "would not start" the client, `:791-793`). */
-const OPTIONAL_PROGRAMS: ReadonlySet<SpriteShaderMode> = new Set<SpriteShaderMode>(["ClawSlash", "RipClaw", "DruidFx", "SafeZoneSparkle", "Grayscale", "Light", "LightComposite"]);
+const OPTIONAL_PROGRAMS: ReadonlySet<SpriteShaderMode> = new Set<SpriteShaderMode>(["ClawSlash", "RipClaw", "DruidFx", "SafeZoneSparkle", "Grayscale", "Light", "LightComposite", "ShadowFill"]);
 
 /** The policy above as a PREDICATE the headless selftest can read (the set stays module-private; no tool can fail a link on purpose without a WebGL2 context, which left
  * the policy unpinned: emptying the set killed nothing). */
@@ -295,6 +295,11 @@ export class WebGl2Renderer implements BatchContext {
     return this.colorBufferFloat !== null && this.programs.has("Light") && this.programs.has("LightComposite");
   }
 
+  /** The program last selected with `setShaderMode`. */
+  get shaderMode(): SpriteShaderMode {
+    return this.currentMode;
+  }
+
   setShaderMode(mode: SpriteShaderMode): void {
     if (this.currentMode === mode) return;
     const program = this.programs.get(mode);
@@ -304,6 +309,19 @@ export class WebGl2Renderer implements BatchContext {
     this.submit();
     this.currentMode = mode;
     this.gl.useProgram(program);
+  }
+
+  /** Web smooth shadows (shaders.ts SHADOW_FILL_PS): the fill colour + strength and the soft / drop switches, plain uniforms of the ShadowFill program
+   * (set on that program, then the current one is rebound). The caller flushes its batch first; no-op when the program failed to link. */
+  setShadowFill(r: number, g: number, b: number, strength: number, soft: boolean, drop: boolean): void {
+    const program = this.programs.get("ShadowFill");
+    if (!program) return;
+    this.submit();
+    const gl = this.gl;
+    gl.useProgram(program);
+    gl.uniform4f(gl.getUniformLocation(program, "ShadowColour"), r, g, b, strength);
+    gl.uniform2f(gl.getUniformLocation(program, "ShadowMode"), soft ? 1 : 0, drop ? 1 : 0);
+    if (this.currentMode !== "ShadowFill") gl.useProgram(this.programs.get(this.currentMode) ?? null);
   }
 
   /** `DXManager.IsClawSlashShaderAvailable` / `IsRipClawShaderAvailable` / `IsDruidFxShaderAvailable` (`DXManager.cs:443-451`): false when the program failed to link, and
@@ -555,6 +573,23 @@ export class WebGl2Renderer implements BatchContext {
     gl.clearColor(0, 0, 0, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.colorMask(true, true, true, true);
+  }
+
+  /** Before raw GL from outside the sprite path (render/postFx.ts): issues the deferred sprite draws so GL order stays the order asked for. */
+  beginExternal(): void {
+    this.submit();
+  }
+
+  /** After raw GL from outside the sprite path: puts back what the sprite path assumes is bound (its current program, the mask on unit 1, unit 0
+   *  active, no VAO). Blend state is not restored here: the caller rebinds it (`setBlend`, `Painter.invalidateBlend`). */
+  endExternal(): void {
+    const gl = this.gl;
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.maskTexture);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindVertexArray(null);
+    const program = this.programs.get(this.currentMode);
+    if (program) gl.useProgram(program);
   }
 
   // — Render targets (light layer) —

@@ -1713,6 +1713,7 @@ public enum ServerPacketIds : short
     StorageUnlockResult,
     StoragePasswordResult,
     GameDataChanged, // LiveDb push (web admin live game-data edits); append-only
+    MapAtmosphere, // LiveDb: a map's Light / MapDarkLight / WeatherParticles changed while players are on it; append-only
 }
 
 public enum ClientPacketIds : short

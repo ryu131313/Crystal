@@ -40,9 +40,9 @@ if (-not (Test-Path (Join-Path $web 'js\play\main.js'))) { throw 'WebClient\js\p
 if (Test-Path $next) { Remove-Item $next -Recurse -Force }
 New-Item -ItemType Directory -Path $next | Out-Null
 
-# play\: index.html, play.css, lights\ (the .ts entry is compiled into js\play\).
+# play\: index.html, play.css, lights\ (the .ts entry is compiled into js\play\). Not lab.html: the scene lab is a dev tool.
 $playSrc = Join-Path $web 'play'
-Get-ChildItem $playSrc -Recurse -File | Where-Object { $_.Extension -ne '.ts' } | ForEach-Object {
+Get-ChildItem $playSrc -Recurse -File | Where-Object { $_.Extension -ne '.ts' -and $_.Name -ne 'lab.html' } | ForEach-Object {
     $target = Join-Path (Join-Path $next 'play') $_.FullName.Substring($playSrc.Length + 1)
     New-Item -ItemType Directory -Path (Split-Path $target) -Force | Out-Null
     Copy-Item $_.FullName $target

@@ -196,6 +196,48 @@ confirmation dialog, with a reason field for moderation actions. Every successfu
   - Conflicts are detected per row with `__rev`, and dry-run previews are available. Deletes are refused when other data still
     references the row. A rename can be propagated into the drop, recipe, quest and NPC files (with backups). *Discard unsaved*
     reloads the editor copy from disk.
+- **Maps:** a visual editor for one map at a time (section `mapeditor`, under Game Data). A filterable map list (pin it beside the
+  map, or pick from the drop-down), then the map: walkability, the authored minimap or, with `[WebAdmin] ClientDataPath`, the real
+  map tiles once zoomed in; layers for safe zones (green; start points dashed gold), respawns (red square of `Spread`, a marker
+  with the monster and count; bosses amber), movements (blue arrow to a destination on the same map, violet stub with the
+  destination map's name otherwise), inbound movements from other maps (green triangle), mine zones (cyan), NPCs (gold), online
+  players, blocked cells and a grid. Scroll zooms, drag pans, click selects (click again to cycle through overlapping objects),
+  double-click follows a movement to its destination map, right-click copies `x, y`. Side column: every object grouped by kind
+  with a filter, and the selected object's details (walkable cells in a respawn area, blocked-cell warnings). Under the map: the
+  map's own row (summary chips, *Edit all fields…* opens the row form) and its safe zones, respawns, movements, mine zones and
+  NPCs as Game Data grids filtered to the map; clicking a row spotlights it on the map. Saves use the Game Data pipeline (LiveDb
+  batch, or PUT + save), so the same live / restart rules apply. Unsaved grid edits block switching maps and leaving the
+  section until discarded. Deep link `#section=mapeditor&map=<index>[&sel=<kind>:<row index>][&x=&y=]`. Keys: `\` map only,
+  `+` / `-` / `0` zoom / fit, Esc leaves full screen or clears the selection. Read routes (editor copy and the server's own map
+  file, so they work while the world is stopped): `GET /api/admin/mapeditor/maps`, `GET /api/admin/mapeditor/maps/{index}/overlay`
+  (the map row and its child rows exactly as the grids return them, with `__rev`, plus inbound movements and the map size),
+  `.../terrain` (walkability PNG, one pixel per cell: the client's wall rule plus the server's old-format middle-tile wall),
+  `.../minimap`, `.../tiles/{z}/{tx}/{ty}` (the Live Monitor's renderer, sized from the map file) and `.../players` (empty while the
+  world is stopped).
+  - **Edit mode** (*Edit* in the map toolbar; needs `[LiveDb] Enabled=True`, `wwwroot/admin/admin-mapeditor-edit.js`): drag an
+    object to move it (respawns, safe zones, mine zones, NPCs, a movement's source; an NPC dropped on a blocked cell snaps back),
+    drag the selected object's handles to change its `Size` / `Spread`, drag a same-map movement's destination ring. *+ Safe zone*,
+    *+ Respawn* (monster picked first), *+ Movement* (destination 3 cells to the right on this map) and *+ Mine zone* place a new
+    object with a click (Shift+click keeps the tool). *Delete* / Del removes the selection (NPCs: in the NPCs grid). The details
+    column edits the selected object's fields. Keys: arrows nudge (Shift: 10), `[` / `]` shrink / grow, Ctrl+Z / Ctrl+Y undo / redo
+    (100 steps), Esc drops an add tool. Pending changes are drawn on the map (dashed old square + arrow, amber frame for new
+    objects, red cross for deletes) and listed under it with checks (no walkable cell in a respawn area, Count above the walkable
+    cells, safe zone / respawn overlap, NPC or portal on a blocked cell, outside the map); the checks warn, the server's dry run
+    decides. *Review & apply* sends everything as **one LiveDb batch** over the map's tables (edited rows: `Index`, `__rev` and the
+    changed cells; new rows whole with temporary negative indexes; deletes with `deleteRevs`) through the usual dry run and preview.
+    Rows that share a key with another row (duplicate `RespawnIndex` in old data) are shown but cannot be edited. Unapplied edits
+    set the DbSave key `mapeditor:edits`, so switching maps, leaving the section or closing the tab asks first; an overlay reload
+    keeps pending edits whose row `__rev` is unchanged and drops (and reports) the others.
+  - **Extras:** online-player badges in the map list (`GET /api/admin/mapeditor/online`, one game-thread count, polled every 10 s
+    while the section is visible; empty while the world is stopped), optional list thumbnails (the walkability PNGs, loaded as they
+    scroll into view), a *Go to x, y* box (`G`), and `?` for every key and mouse action. Edit tools sit on their own row.
+  - **Elsewhere in the panel** (`wwwroot/admin/admin-mapeditor-picker.js`): `MapPicker.pick({ map, x, y, walkableOnly, lockMap })`
+    is a modal cell picker (map list + the same canvas; click or type X / Y; Enter / Esc). The row form drawer shows *Pick on
+    map…* next to every `<Name>_X` / `<Name>_Y` pair: the map is the row's `DestinationMapIndex` for `Destination_*`, else its
+    `MapIndex` (locked), otherwise chosen in the picker; NPC locations must be walkable. It hooks in through
+    `FormDrawer.EXTENSIONS` (functions called after the drawer builds its fields, with the number inputs; a failing extension is
+    logged and skipped). Grid cells get hover previews: a `...MapIndex` cell shows that map, an X / Y cell of a row with a map
+    shows the map with the point marked (installed as `window.ImagePreview` unless another module already provides one).
 - **Scripts & Files:** a text editor for the NPC, drop, quest, recipe, route and value folders, the `Envir\*.txt` files and
   SystemScripts. It has a file tree, search, validation (missing labels and goto targets, unknown item and monster names,
   `#INSERT` targets), etag conflict detection (`409`), and keeps the file's encoding and line endings. Every save, delete or
@@ -334,7 +376,9 @@ Position-keyed child rows (safe zones, movements, mine zones; keys `MapIndex * 1
 so the live step first checks every touched list: its length must equal the editor copy's before the batch, and each touched row
 must still hold the editor copy's pre-batch values. A list that does not line up is never changed by position (rows refused, the
 parent marked diverged); a single row with other values is refused alone. Inserts append and deletes are resolved first and removed
-by reference, exactly as in Edit. A structural change (insert / delete) that does not reach Main — a restart-only table, a failed or
+by reference, exactly as in Edit. One batch may insert and delete rows of the same list (the Maps editor does): the inserts are
+applied before the deletes, so an inserted row's outcome is found by its record and reports its key after the deletes
+(`LiveDbEngine.CaptureInserted`). A structural change (insert / delete) that does not reach Main — a restart-only table, a failed or
 refused live step — marks the parent diverged (`LiveDbState`), and live edits, inserts and deletes of its children are saved only
 until the next world start. Respawns are keyed by their global `RespawnIndex` and never diverge.
 

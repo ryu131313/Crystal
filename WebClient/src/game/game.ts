@@ -11,6 +11,7 @@ import { MirAction as A, ObjectType, ChatType, Spell, LightSetting, Stat, Damage
 import type { WirePoint } from "../protocol/binaryCodec.ts";
 import type { StartInfo } from "../ui/screens.ts";
 import { WebGl2Renderer } from "../render/backend.ts";
+import { Grade, COZY_GRADE } from "../render/grade.ts";
 import { blankMap, type MapCells } from "../map/mapReader.ts";
 import { attachRenderer, loadingCount } from "./libraries.ts";
 import { ArtWarmer } from "./preload.ts";
@@ -140,11 +141,16 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   if (!renderer) throw new Error("WebGL2 is not available in this browser.");
   attachRenderer(renderer);
   const view = new MapView(renderer, width, height);
+  /** Options > More "Cozy mode": the colour grade over the finished map frame (render/grade.ts). */
+  const grade = new Grade(renderer);
   /** Loads the user's and the monsters' animation frames ahead of the draw (preload.ts). */
   const artWarmer = new ArtWarmer();
   /** MapControl.Weather particles (weather.ts), drawn by MapView after the objects. */
   const weather = new Weather();
   view.weather = weather;
+  view.atmosphere.playSound = (id) => sound.play(id); // web atmosphere: thunder
+  view.atmosphere.rainAudio = (level) => sound.setRain(level); // web atmosphere: procedural rain
+  view.atmosphere.splashAudio = (level) => sound.splash(level); // web atmosphere: the user's footfalls in puddles
   // Effect.cs needs the clock, the user and the painter
   setEffectWorld({
     now: () => performance.now(),
@@ -533,6 +539,8 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   let nextAction = 0;     // MapControl.NextAction
   let attackTime = 0;     // GameScene.AttackTime
   let canRun = false;     // GameScene.CanRun
+  let lastRunTime = 0;    // GameScene.LastRunTime: the user's last step (CanRun lapses 900 ms later, as the server's step counter does)
+  let nextRunTime = 0;    // GameScene.NextRunTime: no running for 2.5 s after being struck
   let inputDelay = 0;     // MapControl.InputDelay
   let pickUpTime = 0;     // GameScene.PickUpTime
   const pickUp = () => {
@@ -569,6 +577,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     optionWindow.setAllowObserve(p.AllowObserve); // GameScene.UserInformation: AllowObserve
     if (user) objects.delete(user.id);
     const u = new MapObj(p.ObjectID, ObjectType.Player, p.Location, p.Direction);
+    u.isUser = true;
     u.name = p.Name;
     u.nameColour = p.NameColour;
     u.guildName = p.GuildName;
@@ -580,9 +589,11 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     u.onActionStart = (q) => {
       // PlayerObject.SetAction for the user: send the packet when the action starts.
       switch (q.action) {
-        case A.Walking: session.send(ClientPackets.Walk({ Direction: q.direction })); canRun = true; nextAction = now() + 2500; break;
-        case A.Running: session.send(ClientPackets.Run({ Direction: q.direction })); nextAction = now() + 2500; break;
-        case A.Standing: session.send(ClientPackets.Turn({ Direction: q.direction })); nextAction = now() + 2500; break;
+        case A.Walking: lastRunTime = now(); session.send(ClientPackets.Walk({ Direction: q.direction })); canRun = true; nextAction = now() + 2500; break;
+        case A.Running: lastRunTime = now(); session.send(ClientPackets.Run({ Direction: q.direction })); nextAction = now() + 2500; break;
+        // a Turn resets the server's step counter, so the next move must be a walk
+        case A.Standing: session.send(ClientPackets.Turn({ Direction: q.direction })); nextAction = now() + 2500; canRun = false; break;
+        case A.Pushed: lastRunTime = now(); inputDelay = now() + 500; canRun = false; break;
         case A.Attack1: {
           // PlayerObject.SetAction: the warrior toggles pick the attack spell
           const hasTarget = attackTargetId !== 0;
@@ -621,7 +632,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
           attackTime = now() + (userStats?.attackSpeed ?? 1400) + 200;
           session.send(ClientPackets.RangeAttack({ Direction: q.direction, Location: u.location, TargetID: q.spell?.targetId ?? 0, TargetLocation: q.spell?.targetPoint ?? u.location }));
           break;
-        case A.DashL: case A.DashR: case A.Jump: case A.DashAttack: canRun = false; break;
+        case A.DashL: case A.DashR: case A.Jump: case A.DashAttack: lastRunTime = now(); canRun = false; break;
       }
     };
     user = u;
@@ -742,6 +753,11 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
         inputDelay = now() + 400;
         break;
       case "TimeOfDay": lightState.timeOfDay = p.Lights; break;
+      case "MapAtmosphere": // GameScene.MapAtmosphere: LiveDb changed the current map's light / weather; applied in place, no reload
+        lightState.mapLights = p.Lights;
+        lightState.mapDarkLight = p.MapDarkLight;
+        if (weather.setting !== p.Weather) weather.set(p.Weather);
+        break;
       case "HealthChanged": hp = p.HP; mp = p.MP; break;
       case "ObjectPlayer":
       case "ObjectHero": { // GameScene.ObjectHero: HeroObject.Load = PlayerObject.Load + OwnerName
@@ -875,16 +891,29 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
         else if (p.Damage !== 0) {
           const crit = p.Damage < 0 && t - (critAt.get(p.ObjectID) ?? -Infinity) < 500;
           critAt.delete(p.ObjectID);
+          if (crit) view.atmosphere.crit(ob); // web atmosphere: a short flash on the target
           list.push(makeDamageNumber({ value: p.Damage, critical: crit, isUserTarget, startTime: t }));
         }
         break;
       }
-      case "ObjectStruck": objects.get(p.ObjectID)?.queue(A.Struck, p.Direction, p.Location, undefined, struckWeaponOf(p.AttackerID)); break;
+      case "ObjectStruck": {
+        // GameScene.ObjectStruck: no Struck while the object is behind (SkipFrames) or already has one queued last
+        const ob = objects.get(p.ObjectID);
+        if (!ob || ob === user || ob.skipFrames(true) || ob.feed[ob.feed.length - 1]?.action === A.Struck) break;
+        ob.queue(A.Struck, p.Direction, p.Location, undefined, struckWeaponOf(p.AttackerID));
+        break;
+      }
       case "Struck":
         if (!user) break;
         // GameScene.Struck: being hit interrupts the user's own Reincarnation cast
         if (user.reincarnationStopTime > now()) session.send(ClientPackets.CancelReincarnation());
-        user.queue(A.Struck, user.direction, user.location, undefined, struckWeaponOf(p.AttackerID));
+        nextRunTime = now() + 2500;
+        // one Struck at a time (the server sends one per PvP hit), at the end of whatever is already queued
+        if (user.feed.some((q) => q.action === A.Struck)) break;
+        {
+          const last = user.feed[user.feed.length - 1];
+          user.queue(A.Struck, last?.direction ?? user.direction, last?.location ?? user.location, undefined, struckWeaponOf(p.AttackerID));
+        }
         break;
       // — Section 5: reincarnation (GameScene.ProcessPacket CancelReincarnation / RequestReincarnation) —
       case "CancelReincarnation": if (user) user.reincarnationStopTime = 0; break;
@@ -924,7 +953,8 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
         break;
       case "ObjectDied": {
         const ob = objects.get(p.ObjectID);
-        if (ob) { if (p.Type === 0) ob.queue(A.Die, p.Direction, p.Location); else objects.delete(p.ObjectID); }
+        // GameScene.ObjectDied: Dead at once (untargetable while the queued Die waits its turn)
+        if (ob) { if (p.Type === 0) { ob.queue(A.Die, p.Direction, p.Location); ob.dead = true; } else objects.delete(p.ObjectID); }
         break;
       }
       case "Death":
@@ -1255,7 +1285,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
 
   /** MapControl.CanRun + the run step: 2 cells (3 while riding), every one empty and passable. */
   function tryRun(u: MapObj, dir: number): boolean {
-    if (!canRun || hp < 10) return false;
+    if (!canRun || now() <= nextRunTime || hp < 10) return false;
     const n = runDistance(u.ridingMount);
     for (let i = 1; i <= n; i++) { const c = pointMove(u.location, dir, i); if (!emptyCell(c) || !doorOk(c)) return false; }
     u.queue(A.Running, dir, pointMove(u.location, dir, n));
@@ -1491,6 +1521,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     if (statsDirty && user) recomputeStats();
     extras.update(user?.location ?? null);
     characterWindow.render();
+    if (t - lastRunTime > 899) canRun = false; // PlayerObject.Process (User)
     checkInput(t);
     magicBar.tick(t);
     heroMagicWindow.tick(t);
@@ -1507,6 +1538,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
       artWarmer.warm(user, objects.values());
       artWarmer.warmSpells(user, magic.magics);
       view.render({ map, user, objects: objects.values(), animationCount, lights: lightState, mapEffects, doors, now: t });
+      if (gameSettings.CozyMode) grade.apply(view.painter.width, view.painter.height, COZY_GRADE);
       miniMap.draw(map, miniMapIndex, mapTitle, user, objects.values(), (n) => group.has(n));
       bigMap.draw(map, mapTitle, user, objects.values(), group);
       drawOverlay(t);

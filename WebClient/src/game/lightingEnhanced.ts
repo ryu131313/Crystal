@@ -1,11 +1,17 @@
 // Enhanced lighting: port of Client/MirScenes/MapControl.Lighting.cs ([Graphics] Lighting=Enhanced, in game @light new / @light old).
 // Same light sources, rectangles and classic quirks as MapControl.DrawLights (lighting.ts), drawn differently: lights add (One, One)
 // into a half-float light map through Light_PS (falloff (1 - r^2)^2, intensity = vertex alpha * 4), LightComposite_PS soft-knees the
-// map and the (DstColor, SrcColor) blend makes it scene * light with light in 0..2. Ambient: the classic darkness colours, a moonlit
+// map and the (DstColor, SrcColor) blend makes it scene * light with light in 0..1.35 (the desktop allows 2: shaders.ts LIGHT_COMPOSITE_PS). Ambient: the classic darkness colours, a moonlit
 // night, warm evening, cool dawn, 4 s smoothstep fades (snap on map change). Warm flickering candles / torches / map lamps / spell objects.
 // On the desktop this is D3D11 only; here it needs EXT_color_buffer_float (else the Classic lights draw, like D3D9).
 // Not ported: MLibrary.TryGetLightTint (the spell-sprite colour tint of EffectLightColour / spell objects; their lights stay white
 // unless the effect has an explicit LightColour).
+// Web atmosphere (atmosphere.ts): LightContext.extraLights (flashes, lit particles) add through the same Light_PS, and screenFlash adds to the clear.
+// Every lamp, carried light and effect light drawn is also recorded in `reflections` (where it shines from and where its object meets the ground)
+// for the atmosphere's puddle reflections (postFx.ts REFLECT_FS); the flashes and lit particles are not.
+// Web (2026-10-14, performance): the light map is HALF resolution (LIGHT_MAP_SCALE), bilinear. Every light is a soft (1 - r^2)^2 falloff, so the
+// upscale is invisible, and filling the overlapping additive quads costs a quarter. Light quads are drawn at screen coordinates * LIGHT_MAP_SCALE; the
+// recorded reflections stay in full screen pixels. Readers sample it by normalised screen UV (fog, rain glints), so they need no change.
 
 import type { WebGl2Renderer, GLTextureRef, RenderTargetRef } from "../render/backend.ts";
 import { renderTargetSourceRect } from "../render/batcher.ts";
@@ -16,15 +22,27 @@ import { MAP_LIBS, sprite } from "./libraries.ts";
 import { CELL_W, CELL_H } from "./objects.ts";
 import { Missile, type Effect } from "./effects.ts";
 import { gameSettings, setSetting } from "./settings.ts";
-import { LIGHT_SIZES, getBlindLight, type LightContext, type Rgb } from "./lighting.ts";
+import { LIGHT_SIZES, FIRE_CELL_LIGHT, cellLight, isFirePit, getBlindLight, type LightContext, type Rgb } from "./lighting.ts";
+import { fireLightColour, fireSpellObjectLight } from "./atmosphere.ts";
+import { reflectionTuning, type ReflectionSource } from "../render/postFx.ts";
+
+/** What a recorded light is, for its height above the ground (reflectionTuning). Lamp = a map cell light whose animated sprite moved it up by
+ *  `lift` px; StaticLamp = a map cell light at its cell's foot (the lamp's art rises above it). */
+const enum Reflect { Carried, Effect, Lamp, StaticLamp }
 
 const AMBIENT_FADE_MS = 4000;
+/** The light map's size relative to the screen (see the header). */
+const LIGHT_MAP_SCALE = 0.5;
 const FLICKER_AMPLITUDE = 0.10, STRONG_FLICKER_AMPLITUDE = 0.16;
 const WHITE: Rgb = [255, 255, 255];
 const WHITE_COLOUR = { r: 1, g: 1, b: 1, a: 1 };
 const sameRgb = (a: Rgb, b: Rgb) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
 
 let availableCache = false;
+
+/** Scene lab knobs (play/lab.ts); the game never sets them, so these defaults are the shipped look. `ambient` replaces the
+ *  time-of-day ambient (and with it the lights' fade-in), `intensity` scales every light added to the light map. */
+export const lightTuning: { ambient: Rgb | null; intensity: number } = { ambient: null, intensity: 1 };
 
 /** DXManager.EnhancedLightingAvailable, as last seen by an EnhancedLightLayer (false before one exists). */
 export function enhancedLightingAvailable(): boolean {
@@ -66,11 +84,18 @@ export class EnhancedLightLayer {
   private ambientTo: Rgb = WHITE;
   private ambientFadeStart = -Infinity;
   private ambientMap: MapCells | null = null;
+  /** The lights of the last draw, for the puddle reflections (screen px). */
+  readonly reflections: ReflectionSource[] = [];
 
   constructor(renderer: WebGl2Renderer) {
     this.renderer = renderer;
     this.available = renderer.supportsEnhancedLighting();
     availableCache = this.available;
+  }
+
+  /** The half-float, half-resolution light map as last drawn (web atmosphere fog reads it the next frame), or null. */
+  get lightMap(): RenderTargetRef | null {
+    return this.target;
   }
 
   /** MapControl.AmbientFading. */
@@ -109,30 +134,46 @@ export class EnhancedLightLayer {
     const r = this.renderer;
     const { width, height, now } = c;
     const size = `${width}x${height}`;
+    const mw = Math.max(1, Math.ceil(width * LIGHT_MAP_SCALE)), mh = Math.max(1, Math.ceil(height * LIGHT_MAP_SCALE));
     if (!this.target || this.targetSize !== size) {
       r.releaseRenderTarget(this.target);
-      this.target = r.createRenderTarget(width, height, "RGBA16F"); // DXManager.CreateLightTarget
+      this.target = r.createRenderTarget(mw, mh, "RGBA16F"); // DXManager.CreateLightTarget (web: half size)
       this.targetSize = size;
       if (!this.target) return;
+      const gl = r.gl; // bilinear upscale (render targets are NEAREST)
+      r.beginExternal();
+      gl.bindTexture(gl.TEXTURE_2D, this.target.texture.glTexture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      r.endExternal();
     }
     if (!this.white) this.white = r.createRgbaTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
     const blindLight = (colour: Rgb) => (blinded ? getBlindLight(colour, now) : colour);
 
     batch.Flush();
+    this.reflections.length = 0;
     r.bindRenderTarget(this.target);
-    const ambient = blindLight(this.currentAmbient(now));
-    r.clearColour(ambient[0], ambient[1], ambient[2], 255);
+    const ambient = blindLight(lightTuning.ambient ?? this.currentAmbient(now));
+    const flash = c.screenFlash; // the half-float target holds a clear above 255
+    r.clearColour(ambient[0] + (flash?.[0] ?? 0), ambient[1] + (flash?.[1] ?? 0), ambient[2] + (flash?.[2] ?? 0), 255);
 
     // Lights fade out with the darkness: full strength from dawn/evening brightness down, none in daylight.
     const ambientLevel = Math.max(ambient[0], ambient[1], ambient[2]) / 255;
     const lightScale = Math.min(Math.max((1 - ambientLevel) / (1 - 64 / 255), 0), 1);
+    const extras = c.extraLights ?? [];
 
-    if (lightScale > 0) {
+    if (lightScale > 0 || extras.length > 0) {
       r.setShaderMode("Light");
       r.setEnhancedLightAdditiveBlend(); // SetBlend(true) + SetEnhancedLightAdditiveBlend
-      this.drawObjectLights(batch, c, lightScale, blindLight);
-      this.drawMapEffectLights(batch, c, lightScale, blindLight);
-      this.drawCellLights(batch, c, lightScale, blindLight);
+      if (lightScale > 0) {
+        this.drawObjectLights(batch, c, lightScale, blindLight);
+        this.drawMapEffectLights(batch, c, lightScale, blindLight);
+        this.drawCellLights(batch, c, lightScale, blindLight);
+      }
+      for (const l of extras) {
+        const intensity = (l.scaled ? l.intensity * lightScale : l.intensity) * lightTuning.intensity;
+        if (intensity > 0) this.drawPointLight(batch, l.x, l.y, l.rx, l.ry, blindLight(l.colour), intensity);
+      }
       batch.Flush();
       r.setShaderMode("Default"); // EndEnhancedLightBlend + SetBlend(false)
       r.setBlend(false, 1, "NORMAL");
@@ -141,7 +182,8 @@ export class EnhancedLightLayer {
     r.bindRenderTarget(restore);
     r.setShaderMode("LightComposite");
     r.setEnhancedLightCompositeBlend();
-    batch.DrawScaled(this.target.texture, renderTargetSourceRect(width, height), 0, 0, width, height, WHITE_COLOUR);
+    // the map's texels cover mw / LIGHT_MAP_SCALE screen px (one past the screen's edge when the size is odd)
+    batch.DrawScaled(this.target.texture, renderTargetSourceRect(mw, mh), 0, 0, mw / LIGHT_MAP_SCALE, mh / LIGHT_MAP_SCALE, WHITE_COLOUR);
     batch.Flush();
     r.setShaderMode("Default");
     r.setBlend(false, 1, "NORMAL"); // RestartSpriteAlphaBlend
@@ -166,18 +208,21 @@ export class EnhancedLightLayer {
           }
         } else if (ob.race === ObjectType.Merchant) colour = [120, 120, 120];
         const p = c.drawLocation(ob);
-        this.addLight(batch, c.now, p.x, p.y, light % 15, blindLight(colour), intensity * lightScale, flickerSeed, FLICKER_AMPLITUDE, 0);
+        this.addLight(batch, c.now, p.x, p.y, light % 15, blindLight(colour), intensity * lightScale, flickerSeed, FLICKER_AMPLITUDE, 0,
+          Reflect.Carried, 0);
       }
       if (!effects) continue;
       for (const e of ob.effects) {
         if (!e.blend || c.now < e.start || e.held || (!(e instanceof Missile) && e.light < ob.light)) continue;
-        this.addLight(batch, c.now, e.drawLocation.x, e.drawLocation.y, e.light, blindLight(effectLightColour(e)), 1.2 * lightScale, 0, 0, 0);
+        this.addLight(batch, c.now, e.drawLocation.x, e.drawLocation.y, e.light, blindLight(effectLightColour(e)), 1.2 * lightScale, 0, 0, 0,
+          Reflect.Effect, 0);
       }
     }
     for (const so of c.spellObjects) {
       if (so.light <= 0) continue;
       // tint from the spell's sprite frame not ported (white); intensity 1.2, strong flicker
-      this.addLight(batch, c.now, so.drawLocation.x, so.drawLocation.y, so.light % 15, blindLight(WHITE), 1.2 * lightScale, so.id ?? 1, STRONG_FLICKER_AMPLITUDE, 0);
+      this.addLight(batch, c.now, so.drawLocation.x, so.drawLocation.y, so.light % 15, blindLight(fireSpellObjectLight(so.spell) ?? WHITE), 1.2 * lightScale, so.id ?? 1, STRONG_FLICKER_AMPLITUDE, 0,
+        Reflect.Effect, 0);
     }
   }
 
@@ -186,7 +231,8 @@ export class EnhancedLightLayer {
     if (!gameSettings.Effect) return;
     for (const e of c.mapEffects) {
       if (!e.blend || c.now < e.start || e.held || e.light === 0) continue;
-      this.addLight(batch, c.now, e.drawLocation.x, e.drawLocation.y, e.light, blindLight(effectLightColour(e)), 1.2 * lightScale, 0, 0, 0);
+      this.addLight(batch, c.now, e.drawLocation.x, e.drawLocation.y, e.light, blindLight(effectLightColour(e)), 1.2 * lightScale, 0, 0, 0,
+          Reflect.Effect, 0);
     }
   }
 
@@ -204,23 +250,34 @@ export class EnhancedLightLayer {
         if (imageIndex === -1) continue;
         const fileIndex = map.frontIndex[i];
         if (fileIndex === -1) continue;
-        const cellLight = map.light[i];
-        if (cellLight === 0 || cellLight >= 10) continue;
+        const light = cellLight(map, i, fileIndex, imageIndex);
+        if (light === 0 || light >= 10) continue;
         let px = (x + c.offSetX - user.movement.X) * CELL_W + user.offsetMove.X;
         let py = (y + c.offSetY - user.movement.Y) * CELL_H + user.offsetMove.Y + 32;
+        let lift = -1;
         if (map.frontAnimationFrame[i] > 0) {
           const s = sprite(MAP_LIBS[fileIndex] ?? null, imageIndex);
-          if (s) { px += s.x; py += s.y; }
+          if (s) { px += s.x; py += s.y; lift = -s.y; }
         }
-        this.addLight(batch, c.now, px, py, (cellLight % 10) * 3, blindLight([255, 236, 210]), 1.15 * lightScale, x * 7919 + y * 104729 + 1, FLICKER_AMPLITUDE, 10);
+        this.addLight(batch, c.now, px, py, (light % 10) * 3, blindLight(isFirePit(fileIndex, imageIndex) ? FIRE_CELL_LIGHT : [255, 236, 210]), 1.15 * lightScale, x * 7919 + y * 104729 + 1, FLICKER_AMPLITUDE, 10,
+          lift > 0 ? Reflect.Lamp : Reflect.StaticLamp, lift);
       }
     }
   }
 
+  /** Web atmosphere: an ellipse centred on (x, y) with radii (rx, ry), same quad encoding as addLight. */
+  private drawPointLight(batch: SpriteBatch, x: number, y: number, rx: number, ry: number, colour: Rgb, intensity: number): void {
+    if (!this.white) return;
+    const k = LIGHT_MAP_SCALE;
+    batch.DrawScaled(this.white, { x: 0, y: 0, width: 1, height: 1 }, (x - rx) * k, (y - ry) * k, rx * 2 * k, ry * 2 * k,
+      { r: colour[0] / 255, g: colour[1] / 255, b: colour[2] / 255, a: Math.min(1, Math.max(0, intensity * 0.25)) });
+  }
+
   /** MapControl.AddEnhancedLight: the classic rectangle (offset by LightSizes[range], size LightSizes[range + 1]); flickerSeed 0 = steady.
-   *  The quad is D3D11Backend.DrawLight: UVs 0..1, colour rgb, alpha = intensity / 4. */
+   *  The quad is D3D11Backend.DrawLight: UVs 0..1, colour rgb, alpha = intensity / 4. Web: also recorded for the reflections (`kind`, `lift`). */
   private addLight(batch: SpriteBatch, now: number, lx: number, ly: number, range: number, colour: Rgb, intensity: number,
-    flickerSeed: number, amplitude: number, extraX: number): void {
+    flickerSeed: number, amplitude: number, extraX: number, kind: Reflect, lift: number): void {
+    intensity *= lightTuning.intensity;
     if (intensity <= 0 || !this.white) return;
     const last = LIGHT_SIZES.length - 2;
     if (range < 0) range = 0;
@@ -240,14 +297,30 @@ export class EnhancedLightLayer {
       x = cx - w / 2;
       y = cy - h / 2;
     }
-    batch.DrawScaled(this.white, { x: 0, y: 0, width: 1, height: 1 }, x, y, w, h,
+    const k = LIGHT_MAP_SCALE;
+    batch.DrawScaled(this.white, { x: 0, y: 0, width: 1, height: 1 }, x * k, y * k, w * k, h * k,
       { r: colour[0] / 255, g: colour[1] / 255, b: colour[2] / 255, a: Math.min(1, Math.max(0, intensity * 0.25)) });
+    this.recordReflection(x + w / 2, y + h / 2, w / 2, colour, intensity, kind, lift);
+  }
+
+  /** The light centred on (cx, cy): where it shines from and where its object stands, by kind (reflectionTuning heights). */
+  private recordReflection(cx: number, cy: number, radius: number, colour: Rgb, intensity: number, kind: Reflect, lift: number): void {
+    const t = reflectionTuning;
+    let emitterY = cy, contactY = cy;
+    switch (kind) {
+      case Reflect.Carried: emitterY = cy - t.carriedHeight; contactY = cy + t.carriedFoot; break;
+      case Reflect.Effect: emitterY = cy - t.effectHeight; contactY = cy + t.carriedFoot * 0.5; break;
+      case Reflect.Lamp: emitterY = cy + t.lampEmitter; contactY = cy + lift * t.lampHeightScale + t.lampContact; break;
+      case Reflect.StaticLamp: emitterY = cy - t.staticLampHeight; break;
+    }
+    const k = Math.min(intensity, 2) / 255;
+    this.reflections.push({ x: cx, emitterY, contactY, radius, r: colour[0] * k, g: colour[1] * k, b: colour[2] * k });
   }
 }
 
 /** MapControl.EffectLightColour without the sprite tint (MLibrary.TryGetLightTint is not ported): the effect's LightColour. */
 function effectLightColour(e: Effect): Rgb {
-  return e.lightColour;
+  return fireLightColour(e) ?? e.lightColour; // web atmosphere: fire effects light orange
 }
 
 /** ChatDialog.TryLightingCommand: the client-only `@light new` / `@light old` chat command (never sent to the server). Returns true when

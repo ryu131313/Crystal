@@ -90,9 +90,13 @@ export class OptionWindow {
       { label: "Target dead", hint: "Desktop: @TARGETDEAD", ...this.boolRow("TargetDead") },
       { label: "Highlight target", ...this.boolRow("HighlightTarget") },
       { label: "Body names", hint: "Show dead monsters' names under the mouse", ...this.boolRow("DisplayBodyName") },
+      { label: "Smooth mode", hint: "Players and monsters glide between steps", ...this.boolRow("SmoothMove") },
+      { label: "Smooth shadows", hint: "Solid shadows instead of the checkerboard dither", ...this.boolRow("SmoothShadows") },
       // ChatDialog.TryLightingCommand (@LIGHT NEW / OLD)
       { label: "Enhanced lighting", hint: "Desktop: @LIGHT NEW / OLD", get: () => gameSettings.Lighting === "Enhanced",
         set: (v) => { setSetting("Lighting", v ? "Enhanced" : "Classic"); hint(v ? "[Lighting: Enhanced]" : "[Lighting: Classic]"); } },
+      { label: "Atmosphere effects", hint: "Glow, spell flashes, lit embers and heat haze (Enhanced lighting only)", ...this.boolRow("Atmosphere") },
+      { label: "Cozy mode", hint: "Slightly richer colour and contrast", ...this.boolRow("CozyMode") },
     ];
     this.more = new MirControl({ parent: win, size: [180, 12 + moreRows.length * 25], backColour: "rgba(0, 0, 0, 0.8)", border: true, borderColour: "rgb(148, 146, 148)", visible: false });
     moreRows.forEach((r, i) => {

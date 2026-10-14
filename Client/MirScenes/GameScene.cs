@@ -2206,6 +2206,9 @@ namespace Client.MirScenes
                 case (short)ServerPacketIds.GameDataChanged:
                     GameDataChanged((S.GameDataChanged)p);
                     break;
+                case (short)ServerPacketIds.MapAtmosphere:
+                    MapAtmosphere((S.MapAtmosphere)p);
+                    break;
                 default:
                     base.ProcessPacket(p);
                     break;
@@ -4209,6 +4212,19 @@ namespace Client.MirScenes
                 ob.Poison = p.Poison;
                 ob.InvalidateMap(); // poison dots
             }
+        }
+
+        /// <summary>LiveDb: the current map's light / dark light / weather changed (no reload; the light pass reads them every frame).</summary>
+        private void MapAtmosphere(S.MapAtmosphere p)
+        {
+            MapControl.Lights = p.Lights;
+            MapControl.MapDarkLight = p.MapDarkLight;
+            if (MapControl.Weather != p.Weather)
+            {
+                MapControl.Weather = p.Weather;
+                MapControl.UpdateWeather();
+            }
+            MapControl.TextureValid = false;
         }
 
         private void MapChanged(S.MapChanged p)
@@ -11640,14 +11656,14 @@ namespace Client.MirScenes
                     if (imageIndex == -1) continue;
                     int fileIndex = M2CellInfo[x, y].FrontIndex;
                     if (fileIndex == -1) continue;
-                    if (M2CellInfo[x, y].Light <= 0 || M2CellInfo[x, y].Light >= 10) continue;
-                    if (M2CellInfo[x, y].Light == 0) continue;
+                    byte cellLight = CellLight(M2CellInfo[x, y], fileIndex, imageIndex);
+                    if (cellLight <= 0 || cellLight >= 10) continue;
 
                     Color lightIntensity;
 
-                    light = (M2CellInfo[x, y].Light % 10) * 3;
+                    light = (cellLight % 10) * 3;
 
-                    switch (M2CellInfo[x, y].Light / 10)
+                    switch (cellLight / 10)
                     {
                         case 1:
                             lightIntensity = Color.FromArgb(255, 255, 255, 255);
@@ -11665,6 +11681,7 @@ namespace Client.MirScenes
                             lightIntensity = Color.FromArgb(255, 255, 255, 255);
                             break;
                     }
+                    if (IsFirePit(fileIndex, imageIndex)) lightIntensity = FireCellLightColour;
 
                     if (MapObject.User.Poison.HasFlag(PoisonType.Blindness))
                     {

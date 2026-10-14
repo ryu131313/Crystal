@@ -81,6 +81,8 @@ export class CrystalLib {
   private readonly images = new Map<number, Promise<LibImage | null>>();
   /** The file's version in the asset manifest (versioned slice reads), or undefined (Range reads). */
   private readonly assetVersion: string | undefined;
+  /** The whole file in memory (`fromBytes`): reads slice it instead of fetching. */
+  private bytes: Uint8Array | undefined;
 
   private constructor(url: string, version: number, offsets: Int32Array, spanEnd: Int32Array, frames: Map<number, LibFrame> | null, assetVersion: string | undefined) {
     this.url = url;
@@ -129,6 +131,22 @@ export class CrystalLib {
     const table = await rangeGet(url, 0, tableEnd);
     const frames = version >= 3 && frameSeek > 0 && frameSeek + 4 <= length ? await rangeGet(url, frameSeek, length) : null;
     return CrystalLib.fromIndex(url, length, table, frames, undefined);
+  }
+
+  /** A library from a whole file already in memory (a .Lib picked from disk, e.g. the scene lab's weapon tester). */
+  static fromBytes(name: string, bytes: Uint8Array): CrystalLib {
+    if (bytes.length < 12) throw new LibFormatError(`${name}: length ${bytes.length}`);
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const version = dv.getInt32(0, true);
+    const count = dv.getInt32(4, true);
+    if (version < 2 || count < 0 || count > 1_000_000) throw new LibFormatError(`${name}: version ${version}, count ${count}`);
+    const frameSeek = version >= 3 ? dv.getInt32(8, true) : 0;
+    const tableEnd = (version >= 3 ? 12 : 8) + count * 4;
+    if (tableEnd > bytes.length) throw new LibFormatError(`${name}: offset table past EOF`);
+    const frames = version >= 3 && frameSeek > 0 && frameSeek + 4 <= bytes.length ? bytes.subarray(frameSeek) : null;
+    const l = CrystalLib.fromIndex(name, bytes.length, bytes.subarray(0, tableEnd), frames, undefined);
+    l.bytes = bytes;
+    return l;
   }
 
   /** MLibrary.Initialize from the header + offset table bytes (file[0, tableEnd)) and the v3 frame table (file[frameSeek, EOF)). */
@@ -184,6 +202,10 @@ export class CrystalLib {
 
   /** The bytes [start, end): a versioned slice when the manifest knows the file, else a Range read. */
   private read(start: number, end: number): Promise<Uint8Array> {
+    if (this.bytes) {
+      if (end > this.bytes.length) return Promise.reject(new LibFormatError(`${this.url}: [${start}..${end}) past EOF ${this.bytes.length}`));
+      return Promise.resolve(this.bytes.subarray(start, end));
+    }
     return this.assetVersion !== undefined ? sliceGet(this.url, this.assetVersion, start, end) : rangeGet(this.url, start, end);
   }
 

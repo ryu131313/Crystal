@@ -217,7 +217,9 @@
     status: function () { return liveDb; },
     refresh: function () { return refreshLiveDb(); },
     /** LiveDb delete: one batch {endpoint, deletes:[...]} with dry-run preview -> the applied reply, or null (cancelled / refused). */
-    deleteRows: function (endpoint, indexes) { return deleteBatch(endpoint, indexes); }
+    deleteRows: function (endpoint, indexes) { return deleteBatch(endpoint, indexes); },
+    /** One batch over several tables ([{endpoint, rows, deletes?}]) with dry-run preview -> the applied reply, or null. */
+    runBatch: function (title, tables) { return runBatch(title, tables); }
   };
 
   function el(tag, cls, text) {
@@ -529,9 +531,9 @@
    * The batch rows of one grid: for an edited row only Index, __rev and the changed cells (a lookup display column such as
    * ItemName sends its index column instead); a new row (Index <= 0) is sent whole. Unknown / read-only fields are left out.
    */
-  async function batchRows(endpoint, rows, pending) {
+  async function batchRows(endpoint, rows, pending, grid) {
     var props = await writableProps(endpoint);
-    var ed = editors[endpoint];
+    var ed = grid || editors[endpoint];
     var api = ed && ed.getApi ? ed.getApi() : null;
     var byIndex = Object.create(null);
     (pending || []).forEach(function (e) { if (e) byIndex[String(e.index)] = e; });
@@ -618,10 +620,10 @@
    * LiveDb save of one grid: changed cells -> dry run -> preview with live / restart badges -> apply (saved to Server.MirDB and,
    * where the server says so, applied to the running world) -> outcome toast. -> { ok, clean }
    */
-  async function persistBatch(endpoint, rows) {
-    var ed = editors[endpoint];
+  async function persistBatch(endpoint, rows, grid) {
+    var ed = grid || editors[endpoint];
     var pending = ed ? ed.pendingEdits() : [];
-    var send = await batchRows(endpoint, changedRows(rows, pending), pending);
+    var send = await batchRows(endpoint, changedRows(rows, pending), pending, ed);
     if (!send.length) {
       if (global.DbSave && global.DbSave.setDirty) global.DbSave.setDirty(endpoint, false);
       portalToast('No changes to apply in ' + label(endpoint) + '.', 'info');
@@ -711,10 +713,13 @@
     return runBatch('delete ' + list.length + ' row(s) from ' + label(endpoint), [{ endpoint: endpoint, rows: [], deletes: list }]);
   }
 
-  /** persistLegacy for every grid: dry run + preview when > 1 row, PUT, database/save, renames. -> { ok, clean } */
-  async function persistRows(endpoint, rows) {
-    if (liveDbEnabled()) return persistBatch(endpoint, rows);
-    var ed = editors[endpoint];
+  /**
+   * persistLegacy for every grid: dry run + preview when > 1 row, PUT, database/save, renames. -> { ok, clean }
+   * grid: the grid editor that holds the edits when it is not this section's own (the Maps editor's embedded grids).
+   */
+  async function persistRows(endpoint, rows, grid) {
+    if (liveDbEnabled()) return persistBatch(endpoint, rows, grid);
+    var ed = grid || editors[endpoint];
     var pending = ed ? ed.pendingEdits() : [];
     var send = changedRows(rows, pending);
     if (!send.length) {
@@ -785,7 +790,7 @@
       });
     }
     // clean:false below makes the grid factory clear its edit log and reload every row; put the rejected edits back after.
-    if (rejected.length) setTimeout(function () { restoreRejected(endpoint, rejected); }, 0);
+    if (rejected.length) setTimeout(function () { restoreRejected(endpoint, rejected, ed); }, 0);
 
     afterServerChange();
     var renames = res.renames != null ? res.renames : renamesLocal;
@@ -820,8 +825,8 @@
   }
 
   /** After the post-save reload: re-apply the rejected edits (cell edits go through cellValueChanged -> edit log + dirty). */
-  async function restoreRejected(endpoint, rejected) {
-    var ed = editors[endpoint];
+  async function restoreRejected(endpoint, rejected, grid) {
+    var ed = grid || editors[endpoint];
     if (!ed) return;
     try { await ed.load(); } catch (e) { /* the grid reports its own load errors */ }
     var api = ed.getApi();
@@ -1865,6 +1870,12 @@
     show: showTab,
     editor: function (endpoint) { return editors[endpoint] || null; },
     current: function () { return currentTab; },
-    refreshStatus: refreshDbStatus
+    refreshStatus: refreshDbStatus,
+    /** The grid save of another module's grid editor of a Game Data table (LiveDb batch, or PUT + database/save). */
+    persist: function (endpoint, rows, grid) { return persistRows(endpoint, rows, grid); },
+    /** LiveDb off: PUT rows to the editor copy (dry run or real) -> normalised reply or null; then saveDatabase(). */
+    putRows: function (endpoint, rows, opts) { return putRows(endpoint, rows, opts); },
+    saveDatabase: function (quiet) { return saveDatabase(quiet); },
+    showIssues: function (title, res) { return showIssues(title, res); }
   };
 })(window);

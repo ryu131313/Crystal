@@ -11,6 +11,7 @@ import { LibPath, lib, monsterLibPath, npcLibPath } from "./libraries.ts";
 import { creatureFrameEffects, type Effect } from "./effects.ts";
 import { monsterActionEnd, monsterFrame } from "./monsterSpecials.ts";
 import { hasFishingRod, isIdleAction, mountAction, transformShows } from "./riding.ts";
+import { gameSettings } from "./settings.ts";
 
 export const CELL_W = 48, CELL_H = 32;
 const CLASS_WEAPON_COUNT = 100; // Globals.ClassWeaponCount
@@ -41,6 +42,8 @@ export const moveHooks = {
 
 /** Moving actions (PlayerObject.ProcessFrames "Moving OffSet" / SetAction MapLocation cases). */
 const MOVING = new Set<number>([A.Walking, A.Running, A.MountWalking, A.MountRunning, A.Pushed, A.DashL, A.DashR, A.Sneek, A.Jump, A.DashAttack]);
+/** PlayerObject.ProcessFrames: moves that SkipFrames finishes at once (`FrameIndex = Frame.Count`); other actions play double speed. */
+const SKIP_TO_END = new Set<number>([A.Walking, A.Running, A.MountWalking, A.MountRunning, A.Sneek, A.DashAttack]);
 
 /** Spells PlayerObject.SetAction plays with the AttackRange2 frames (and turns the action into AttackRange2). */
 const RANGE2_SPELLS = new Set<number>([Spell.StraightShot, Spell.DoubleShot, Spell.DelayedExplosion, Spell.BindingShot, Spell.VampireShot, Spell.PoisonShot,
@@ -78,6 +81,8 @@ export class MapObj {
   offsetMove = { X: 0, Y: 0 };
   direction: number;
   dead = false;
+  /** This object is GameScene.User (no SkipFrames catch-up). */
+  isUser = false;
   hidden = false;
   /** MapObject.Light: ObjectPlayer/ObjectMonster.Light, NPCs 10, the user from equipment (min 3). */
   light = 0;
@@ -201,6 +206,13 @@ export class MapObj {
     this.feed.push({ action, direction, location: { ...location }, spell, struckWeapon });
   }
 
+  /** MapObject.SkipFrames: MonsterObject when more than one action waits, PlayerObject (not the user) when any does.
+   *  `isOther` = the object is not the user. */
+  skipFrames(isOther: boolean): boolean {
+    if (this.race === ObjectType.Monster) return this.feed.length > 1;
+    return this.race === ObjectType.Player && isOther && this.feed.length > 0;
+  }
+
   /** Frame.Count * FrameInterval: the cast effects' duration. */
   get actionDuration(): number {
     return (this.frame?.count ?? 0) * (this.frame?.interval ?? 0);
@@ -279,7 +291,7 @@ export class MapObj {
     this.effectFrameIndex = 0;
     this.nextMotion = now + (this.frame?.interval ?? 500);
     this.nextEffectMotion = now + (this.frame?.effectInterval || 250);
-    this.updateMovement();
+    this.updateMovement(now);
     if (next && (next.action === A.Spell || next.action === A.AttackRange2)) spellHooks.start(this);
     spellHooks.action(this);
   }
@@ -382,10 +394,18 @@ export class MapObj {
       this.nextEffectMotion = now + (this.frame.effectInterval || 250);
     }
 
-    if (now < this.nextMotion) return;
+    if (now < this.nextMotion) {
+      if (gameSettings.SmoothMove && MOVING.has(this.action)) this.updateMovement(now); // glide between animation frames
+      return;
+    }
     // Catch up at most a few frames after a stall (background tab), never spin.
     if (now - this.nextMotion > 2000) this.nextMotion = now;
     this.nextMotion += this.frame.interval || 100;
+    // MonsterObject / PlayerObject.ProcessFrames: catch up while actions are waiting (never the user)
+    if (!idle && this.skipFrames(!this.isUser)) {
+      if (this.race === ObjectType.Player && SKIP_TO_END.has(this.action)) this.frameIndex = this.frame.count - 1;
+      else this.frameIndex++;
+    }
     this.frameIndex++;
     if (this.frameIndex >= this.frame.count) {
       if (this.action === A.Dead) { this.frameIndex = this.frame.count - 1; return; }
@@ -398,14 +418,16 @@ export class MapObj {
       if (!idle) this.onActionEnd?.(ended);
       return;
     }
-    this.updateMovement();
+    this.updateMovement(now);
     if (this.race === ObjectType.Monster && this.image >= 10000) creatureFrameEffects(this); // MonsterObject.ProcessFrames (IntelligentCreature)
     if (this.race === ObjectType.Monster) monsterFrame(this); // MonsterObject.ProcessFrames per-monster frame specials (monsterSpecials.ts)
     spellHooks.frame(this);
   }
 
-  /** PlayerObject.ProcessFrames "Moving OffSet": Movement = CurrentLocation stepped back, OffSetMove grows each frame. */
-  updateMovement(): void {
+  /** PlayerObject.ProcessFrames "Moving OffSet": Movement = CurrentLocation stepped back, OffSetMove grows each frame.
+   *  Smooth mode (a port addition after WoOOLcraft MapObject.UpdateFrame, Options > More, off by default): the offset follows
+   *  the time inside the current frame too, so the slide runs on from one step into the next in 2 px steps. */
+  updateMovement(now: number): void {
     if (!MOVING.has(this.action) || !this.frame) {
       this.offsetMove = { X: 0, Y: 0 };
       this.movement = { ...this.location };
@@ -417,8 +439,17 @@ export class MapObj {
     this.movement = pointMove(this.location, this.direction, this.action === A.Pushed ? 0 : -i);
     let count = this.frame.count, index = this.frameIndex;
     if (this.action === A.DashL || this.action === A.DashR) { count = 3; index %= 3; } // a dash covers its cell in 3 frames
-    const fx = Math.trunc((CELL_W * i / count) * (index + 1));
-    const fy = Math.trunc((CELL_H * i / count) * (index + 1));
+    const smooth = gameSettings.SmoothMove;
+    let steps = index + 1;
+    if (smooth) {
+      const interval = this.frame.interval || 100;
+      steps = index + Math.min(1, Math.max(0, 1 - (this.nextMotion - now) / interval)); // 0 .. count over the action
+    }
+    // Smooth mode keeps the desktop's even pixels (nearest even, not trunc + snap): the art's 1 px dither (shadows, ground) would flip
+    // phase on every odd step and shimmer, worst when the stage is CSS-scaled to the window.
+    const round = smooth ? (v: number) => 2 * Math.round(v / 2) : Math.trunc;
+    const fx = round((CELL_W * i / count) * steps);
+    const fy = round((CELL_H * i / count) * steps);
     let x = 0, y = 0;
     switch (this.direction) {
       case MirDirection.Up: y = fy; break;
@@ -430,8 +461,8 @@ export class MapObj {
       case MirDirection.Left: x = fx; break;
       case MirDirection.UpLeft: x = fx; y = fy; break;
     }
-    // C#: OffSetMove.X % 2 + OffSetMove.X (remainder keeps the sign)
-    this.offsetMove = { X: (x % 2) + x, Y: (y % 2) + y };
+    // C#: OffSetMove.X % 2 + OffSetMove.X (remainder keeps the sign); smooth values are already even.
+    this.offsetMove = smooth ? { X: x, Y: y } : { X: (x % 2) + x, Y: (y % 2) + y };
   }
 
   get drawFrame(): number {

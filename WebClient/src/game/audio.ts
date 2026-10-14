@@ -4,11 +4,29 @@
 // One-shots are decoded once and cached; loops (PlaySound loop) and music (PlayMusic) can be stopped.
 // Browsers start audio only after a user gesture: the context resumes on the first key/mouse press.
 // Volume (0-100, Settings.Volume / MusicVolume) is kept in localStorage.
+// Web-only: procedural rain (setRain) for the atmosphere's shader rain, which has no sound file on the desktop.
 
 import { gameSignal } from "./scope.ts";
 import { assetUrl, fetchAsset } from "../assets/manifest.ts";
 
 const EXTENSIONS = [".wav", ".mp3"]; // SoundManager.SupportedFileTypes
+
+/** The procedural rain's overall level (every band and the close drops go through `out`); 0.3 = about -10 dB, the user found 1 far too loud (2026-10-14). */
+const RAIN_VOLUME = 0.3;
+
+/** The procedural rain's graph: looped stereo noise -> hiss (high band) / patter (mid band) / rumble (low band) -> out -> master. */
+interface RainVoice {
+  src: AudioBufferSourceNode;
+  noise: AudioBuffer;
+  out: GainNode;
+  body: GainNode;
+  low: GainNode;
+  level: number;
+  setAt: number;
+  tickAt: number;
+  /** Fading out: stop the source at stopAt (context seconds). */
+  stopAt: number;
+}
 
 export class SoundManager {
   private ctx: AudioContext | null = null;
@@ -18,6 +36,8 @@ export class SoundManager {
   private readonly buffers = new Map<string, Promise<AudioBuffer | null>>();
   private readonly loops = new Map<number, AudioBufferSourceNode>();
   private music: AudioBufferSourceNode | null = null;
+  private rain: RainVoice | null = null;
+  private splashNoise: AudioBuffer | null = null;
   private musicIndex = -1;
   private listLoaded: Promise<void>;
   private closed = false;
@@ -180,8 +200,128 @@ export class SoundManager {
     this.music = null;
   }
 
+  /** Web-only procedural rain (atmosphere.ts): `level` 0..1, called every frame; the bands ramp smoothly to it, and close drops tick at random,
+   *  panned across the stereo field, more often the harder it rains. 0 fades it out and then stops it. Waits for the context to be unlocked. */
+  setRain(level: number): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== "running" || !this.master) return;
+    level = Math.max(0, Math.min(1, level));
+    const t = ctx.currentTime;
+    let r = this.rain;
+    if (level <= 0) {
+      if (!r) return;
+      if (r.stopAt === Infinity) {
+        r.out.gain.setTargetAtTime(0, t, 0.7);
+        r.stopAt = t + 4;
+      } else if (t >= r.stopAt) {
+        this.stopRain();
+      }
+      return;
+    }
+    if (!r) r = this.rain = SoundManager.buildRain(ctx, this.master);
+    if (r.stopAt !== Infinity || Math.abs(level - r.level) > 0.01 || t - r.setAt > 0.5) {
+      r.stopAt = Infinity;
+      r.level = level;
+      r.setAt = t;
+      r.out.gain.setTargetAtTime((0.08 + 0.27 * level) * RAIN_VOLUME, t, 0.8);
+      r.body.gain.setTargetAtTime(0.2 + 0.8 * level, t, 0.8);
+      r.low.gain.setTargetAtTime(0.7 * level * level, t, 1.2);
+    }
+    const dt = Math.min(0.1, Math.max(0, t - r.tickAt));
+    r.tickAt = t;
+    if (this._volume <= 0) return;
+    for (let n = dt * (4 + 22 * level); n > 0; n--) if (Math.random() < n) SoundManager.rainTick(ctx, r, level);
+  }
+
+  /** Web-only footfall splash (atmosphere.ts, the user's own steps in puddles): a low slap, then the higher spray falling back; `level` 0..1. */
+  splash(level: number): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== "running" || !this.master || this._volume <= 0 || level <= 0) return;
+    const noise = (this.splashNoise ??= SoundManager.noiseBuffer(ctx, 1));
+    const t = ctx.currentTime;
+    for (let i = 0; i < 2; i++) {
+      const at = t + i * 0.05, len = i === 0 ? 0.12 : 0.2;
+      const src = ctx.createBufferSource();
+      src.buffer = noise;
+      const f = ctx.createBiquadFilter();
+      f.type = "bandpass";
+      f.frequency.value = i === 0 ? 600 + Math.random() * 400 : 2400 + Math.random() * 1600;
+      f.Q.value = i === 0 ? 0.9 : 1.4;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime((i === 0 ? 0.45 : 0.2) * level, at + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + len);
+      src.connect(f).connect(g).connect(this.master);
+      src.start(at, Math.random() * 0.6, len + 0.02);
+    }
+  }
+
+  /** `seconds` of stereo white noise. */
+  private static noiseBuffer(ctx: AudioContext, seconds: number): AudioBuffer {
+    const noise = ctx.createBuffer(2, Math.round(ctx.sampleRate * seconds), ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const data = noise.getChannelData(ch);
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    }
+    return noise;
+  }
+
+  private static buildRain(ctx: AudioContext, master: GainNode): RainVoice {
+    const noise = SoundManager.noiseBuffer(ctx, 3);
+    const src = ctx.createBufferSource();
+    src.buffer = noise;
+    src.loop = true;
+    const out = ctx.createGain();
+    out.gain.value = 0;
+    out.connect(master);
+    const band = (type: BiquadFilterType, frequency: number, q: number, gain: number): GainNode => {
+      const f = ctx.createBiquadFilter();
+      f.type = type;
+      f.frequency.value = frequency;
+      f.Q.value = q;
+      const g = ctx.createGain();
+      g.gain.value = gain;
+      src.connect(f).connect(g).connect(out);
+      return g;
+    };
+    band("highpass", 3200, 0.7, 0.22); // hiss: distant rain on everything
+    const body = band("bandpass", 1100, 0.5, 0); // patter nearby
+    const low = band("lowpass", 320, 0.7, 0); // rumble of a downpour
+    src.start();
+    return { src, noise, out, body, low, level: -1, setAt: 0, tickAt: ctx.currentTime, stopAt: Infinity };
+  }
+
+  /** One close drop: a 30-70 ms burst of the noise through a narrow band at a random pitch, panned somewhere left or right. */
+  private static rainTick(ctx: AudioContext, r: RainVoice, level: number): void {
+    const t = ctx.currentTime + Math.random() * 0.03;
+    const src = ctx.createBufferSource();
+    src.buffer = r.noise;
+    const f = ctx.createBiquadFilter();
+    f.type = "bandpass";
+    f.frequency.value = 1800 + Math.random() * 4500;
+    f.Q.value = 2 + Math.random() * 4;
+    const g = ctx.createGain();
+    const peak = (0.12 + Math.random() * 0.3) * (0.5 + 0.5 * level);
+    const len = 0.03 + Math.random() * 0.04;
+    g.gain.setValueAtTime(peak, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + len);
+    const pan = ctx.createStereoPanner();
+    pan.pan.value = Math.random() * 1.6 - 0.8;
+    src.connect(f).connect(g).connect(pan).connect(r.out);
+    src.start(t, Math.random() * 2.5, len + 0.01);
+  }
+
+  private stopRain(): void {
+    const r = this.rain;
+    if (!r) return;
+    this.rain = null;
+    try { r.src.stop(); } catch { /* already stopped */ }
+    r.out.disconnect();
+  }
+
   /** Scene end (GameScene.LogOutSuccess stops the looping sounds): every loop and the music, then the context. */
   stopAll(): void {
+    this.stopRain();
     for (const index of [...this.loops.keys()]) this.stop(index);
     this.stopMusic();
     this.closed = true;

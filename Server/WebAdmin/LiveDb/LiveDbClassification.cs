@@ -243,8 +243,9 @@ namespace Server.WebAdmin.LiveDb
             Set(t, R("guild territory maps are bound at world start"), "GTIndex", "GT");
             Set(t, Hook(LiveTiming.Hook, "the mine is rebuilt (mine state resets)"), "MineIndex");
             Set(t, Hook(LiveTiming.Spawn, "sent to clients when they next enter the map; the big-map info is invalidated for clients"), "Title", "BigMap");
-            Set(t, Read(LiveTiming.Spawn, "sent to clients when they next enter the map"), "MiniMap", "Music", "Light", "MapDarkLight",
-                "WeatherParticles", "Fire", "Lightning");
+            Set(t, Read(LiveTiming.Spawn, "sent to clients when they next enter the map"), "MiniMap", "Music", "Fire", "Lightning");
+            Set(t, Read(LiveTiming.Clients, "sent at once to the players on the map (S.MapAtmosphere), to others when they enter it"), "Light",
+                "MapDarkLight", "WeatherParticles");
             Set(t, Read(note: "map flag read through the map's info"), "NoTeleport", "NoReconnect", "NoRandom", "NoEscape", "NoRecall", "NoDrug",
                 "NoPosition", "NoFight", "NoThrowItem", "NoDropPlayer", "NoDropMonster", "NoNames", "NoMount", "NeedBridle", "Fight", "NeedHole",
                 "NoTownTeleport", "NoReincarnation", "NoExperience", "NoGroup", "NoPets", "NoIntelligentCreatures", "NoHero", "RequiredGroup",

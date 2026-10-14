@@ -38,6 +38,25 @@ namespace Client.MirScenes
 
         private LightSetting CurrentLightSetting => Lights == LightSetting.Normal ? GameScene.Scene.Lights : Lights;
 
+        /// <summary>
+        /// A cell's map light: its own Light byte when it lights (1..9), else the light its front sprite always gives
+        /// (fires and lamps placed with no usable Light value: 0, or 10+ which no light path draws). Same value ranges
+        /// as <see cref="CellInfo.Light"/>.
+        /// Keep in step with the web client's cellLight (WebClient/src/game/lighting.ts).
+        /// </summary>
+        public static byte CellLight(CellInfo cell, int fileIndex, int imageIndex)
+        {
+            if (cell.Light > 0 && cell.Light < 10) return cell.Light;
+            if (IsFirePit(fileIndex, imageIndex)) return 5;
+            return cell.Light;
+        }
+
+        /// <summary>Orange firelight for map cell lights whose front sprite is a fire (both lighting modes).</summary>
+        public static readonly Color FireCellLightColour = Color.FromArgb(255, 255, 140, 60);
+
+        /// <summary>The front sprite is a fire: its cell light is <see cref="FireCellLightColour"/>. Keep in step with the web client's cellLightColour.</summary>
+        public static bool IsFirePit(int fileIndex, int imageIndex) => fileIndex == 27 && imageIndex == 7192; // animated fire pit (map 0 at 283,623)
+
         /// <summary>Called on the 100 ms tick: flickering lights in view, or a day/night fade in progress (plus one last frame).</summary>
         private bool EnhancedLightingNeedsRebuild(out string reason)
         {
@@ -264,11 +283,12 @@ namespace Client.MirScenes
                     if (imageIndex == -1) continue;
                     int fileIndex = cell.FrontIndex;
                     if (fileIndex == -1) continue;
-                    if (cell.Light == 0 || cell.Light >= 10) continue;
+                    byte cellLight = CellLight(cell, fileIndex, imageIndex);
+                    if (cellLight == 0 || cellLight >= 10) continue;
 
                     // Light < 10 here, so the classic colour bands (Light / 10 = 1..4) never apply and every map light is
                     // white; here they are warm, flickering lamps.
-                    Color colour = Color.FromArgb(255, 255, 236, 210);
+                    Color colour = IsFirePit(fileIndex, imageIndex) ? FireCellLightColour : Color.FromArgb(255, 255, 236, 210);
                     if (blind) colour = GetBlindLight(colour);
 
                     Point p = new Point(
@@ -278,7 +298,7 @@ namespace Client.MirScenes
                     if (cell.FrontAnimationFrame > 0 && fileIndex >= 0 && fileIndex < Libraries.MapLibs.Length)
                         p.Offset(Libraries.MapLibs[fileIndex].GetOffSet(imageIndex));
 
-                    AddEnhancedLight(p, (cell.Light % 10) * 3, colour, 1.15F * lightScale, x * 7919 + y * 104729 + 1, FlickerAmplitude, 10);
+                    AddEnhancedLight(p, (cellLight % 10) * 3, colour, 1.15F * lightScale, x * 7919 + y * 104729 + 1, FlickerAmplitude, 10);
                 }
             }
         }

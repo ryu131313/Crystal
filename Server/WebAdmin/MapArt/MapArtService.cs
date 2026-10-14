@@ -255,6 +255,28 @@ namespace Server.WebAdmin.MapArt
             }
         }
 
+        /// <summary>
+        /// HTTP thread. The parsed server map file of a MapInfo.FileName (shared parse cache with the tiles), with its path and
+        /// write stamp, or null when the file is missing or unreadable. Needs no client Data folder and no running world.
+        /// </summary>
+        internal static (ClientMapData data, string file, DateTime stamp) MapFile(string fileName)
+        {
+            if (string.IsNullOrWhiteSpace(fileName)) return (null, null, default);
+            string file;
+            DateTime stamp;
+            try
+            {
+                file = MapFilePath(fileName);
+                if (!File.Exists(file)) return (null, file, default);
+                stamp = File.GetLastWriteTimeUtc(file);
+            }
+            catch (Exception)
+            {
+                return (null, null, default);
+            }
+            return (LoadMap(file, stamp), file, stamp);
+        }
+
         private static ClientMapData LoadMap(string file, DateTime stamp)
         {
             var key = file + "|" + stamp.Ticks;

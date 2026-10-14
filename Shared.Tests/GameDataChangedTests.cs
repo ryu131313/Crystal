@@ -81,7 +81,23 @@ public class GameDataChangedTests
         var p = GetServerPacket((short)ServerPacketIds.GameDataChanged);
         Assert.IsType<ServerPackets.GameDataChanged>(p);
         Assert.False(p.Observable);
-        Assert.Equal(ServerPacketIds.GameDataChanged, Enum.GetValues<ServerPacketIds>().Max()); // appended at the end
+        Assert.Equal(279, (int)ServerPacketIds.GameDataChanged); // appended at the end; later packets follow it
+    }
+
+    [Fact]
+    public void MapAtmosphere_round_trips_and_is_known_to_the_factory()
+    {
+        Assert.Equal(280, (int)ServerPacketIds.MapAtmosphere); // appended after GameDataChanged
+        Assert.IsType<ServerPackets.MapAtmosphere>(GetServerPacket((short)ServerPacketIds.MapAtmosphere));
+
+        var sent = new ServerPackets.MapAtmosphere { Lights = LightSetting.Night, MapDarkLight = 3, Weather = WeatherSetting.Fog | WeatherSetting.Rain };
+        var bytes = Write(sent);
+        Assert.Equal(4, bytes.Length); // byte + byte + ushort, as S.MapChanged encodes them
+        var read = new ServerPackets.MapAtmosphere();
+        Assert.Equal(bytes.Length, Read(read, bytes));
+        Assert.Equal(sent.Lights, read.Lights);
+        Assert.Equal(sent.MapDarkLight, read.MapDarkLight);
+        Assert.Equal(sent.Weather, read.Weather);
     }
 
     [Fact]

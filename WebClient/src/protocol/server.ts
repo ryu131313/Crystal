@@ -529,6 +529,8 @@ const decoders = {
   PlayerUpdate: (r: Reader) => ({ ObjectID: r.readU32(), Light: r.readU8(), Weapon: r.readI16(), WeaponEffect: r.readI16(), Armour: r.readI16(), WingEffect: r.readU8() }),
   UserLocation: (r: Reader) => ({ Location: readPoint(r), Direction: r.readU8() }),
   TimeOfDay: (r: Reader) => ({ Lights: r.readU8() }),
+  /** S.MapAtmosphere (LiveDb: the current map's light / dark light / weather changed; same encodings as MapChanged). */
+  MapAtmosphere: (r: Reader) => ({ Lights: r.readU8(), MapDarkLight: r.readU8(), Weather: r.readU16() }),
   ObjectPlayer: (r: Reader) => readObjectPlayer(r),
   ObjectMonster: (r: Reader) => ({
     ObjectID: r.readU32(), Name: r.readString(), NameColour: r.readI32(), Location: readPoint(r), Image: r.readU16(), Direction: r.readU8(),

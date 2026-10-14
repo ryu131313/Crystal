@@ -144,6 +144,12 @@ namespace Server.WebAdmin.LiveDb
             /// <summary>Position-keyed child tables: the length of every parent's list before the batch.</summary>
             public readonly Dictionary<int, int> ParentCounts = new Dictionary<int, int>();
 
+            /// <summary>
+            /// The record of every inserted row by the key it got when it was appended. Deletes of the same batch run after the inserts
+            /// and shift a position-keyed row's key, so the outcome finds the row by its record, not by that key.
+            /// </summary>
+            public readonly Dictionary<int, object> Inserted = new Dictionary<int, object>();
+
             public bool Positional => Table.PositionKeyed && Table.IsChild;
         }
 
@@ -254,6 +260,7 @@ namespace Server.WebAdmin.LiveDb
                         p.Real = GameDataEngine.Apply(ctx, p.Table, p.Ops.Rows, false, p.Ops.NoRev);
                         if (p.Real.Conflicts.Count > 0 || p.Real.Validation.Count > 0 || p.Real.Applied != p.Dry.Applied)
                             throw new InvalidOperationException("[LiveDb] " + p.Table.Endpoint + ": the validated batch did not apply identically");
+                        CaptureInserted(ctx, p);
 
                         p.RealDelete = GameDataEngine.Delete(ctx, p.Table, p.Ops.Deletes, false);
                         if (p.RealDelete.Rejects.Count > 0 || p.RealDelete.Deleted != p.DryDelete.Deleted)
@@ -470,6 +477,18 @@ namespace Server.WebAdmin.LiveDb
             }
 
             return plans;
+        }
+
+        /// <summary>After the inserts and before the deletes: the record of every inserted row, by the key it was given.</summary>
+        private static void CaptureInserted(GameDataContext ctx, TablePlan p)
+        {
+            var wanted = new HashSet<int>();
+            foreach (var r in p.Real.Rows)
+                if (r.Kind == "insert") wanted.Add(r.NewIndex);
+            if (wanted.Count == 0) return;
+
+            foreach (var row in p.Table.Rows(ctx))
+                if (wanted.Contains(row.Index) && !p.Inserted.ContainsKey(row.Index)) p.Inserted[row.Index] = row.Entity;
         }
 
         private static void CaptureRevs(GameDataContext ctx, TablePlan p)
@@ -753,7 +772,17 @@ namespace Server.WebAdmin.LiveDb
             foreach (var r in p.Real.Rows)
             {
                 byIndex.TryGetValue(r.NewIndex, out var current);
-                var row = new LiveDbRowOutcome { Endpoint = ep, Index = r.Index, NewIndex = r.NewIndex, Kind = r.Kind, Name = r.Name };
+                var newIndex = r.NewIndex;
+                if (r.Kind == "insert" && p.Inserted.TryGetValue(r.NewIndex, out var entity))
+                {
+                    // A delete in this batch may have shifted the appended row of a position-keyed list: find it by its record.
+                    current = null;
+                    foreach (var candidate in byIndex.Values)
+                        if (ReferenceEquals(candidate.Entity, entity)) { current = candidate; break; }
+                    if (current != null) newIndex = current.Index;
+                }
+
+                var row = new LiveDbRowOutcome { Endpoint = ep, Index = r.Index, NewIndex = newIndex, Kind = r.Kind, Name = r.Name };
                 p.RevBefore.TryGetValue(r.Index, out var revBefore);
                 row.RevBefore = revBefore;
                 row.RevAfter = current != null ? p.Table.Rev(current) : null;

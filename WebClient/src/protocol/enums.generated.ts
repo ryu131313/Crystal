@@ -282,6 +282,7 @@ export const ServerPacketIds = {
   StorageUnlockResult: 277,
   StoragePasswordResult: 278,
   GameDataChanged: 279,
+  MapAtmosphere: 280,
 } as const;
 export type ServerPacketIds = (typeof ServerPacketIds)[keyof typeof ServerPacketIds];
 export const ServerPacketIdsName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(ServerPacketIds).map(([k, v]) => [v, k]));

@@ -76,6 +76,11 @@ export class MirAnimated extends MirImage {
     this.nextFadeTime = now + this.fadeInDelay;
     this.animated = opts.animated ?? false;
     this.streamFrames = opts.streamFrames ?? false;
+    // MirAnimatedControl.DisplayLocation adds the image offset, so on the desktop its hit box sits where the picture is
+    // drawn. Here the box stays at Location with the picture's size, so an offset preview (NewCharacterDialog's
+    // CharacterDisplay at 120,250, 196 x 303) covered the OK button at 160,425 and swallowed its clicks. These previews
+    // take no input: let clicks through.
+    if (opts.useOffset) this.el.style.pointerEvents = "none";
     this.preload();
     track(this);
   }

@@ -112,6 +112,7 @@ Solution folders: `Utils` (AutoPatcherAdmin, AutoPatcherAdminV2, LibraryEditor, 
 | Player launcher/patcher | `Client/Forms/AMain.cs` (namespace `Launcher`), chosen in `Client/Program.cs` when `[Launcher] Enabled` | Downloads `{Settings.P_Host}PList.gz` + `*.gz`; covered briefly in `client.md` §2.1 |
 | Patcher web page | `PatcherWebSite/mir2-patchsite/` | Static HTML/CSS |
 | `.Lib` tools | `LibraryEditor/` (`Graphics/MLibraryV2.cs`), `LibraryViewer/` | Reader side + format rules in `client.md` §2.5 / §3.3 |
+| Weapon art | `tools/weaponpose/` (Python 3, stdlib only; README) | Poses one upright weapon picture into the 832 frames of a `CWeapon` library using a reference weapon's lines; read-only on the client folder. Browser port in the Scene Lab Weapon tester (`WebClient/play/weaponPose.ts`) |
 
 Async/Task code is fine in these tools; none of them touch game state. Read the source narrowly and ask before large changes.
 
@@ -168,7 +169,7 @@ What are you editing?
 | Server address for players | Client §2.6, §2.7 (`[Network] UseConfig/IPAddress/Port`) | Server §2.5 (`Settings.IPAddress`/`Port`) |
 
 **Packet rule (Crystal):** a packet lives in **four** places, all in one commit:
-1. ID appended at the **end** of `ServerPacketIds` / `ClientPacketIds` in `Shared/Enums.cs` (~L1434 / ~L1717). IDs are **implicit ordinals** (declaration position) — inserting mid-enum renumbers every later ID. Current last members: `GameDataChanged` (279, LiveDb push) / `RemoveStoragePassword`; re-check before relying on an ordinal.
+1. ID appended at the **end** of `ServerPacketIds` / `ClientPacketIds` in `Shared/Enums.cs` (~L1434 / ~L1717). IDs are **implicit ordinals** (declaration position) — inserting mid-enum renumbers every later ID. Current last members: `MapAtmosphere` (280, LiveDb map light / weather) / `RemoveStoragePassword`; re-check before relying on an ordinal.
 2. `sealed class` in `Shared/ServerPackets.cs` (`S`) / `Shared/ClientPackets.cs` (`C`) with `ReadPacket`/`WritePacket` in identical field order and types.
 3. A `case` in `Shared/Packet.cs` `GetServerPacket` / `GetClientPacket` — **a missing case makes the receiver discard its whole receive buffer, silently.**
 4. Handler: server `MirConnection.ProcessPacket` (`Server/MirNetwork/MirConnection.cs`) → usually `PlayerObject`/`HumanObject`; client `GameScene.ProcessPacket` (or `LoginScene`/`SelectScene`/base `MirScene.ProcessPacket`).
@@ -273,7 +274,7 @@ Server details: `server.md` §2.3, §3.2. Client details: `client.md` §2.1, §3
 | `Knowledgebase/StressClient/` | `stressclient.md` (2026-10-10): the bot load generator, scratch servers, the baseline script |
 | `Knowledgebase/WebClient/` | `webclient.md` (2026-10-12): browser client + WebRelay, packet-port recipe, known gaps (roadmap W) |
 | `Knowledgebase/Websites/` | Empty placeholder (web admin rules live in `server.md` §2.7 / §3.7 / §4.10 + `Server/WebAdmin/README.md`) |
-| `Knowledgebase/Future Ideas/` | `Roadmap-Phase-Notes.md` (per-phase notes for `roadmap.md`), the overnight decisions log (`Overnight-Log-2026-10-10.md`, D1–D39+), `X1-Security-Review.md`, `Packet-Mutation-Audit.md`, `Review-P2-P6-Threading.md`, `P7-SQLite-Export.md` |
+| `Knowledgebase/Future Ideas/` | `Roadmap-Phase-Notes.md` (per-phase notes for `roadmap.md`), the overnight decisions log (`Overnight-Log-2026-10-10.md`, D1–D39+), `X1-Security-Review.md`, `Packet-Mutation-Audit.md`, `Review-P2-P6-Threading.md`, `P7-SQLite-Export.md`, `Ametrine-Client-Comparison.md` (2026-10-13: what the Mir Ametrine client does better than ours, adoption order — ideas only) |
 | `Knowledgebase/Future Optimisation/` | Baselines (`Baseline-2026-10-10.md`) and one file per measured P9 change (`P9-NN-*.md`) |
 | `Knowledgebase/Archived and Completed/` | Empty placeholder (finished plans go here) |
 | `Knowledgebase/Runbook.md` | Deploy, rollback, restore, operator mitigations, scratch servers, turning on v2 hashes |

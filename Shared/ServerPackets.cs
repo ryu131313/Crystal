@@ -6946,4 +6946,34 @@ namespace ServerPackets
         /// <summary>Bytes the section counts and <see cref="Last"/> add to a packet (plus the 4-byte packet header).</summary>
         public const int FixedOverhead = 4 + 9 * sizeof(int) + 1;
     }
+
+    /// <summary>
+    /// LiveDb (web admin): the current map's light, dark-light colour and weather changed while the player is on it. Same fields and
+    /// encodings as <see cref="MapChanged"/>; the client applies them in place (no map reload).
+    /// </summary>
+    public sealed class MapAtmosphere : Packet
+    {
+        public override short Index
+        {
+            get { return (short)ServerPacketIds.MapAtmosphere; }
+        }
+
+        public LightSetting Lights;
+        public byte MapDarkLight;
+        public WeatherSetting Weather = WeatherSetting.None;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Lights = (LightSetting)reader.ReadByte();
+            MapDarkLight = reader.ReadByte();
+            Weather = (WeatherSetting)reader.ReadUInt16();
+        }
+
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write((byte)Lights);
+            writer.Write(MapDarkLight);
+            writer.Write((ushort)Weather);
+        }
+    }
 }

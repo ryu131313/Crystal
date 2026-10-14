@@ -456,6 +456,7 @@ internal static class Fixtures
             MapInfoInvalidated = { 3 },
             Last = true,
         };
+        yield return new S.MapAtmosphere { Lights = LightSetting.Night, MapDarkLight = 2, Weather = WeatherSetting.Fog | WeatherSetting.Rain };
     }
 
     private static IEnumerable<Packet> ClientSamples()

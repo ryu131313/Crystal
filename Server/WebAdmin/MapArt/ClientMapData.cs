@@ -40,6 +40,8 @@ namespace Server.WebAdmin.MapArt
         public ArtCell[,] MapCells;
         /// <summary>The parser error, if any (the client logs it and keeps the partly read cells; so do we).</summary>
         public string Error;
+        /// <summary>The old-school format (type 0), whose middle-tile 0x8000 bit is a wall on the server (Map.LoadMapCellsv0, LowWall).</summary>
+        public bool OldSchool;
         private readonly byte[] Bytes;
 
         public ClientMapData(byte[] bytes)
@@ -119,6 +121,7 @@ namespace Server.WebAdmin.MapArt
 
         private void LoadMapType0()
         {
+            OldSchool = true;
             try
             {
                 int offset = 0;

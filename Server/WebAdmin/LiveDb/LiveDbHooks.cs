@@ -589,6 +589,30 @@ namespace Server.WebAdmin.LiveDb
             }
         }
 
+        public int PushMapAtmosphere(ICollection<MapInfo> mainMaps)
+        {
+            if (mainMaps == null || mainMaps.Count == 0) return 0;
+            var sent = 0;
+            var main = Envir.Main;
+            lock (main.Connections) // the accept callback adds under this lock (server.md 3.2)
+            {
+                for (var i = main.Connections.Count - 1; i >= 0; i--)
+                {
+                    var c = main.Connections[i];
+                    if (c == null || c.Disconnecting) continue;
+
+                    PlayerObject player = c.Stage == GameStage.Game ? c.Player : c.Stage == GameStage.Observer ? c.Observing?.Player : null;
+                    var info = player?.CurrentMap?.Info;
+                    if (info == null || !mainMaps.Contains(info)) continue;
+
+                    c.Enqueue(new S.MapAtmosphere { Lights = info.Light, MapDarkLight = info.MapDarkLight, Weather = info.WeatherParticles });
+                    sent++;
+                }
+            }
+
+            return sent;
+        }
+
         public LiveDbPushResult Push(LiveDbPushChanges changes)
         {
             var total = new LiveDbPushResult();

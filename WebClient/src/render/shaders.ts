@@ -742,14 +742,92 @@ void main() {
 }
 `;
 
-// Crystal D3D11Backend.cs LightComposite_PS: the light map soft-knees above 1 towards 2 and is output halved; the (DstColor, SrcColor) blend doubles it,
-// so the result is scene * light with light in 0..2.
+// Crystal D3D11Backend.cs LightComposite_PS: the light map soft-knees above 1 and is output halved; the (DstColor, SrcColor) blend doubles it,
+// so the result is scene * light. Web change (2026-10-13): the knee tops out at 1.35, not 2 - a torch peaks near 5.7 in the light map, and
+// the desktop's 2x knee blew out a white disc over most of its radius.
 export const LIGHT_COMPOSITE_PS = FRAGMENT_PREAMBLE + `
+const float KNEE = 0.35;
 void main() {
   vec3 l = max(texture(SpriteTex, vUv).rgb, vec3(0.0));
   vec3 over = max(l - 1.0, vec3(0.0));
-  l = min(l, vec3(1.0)) + over / (1.0 + over);
+  l = min(l, vec3(1.0)) + over * KNEE / (KNEE + over);
   outColor = vec4(l * 0.5, 0.5);
+}
+`;
+
+// Web-only (2026-10-13, idea from the Mir Ametrine client's dithered-shadow fill; rule re-derived on Crystal art): turns the art's baked
+// checkerboard shadow into a flat fill. Crystal's shadow texels are opaque near-black ((16,8,8) monsters, (0,4,0) armour). A shadow texel
+// whose orthogonal neighbours are (nearly) all clear is dither and becomes the fill; a clear texel fills from its orthogonal shadow neighbours
+// (full between two opposite ones, so 2-3 px bands fill too). Dark body outlines have shadow-coloured orthogonal neighbours and stay as drawn.
+// Neighbours are texelFetch'd: atlas gutters are transparent, and taps off the page read clear. ColorOp 1 (silhouettes) passes through unchanged.
+// The fill's alpha carries vCol.a, so callers put opacity in the vertex colour (the OpacityFactor blend ignores shader alpha).
+// Tuning (2026-10-14, scene lab): plain uniforms of this program only, set by WebGl2Renderer.setShadowFill from mapView.ts shadowTuning.
+//   ShadowColour: fill rgb + strength (the original look is black at 0.42).
+//   ShadowMode.x = 1: soft edge; the fill is a 1-2-1 tent average of the 3x3 fills around the texel, body / outline texels left out (21 taps).
+//   ShadowMode.y = 1: drop this layer's shadow (a player's weapon / hair layers, so the layers' shadows do not stack).
+export const SHADOW_FILL_PS = FRAGMENT_PREAMBLE + `
+uniform vec4 ShadowColour;
+uniform vec2 ShadowMode;
+// The window texels are named variables, not a local array: a dynamically indexed local array compiles to a slow indexable temp under ANGLE / D3D11
+// (it cost as much as the whole rest of the frame's sprites, 2026-10-14). T(x, y) = the texel x right, y down of the fragment's.
+bool isShadow(vec4 p) {
+  float hi = max(p.r, max(p.g, p.b));
+  return p.a > 0.4 && hi < 0.16 && hi - min(p.r, min(p.g, p.b)) < 0.08;
+}
+vec4 texelAt(ivec2 c, ivec2 size) {
+  return any(lessThan(c, ivec2(0))) || any(greaterThanEqual(c, size)) ? vec4(0.0) : texelFetch(SpriteTex, c, 0);
+}
+// Fill strength 0..1 of texel c with orthogonal neighbours l, r, u, d, or -1 for a texel drawn as is (body, outline).
+float fillOf(vec4 c, vec4 l, vec4 r, vec4 u, vec4 d) {
+  if (isShadow(c)) {
+    float clear = (l.a < 0.05 ? 1.0 : 0.0) + (r.a < 0.05 ? 1.0 : 0.0) + (u.a < 0.05 ? 1.0 : 0.0) + (d.a < 0.05 ? 1.0 : 0.0);
+    return clear >= 3.0 ? 1.0 : -1.0;
+  }
+  if (c.a >= 0.05) return -1.0;
+  bool sl = isShadow(l), sr = isShadow(r), su = isShadow(u), sd = isShadow(d);
+  float around = float(sl) + float(sr) + float(su) + float(sd);
+  return (sl && sr) || (su && sd) ? 1.0 : smoothstep(1.5, 3.5, around);
+}
+// One neighbour's fill g at tent weight k into the soft average (body / outline texels, g < 0, are left out).
+void tent(float g, float k, inout float sum, inout float weight) {
+  if (g >= 0.0) { sum += g * k; weight += k; }
+}
+#define T(x, y) texelAt(at + ivec2(x, y), size)
+void main() {
+  vec4 t = texture(SpriteTex, vUv);
+  vec4 c = (ColorOp == 1u) ? vec4(vCol.rgb, t.a * vCol.a) : t * vCol;
+  if (ColorOp == 0u) {
+    ivec2 size = textureSize(SpriteTex, 0);
+    ivec2 at = ivec2(floor(vUv * vec2(size)));
+    // Fetched in rings, each only when the result can still need it: the centre alone settles a body / outline texel (drawn as is, most of a
+    // sprite); the four around it settle the texel's own fill; the soft average needs the rest (21 texels in all).
+    vec4 c0 = T(0, 0);
+    if (c0.a < 0.05 || isShadow(c0)) {
+      vec4 l1 = T(-1, 0), r1 = T(1, 0), u1 = T(0, -1), d1 = T(0, 1);
+      float f = fillOf(c0, l1, r1, u1, d1);
+      if (f >= 0.0) {
+        if (ShadowMode.x > 0.5) {
+          // the 1-2-1 tent over the 3x3 fills around the texel
+          vec4 l2 = T(-2, 0), r2 = T(2, 0), u2 = T(0, -2), d2 = T(0, 2);
+          vec4 ul = T(-1, -1), ur = T(1, -1), dl = T(-1, 1), dr = T(1, 1);
+          float sum = f * 4.0, weight = 4.0; // the centre always counts, so weight >= 4
+          tent(fillOf(l1, l2, c0, ul, dl), 2.0, sum, weight);
+          tent(fillOf(r1, c0, r2, ur, dr), 2.0, sum, weight);
+          tent(fillOf(u1, ul, ur, u2, c0), 2.0, sum, weight);
+          tent(fillOf(d1, dl, dr, c0, d2), 2.0, sum, weight);
+          tent(fillOf(ul, T(-2, -1), u1, T(-1, -2), l1), 1.0, sum, weight);
+          tent(fillOf(ur, u1, T(2, -1), T(1, -2), r1), 1.0, sum, weight);
+          tent(fillOf(dl, T(-2, 1), d1, l1, T(-1, 2)), 1.0, sum, weight);
+          tent(fillOf(dr, d1, T(2, 1), r1, T(1, 2)), 1.0, sum, weight);
+          f = sum / weight;
+        }
+        c = vec4(ShadowColour.rgb, ShadowMode.y > 0.5 ? 0.0 : ShadowColour.a * f * vCol.a);
+      }
+    }
+  }
+  c.rgb = ApplyRecolour(c.rgb);
+  ApplyAlphaTest(c);
+  outColor = c;
 }
 `;
 
@@ -768,4 +846,5 @@ export const FRAGMENT_PROGRAMS: Record<string, string> = {
   Grayscale: GRAYSCALE_PS,
   Light: LIGHT_PS,
   LightComposite: LIGHT_COMPOSITE_PS,
+  ShadowFill: SHADOW_FILL_PS,
 };

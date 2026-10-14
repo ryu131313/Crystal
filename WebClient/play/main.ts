@@ -9,10 +9,12 @@ import { loadManifest } from "../src/assets/manifest.ts";
 void loadManifest(); // asset versions for every later request (src/assets/manifest.ts)
 
 // The interface is laid out in desktop pixels on the stage (1024 x 768 for the account screens, the game resolution in game; src/ui/mir/controls.ts); scale it to the window.
+// Never past the scale a 1920 x 1080 window would give: a bigger window centres the stage on the page background instead of stretching it.
+const MAX_WIDTH = 1920, MAX_HEIGHT = 1080;
 const stage = document.getElementById("stage") as HTMLElement;
 const fit = () => {
   const w = stage.offsetWidth || 1024, h = stage.offsetHeight || 768; // game.ts sets the game resolution (up to 1920 x 1080)
-  const s = Math.min(window.innerWidth / w, window.innerHeight / h);
+  const s = Math.min(Math.min(window.innerWidth, MAX_WIDTH) / w, Math.min(window.innerHeight, MAX_HEIGHT) / h);
   stage.style.transform = `scale(${s})`;
   stage.style.left = Math.max(0, (window.innerWidth - w * s) / 2) + "px";
   stage.style.top = Math.max(0, (window.innerHeight - h * s) / 2) + "px";

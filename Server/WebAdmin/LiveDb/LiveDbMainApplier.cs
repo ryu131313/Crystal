@@ -58,6 +58,12 @@ namespace Server.WebAdmin.LiveDb
         /// <summary>Queues the client push (S.GameDataChanged) for every connection holding a changed row.</summary>
         LiveDbPushResult Push(LiveDbPushChanges changes);
 
+        /// <summary>
+        /// Sends S.MapAtmosphere (Light, MapDarkLight, WeatherParticles) to every player and observer whose current map runs on one of
+        /// these Main MapInfos. Returns the number of connections sent to.
+        /// </summary>
+        int PushMapAtmosphere(ICollection<MapInfo> mainMaps);
+
         // ---- Batch C: world tables. Hooks returning an Action return the compensation for a rollback (null = nothing to undo).
 
         /// <summary>Can an NPC stand on this cell of the running world? (Also asked by the engine before the save.)</summary>
@@ -478,6 +484,8 @@ namespace Server.WebAdmin.LiveDb
             public readonly List<GameShopItem> PushShop = new List<GameShopItem>();
             public readonly List<int> PushShopRemoved = new List<int>();
             public readonly HashSet<MapInfo> MapsInvalidated = new HashSet<MapInfo>();
+            /// <summary>Maps whose Light / MapDarkLight / WeatherParticles changed: S.MapAtmosphere to the players on them.</summary>
+            public readonly HashSet<MapInfo> MapAtmosphere = new HashSet<MapInfo>();
 
             public static void AddOnce<T>(List<T> list, T value) where T : class
             {
@@ -567,6 +575,20 @@ namespace Server.WebAdmin.LiveDb
                     {
                         result.PushFailed = true;
                         WebAdminLog.Error(ex, "[LiveDb] the client push failed; the change is applied, clients see it after a relog");
+                    }
+
+                    // the players on a changed map see its new light / weather at once (others get it from S.MapChanged on entry)
+                    if (work.MapAtmosphere.Count > 0)
+                    {
+                        try
+                        {
+                            hooks.PushMapAtmosphere(work.MapAtmosphere);
+                        }
+                        catch (Exception ex)
+                        {
+                            result.PushFailed = true;
+                            WebAdminLog.Error(ex, "[LiveDb] the map light / weather push failed; the change is applied, players see it on their next map entry");
+                        }
                     }
                 }
             }
@@ -748,6 +770,7 @@ namespace Server.WebAdmin.LiveDb
                 case MapInfo map:
                     if (TryGet(u, "MineIndex", out _)) Work.AddOnce(work.Mines, map);
                     if (TryGet(u, "Title", out _) || TryGet(u, "BigMap", out _)) InvalidateWithSources(work, main, map);
+                    if (TryGet(u, "Light", out _) || TryGet(u, "MapDarkLight", out _) || TryGet(u, "WeatherParticles", out _)) work.MapAtmosphere.Add(map);
                     break;
                 case SafeZoneInfo zone:
                     Work.AddOnce(work.SafeZoneMaps, row.Parent as MapInfo);

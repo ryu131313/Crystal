@@ -136,9 +136,24 @@ export function lib(path: string): CrystalLib | null | undefined {
       return null;
     });
     libs.set(path, p);
-    p.then((l) => opened.set(path, l));
+    p.then((l) => { if (libs.get(path) === p) opened.set(path, l); }); // not if setLocalLib replaced it meanwhile
   }
   return undefined;
+}
+
+/** Puts an in-memory library in place of `path` (the scene lab's weapon tester; the game never calls it) and drops
+ *  its resident sprites, so the next draw uploads the new art. */
+export function setLocalLib(path: string, l: CrystalLib): void {
+  const p = Promise.resolve(l);
+  libs.set(path, p);
+  opened.set(path, l);
+  const prefix = path + "#";
+  for (const [key, s] of sprites) {
+    if (!key.startsWith(prefix)) continue;
+    if (s?.tex) renderer?.releaseTexture(s.tex);
+    sprites.delete(key);
+    failures.delete(key);
+  }
 }
 
 export function libAsync(path: string): Promise<CrystalLib | null> {
@@ -211,6 +226,7 @@ const MAX_FAILS = 3;
 /** Decode `index` (already fetched or fetching) and keep it on the GPU. */
 function settle(l: CrystalLib, key: string, index: number): Promise<void> {
   return l.image(index).then((img) => {
+    if (opened.get(key.slice(0, key.lastIndexOf("#"))) !== l) return; // replaced by setLocalLib while loading
     sprites.set(key, img && renderer ? upload(img, hitMaskPath(key)) : null);
     l.evict(index); // pixels live on the GPU now
   }, () => {

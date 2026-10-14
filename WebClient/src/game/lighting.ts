@@ -19,8 +19,27 @@ import { MAP_LIBS, sprite } from "./libraries.ts";
 import { CELL_W, CELL_H, type MapObj } from "./objects.ts";
 import { Missile, type Effect } from "./effects.ts";
 import { gameSettings } from "./settings.ts";
-import { EnhancedLightLayer } from "./lightingEnhanced.ts";
+import { EnhancedLightLayer, lightTuning } from "./lightingEnhanced.ts";
+import type { PointLight } from "./atmosphere.ts";
+import type { ReflectionSource } from "../render/postFx.ts";
 import { webUrl } from "../assets/root.ts";
+
+/** MapControl.CellLight: a cell's map light, its own Light byte when it lights (1..9), else the light its front sprite always gives (fires and
+ *  lamps placed with no usable Light value: 0, or 10+ which no light path draws). Keep in step with Client/MirScenes/MapControl.Lighting.cs. */
+export function cellLight(map: MapCells, i: number, fileIndex: number, imageIndex: number): number {
+  const light = map.light[i]!;
+  if (light > 0 && light < 10) return light;
+  if (isFirePit(fileIndex, imageIndex)) return 5;
+  return light;
+}
+
+/** MapControl.FireCellLightColour: orange firelight for map cell lights whose front sprite is a fire (both lighting modes). */
+export const FIRE_CELL_LIGHT: Rgb = [255, 140, 60];
+
+/** MapControl.IsFirePit: the front sprite is a fire, so its cell light is FIRE_CELL_LIGHT. Keep in step with the desktop. */
+export function isFirePit(fileIndex: number, imageIndex: number): boolean {
+  return fileIndex === 27 && imageIndex === 7192; // animated fire pit (map 0 at 283,623)
+}
 
 /** DXManager.LightSizes. */
 export const LIGHT_SIZES: [number, number][] = [
@@ -50,6 +69,8 @@ export function effectiveSetting(s: LightState): number {
 export interface LightSource {
   /** ObjectID: the Enhanced flicker seed. */
   readonly id?: number;
+  /** SpellObject.Spell (the atmosphere's heat haze reads it). */
+  readonly spell?: number;
   light: number;
   drawLocation: { x: number; y: number };
 }
@@ -72,6 +93,11 @@ export interface LightContext {
   viewRangeY: number;
   /** CMain.Time (the page clock, performance.now ms). */
   now: number;
+  /** Web atmosphere (atmosphere.ts, Enhanced only): extra lights, a whole-screen flash added to the ambient (0..255 units), and whether they need
+   *  the light pass in daylight. Classic ignores them. */
+  extraLights?: readonly PointLight[];
+  screenFlash?: Rgb | null;
+  forceLightPass?: boolean;
 }
 
 // — Blindness: MapObject.User.BlindCount / BlindTime —
@@ -218,10 +244,11 @@ export class LightLayer {
         if (imageIndex === -1) continue;
         const fileIndex = map.frontIndex[i];
         if (fileIndex === -1) continue;
-        const cellLight = map.light[i];
-        if (cellLight <= 0 || cellLight >= 10) continue;
-        let k = (cellLight % 10) * 3;
-        const colour: Rgb = ([[255, 255, 255], [255, 255, 255], [120, 180, 255], [255, 180, 120], [22, 160, 5]] as Rgb[])[Math.trunc(cellLight / 10)] ?? WHITE_RGB;
+        const light = cellLight(map, i, fileIndex, imageIndex);
+        if (light <= 0 || light >= 10) continue;
+        let k = (light % 10) * 3;
+        const colour: Rgb = isFirePit(fileIndex, imageIndex) ? FIRE_CELL_LIGHT
+          : ([[255, 255, 255], [255, 255, 255], [120, 180, 255], [255, 180, 120], [22, 160, 5]] as Rgb[])[Math.trunc(light / 10)] ?? WHITE_RGB;
         let px = (x + c.offSetX - user.movement.X) * CELL_W + user.offsetMove.X;
         let py = (y + c.offSetY - user.movement.Y) * CELL_H + user.offsetMove.Y + 32;
         if (map.frontAnimationFrame[i] > 0) {
@@ -262,6 +289,16 @@ export class SceneLights {
     return gameSettings.Lighting === "Enhanced" && this.enhanced.available;
   }
 
+  /** The Enhanced light map as last drawn (web atmosphere fog), or null. */
+  get enhancedLightMap(): RenderTargetRef | null {
+    return this.enhanced.lightMap;
+  }
+
+  /** The lamps of the last Enhanced light pass (web atmosphere puddle reflections). */
+  get enhancedReflections(): readonly ReflectionSource[] {
+    return this.enhanced.reflections;
+  }
+
   /** DXManager.EnhancedLightingAvailable (the @light new check). */
   get enhancedAvailable(): boolean {
     return this.enhanced.available;
@@ -288,12 +325,12 @@ export class SceneLights {
 
   /** MapControl.CreateTexture's light step. Classic: DrawLights unless it is Day (blindness forces it). Enhanced: UpdateAmbient every frame,
    *  DrawEnhancedLights unless it is Day with no fade running (blindness forces it). Returns true when it changed GL blend state. */
-  draw(batch: SpriteBatch, c: LightContext): boolean {
+  draw(batch: SpriteBatch, c: LightContext, sceneTarget: RenderTargetRef | null = null): boolean {
     const blinded = trackBlindness(c.user.poison);
-    const restore = this.grayscale ? this.scene : null;
+    const restore = sceneTarget ?? (this.grayscale ? this.scene : null); // the atmosphere's scene target, else the grayscale one, else the canvas
     if (this.useEnhanced) {
       this.enhanced.updateAmbient(c.setting, c.mapDarkLight, c.map, c.now);
-      if (c.setting === LightSetting.Day && !this.enhanced.fading(c.now) && !blinded) return false;
+      if (c.setting === LightSetting.Day && !this.enhanced.fading(c.now) && !blinded && !c.forceLightPass && !lightTuning.ambient) return false;
       this.enhanced.draw(batch, c, blinded, restore);
       return true;
     }

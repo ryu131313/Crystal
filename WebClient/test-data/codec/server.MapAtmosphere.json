@@ -1,0 +1,11 @@
+{
+  "name": "MapAtmosphere",
+  "dir": "server",
+  "id": 280,
+  "hex": "0800180104024100",
+  "fields": {
+    "Lights": 4,
+    "MapDarkLight": 2,
+    "Weather": 65
+  }
+}

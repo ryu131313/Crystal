@@ -158,6 +158,14 @@ namespace Server.WebAdmin.Tests
                 return mainInfos.Count;
             }
 
+            public readonly List<MapInfo> AtmosphereMaps = new List<MapInfo>();
+
+            public int PushMapAtmosphere(ICollection<MapInfo> mainMaps)
+            {
+                AtmosphereMaps.AddRange(mainMaps);
+                return mainMaps.Count;
+            }
+
             public LiveDbPushResult Push(LiveDbPushChanges changes)
             {
                 if (ThrowOnPush) throw new InvalidOperationException("push failed");
@@ -1325,6 +1333,26 @@ namespace Server.WebAdmin.Tests
         }
 
         [Fact]
+        public void PositionKeyed_InsertAndDeleteInOneBatch_IsLive_AndReportsTheInsertsKeyAfterTheDelete()
+        {
+            // The Maps editor sends one batch per map: a new zone (appended at position 2) and the delete of position 0.
+            var rig = new Rig();
+            var r = rig.Run("bc-21b", "mapsafezones", "[{\"Index\":-1,\"MapIndex\":1,\"Location_X\":70,\"Location_Y\":70,\"Size\":4}]", deletes: "10000");
+
+            Assert.Equal("applied", r.Status);
+            var ins = r.Rows.Single(x => x.Kind == "insert");
+            Assert.True(ins.RowLive, ins.RowReason);
+            Assert.Equal(10001, ins.NewIndex);   // position 1 once position 0 is gone
+            Assert.NotNull(ins.RevAfter);
+            Assert.True(r.Rows.Single(x => x.Kind == "delete").RowLive);
+
+            Assert.Equal(new[] { new Point(20, 20), new Point(70, 70) }, rig.Edit.Maps[0].SafeZones.Select(z => z.Location));
+            Assert.Equal(new[] { new Point(20, 20), new Point(70, 70) }, rig.Main.Maps[0].SafeZones.Select(z => z.Location));
+            Assert.False(rig.Env.State.IsDiverged("maps#1"));
+            Assert.Empty(r.RestartFields);
+        }
+
+        [Fact]
         public void PositionKeyedChildren_ThatNoLongerLineUp_AreRefused_AndMarkTheParent()
         {
             var rig = new Rig();
@@ -1407,6 +1435,20 @@ namespace Server.WebAdmin.Tests
             var push = Assert.Single(rig.Hooks.Pushes);
             Assert.Contains(rig.Main.Maps[1], push.MapsInvalidated);
             Assert.Contains(rig.Main.Maps[0], push.MapsInvalidated); // map 1 shows a movement to map 2 on its big map
+        }
+
+        [Fact]
+        public void Maps_WeatherAndLightArePushedToThePlayersOnTheMap()
+        {
+            var rig = new Rig();
+            var r = rig.Run("bc-31w", "maps", Upd(rig, "maps", 2, "\"WeatherParticles\":65,\"Light\":4"));
+
+            Assert.Equal("applied", r.Live.Outcome);
+            Assert.Equal(WeatherSetting.Fog | WeatherSetting.Rain, rig.Main.Maps[1].WeatherParticles);
+            Assert.Equal(new[] { rig.Main.Maps[1] }, rig.Hooks.AtmosphereMaps);
+
+            rig.Run("bc-31m", "maps", Upd(rig, "maps", 2, "\"Music\":7")); // read on entry only: no atmosphere push
+            Assert.Single(rig.Hooks.AtmosphereMaps);
         }
 
         [Fact]
@@ -1648,7 +1690,7 @@ namespace Server.WebAdmin.Tests
             Assert.Contains("flushUnsaved", js);
             Assert.Contains("function batchIdFor(", js);
             Assert.Contains("__rev: r.__rev", js);
-            Assert.Contains("if (liveDbEnabled()) return persistBatch(endpoint, rows);", js);
+            Assert.Contains("if (liveDbEnabled()) return persistBatch(endpoint, rows, grid);", js);
             Assert.Contains("gd-live-badge", js);
             Assert.DoesNotMatch(new Regex(@"(?<![\w.$])fetch\s*\("), js);
         }

@@ -46,7 +46,9 @@ export type SpriteShaderMode =
   | "ClawSlash" | "RipClaw" | "DruidFx"
   // Crystal D3D11Backend Grayscale_PS / Light_PS / LightComposite_PS (DXManager.SetGrayscale, the Enhanced lighting). OPTIONAL: a failed link means "no
   // grayscale" (D3D11Backend.Effective falls back to None) or "no Enhanced lighting" (the Classic lights draw instead).
-  | "Grayscale" | "Light" | "LightComposite";
+  | "Grayscale" | "Light" | "LightComposite"
+  // Web-only smooth shadows (shaders.ts SHADOW_FILL_PS). OPTIONAL: a failed link keeps the dithered shadows (Default).
+  | "ShadowFill";
 
 /** The six `Effect` vec4s of the three overlay programs, keyed by declared name so `packEffect` resolves each offset through the ONE table in shaders.ts. Absent keys stay zero. */
 export type EffectOverlayUniforms = Partial<Record<

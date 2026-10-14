@@ -25,6 +25,7 @@
     market: { label: 'Market', group: 'Players' },
     namelists: { label: 'Name Lists', group: 'Players' },
     gamedata: { label: 'Game Data', group: 'Game Data' },
+    mapeditor: { label: 'Maps', group: 'Game Data' },
     scripts: { label: 'Scripts & Files', group: 'Game Data' },
     backups: { label: 'Backups & History', group: 'Game Data' },
     livedb: { label: 'LiveDb History', group: 'Game Data' },

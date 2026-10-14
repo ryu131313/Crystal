@@ -364,3 +364,5 @@ FodyWeavers.xsd
 /Build
 /.idea/.idea.Legend of Mir/.idea
 /.idea/config
+# weapon art made with tools/weaponpose (user files, not tracked)
+WeaponArt/

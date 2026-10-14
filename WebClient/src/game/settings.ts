@@ -10,6 +10,14 @@ export interface GameSettings {
   SkillMode: boolean; SkillBar: boolean; Effect: boolean; LevelEffect: boolean; DropView: boolean; NameView: boolean; HPView: boolean;
   TransparentChat: boolean; ModeView: boolean; DuraView: boolean; DisplayDamage: boolean; TargetDead: boolean; HighlightTarget: boolean;
   ExpandedBuffWindow: boolean; ExpandedHeroBuffWindow: boolean; DisplayBodyName: boolean; NewMove: boolean;
+  /** Web-only: glide moving objects (and the camera) between animation frames (objects.ts updateMovement). */
+  SmoothMove: boolean;
+  /** Web-only: glow, spell flashes, lit embers and heat haze on top of Enhanced lighting (atmosphere.ts). */
+  Atmosphere: boolean;
+  /** Web-only: the art's checkerboard shadows (bodies and map objects) draw as a soft-edged solid shadow (shaders.ts SHADOW_FILL_PS, mapView.ts shadowTuning). */
+  SmoothShadows: boolean;
+  /** Web-only: a colour grade over the map, slightly more contrast and vibrance (render/grade.ts COZY_GRADE). */
+  CozyMode: boolean;
   // [Chat] (ChatOptionDialog: which chat types show) and [Filters] (FilterXChat: hide that type)
   ShowNormalChat: boolean; ShowYellChat: boolean; ShowWhisperChat: boolean; ShowLoverChat: boolean; ShowMentorChat: boolean;
   ShowGroupChat: boolean; ShowGuildChat: boolean;
@@ -24,10 +32,11 @@ export const DEFAULT_SETTINGS: GameSettings = {
   SkillMode: false, SkillBar: true, Effect: true, LevelEffect: true, DropView: true, NameView: true, HPView: true,
   TransparentChat: false, ModeView: false, DuraView: false, DisplayDamage: true, TargetDead: false, HighlightTarget: true,
   ExpandedBuffWindow: true, ExpandedHeroBuffWindow: true, DisplayBodyName: false, NewMove: false,
+  SmoothMove: true, Atmosphere: true, SmoothShadows: true, CozyMode: true,
   ShowNormalChat: true, ShowYellChat: true, ShowWhisperChat: true, ShowLoverChat: true, ShowMentorChat: true, ShowGroupChat: true, ShowGuildChat: true,
   FilterNormalChat: false, FilterWhisperChat: false, FilterShoutChat: false, FilterSystemChat: false, FilterLoverChat: false,
   FilterMentorChat: false, FilterGroupChat: false, FilterGuildChat: false,
-  Lighting: "Classic",
+  Lighting: "Enhanced", // web default; draws Classic where the GPU has no half-float targets (SceneLights.useEnhanced)
 };
 
 const STORAGE_KEY = "crystal.settings";
@@ -41,7 +50,7 @@ function load(): GameSettings {
       for (const k of Object.keys(s) as (keyof GameSettings)[]) {
         if (typeof saved[k] === typeof s[k]) (s as Record<string, unknown>)[k] = saved[k];
       }
-      if (s.Lighting !== "Classic" && s.Lighting !== "Enhanced") s.Lighting = "Classic";
+      if (s.Lighting !== "Classic" && s.Lighting !== "Enhanced") s.Lighting = DEFAULT_SETTINGS.Lighting;
     }
   } catch { /* private window / blocked storage: defaults */ }
   return s;
