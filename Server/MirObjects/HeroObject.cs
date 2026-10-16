@@ -303,8 +303,33 @@ namespace Server.MirObjects
             if (magic == null) return false;
             if (MagicCost(magic) > MP) return false;
             if (magic.Key <= 0) return false;
+            if (!magic.AutoCast) return false; // phase 2.4: switched off by the owner (C.HeroSpellToggle)
 
             return true;
+        }
+
+        /// <summary>Phase 2.4: S.HeroAutoCast, the full list of this hero's spells with AutoCast off. Private to the owner.</summary>
+        public S.HeroAutoCast AutoCastPacket()
+        {
+            var p = new S.HeroAutoCast();
+            for (int i = 0; i < Info.Magics.Count; i++)
+            {
+                if (Info.Magics[i].AutoCast) continue;
+                p.Disabled.Add(Info.Magics[i].Spell);
+            }
+            return p;
+        }
+
+        /// <summary>Phase 2.4: sets AutoCast on one of this hero's spells (saved since v119). False when the hero does not know it.</summary>
+        public bool SetAutoCast(Spell spell, bool autoCast)
+        {
+            for (int i = 0; i < Info.Magics.Count; i++)
+            {
+                if (Info.Magics[i].Spell != spell) continue;
+                Info.Magics[i].AutoCast = autoCast;
+                return true;
+            }
+            return false;
         }
         protected bool HasMagic(Spell spell) => Info.Magics.Any(x => x.Spell == spell);
         public override bool TryMagic()
@@ -1229,6 +1254,7 @@ namespace Server.MirObjects
             Info.Equipment.CopyTo(packet.Equipment, 0);
 
             Owner.Enqueue(packet);
+            Owner.Enqueue(AutoCastPacket());
 
             SendBaseStats();
         }

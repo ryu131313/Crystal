@@ -1715,6 +1715,12 @@ public enum ServerPacketIds : short
     GameDataChanged, // LiveDb push (web admin live game-data edits); append-only
     MapAtmosphere, // LiveDb: a map's Light / MapDarkLight / WeatherParticles changed while players are on it; append-only
     ServerRules, // snapshot of the server's rules (refine, awakening, mentor, marriage, mail, territory, class gating, features); append-only
+    PoisonStatus, // the player's own poisons with time left (phase 2.4); append-only
+    GroupMemberStatus, // a group member's class, level, HP/MP % and buff types, throttled (phase 2.4); append-only
+    HeroAutoCast, // the hero's spells with auto-cast switched off (phase 2.4); append-only
+    MapDetails, // a map's respawns and safe zones, compressed, may be split in parts (phase 2.4); append-only
+    LoginFailed, // tries left / lock time, sent right after S.Login on a failed login (phase 2.4); append-only
+    SelectDetails, // per character guild, map title, play time + account gold on the select screen (phase 2.4); append-only
 }
 
 public enum ClientPacketIds : short
@@ -1884,6 +1890,8 @@ public enum ClientPacketIds : short
     CollectAllParcels,
     ReadMails,
     SortItems,
+    HeroSpellToggle, // phase 2.4; append-only
+    RequestMapDetails, // phase 2.4; append-only
 }
 
 public enum ConquestType : byte

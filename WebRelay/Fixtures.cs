@@ -478,6 +478,32 @@ internal static class Fixtures
             AllowCreateAssassin = true, AllowCreateArcher = false,
             MapDetailsEnabled = true, FriendRequestsEnabled = false, MaxFriends = 100,
         };
+        yield return new S.PoisonStatus
+        {
+            Poisons =
+            {
+                new ClientPoisonStatus { Type = PoisonType.Green, TimeLeft = 4500, Value = 7 },
+                new ClientPoisonStatus { Type = PoisonType.DelayedExplosion, TimeLeft = 1200, Value = 0 },
+            },
+        };
+        yield return new S.GroupMemberStatus { Name = "Ally 盟友", Class = MirClass.Wizard, Level = 41, HPPercent = 73, MPPercent = 100, Buffs = { BuffType.MagicShield, BuffType.Haste } };
+        yield return new S.HeroAutoCast { Disabled = { Spell.FireBall, Spell.Poisoning } };
+        yield return new S.MapDetails
+        {
+            MapIndex = 3, Part = 0, PartCount = 2,
+            Respawns = { new ClientMapRespawn { MonsterIndex = 12, Location = new Point(301, 257), Spread = 20, Count = 15 }, new ClientMapRespawn { MonsterIndex = 70000, Location = new Point(5, 6), Spread = 0, Count = 1 } },
+            SafeZones = { new ClientMapSafeZone { Location = new Point(330, 270), Size = 10, StartPoint = true } },
+        };
+        yield return new S.LoginFailed { Result = 4, AccountTriesLeft = 2, ConnectionTriesLeft = -1, LockedUntil = new DateTime(2026, 10, 16, 12, 0, 0, DateTimeKind.Utc).ToBinary() };
+        yield return new S.SelectDetails
+        {
+            AccountGold = 3_000_000_000,
+            Characters =
+            {
+                new ClientSelectDetail { Index = 7, GuildName = "WebGuild", MapTitle = "比奇省 Bichon Province", PlayTime = 5_000_000_000 },
+                new ClientSelectDetail { Index = 8, GuildName = "", MapTitle = "", PlayTime = 0 },
+            },
+        };
     }
 
     private static IEnumerable<Packet> ClientSamples()
@@ -651,6 +677,8 @@ internal static class Fixtures
         yield return new C.CollectAllParcels();
         yield return new C.ReadMails { MailIDs = { 9_000_000_003UL, 7 } };
         yield return new C.SortItems { Grid = MirGridType.Storage, Mode = 1 };
+        yield return new C.HeroSpellToggle { Spell = Spell.SoulFireBall, AutoCast = false };
+        yield return new C.RequestMapDetails { MapIndex = 70000 };
     }
 
     public static int Emit(string dir)
@@ -661,7 +689,7 @@ internal static class Fixtures
             IncludeFields = true,
             WriteIndented = true,
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-            Converters = { new PointConverter(), new ColorConverter(), new DateTimeConverter(), new UserItemConverter(), new ItemInfoLiteConverter(), new StatsConverter(), new ByteArrayConverter(), new QuestProgressConverter(), new SellEntryConverter() },
+            Converters = { new PointConverter(), new ColorConverter(), new DateTimeConverter(), new UserItemConverter(), new ItemInfoLiteConverter(), new StatsConverter(), new ByteArrayConverter(), new QuestProgressConverter(), new SellEntryConverter(), new SafeInt64Converter() },
         };
         int n = 0;
         foreach (var (packet, direction) in ServerSamples().Select(p => (p, "server")).Concat(ClientSamples().Select(p => (p, "client"))))
@@ -814,6 +842,18 @@ internal static class Fixtures
     {
         public override Color Read(ref Utf8JsonReader reader, Type t, JsonSerializerOptions o) => throw new NotSupportedException();
         public override void Write(Utf8JsonWriter w, Color v, JsonSerializerOptions o) => w.WriteNumberValue(v.ToArgb());
+    }
+
+    /// <summary>long beyond JavaScript's safe integer range as a decimal string (JSON.parse would round it), else a plain number.</summary>
+    private sealed class SafeInt64Converter : JsonConverter<long>
+    {
+        private const long MaxSafe = 9_007_199_254_740_991;
+        public override long Read(ref Utf8JsonReader reader, Type t, JsonSerializerOptions o) => throw new NotSupportedException();
+        public override void Write(Utf8JsonWriter w, long v, JsonSerializerOptions o)
+        {
+            if (v > MaxSafe || v < -MaxSafe) w.WriteStringValue(v.ToString());
+            else w.WriteNumberValue(v);
+        }
     }
 
     /// <summary>DateTimes travel as Int64 DateTime.ToBinary(); the TS codec keeps that as a bigint, compared as a decimal string.</summary>

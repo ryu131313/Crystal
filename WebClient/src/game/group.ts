@@ -9,6 +9,19 @@ import { ChatType } from "../protocol/enums.generated.ts";
 import type { WirePoint } from "../protocol/binaryCodec.ts";
 import { Emitter } from "./emitter.ts";
 
+/** One member's S.GroupMemberStatus (web-only: the server pushes it at most once a second per member, on change). */
+export interface GroupMemberStatus {
+  /** MirClass value. */
+  readonly cls: number;
+  readonly level: number;
+  /** 0-100. */
+  readonly hpPercent: number;
+  /** 0-100. */
+  readonly mpPercent: number;
+  /** BuffType values (at most GROUP_MEMBER_STATUS_MAX_BUFFS). */
+  readonly buffs: readonly number[];
+}
+
 /** Globals.MaxGroup. */
 export const MAX_GROUP = 11;
 
@@ -18,6 +31,10 @@ export class GroupState {
   readonly memberMaps = new Map<string, string>();
   /** BigMapViewPort.PlayerLocations: member -> location (sent while on the same map). */
   readonly locations = new Map<string, WirePoint>();
+  /** S.GroupMemberStatus: member -> class / level / HP% / MP% / buffs (missing until the first status of that member). */
+  readonly memberStatus = new Map<string, GroupMemberStatus>();
+  /** A member's status arrived (fired with the name; `changed` is not fired for it: the roster did not change). */
+  readonly statusChanged = new Emitter<string>();
   /** The roster or a flag changed (after the packet's chat line). */
   readonly changed = new Emitter<void>();
   /** GameScene.GroupInvite: `name` asks the user to join; answer with answerInvite(). */
@@ -75,6 +92,7 @@ export class GroupState {
         this.members = this.members.filter((n) => n !== p.Name);
         this.memberMaps.delete(p.Name);
         this.locations.delete(p.Name);
+        this.memberStatus.delete(p.Name);
         this.chat(`-${p.Name} has left the group.`, ChatType.Group);
         break;
       case "GroupInvite": this.invite.emit({ name: p.Name }); break;
@@ -84,6 +102,10 @@ export class GroupState {
         break;
       case "GroupMembersMap": this.memberMaps.set(p.PlayerName, p.PlayerMap); break;
       case "SendMemberLocation": this.locations.set(p.MemberName, { ...p.MemberLocation }); break;
+      case "GroupMemberStatus":
+        this.memberStatus.set(p.Name, { cls: p.Class, level: p.Level, hpPercent: p.HPPercent, mpPercent: p.MPPercent, buffs: p.Buffs });
+        this.statusChanged.emit(p.Name);
+        return false;
       default: return false;
     }
     this.changed.emit();
@@ -95,6 +117,7 @@ export class GroupState {
     this.members = [];
     this.memberMaps.clear();
     this.locations.clear();
+    this.memberStatus.clear();
     this.chat("You have left the group.", ChatType.Group);
   }
 }

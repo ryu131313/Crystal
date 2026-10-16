@@ -2807,4 +2807,41 @@ namespace ClientPackets
             writer.Write(Mode);
         }
     }
+
+    /// <summary>Switches auto-cast of one of the hero's spells (phase 2.4). Needs a spawned hero that knows the spell.</summary>
+    public sealed class HeroSpellToggle : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.HeroSpellToggle; } }
+
+        public Spell Spell;
+        public bool AutoCast;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Spell = (Spell)reader.ReadByte();
+            AutoCast = reader.ReadBoolean();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write((byte)Spell);
+            writer.Write(AutoCast);
+        }
+    }
+
+    /// <summary>Asks for a map's respawns and safe zones (phase 2.4). Server: MapDetailsEnabled, own map or a map with a BigMap, 1 s cooldown.</summary>
+    public sealed class RequestMapDetails : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.RequestMapDetails; } }
+
+        public int MapIndex;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            MapIndex = reader.ReadInt32();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(MapIndex);
+        }
+    }
 }

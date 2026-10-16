@@ -133,6 +133,24 @@ namespace Server.MirEnvir
         public List<ConquestInfo> ConquestInfoList = new List<ConquestInfo>();
         public List<GTMap> GTMapList = new List<GTMap>();
 
+        /// <summary>
+        /// S.MapDetails parts per MapInfo, built on the first C.RequestMapDetails for that map (PlayerObject.RequestMapDetails)
+        /// and shared by every requester (packets are never mutated after their first send). Game thread only. Dropped by
+        /// <see cref="InvalidateMapDetails"/> after every LiveDb apply to Main and on a DB load.
+        /// </summary>
+        public readonly Dictionary<MapInfo, MapDetailsEntry> MapDetailsCache = new Dictionary<MapInfo, MapDetailsEntry>();
+
+        public sealed class MapDetailsEntry
+        {
+            public S.MapDetails[] Parts;
+            public MonsterInfo[] Monsters; // distinct monsters the parts reference: CheckMonsterInfo per requester
+        }
+
+        public void InvalidateMapDetails()
+        {
+            MapDetailsCache.Clear();
+        }
+
         //User DB
         public int NextAccountID, NextCharacterID, NextGuildID, NextHeroID;
         public ulong NextUserItemID, NextAuctionID, NextMailID, NextRecipeID;
@@ -3606,6 +3624,7 @@ namespace Server.MirEnvir
 
                     var count = reader.ReadInt32();
                     MapInfoList.Clear();
+                    MapDetailsCache.Clear();
                     for (var i = 0; i < count; i++)
                         MapInfoList.Add(new MapInfo(reader));
 
@@ -4235,6 +4254,69 @@ namespace Server.MirEnvir
             if (++c.FailedLogins < MirConnection.MaxFailedLogins) return;
             UpdateIPBlock(c.IPAddress, TimeSpan.FromMinutes(1));
             c.Disconnecting = true;
+        }
+
+        /// <summary>Wrong passwords an account may collect before the next one locks it (the literal 5 in CompleteLogin / ChangePassword).</summary>
+        private const int AccountWrongPasswordLimit = 5;
+
+        /// <summary>
+        /// Phase 2.4: S.LoginFailed, enqueued right after (never instead of) S.Login and BEFORE CountFailedLogin counts this
+        /// failure. ConnectionTriesLeft = failures this connection may still make before it is closed (0 = this one closes it,
+        /// and LockedUntil is then the end of the one-minute IP block, 0 for a load-test-exempt address). Game thread; failure path only.
+        /// </summary>
+        private S.LoginFailed LoginFailedPacket(MirConnection c, byte result, int accountTriesLeft)
+        {
+            int connectionTriesLeft = Math.Max(0, MirConnection.MaxFailedLogins - (c.FailedLogins + 1));
+            return new S.LoginFailed
+            {
+                Result = result,
+                AccountTriesLeft = accountTriesLeft,
+                ConnectionTriesLeft = connectionTriesLeft,
+                // same condition as UpdateIPBlock: [LoadTest] ExemptLoopback addresses are closed but never blocked
+                LockedUntil = connectionTriesLeft == 0 && !IsLoadTestExempt(c.IPAddress) ? Now.AddMinutes(1).ToBinary() : 0
+            };
+        }
+
+        /// <summary>
+        /// Phase 2.4: S.SelectDetails for the characters GetSelectInfo lists (not deleted, at most Globals.MaxCharacterCount),
+        /// in the same order. Game thread; sent after LoginSuccess, LogOutSuccess and NewCharacterSuccess only.
+        /// </summary>
+        public S.SelectDetails SelectDetailsPacket(AccountInfo account)
+        {
+            var p = new S.SelectDetails { AccountGold = account.Gold };
+
+            for (int i = 0; i < account.Characters.Count; i++)
+            {
+                CharacterInfo info = account.Characters[i];
+                if (info.Deleted) continue;
+
+                string guildName = string.Empty;
+                if (info.GuildIndex >= 0)
+                {
+                    GuildObject guild = GetGuild(info.GuildIndex);
+                    if (guild != null) guildName = guild.Name ?? string.Empty;
+                }
+
+                string mapTitle = string.Empty;
+                for (int m = 0; m < MapInfoList.Count; m++)
+                {
+                    if (MapInfoList[m].Index != info.CurrentMapIndex) continue;
+                    mapTitle = MapInfoList[m].Title ?? string.Empty;
+                    break;
+                }
+
+                p.Characters.Add(new ClientSelectDetail
+                {
+                    Index = info.Index,
+                    GuildName = guildName,
+                    MapTitle = mapTitle,
+                    PlayTime = info.PlayTime
+                });
+
+                if (p.Characters.Count >= Globals.MaxCharacterCount) break;
+            }
+
+            return p;
         }
 
         /// <summary>True for loopback addresses when [LoadTest] ExemptLoopback is on (off by default).</summary>
@@ -4903,6 +4985,7 @@ namespace Server.MirEnvir
             {
                 global::Server.WebAdmin.WebAdminHooks.RaiseLoginAttempt(p.AccountID, c.IPAddress, "no-account");
                 c.Enqueue(new ServerPackets.Login { Result = 3 });
+                c.Enqueue(LoginFailedPacket(c, 3, -1));
                 CountFailedLogin(c);
                 return;
             }
@@ -4972,6 +5055,7 @@ namespace Server.MirEnvir
                 }
 
                 c.Enqueue(new ServerPackets.Login { Result = 4 });
+                c.Enqueue(LoginFailedPacket(c, 4, Math.Max(0, AccountWrongPasswordLimit - account.WrongPasswordCount)));
                 CountFailedLogin(c);
                 return;
             }
@@ -5007,6 +5091,7 @@ namespace Server.MirEnvir
 
             MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.UserLoggedIn), account.Connection.SessionID, account.Connection.IPAddress));
             c.Enqueue(new ServerPackets.LoginSuccess { Characters = account.GetSelectInfo() });
+            c.Enqueue(SelectDetailsPacket(account));
             c.Enqueue(ServerRulesPacket());
             global::Server.WebAdmin.WebAdminHooks.RaiseLoginAttempt(account.AccountID, c.IPAddress, "ok");
         }
@@ -5235,6 +5320,7 @@ namespace Server.MirEnvir
                 CharacterList.Add(info);
 
                 c.Enqueue(new ServerPackets.NewCharacterSuccess { CharInfo = info.ToSelectInfo() });
+                c.Enqueue(SelectDetailsPacket(c.Account));
             }
         }
 

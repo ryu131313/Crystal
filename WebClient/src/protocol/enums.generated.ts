@@ -284,6 +284,12 @@ export const ServerPacketIds = {
   GameDataChanged: 279,
   MapAtmosphere: 280,
   ServerRules: 281,
+  PoisonStatus: 282,
+  GroupMemberStatus: 283,
+  HeroAutoCast: 284,
+  MapDetails: 285,
+  LoginFailed: 286,
+  SelectDetails: 287,
 } as const;
 export type ServerPacketIds = (typeof ServerPacketIds)[keyof typeof ServerPacketIds];
 export const ServerPacketIdsName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(ServerPacketIds).map(([k, v]) => [v, k]));
@@ -447,6 +453,8 @@ export const ClientPacketIds = {
   CollectAllParcels: 155,
   ReadMails: 156,
   SortItems: 157,
+  HeroSpellToggle: 158,
+  RequestMapDetails: 159,
 } as const;
 export type ClientPacketIds = (typeof ClientPacketIds)[keyof typeof ClientPacketIds];
 export const ClientPacketIdsName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(ClientPacketIds).map(([k, v]) => [v, k]));

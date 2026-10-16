@@ -313,6 +313,182 @@ namespace Server.MirObjects
             _playTimeMark += seconds * 1000;
         }
 
+        #region Phase 2.4 status and detail packets
+
+        private int _poisonStatusCount = -1;  // PoisonList.Count at the last S.PoisonStatus; -1 = send once after login
+        private long _nextGroupStatusTime;     // Envir.Time before which no S.GroupMemberStatus is sent (1/s throttle)
+        private long _mapDetailsTime;          // Envir.Time before which C.RequestMapDetails is ignored (1 s cooldown)
+
+        /// <summary>S.PoisonStatus to this player only (never hero-forwarded). Called from Process when dirty.</summary>
+        private void SendPoisonStatus()
+        {
+            PoisonStatusDirty = false;
+            _poisonStatusCount = PoisonList.Count;
+
+            long now = Envir.Time;
+            var p = new S.PoisonStatus();
+            for (int i = 0; i < PoisonList.Count; i++)
+                p.Poisons.Add(PoisonStatusEntry(PoisonList[i], now));
+
+            Enqueue(p);
+        }
+
+        /// <summary>This player's S.GroupMemberStatus (buffs capped at S.GroupMemberStatus.MaxBuffs). Built only when sent.</summary>
+        public S.GroupMemberStatus GroupMemberStatusPacket()
+        {
+            int maxHP = Stats[Stat.HP], maxMP = Stats[Stat.MP];
+            var p = new S.GroupMemberStatus
+            {
+                Name = Name,
+                Class = Class,
+                Level = Level,
+                HPPercent = maxHP > 0 ? (byte)Math.Clamp(HP * 100L / maxHP, 0, 100) : (byte)0,
+                MPPercent = maxMP > 0 ? (byte)Math.Clamp(MP * 100L / maxMP, 0, 100) : (byte)0
+            };
+
+            for (int i = 0; i < Buffs.Count && p.Buffs.Count < S.GroupMemberStatus.MaxBuffs; i++)
+            {
+                if (Buffs[i].FlagForRemoval) continue;
+                p.Buffs.Add(Buffs[i].Type);
+            }
+
+            return p;
+        }
+
+        /// <summary>One S.GroupMemberStatus to every other group member, then the 1 s throttle. Called from Process when dirty.</summary>
+        private void SendGroupMemberStatus()
+        {
+            GroupStatusDirty = false;
+            _nextGroupStatusTime = Envir.Time + 1000;
+
+            Packet p = GroupMemberStatusPacket();
+            for (int i = 0; i < GroupMembers.Count; i++)
+            {
+                PlayerObject member = GroupMembers[i];
+                if (member == null || member == this) continue;
+                member.Enqueue(p);
+            }
+        }
+
+        /// <summary>On a group join: the joiner gets every other member's status and they get the joiner's.</summary>
+        private void ExchangeGroupMemberStatus()
+        {
+            if (GroupMembers == null) return;
+
+            Packet mine = GroupMemberStatusPacket();
+            for (int i = 0; i < GroupMembers.Count; i++)
+            {
+                PlayerObject member = GroupMembers[i];
+                if (member == null || member == this) continue;
+
+                member.Enqueue(mine);
+                Enqueue(member.GroupMemberStatusPacket());
+            }
+
+            GroupStatusDirty = false;
+            _nextGroupStatusTime = Envir.Time + 1000;
+        }
+
+        /// <summary>C.HeroSpellToggle: needs a spawned hero that knows the spell; replies with the full S.HeroAutoCast list.</summary>
+        public void HeroSpellToggle(Spell spell, bool autoCast)
+        {
+            if (Hero == null || Hero.Node == null) return;
+            if (!Hero.SetAutoCast(spell, autoCast)) return;
+
+            Enqueue(Hero.AutoCastPacket());
+        }
+
+        /// <summary>
+        /// C.RequestMapDetails: Settings.MapDetailsEnabled, 1 s cooldown, the player's current map or any map with a BigMap.
+        /// Sends the map's respawns (only monsters the server knows; NewMonsterInfo first via CheckMonsterInfo) and safe zones
+        /// as compressed S.MapDetails, split into parts of at most MaxRespawnsPerPart / MaxSafeZonesPerPart entries.
+        /// The parts are built once per MapInfo and shared (Envir.MapDetailsCache); every LiveDb apply drops the cache.
+        /// </summary>
+        public void RequestMapDetails(int mapIndex)
+        {
+            if (!Settings.MapDetailsEnabled) return;
+            if (Envir.Time < _mapDetailsTime) return;
+            _mapDetailsTime = Envir.Time + 1000;
+
+            MapInfo info = null;
+            if (CurrentMap != null && CurrentMap.Info.Index == mapIndex)
+                info = CurrentMap.Info;
+            else
+            {
+                for (int i = 0; i < Envir.MapInfoList.Count; i++)
+                {
+                    if (Envir.MapInfoList[i].Index != mapIndex) continue;
+                    info = Envir.MapInfoList[i];
+                    break;
+                }
+                if (info == null || info.BigMap == 0) return;
+            }
+
+            if (!Envir.MapDetailsCache.TryGetValue(info, out Envir.MapDetailsEntry entry))
+            {
+                entry = BuildMapDetails(info);
+                Envir.MapDetailsCache[info] = entry;
+            }
+
+            for (int i = 0; i < entry.Monsters.Length; i++)
+                Connection.CheckMonsterInfo(entry.Monsters[i]);
+
+            for (int i = 0; i < entry.Parts.Length; i++)
+                Enqueue(entry.Parts[i]);
+        }
+
+        private Envir.MapDetailsEntry BuildMapDetails(MapInfo info)
+        {
+            var monsters = new List<MonsterInfo>();
+            var respawns = new List<ClientMapRespawn>(info.Respawns.Count);
+            for (int i = 0; i < info.Respawns.Count; i++)
+            {
+                RespawnInfo respawn = info.Respawns[i];
+                MonsterInfo monster = Envir.GetMonsterInfo(respawn.MonsterIndex);
+                if (monster == null) continue;
+
+                if (!monsters.Contains(monster)) monsters.Add(monster);
+                respawns.Add(new ClientMapRespawn
+                {
+                    MonsterIndex = monster.Index,
+                    Location = respawn.Location,
+                    Spread = respawn.Spread,
+                    Count = respawn.Count
+                });
+            }
+
+            var zones = new List<ClientMapSafeZone>(info.SafeZones.Count);
+            for (int i = 0; i < info.SafeZones.Count; i++)
+            {
+                SafeZoneInfo zone = info.SafeZones[i];
+                zones.Add(new ClientMapSafeZone { Location = zone.Location, Size = zone.Size, StartPoint = zone.StartPoint });
+            }
+
+            int respawnParts = (respawns.Count + S.MapDetails.MaxRespawnsPerPart - 1) / S.MapDetails.MaxRespawnsPerPart;
+            int zoneParts = (zones.Count + S.MapDetails.MaxSafeZonesPerPart - 1) / S.MapDetails.MaxSafeZonesPerPart;
+            int partCount = Math.Clamp(Math.Max(respawnParts, zoneParts), 1, byte.MaxValue);
+
+            var parts = new S.MapDetails[partCount];
+            for (int part = 0; part < partCount; part++)
+            {
+                var p = new S.MapDetails { MapIndex = info.Index, Part = (byte)part, PartCount = (byte)partCount };
+
+                int start = part * S.MapDetails.MaxRespawnsPerPart;
+                int end = Math.Min(respawns.Count, start + S.MapDetails.MaxRespawnsPerPart);
+                for (int i = start; i < end; i++) p.Respawns.Add(respawns[i]);
+
+                start = part * S.MapDetails.MaxSafeZonesPerPart;
+                end = Math.Min(zones.Count, start + S.MapDetails.MaxSafeZonesPerPart);
+                for (int i = start; i < end; i++) p.SafeZones.Add(zones[i]);
+
+                parts[part] = p;
+            }
+
+            return new Envir.MapDetailsEntry { Parts = parts, Monsters = monsters.ToArray() };
+        }
+
+        #endregion
+
         public void StopGame(byte reason)
         {
             if (Node == null) return;
@@ -535,6 +711,12 @@ namespace Server.MirObjects
                 GroupInvitation = null;
 
             base.Process();
+
+            // Phase 2.4 status pushes: O(1) checks per tick; a packet is built only when dirty (group: at most 1/s).
+            if (PoisonStatusDirty || PoisonList.Count != _poisonStatusCount)
+                SendPoisonStatus();
+            if (GroupMembers != null && GroupStatusDirty && Envir.Time >= _nextGroupStatusTime)
+                SendGroupMemberStatus();
 
             if (Settings.RestedPeriod > 0 && Envir.Time > RestedTime)
             {
@@ -9865,6 +10047,7 @@ namespace Server.MirObjects
             Enqueue(p);
             GroupMemberMapNameChanged();
             GetPlayerLocation();
+            ExchangeGroupMemberStatus();
 
             // --- Immediate RG sanity after join (both sides) ---
             for (int k = 0; k < GroupMembers.Count; k++)

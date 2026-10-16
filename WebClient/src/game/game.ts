@@ -54,7 +54,8 @@ import { MailBox } from "./mail.ts";
 import { Friends } from "./friends.ts";
 import { Relationship, Mentor } from "./relationship.ts";
 import { Rankings, rankingDetails } from "./rankings.ts";
-import { serverRules } from "./serverRules.ts";
+import { serverRules, rulesFor } from "./serverRules.ts";
+import { PoisonTimers } from "./poisons.ts";
 import { Inspect } from "./inspect.ts";
 import { Shop } from "./shop.ts";
 import { Territories } from "./territories.ts";
@@ -171,7 +172,9 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   const lightState: LightState = currentMap.lights;
   const itemInfos = new ItemInfos();
   /** GameScene MonsterInfoList / NPCInfoList / MapInfoList (NPC page links, big map / world map). */
-  const gameInfo = new GameInfo((f) => session.send(f), itemInfos);
+  const gameInfo = new GameInfo((f) => session.send(f), itemInfos, () => rulesFor(session)?.MapDetailsEnabled ?? false);
+  /** The user's poison timers (S.PoisonStatus, web-only; poisons.ts). */
+  const poisons = new PoisonTimers(() => performance.now());
   const inventory = new Inventory(itemInfos, (f) => session.send(f));
   /** The user's hero (hero.ts): GameScene.Hero + spawn state, storage, behaviour. */
   const hero = new Hero(() => performance.now(), (text) => chat(text, ChatType.Hint));
@@ -298,6 +301,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
       itemInfos, gameInfo, inventory, hero, heroItems, itemChanges, magic, quests, creatures, chatLog, hudState, account, currentMap,
       itemPick, heroStats, mount: mountState, fishing, group, trade, rental,
       npcSession, recipes, awakening, market, guild, mail, friends, relationship, mentor, inspect, rankings, shop, territories,
+      poisons,
     },
     player,
     world: {
@@ -585,6 +589,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     rental.handle(p); // was first in the classic ui.handle; never consumes
     chatLog.handle(p); // MirScene.NewChatItem; never consumes
     currentMap.handle(p); // MapInformation / MapChanged / TimeOfDay / MapAtmosphere; never consumes (BigMap / NpcWindow read it)
+    poisons.handle(p); // PoisonStatus (web-only) + Poisoned trims; never consumes
     if (account.handle(p)) return; // S.AllowObserve consumed (UserInformation / storage packets are only read)
     creatures.handle(p); // the creature packets (the classic ui.handle ignored this return: nothing else reads them)
     if (hudState.handle(p)) return; // output / notice / timers / compass / roll / browser / NPC input: consumed
@@ -1461,6 +1466,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     sound.stopAll();
     for (const c of Array.from(stage.children)) if (!stageBefore.has(c)) c.remove();
     ui.dispose();
+    gameInfo.dispose(); // queued C.RequestMapDetails timers
     renderer?.clear();
     // GameScene.LogOutSuccess / ReturnToLogin: back to 1024 x 768 for the account screens
     stage.style.width = "1024px";

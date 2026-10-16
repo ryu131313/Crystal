@@ -78,6 +78,9 @@ export class Magic {
   heroId = 0;
   /** GameScene.HeroSpellTime. */
   private heroSpellTime = 0;
+  /** S.HeroAutoCast (web-only): the hero's spells with auto-cast off (UserMagic.AutoCast false on the server; the hero AI
+   *  skips them). Always the full list; empty while no hero is summoned. */
+  readonly heroAutoCastOff = new Set<number>();
   private readonly listeners = new Set<() => void>();
   private readonly castListeners = new Set<() => void>();
   private readonly heroListeners = new Set<() => void>();
@@ -169,6 +172,12 @@ export class Magic {
         this.heroId = p.ObjectID;
         this.heroMagics = p.Magics.map((m) => ({ ...this.wrap(m), castTime: now + Number(m.CastTime) }));
         Object.assign(this.heroToggles, { slaying: false, thrusting: false, halfMoon: false, crossHalfMoon: false, doubleSlash: false, twinDrakeBlade: false, flamingSword: false });
+        this.heroAutoCastOff.clear(); // S.HeroAutoCast follows S.HeroInformation
+        return true;
+      }
+      case "HeroAutoCast": { // after S.HeroInformation and as the C.HeroSpellToggle reply: the full disabled list
+        this.heroAutoCastOff.clear();
+        for (const spell of p.Disabled) this.heroAutoCastOff.add(spell);
         return true;
       }
       case "UpdateHeroSpawnState":
@@ -176,6 +185,7 @@ export class Magic {
         if (p.State >= HeroSpawnState.Summoned || !this.heroId) return false;
         this.heroId = 0;
         this.heroMagics = [];
+        this.heroAutoCastOff.clear();
         return true;
       case "NewMagic":
         if (!p.Hero || !this.heroId) return false;
@@ -329,6 +339,18 @@ export class Magic {
         return;
     }
     this.useHeroMagic(hero, ob, { magic, location, object, direction });
+  }
+
+  /** True when the hero AI may cast `spell` on its own (no S.HeroAutoCast entry for it). */
+  heroAutoCast(spell: number): boolean {
+    return !this.heroAutoCastOff.has(spell);
+  }
+
+  /** C.HeroSpellToggle (web-only): turn the hero's auto-cast of a spell it knows on or off. The server answers with the
+   *  full S.HeroAutoCast list (onHeroChange fires then); nothing changes locally until it does. */
+  heroSpellToggle(spell: number, on: boolean): void {
+    if (!this.heroId || !this.getHero(spell)) return;
+    this.host.send(ClientPackets.HeroSpellToggle({ Spell: spell, AutoCast: on }));
   }
 
   /** SendSpellToggle(Hero, ...): no CanUse, so the server toggles the hero's flag (HumanObject.SpellToggle, state None). */

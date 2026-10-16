@@ -1,0 +1,23 @@
+{
+  "name": "SelectDetails",
+  "dir": "server",
+  "id": 287,
+  "hex": "49001F01005ED0B20200000007000000085765624775696C6419E6AF94E5A587E79C8120426963686F6E2050726F76696E636500F2052A010000000800000000000000000000000000",
+  "fields": {
+    "AccountGold": 3000000000,
+    "Characters": [
+      {
+        "Index": 7,
+        "GuildName": "WebGuild",
+        "MapTitle": "比奇省 Bichon Province",
+        "PlayTime": 5000000000
+      },
+      {
+        "Index": 8,
+        "GuildName": "",
+        "MapTitle": "",
+        "PlayTime": 0
+      }
+    ]
+  }
+}

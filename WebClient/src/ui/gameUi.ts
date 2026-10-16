@@ -25,6 +25,7 @@ import type { Hero } from "../game/hero.ts";
 import type { HeroItems } from "../game/heroItems.ts";
 import type { ItemChanges } from "../game/itemChanges.ts";
 import type { Magic } from "../game/magic.ts";
+import type { PoisonTimers } from "../game/poisons.ts";
 import type { Quests } from "../game/quests.ts";
 import type { Creatures } from "../game/creatures.ts";
 import type { ChatLog } from "../game/chatLog.ts";
@@ -143,6 +144,8 @@ export interface GameModels {
   readonly shop: Shop;
   /** GuildTerritoryDialog list (src/game/territories.ts). */
   readonly territories: Territories;
+  /** The user's poison timers from S.PoisonStatus (web-only; src/game/poisons.ts). */
+  readonly poisons: PoisonTimers;
 }
 
 /** The world as the UI may read it (MapControl). */

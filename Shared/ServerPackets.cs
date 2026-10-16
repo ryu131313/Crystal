@@ -7182,4 +7182,184 @@ namespace ServerPackets
             writer.Write(MaxFriends);
         }
     }
+
+    /// <summary>The player's own poisons with time left (phase 2.4). Sent on change only; never hero-forwarded.</summary>
+    public sealed class PoisonStatus : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.PoisonStatus; } }
+
+        public List<ClientPoisonStatus> Poisons = new List<ClientPoisonStatus>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            int count = reader.ReadInt32();
+            for (int i = 0; i < count; i++)
+                Poisons.Add(new ClientPoisonStatus(reader));
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Poisons.Count);
+            for (int i = 0; i < Poisons.Count; i++)
+                Poisons[i].Save(writer);
+        }
+    }
+
+    /// <summary>A group member's status (phase 2.4), throttled to at most one per second per member. Buffs capped at MaxBuffs.</summary>
+    public sealed class GroupMemberStatus : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.GroupMemberStatus; } }
+
+        public const int MaxBuffs = 20;
+
+        public string Name = string.Empty;
+        public MirClass Class;
+        public ushort Level;
+        public byte HPPercent, MPPercent;
+        public List<BuffType> Buffs = new List<BuffType>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Name = reader.ReadString();
+            Class = (MirClass)reader.ReadByte();
+            Level = reader.ReadUInt16();
+            HPPercent = reader.ReadByte();
+            MPPercent = reader.ReadByte();
+            int count = reader.ReadInt32();
+            if (count < 0 || count > MaxBuffs) throw new InvalidDataException();
+            for (int i = 0; i < count; i++)
+                Buffs.Add((BuffType)reader.ReadByte());
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Name ?? string.Empty);
+            writer.Write((byte)Class);
+            writer.Write(Level);
+            writer.Write(HPPercent);
+            writer.Write(MPPercent);
+            int count = Buffs.Count > MaxBuffs ? MaxBuffs : Buffs.Count;
+            writer.Write(count);
+            for (int i = 0; i < count; i++)
+                writer.Write((byte)Buffs[i]);
+        }
+    }
+
+    /// <summary>The hero's spells whose auto-cast is switched off (phase 2.4). Full list each time; private to the owner.</summary>
+    public sealed class HeroAutoCast : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.HeroAutoCast; } }
+        public override bool Observable => false;
+
+        public List<Spell> Disabled = new List<Spell>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            int count = reader.ReadInt32();
+            for (int i = 0; i < count; i++)
+                Disabled.Add((Spell)reader.ReadByte());
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Disabled.Count);
+            for (int i = 0; i < Disabled.Count; i++)
+                writer.Write((byte)Disabled[i]);
+        }
+    }
+
+    /// <summary>
+    /// A map's respawns and safe zones (phase 2.4), compressed. Large maps are split: Part 0 replaces the client's
+    /// details for MapIndex, later parts (1 .. PartCount - 1) append. Each part holds at most MaxRespawnsPerPart
+    /// respawns and MaxSafeZonesPerPart safe zones (about 54 KB uncompressed, so the frame stays under 65 535 bytes).
+    /// </summary>
+    public sealed class MapDetails : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.MapDetails; } }
+        public override bool Compressed => true;
+
+        public const int MaxRespawnsPerPart = 3000;
+        public const int MaxSafeZonesPerPart = 500;
+
+        public int MapIndex;
+        public byte Part, PartCount = 1;
+        public List<ClientMapRespawn> Respawns = new List<ClientMapRespawn>();
+        public List<ClientMapSafeZone> SafeZones = new List<ClientMapSafeZone>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            MapIndex = reader.ReadInt32();
+            Part = reader.ReadByte();
+            PartCount = reader.ReadByte();
+            int count = reader.ReadInt32();
+            for (int i = 0; i < count; i++)
+                Respawns.Add(new ClientMapRespawn(reader));
+            count = reader.ReadInt32();
+            for (int i = 0; i < count; i++)
+                SafeZones.Add(new ClientMapSafeZone(reader));
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(MapIndex);
+            writer.Write(Part);
+            writer.Write(PartCount);
+            writer.Write(Respawns.Count);
+            for (int i = 0; i < Respawns.Count; i++)
+                Respawns[i].Save(writer);
+            writer.Write(SafeZones.Count);
+            for (int i = 0; i < SafeZones.Count; i++)
+                SafeZones[i].Save(writer);
+        }
+    }
+
+    /// <summary>
+    /// Sent right after S.Login (never instead of it) when a login fails (phase 2.4). Result = the S.Login result.
+    /// AccountTriesLeft / ConnectionTriesLeft: -1 = not applicable. LockedUntil = DateTime.ToBinary, 0 = not locked.
+    /// </summary>
+    public sealed class LoginFailed : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.LoginFailed; } }
+        public override bool Observable => false;
+
+        public byte Result;
+        public int AccountTriesLeft, ConnectionTriesLeft;
+        public long LockedUntil;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Result = reader.ReadByte();
+            AccountTriesLeft = reader.ReadInt32();
+            ConnectionTriesLeft = reader.ReadInt32();
+            LockedUntil = reader.ReadInt64();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Result);
+            writer.Write(AccountTriesLeft);
+            writer.Write(ConnectionTriesLeft);
+            writer.Write(LockedUntil);
+        }
+    }
+
+    /// <summary>Select-screen extras (phase 2.4): the account's gold and, per listed character, guild, map title and play time.</summary>
+    public sealed class SelectDetails : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.SelectDetails; } }
+        public override bool Observable => false;
+
+        public uint AccountGold;
+        public List<ClientSelectDetail> Characters = new List<ClientSelectDetail>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            AccountGold = reader.ReadUInt32();
+            int count = reader.ReadInt32();
+            for (int i = 0; i < count; i++)
+                Characters.Add(new ClientSelectDetail(reader));
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(AccountGold);
+            writer.Write(Characters.Count);
+            for (int i = 0; i < Characters.Count; i++)
+                Characters[i].Save(writer);
+        }
+    }
 }

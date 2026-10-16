@@ -3,11 +3,27 @@
 // deduped by the Requested*Info sets until the answer arrives) and change listeners so the UI can redraw on an answer.
 // Item infos stay in ItemInfos (items.ts, filled by game.ts on S.NewItemInfo); this class only dedupes their requests.
 
-import type { ClientMapInfo, ClientMonsterInfo, ClientNPCInfo, ItemInfo, ServerPacket, WorldMapIcon } from "../protocol/server.ts";
+import type { ClientMapInfo, ClientMapRespawn, ClientMapSafeZone, ClientMonsterInfo, ClientNPCInfo, ItemInfo, ServerPacket, WorldMapIcon } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
 import type { ItemInfos } from "./items.ts";
 
-export type InfoKind = "monster" | "npc" | "item" | "map" | "worldMap";
+export type InfoKind = "monster" | "npc" | "item" | "map" | "worldMap" | "mapDetails";
+
+/** S.MapDetails for one map (web-only): its respawns and safe zones, from C.RequestMapDetails. */
+export interface MapDetails {
+  readonly respawns: ClientMapRespawn[];
+  readonly safeZones: ClientMapSafeZone[];
+  /** False while parts 1 .. PartCount - 1 are still on their way. */
+  complete: boolean;
+}
+
+/**
+ * Client spacing of C.RequestMapDetails: the server's per-player 1000 ms cooldown (it silently drops requests inside it,
+ * timed on arrival) + a 250 ms margin for network jitter.
+ */
+export const MAP_DETAILS_COOLDOWN_MS = 1250;
+/** A request the server never answered (not the current map and no big map, or details off) may be asked again after this. */
+const MAP_DETAILS_RETRY_MS = 10_000;
 export type InfoListener = (kind: InfoKind, index: number) => void;
 
 /** ItemInfo.FriendlyName: no trailing digits, no [..] parts. */
@@ -24,17 +40,30 @@ export class GameInfo {
   private readonly requestedNPCs = new Set<number>();               // GameScene.RequestedNPCInfo
   private readonly pendingMaps = new Set<number>();                 // NPCDialog.PendingMapInfoRequests
   private readonly listeners = new Set<InfoListener>();
+  private readonly mapDetails = new Map<number, MapDetails>();       // S.MapDetails per map index
+  private readonly mapDetailsAsked = new Map<number, number>();      // map index -> request time (until the last part)
+  private readonly mapDetailsQueue: number[] = [];                   // waiting for the cooldown
+  private mapDetailsSentAt = -Infinity;
+  private mapDetailsTimer = 0;
 
   /** GameScene.TeleportToNPCCost (S.WorldMapSetup). */
   teleportToNPCCost = 0;
   /** BigMapDialog.WorldMapSetup: WorldButton.Visible = Enabled, WorldMap.MakeButtons(Icons). */
   worldMap: { Enabled: boolean; Icons: WorldMapIcon[] } = { Enabled: false, Icons: [] };
 
-  constructor(private readonly send: (f: Uint8Array) => void, private readonly items: ItemInfos) {}
+  /** `mapDetailsEnabled` = ServerRules.MapDetailsEnabled (requests are dropped while it is false). */
+  constructor(
+    private readonly send: (f: Uint8Array) => void,
+    private readonly items: ItemInfos,
+    private readonly mapDetailsEnabled: () => boolean = () => true,
+    private readonly now: () => number = () => performance.now(),
+  ) {}
 
   monster(index: number): ClientMonsterInfo | undefined { return this.monsters.get(index); }
   npc(index: number): ClientNPCInfo | undefined { return this.npcs.get(index); }
   map(index: number): ClientMapInfo | undefined { return this.maps.get(index); }
+  /** S.MapDetails of a map (undefined until asked with requestMapDetails and answered; check `complete`). */
+  details(index: number): MapDetails | undefined { return this.mapDetails.get(index); }
   item(index: number): ItemInfo | undefined { return this.items.get(index); }
 
   /** Adds a listener; returns its remover. */
@@ -72,6 +101,20 @@ export class GameInfo {
         this.teleportToNPCCost = p.TeleportToNPCCost;
         this.emit("worldMap", 0);
         return true;
+      case "MapDetails": { // web-only: part 0 replaces the map's details, later parts append
+        let d = this.mapDetails.get(p.MapIndex);
+        if (p.Part === 0 || !d) {
+          d = { respawns: [], safeZones: [], complete: false };
+          this.mapDetails.set(p.MapIndex, d);
+        }
+        d.respawns.push(...p.Respawns);
+        d.safeZones.push(...p.SafeZones);
+        d.complete = p.Part + 1 >= p.PartCount;
+        if (d.complete) this.mapDetailsAsked.delete(p.MapIndex);
+        for (const r of p.Respawns) this.requestMonster(r.MonsterIndex); // the server sends the infos first; this only fills gaps
+        this.emit("mapDetails", p.MapIndex);
+        return true;
+      }
       case "NewItemInfo": // GameScene.OnItemInfoReceived (the item itself is added by game.ts)
         this.requestedItems.delete(p.Info.Index);
         queueMicrotask(() => this.emit("item", p.Info.Index)); // after game.ts has added it
@@ -110,6 +153,48 @@ export class GameInfo {
       this.pendingMaps.add(index);
     }
     this.send(ClientPackets.RequestMapInfo({ MapIndex: index }));
+  }
+
+  /** C.RequestMapDetails (web-only), deduped: nothing when the details are cached or already asked (unless `refresh`),
+   *  and spaced by the server's 1 s cooldown (a request inside it waits on a timer). The answer fires onChange("mapDetails").
+   *  The server answers only for the current map or a map with a big map, and only while ServerRules.MapDetailsEnabled. */
+  requestMapDetails(index: number, refresh = false): void {
+    if (index < 0 || !this.mapDetailsEnabled()) return;
+    if (!refresh && this.mapDetails.get(index)?.complete) return;
+    const asked = this.mapDetailsAsked.get(index);
+    if (asked !== undefined && this.now() - asked < MAP_DETAILS_RETRY_MS) return;
+    if (this.mapDetailsQueue.includes(index)) return;
+    this.mapDetailsQueue.push(index);
+    this.flushMapDetails();
+  }
+
+  private flushMapDetails(): void {
+    if (this.mapDetailsTimer || this.mapDetailsQueue.length === 0) return;
+    const wait = this.mapDetailsSentAt + MAP_DETAILS_COOLDOWN_MS - this.now();
+    if (wait > 0) {
+      this.mapDetailsTimer = window.setTimeout(() => { this.mapDetailsTimer = 0; this.flushMapDetails(); }, wait);
+      return;
+    }
+    const index = this.mapDetailsQueue.shift()!;
+    if (!this.mapDetailsEnabled()) { this.mapDetailsQueue.length = 0; return; }
+    const now = this.now();
+    this.mapDetailsSentAt = now;
+    this.mapDetailsAsked.set(index, now);
+    this.send(ClientPackets.RequestMapDetails({ MapIndex: index }));
+    this.flushMapDetails();
+  }
+
+  /** Drop a map's cached details (e.g. after a LiveDb map edit) so the next requestMapDetails asks again. */
+  invalidateMapDetails(index: number): void {
+    this.mapDetailsAsked.delete(index);
+    if (this.mapDetails.delete(index)) this.emit("mapDetails", index);
+  }
+
+  /** Game dispose: stop the queued map-details requests. */
+  dispose(): void {
+    if (this.mapDetailsTimer) clearTimeout(this.mapDetailsTimer);
+    this.mapDetailsTimer = 0;
+    this.mapDetailsQueue.length = 0;
   }
 
   /** GameScene.InvalidateMapInfo (S.GameDataChanged.MapInfoInvalidated, not ported yet): drop the record so it is asked again. */

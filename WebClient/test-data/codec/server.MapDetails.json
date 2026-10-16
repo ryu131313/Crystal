@@ -1,0 +1,41 @@
+{
+  "name": "MapDetails",
+  "dir": "server",
+  "id": 285,
+  "hex": "40001D011F8B080000000000000A15CAC10D40500040B1BE2F1C4488C41A16318DFD4FA2E74E300636DC515C0EEF9919CB3F243CB1C7AA0F3B35EBD739000000",
+  "fields": {
+    "MapIndex": 3,
+    "Part": 0,
+    "PartCount": 2,
+    "Respawns": [
+      {
+        "MonsterIndex": 12,
+        "Location": {
+          "X": 301,
+          "Y": 257
+        },
+        "Spread": 20,
+        "Count": 15
+      },
+      {
+        "MonsterIndex": 70000,
+        "Location": {
+          "X": 5,
+          "Y": 6
+        },
+        "Spread": 0,
+        "Count": 1
+      }
+    ],
+    "SafeZones": [
+      {
+        "Location": {
+          "X": 330,
+          "Y": 270
+        },
+        "Size": 10,
+        "StartPoint": true
+      }
+    ]
+  }
+}

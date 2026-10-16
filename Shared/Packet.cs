@@ -425,6 +425,10 @@ public abstract class Packet
                 return new C.ReadMails();
             case (short)ClientPacketIds.SortItems:
                 return new C.SortItems();
+            case (short)ClientPacketIds.HeroSpellToggle:
+                return new C.HeroSpellToggle();
+            case (short)ClientPacketIds.RequestMapDetails:
+                return new C.RequestMapDetails();
             default:
                 return null;
         }
@@ -458,6 +462,18 @@ public abstract class Packet
                 return new S.MapAtmosphere();
             case (short)ServerPacketIds.ServerRules:
                 return new S.ServerRules();
+            case (short)ServerPacketIds.PoisonStatus:
+                return new S.PoisonStatus();
+            case (short)ServerPacketIds.GroupMemberStatus:
+                return new S.GroupMemberStatus();
+            case (short)ServerPacketIds.HeroAutoCast:
+                return new S.HeroAutoCast();
+            case (short)ServerPacketIds.MapDetails:
+                return new S.MapDetails();
+            case (short)ServerPacketIds.LoginFailed:
+                return new S.LoginFailed();
+            case (short)ServerPacketIds.SelectDetails:
+                return new S.SelectDetails();
             case (short)ServerPacketIds.Login:
                 return new S.Login();
             case (short)ServerPacketIds.LoginBanned:

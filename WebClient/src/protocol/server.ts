@@ -348,6 +348,21 @@ function readGuildRank(r: Reader): GuildRank {
   return { Name, Options, Index, Members };
 }
 
+/** ClientPoisonStatus (Shared/Data/DetailData.cs): one poison on the player. Type = PoisonType (u16 flag value), TimeLeft in ms (>= 0). */
+export interface ClientPoisonStatus { Type: number; TimeLeft: number; Value: number }
+
+/** ClientMapRespawn (Shared/Data/DetailData.cs): MonsterIndex = MonsterInfo.Index. 16 bytes on the wire. */
+export interface ClientMapRespawn { MonsterIndex: number; Location: WirePoint; Spread: number; Count: number }
+
+/** ClientMapSafeZone (Shared/Data/DetailData.cs). 11 bytes on the wire. */
+export interface ClientMapSafeZone { Location: WirePoint; Size: number; StartPoint: boolean }
+
+/** ClientSelectDetail (Shared/Data/DetailData.cs): select-screen extras per character. PlayTime in seconds. */
+export interface ClientSelectDetail { Index: number; GuildName: string; MapTitle: string; PlayTime: bigint }
+
+/** S.GroupMemberStatus.MaxBuffs: the C# reader throws above this. */
+export const GROUP_MEMBER_STATUS_MAX_BUFFS = 20;
+
 /** S.ServerRules (Settings + the Shared Awake statics): the server's refine / awakening odds, mentor / marriage / mail /
  *  territory costs, class gating and feature flags. Sent after LoginSuccess and again on StartGame success. */
 export interface ServerRules {
@@ -972,6 +987,51 @@ const decoders = {
   ObjectPushed: (r: Reader) => ({ ObjectID: r.readU32(), Location: readPoint(r), Direction: r.readU8() }),
   Chat: (r: Reader) => ({ Message: r.readString(), Type: r.readU8() }),
   ObjectChat: (r: Reader) => ({ ObjectID: r.readU32(), Text: r.readString(), Type: r.readU8() }),
+  // — Phase 2.4 detail packets —
+  /** S.PoisonStatus (player only, on change): the full current poison set with time left. */
+  PoisonStatus: (r: Reader) => {
+    const n = readCount(r, 10);
+    const Poisons: ClientPoisonStatus[] = [];
+    for (let i = 0; i < n; i++) Poisons.push({ Type: r.readU16(), TimeLeft: r.readI32(), Value: r.readI32() });
+    return { Poisons };
+  },
+  /** S.GroupMemberStatus (<= 1/s per member): Class = MirClass, HP/MPPercent 0-100, Buffs = BuffType values (<= 20). */
+  GroupMemberStatus: (r: Reader) => {
+    const Name = r.readString(), Class = r.readU8(), Level = r.readU16(), HPPercent = r.readU8(), MPPercent = r.readU8();
+    const n = r.readI32();
+    if (n < 0 || n > GROUP_MEMBER_STATUS_MAX_BUFFS || n > r.remaining) throw new Error(`buff count ${n}`);
+    const Buffs: number[] = [];
+    for (let i = 0; i < n; i++) Buffs.push(r.readU8());
+    return { Name, Class, Level, HPPercent, MPPercent, Buffs };
+  },
+  /** S.HeroAutoCast (after HeroInformation and as the C.HeroSpellToggle reply): the FULL list of hero spells with auto-cast off. */
+  HeroAutoCast: (r: Reader) => {
+    const n = readCount(r, 1);
+    const Disabled: number[] = [];
+    for (let i = 0; i < n; i++) Disabled.push(r.readU8());
+    return { Disabled };
+  },
+  /** S.MapDetails (COMPRESSED; reply to C.RequestMapDetails). Part 0 replaces the details for MapIndex, parts 1 .. PartCount - 1 append. */
+  MapDetails: (r: Reader) => {
+    const MapIndex = r.readI32(), Part = r.readU8(), PartCount = r.readU8();
+    let n = readCount(r, 16);
+    const Respawns: ClientMapRespawn[] = [];
+    for (let i = 0; i < n; i++) Respawns.push({ MonsterIndex: r.readI32(), Location: readPoint(r), Spread: r.readU16(), Count: r.readU16() });
+    n = readCount(r, 11);
+    const SafeZones: ClientMapSafeZone[] = [];
+    for (let i = 0; i < n; i++) SafeZones.push({ Location: readPoint(r), Size: r.readU16(), StartPoint: r.readBool() });
+    return { MapIndex, Part, PartCount, Respawns, SafeZones };
+  },
+  /** S.LoginFailed (right after S.Login on a failed login). Tries -1 = not applicable; LockedUntil = DateTime.ToBinary, 0n = not locked. */
+  LoginFailed: (r: Reader) => ({ Result: r.readU8(), AccountTriesLeft: r.readI32(), ConnectionTriesLeft: r.readI32(), LockedUntil: r.readI64() }),
+  /** S.SelectDetails (after LoginSuccess, LogOutSuccess and NewCharacterSuccess): account gold + per-character guild / map / play time. */
+  SelectDetails: (r: Reader) => {
+    const AccountGold = r.readU32();
+    const n = readCount(r, 14);
+    const Characters: ClientSelectDetail[] = [];
+    for (let i = 0; i < n; i++) Characters.push({ Index: r.readI32(), GuildName: r.readString(), MapTitle: r.readString(), PlayTime: r.readI64() });
+    return { AccountGold, Characters };
+  },
 } satisfies Record<string, (r: Reader) => object>;
 
 type Decoders = typeof decoders;
@@ -996,7 +1056,7 @@ for (const name of Object.keys(decoders) as ServerPacketName[]) {
 
 /** Decode one frame; null for an id this port does not handle yet. Throws on a malformed ported packet. */
 /** Ported packets whose C# `Compressed` is true: the payload is gzip (Functions.CompressBytes). */
-const COMPRESSED = new Set<number>([S.NPCGoods]);
+const COMPRESSED = new Set<number>([S.NPCGoods, S.MapDetails]);
 
 /** True when the frame's payload must be inflated first (use decodeServerPacketAsync). */
 export function isCompressedFrame(frame: Uint8Array): boolean {

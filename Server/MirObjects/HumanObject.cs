@@ -46,8 +46,15 @@ namespace Server.MirObjects
         public override ushort Level
         {
             get { return Info.Level; }
-            set { Info.Level = value; }
+            set { Info.Level = value; GroupStatusDirty = true; }
         }
+
+        /// <summary>
+        /// Phase 2.4 status pushes (flushed by PlayerObject.Process; a hero only sets them). PoisonStatusDirty: the poison set
+        /// or a poison's duration changed (S.PoisonStatus). GroupStatusDirty: HP/MP, level or buffs changed (S.GroupMemberStatus).
+        /// </summary>
+        public bool PoisonStatusDirty, GroupStatusDirty;
+
         public override int Health
         {
             get { return HP; }
@@ -468,6 +475,7 @@ namespace Server.MirObjects
                 if ((buff.ExpireTime > 0 || buff.StackType == BuffStackType.Infinite) && !buff.FlagForRemoval) continue;
 
                 Buffs.RemoveAt(i);
+                GroupStatusDirty = true;
                 Enqueue(new S.RemoveBuff { Type = buff.Type, ObjectID = ObjectID });
 
                 if (buff.Info.Visible)
@@ -685,6 +693,7 @@ namespace Server.MirObjects
                 if (poison.Owner != null && poison.Owner.Node == null)
                 {
                     PoisonList.RemoveAt(i);
+                    PoisonStatusDirty = true;
                     continue;
                 }
 
@@ -696,6 +705,7 @@ namespace Server.MirObjects
                     if (poison.Time >= poison.Duration)
                     {
                         PoisonList.RemoveAt(i);
+                        PoisonStatusDirty = true;
                     }
 
                     if (poison.PType == PoisonType.Green || poison.PType == PoisonType.Bleeding)
@@ -717,7 +727,11 @@ namespace Server.MirObjects
 
                     if (poison.PType == PoisonType.DelayedExplosion)
                     {
-                        if (Envir.Time > ExplosionInflictedTime) ExplosionInflictedStage++;
+                        if (Envir.Time > ExplosionInflictedTime)
+                        {
+                            ExplosionInflictedStage++;
+                            PoisonStatusDirty = true; // the countdown estimate changes with the stage
+                        }
 
                         if (!ProcessDelayedExplosion(poison))
                         {
@@ -727,6 +741,7 @@ namespace Server.MirObjects
                             ExplosionInflictedTime = 0;
 
                             PoisonList.RemoveAt(i);
+                            PoisonStatusDirty = true;
                             continue;
                         }
                     }
@@ -892,6 +907,7 @@ namespace Server.MirObjects
         }
         protected virtual void SendHealthChanged()
         {
+            GroupStatusDirty = true;
             Enqueue(new S.HealthChanged { HP = HP, MP = MP });
             BroadcastHealthChange();
         }
@@ -7469,6 +7485,7 @@ namespace Server.MirObjects
 
                 ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.BeenPoisoned), ChatType.System2);
                 PoisonList[i] = p;
+                PoisonStatusDirty = true;
                 return;
             }
 
@@ -7503,11 +7520,40 @@ namespace Server.MirObjects
             }
 
             PoisonList.Add(p);
+            PoisonStatusDirty = true;
+        }
+
+        /// <summary>
+        /// Phase 2.4: one S.PoisonStatus entry. TimeLeft (ms) = time to the next tick plus the remaining ticks; for the delayed
+        /// explosion, an estimate of the time to the blast from the explosion stage timer. Clamped to 0 .. int.MaxValue.
+        /// </summary>
+        protected ClientPoisonStatus PoisonStatusEntry(Poison poison, long now)
+        {
+            long left;
+            if (poison.PType == PoisonType.DelayedExplosion)
+            {
+                long toStage = ExplosionInflictedTime > now ? ExplosionInflictedTime - now : 0;
+                left = ExplosionInflictedStage == 0 ? toStage + 6000 : toStage + 1000;
+            }
+            else
+            {
+                long toTick = poison.TickTime > now ? poison.TickTime - now : 0;
+                long ticks = poison.Duration - poison.Time - 1;
+                left = toTick + (ticks > 0 ? ticks * poison.TickSpeed : 0);
+            }
+
+            return new ClientPoisonStatus
+            {
+                Type = poison.PType,
+                TimeLeft = left < 0 ? 0 : left > int.MaxValue ? int.MaxValue : (int)left,
+                Value = poison.Value
+            };
         }
 
         public override Buff AddBuff(BuffType type, MapObject owner, int duration, Stats stats, bool refreshStats = true, bool updateOnly = false, params int[] values)
         {
             Buff b = base.AddBuff(type, owner, duration, stats, refreshStats, updateOnly, values);
+            GroupStatusDirty = true;
 
             switch (b.Type)
             {

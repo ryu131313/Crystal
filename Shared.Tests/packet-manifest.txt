@@ -281,6 +281,12 @@ S	278	StoragePasswordResult	StoragePasswordResult	1	C5838BD9
 S	279	GameDataChanged	GameDataChanged	0	B16EF489
 S	280	MapAtmosphere	MapAtmosphere	1	9F640EDF
 S	281	ServerRules	ServerRules	1	442C5222
+S	282	PoisonStatus	PoisonStatus	1	9C63DC88
+S	283	GroupMemberStatus	GroupMemberStatus	1	37035AF5
+S	284	HeroAutoCast	HeroAutoCast	0	14F25851
+S	285	MapDetails	MapDetails	1	D124C068
+S	286	LoginFailed	LoginFailed	0	9B650873
+S	287	SelectDetails	SelectDetails	0	F309A03E
 C	0	ClientVersion	ClientVersion	1	BA76D321
 C	1	Disconnect	Disconnect	1	E3B0C442
 C	2	KeepAlive	KeepAlive	1	1AC00927
@@ -439,3 +445,5 @@ C	154	RepairItems	RepairItems	1	20D358A7
 C	155	CollectAllParcels	CollectAllParcels	1	E3B0C442
 C	156	ReadMails	ReadMails	1	8E16636E
 C	157	SortItems	SortItems	1	4F094976
+C	158	HeroSpellToggle	HeroSpellToggle	1	AC61D557
+C	159	RequestMapDetails	RequestMapDetails	1	F30C927A

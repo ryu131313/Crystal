@@ -1,0 +1,10 @@
+{
+  "name": "HeroSpellToggle",
+  "dir": "client",
+  "id": 158,
+  "hex": "06009E004000",
+  "fields": {
+    "Spell": 64,
+    "AutoCast": false
+  }
+}

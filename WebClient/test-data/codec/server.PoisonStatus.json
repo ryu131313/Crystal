@@ -1,0 +1,20 @@
+{
+  "name": "PoisonStatus",
+  "dir": "server",
+  "id": 282,
+  "hex": "1C001A0102000000010094110000070000004000B004000000000000",
+  "fields": {
+    "Poisons": [
+      {
+        "Type": 1,
+        "TimeLeft": 4500,
+        "Value": 7
+      },
+      {
+        "Type": 64,
+        "TimeLeft": 1200,
+        "Value": 0
+      }
+    ]
+  }
+}

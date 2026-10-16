@@ -1,0 +1,17 @@
+{
+  "name": "GroupMemberStatus",
+  "dir": "server",
+  "id": 283,
+  "hex": "1B001B010B416C6C7920E79B9FE58F8B0129004964020000001803",
+  "fields": {
+    "Name": "Ally 盟友",
+    "Class": 1,
+    "Level": 41,
+    "HPPercent": 73,
+    "MPPercent": 100,
+    "Buffs": [
+      24,
+      3
+    ]
+  }
+}

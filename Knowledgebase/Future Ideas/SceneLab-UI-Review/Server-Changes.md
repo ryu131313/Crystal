@@ -53,8 +53,8 @@ tests) · **d** = cosmetic or client-side settings (`localStorage` / `Mir2Config
 | Belt slots 7-8 = player belt cells 7-8 (**proper cells, user 2026-10-16**) | b (constants; no saved-format change, user DB wiped) | Belt = `Inventory[0..5]` today; `CharacterInfo.Inventory` 46 → `ResizeInventory` 54…86; `PlayerObject.cs` ~L3682 `(Inventory.Length - 46) / 4`; client `BeltIdx = 6` | Grow the belt to 8 cells: see "Belt: 8 player cells" below |
 | Belt takes gear for a quick swap | a | Server does not restrict belt cells by type (desktop client does); `C.EquipItem` swaps the worn item back to the source cell | — (client relaxes its own check) |
 | Durability strip (amber/red/broken) | a | `S.DuraChanged`, `UserItem.CurrentDura/MaxDura` | — |
-| Poison debuff row **with timers** | **b** | `S.Poisoned` carries only the `PoisonType` flags; `S.ObjectPoisoned` likewise | `S.PoisonStatus` (per poison: type, ms left, value) |
-| Delayed-explosion countdown | b | `S.RemoveDelayedExplosion` only ends it | Covered by `S.PoisonStatus` (or a buff entry) |
+| Poison debuff row **with timers** | **b** | `S.Poisoned` carries only the `PoisonType` flags; `S.ObjectPoisoned` likewise | `S.PoisonStatus` (per poison: type, ms left, value) **Done 2026-10-16 (phase 2.4).** |
+| Delayed-explosion countdown | b | `S.RemoveDelayedExplosion` only ends it | Covered by `S.PoisonStatus` (or a buff entry) **Done 2026-10-16 (phase 2.4).** |
 | Compass, timers, dice | a | `S.SetCompass`, `S.SetTimer`/`ExpireTimer`, `S.Roll` | — |
 | Minimap NPCs / exits / group positions | a | `S.MapInformation` / `NewMapInfo` (`ClientMapInfo.NPCs`, `Movements`), `S.GroupMembersMap`, `S.SendMemberLocation` | — |
 | Popups / invite toasts with auto-decline bar | a | `S.GroupInvite`, `GuildInvite`, `MarriageRequest`, `MentorRequest`, `TradeRequest` + their replies | Timeout is client-side (send the decline) |
@@ -116,7 +116,7 @@ tests) · **d** = cosmetic or client-side settings (`localStorage` / `Mir2Config
 |---|---|---|---|
 | Members, leader, invite/kick/pass lead, Allow group | a | `S.AddMember`/`DeleteMember`/`DeleteGroup`/`SwitchGroup`, `C.AddMember`/`DellMember`/`SwitchGroup`/`GroupInvite` | — |
 | Member map + location | a | `S.GroupMembersMap`, `S.SendMemberLocation` | — |
-| Member class, level, live HP / MP, buffs (cards + party frames) | **b** | `S.ObjectHealth` only for objects in view | `S.GroupMemberStatus` (Name, Class, Level, HP %, MP %, buff types), event-driven + throttled (≤ 1/s per member) |
+| Member class, level, live HP / MP, buffs (cards + party frames) | **b** | `S.ObjectHealth` only for objects in view | `S.GroupMemberStatus` (Name, Class, Level, HP %, MP %, buff types), event-driven + throttled (≤ 1/s per member) **Done 2026-10-16 (phase 2.4).** |
 | Loot rule | — | No group loot logic in Crystal | New system — drop from the UI |
 
 ### Friends / Mentor / Relationship (hudFriends.ts, hudMentor.ts, hudRelationship.ts)
@@ -181,7 +181,7 @@ tests) · **d** = cosmetic or client-side settings (`localStorage` / `Mir2Config
 | Hero paperdoll, bag (≤ 42 = 2 belt + 40), stats, EXP | a | `S.HeroInformation`, `S.HeroBaseStatsInfo`, `GainHeroExperience`, `HeroLevelChanged`, `C.TransferHeroItem`/`TakeBackHeroItem` | — |
 | Behaviour, auto-pot thresholds, auto-pot items | a | `C.SetHeroBehaviour`, `SetAutoPotValue`, `SetAutoPotItem`, `S.UnlockHeroAutoPot` | — |
 | Hero skill bar Shift+F1-F8 | a | `C.MagicKey` key > 16 | — |
-| Per-spell auto-cast switch for the hero | **b** | `C.SpellToggle` has no hero flag (server toggles the player only) | `C.HeroSpellToggle(Spell, State)` (+ c only if it must persist: `UserMagic` field) |
+| Per-spell auto-cast switch for the hero | **b** | `C.SpellToggle` has no hero flag (server toggles the player only) | `C.HeroSpellToggle(Spell, State)` (+ c only if it must persist: `UserMagic` field) **Done 2026-10-16 (phase 2.4).** |
 | Creatures: list, summon/dismiss/release, rename, fullness, expiry, pickup mode, filter, grade | a | `S.NewIntelligentCreature`, `UpdateIntelligentCreatureList`, `C.UpdateIntelligentCreature`, `C.IntelligentCreaturePickup` | — |
 | Blackstone countdown + **Collect** | a/b | `ClientIntelligentCreature.BlackstoneTime`; the server awards blackstones itself (`PlayerObject.BlackstoneRewardItem`) | Show the countdown only, drop "Collect" |
 | Mount: stable, equip, ride, gear slots, loyalty bar | a | `S.MountUpdate`, `C.EquipSlotItem`/`S.EquipSlotItem`, `@ride`; loyalty = mount dura, regained while riding (`HumanObject` loyalty timers) | "Restore" button: verify an item path, else drop |
@@ -204,16 +204,16 @@ tests) · **d** = cosmetic or client-side settings (`localStorage` / `Mir2Config
 | Feature | Class | Existing | Add |
 |---|---|---|---|
 | Big map picture, NPCs, exits, teleport to NPC, search | a | `ClientMapInfo` (BigMap, NPCs, Movements), `S.WorldMapSetup`, `C.SearchMap`, `C.TeleportToNPC` | — |
-| Monster spawn zones (difficulty tint), safe zones, floors | **b** | Not sent (lab reads a DB export) | `C.RequestMapDetails(MapIndex)` → `S.MapDetails` (respawns: monster index, x, y, spread, count; safe zones), gated by a new setting (info disclosure), split or `Compressed` |
+| Monster spawn zones (difficulty tint), safe zones, floors | **b** | Not sent (lab reads a DB export) | `C.RequestMapDetails(MapIndex)` → `S.MapDetails` (respawns: monster index, x, y, spread, count; safe zones), gated by a new setting (info disclosure), split or `Compressed` **Done 2026-10-16 (phase 2.4).** |
 | Waypoints, layers | d | — | local |
 | "Travel" via exits | — | no server teleport to exits | view-only |
 | Loading screen facts (NPCs, spawns, suggested level) | a/b | NPCs/exits a; spawns via `S.MapDetails` | — |
 | Login: ID / password, create account wizard, change password, ban reason + expiry | a | `C.Login`/`S.Login(Result)`, `S.LoginBanned(Reason, ExpiryDate)`, `C.NewAccount`, `C.ChangePassword` | — |
-| Wrong-password tries left, lock countdown | b | `Envir.Login` counts `WrongPasswordCount` (~L4938) but sends only `Result = 4` | `S.LoginFailed(Result, TriesLeft, LockedUntil)` |
+| Wrong-password tries left, lock countdown | b | `Envir.Login` counts `WrongPasswordCount` (~L4938) but sends only `Result = 4` | `S.LoginFailed(Result, TriesLeft, LockedUntil)` **Done 2026-10-16 (phase 2.4).** |
 | Server card: status, players, ping | b | `[Network] StatusPort` (3100) exists | Relay/endpoint exposure; ping is client-side |
 | News, language | d | — | static web content / client setting |
 | Select: roster (4), create, delete, class gating, name rules, result codes | a | `S.LoginSuccess` (`SelectInfo`), `C.NewCharacter`/`S.NewCharacter(Result)`, `C.DeleteCharacter`, `C.StartGame` | — |
-| Select details: guild, map, play time | b/c | `SelectInfo` = Index, Name, Level, Class, Gender, LastAccess | Guild + map title: new `S.SelectDetails` (b). Play time: `CharacterInfo.PlayTime` (c) |
+| Select details: guild, map, play time | b/c | `SelectInfo` = Index, Name, Level, Class, Gender, LastAccess | Guild + map title: new `S.SelectDetails` (b). Play time: `CharacterInfo.PlayTime` (c) **Done 2026-10-16 (phase 2.4).** |
 | Game menu: launcher, log out / exit with 10 s combat rule | a | `C.LogOut`/`S.LogOutSuccess`/`LogOutFailed`; combat timer is client-side (desktop) | — |
 | Options, key bindings, help | d | — | client settings only (never server-stored) |
 
@@ -225,28 +225,28 @@ Prefer **new** packets over changing existing ones: existing packets are already
 | Name | Dir | Fields | Observable | Hero-forwarded |
 |---|---|---|---|---|
 | ~~`ServerRules`~~ **Done 2026-10-16 (phase 2.2)**, id 281: sent after `S.LoginSuccess` and after `S.StartGame`; fields as built (no min sale / GemRate: `GemStatIndependent` instead; adds `AllowCreateAssassin/Archer`, `MapDetailsEnabled`, `FriendRequestsEnabled` (const false until 2.7), `MaxFriends`); new `[Game] MapDetailsEnabled` (true) / `MaxFriends` (100) settings | S→C | Refine (cost, time, base chance, stat reduce, increase, crit chance/increase), Awakening (success rate, hit rate, ChanceMax[], weapon/helmet/armour values), Mentor (level gap, length, damage/EXP boosts, % to mentor), Marriage (min level, cooldown, ring cost, EXP bonus, AllowLoverRecall), Mail (cost per 1k gold, insurance %, free with stamp), GT (BuyGTGold, ExtendGT, GTDays, min sale), GemRate | yes (no secrets) | no |
-| `PoisonStatus` | S→C | count; per entry: `PoisonType`, ms left, value | yes | optional (hero frame) |
-| `GroupMemberStatus` | S→C | Name, Class, Level, HP %, MP %, buff count + `BuffType[]` | yes | no |
+| ~~`PoisonStatus`~~ **Done 2026-10-16 (phase 2.4)**, id 282: player only, on change (`PoisonStatusDirty` / list count), flushed in `PlayerObject.Process`; `PoisonType` u16, int ms left (≥ 0), int value; delayed explosion = `PoisonType.DelayedExplosion` (64) | S→C | count; per entry: `PoisonType`, ms left, value | yes | no (as built) |
+| ~~`GroupMemberStatus`~~ **Done 2026-10-16 (phase 2.4)**, id 283: `GroupStatusDirty` (HP/MP, level, buff add/expire, join), ≤ 1/s per member; full exchange on join; buffs capped at 20 (reader throws above) | S→C | Name, Class, Level, HP %, MP %, buff count + `BuffType[]` | yes | no |
 | `GuildMemberDetails` | S→C | count; Name, Class, Level, LastLogin, Online, RankIndex | no | no |
 | `GuildWarList` | S→C | count; guild name, ms left | no | no |
 | `GuildLog` (if c) | S→C | count; time, kind, text | no | no |
 | `RankingsDetail` | S→C | RankType, rows: PlayerId, guild name, online, EXP % | yes | no |
-| `MapDetails` | S→C | MapIndex, respawns (monster index, x, y, spread, count), safe zones (x, y, size); split / `Compressed` | yes | no |
+| ~~`MapDetails`~~ **Done 2026-10-16 (phase 2.4)**, id 285: `Compressed`, plus `Part` / `PartCount` (part 0 replaces, later parts append; ≤ 3000 respawns / 500 safe zones per part); safe zones carry `StartPoint`; `CheckMonsterInfo` before send; cached per `MapInfo` in `Envir.MapDetailsCache` (dropped after every LiveDb apply), 1 s cooldown | S→C | MapIndex, respawns (monster index, x, y, spread, count), safe zones (x, y, size); split / `Compressed` | yes | no |
 | `MentorDetails` | S→C | partner class, MentorDate, ends at | no | no |
 | `MentorCandidates` | S→C | count; Name, Class, Level | no | no |
 | `FriendRequest` | S→C | Name, Class, Level (who is asking) | no | no |
 | `FriendRequestResult` (optional; chat lines also work) | S→C | Name, result (accepted / declined / expired / offline / list full) | no | no |
-| `SelectDetails` | S→C | per character: Index, guild, map title, play time | no | no |
-| `LoginFailed` | S→C | Result, TriesLeft, LockedUntil | no | no |
+| ~~`SelectDetails`~~ **Done 2026-10-16 (phase 2.4)**, id 287: `uint AccountGold` first; sent after `S.LoginSuccess`, `S.LogOutSuccess` (both paths) and `S.NewCharacterSuccess`; play time in seconds | S→C | per character: Index, guild, map title, play time | no | no |
+| ~~`LoginFailed`~~ **Done 2026-10-16 (phase 2.4)**, id 286: sent right after `S.Login` (Result 3 no account, 4 wrong password), never instead; `AccountTriesLeft` / `ConnectionTriesLeft` (-1 = n/a), `LockedUntil` = `DateTime.ToBinary` (0 = not locked; set when the connection limit closes the socket) | S→C | Result, TriesLeft, LockedUntil | no | no |
 | `MarketPriceHistory` (c) | S→C | ItemIndex, last N (price, date) | yes | no |
 | `SentMail` (c) | S→C | count; ClientMail-like rows | no | no |
 | `RequestGuildMemberDetails` | C→S | — | | |
 | `FindMentor` | C→S | min level, max level | | |
-| `RequestMapDetails` | C→S | MapIndex (validate: own map or a map with BigMap) | | |
+| ~~`RequestMapDetails`~~ **Done 2026-10-16 (phase 2.4)**, id 159: `[Game] MapDetailsEnabled`, own map or `BigMap > 0`, 1 s cooldown (armed on rejected requests too) | C→S | MapIndex (validate: own map or a map with BigMap) | | |
 | `MarketSearchEx` | C→S | as `MarketSearch` + sort, price min/max, grade | | |
 | `MarketPriceHistory` (c) | C→S | ItemIndex | | |
 | `GameshopGift` | C→S | GIndex, Quantity, PType, Recipient | | |
-| `HeroSpellToggle` | C→S | Spell, `SpellToggleState` | | |
+| ~~`HeroSpellToggle`~~ **Done 2026-10-16 (phase 2.4)**, id 158: `Spell`, `bool AutoCast`; spawned hero that knows the spell; replies `S.HeroAutoCast` (id 284, full disabled list, `Observable => false`), also sent after `S.HeroInformation` | C→S | Spell, `SpellToggleState` | | |
 | `GuildTerritoryAction` | C→S | Kind (Rent / Extend / ListForSale / CancelSale / Teleport), Index, Price | | |
 | `FriendRequestReply` | C→S | Name, Accept | | |
 | (changed) `ClientFriend` in `S.FriendUpdate` | S→C | + Class, Level, Gender, GuildName, LastSeen (no `FriendDetails` packet needed) | | |
@@ -275,7 +275,7 @@ login; now properties over `CharacterInfo`) and `AllowFriendRequests` (default t
 | Guild activity log (capped list) | `GuildInfo` (`Guilds\*.mgd`, ctor already takes `version`) | Guild Log tab | **done** (data): `GuildInfo.Log` (cap 100), `AddLog(GuildLogKind.X, text)` sets `NeedSave`; events: phase 2.5 |
 | Market sales log (capped per ItemIndex) | new list saved beside `Auctions` in `SaveAccounts` | Price history | **done**: `Envir.MarketSales` (last 14 per ItemIndex, after the respawn block), `RecordMarketSale` on consignment buy / auction win; packets: phase 2.6 |
 | `DealPrice` | `GameShopItem` (`Server.MirDB`, **and** its packet ctor / `Save(writer, packet)`) | Shop deal badge | **done**: `DealGoldPrice` + `DealCreditPrice` (uint, 0 = none), DB + wire (`S.GameShopInfo`, `S.GameDataChanged`; TS + Fixtures); LiveDb read-through; MirDbExport columns |
-| Hero auto-cast per spell | `UserMagic` | Hero skills tab | **done** (data): `UserMagic.AutoCast` (default true, players and heroes); hero AI use: phase 2.4 |
+| Hero auto-cast per spell | `UserMagic` | Hero skills tab | **done** (data): `UserMagic.AutoCast` (default true, players and heroes); hero AI use: **done 2026-10-16 (phase 2.4)**: `HeroObject.CanUseMagic` also requires `AutoCast` (still also `Key > 0`) |
 
 Not recommended: storage "stored by" (per-`UserItem` field), fishing journal / game-shop history / favourites server-side
 (keep local), relationship memories.
@@ -397,7 +397,7 @@ Tests: `Server.Persistence.Tests` (synthetic characters built with 46 cells, so 
 2. **Done 2026-10-16 (phase 2.1)** **Safety before bulk buttons:** `SellItems`, `RepairItems`, `CollectAllParcels`, `ReadMails`, `SortStorage` /
    `StackStorage`; fix the `C.PurchaseGuildTerritory` factory case.
 3. **Done 2026-10-16 (phase 2.2)** **`S.ServerRules`** (id 281; new `[Game] MapDetailsEnabled` / `MaxFriends` settings, in the web admin catalogue) (unblocks refine / awakening / mentor / marriage / mail / territory panels).
-4. **Class b detail packets**, one small commit each: `PoisonStatus`, `GroupMemberStatus`, `GuildMemberDetails` +
+4. **Class b detail packets**, one small commit each (**done 2026-10-16, phase 2.4:** `PoisonStatus`, `GroupMemberStatus`, `SelectDetails`, `LoginFailed`, `HeroSpellToggle`, `MapDetails`): `PoisonStatus`, `GroupMemberStatus`, `GuildMemberDetails` +
    `GuildWarList`, `RankingsDetail`, `SelectDetails`, `LoginFailed`, `HeroSpellToggle`, `MentorDetails` /
    `FindMentor`, `GameshopGift`, `GuildTerritoryAction`, `MarketSearchEx`, `MapDetails` (behind a setting),
    friend requests + `ClientFriend` details (see "Friends: requests and details").

@@ -303,6 +303,11 @@ export const ClientPackets = {
   /** Grid: MirGridType.Inventory (1, bag cells only, never the belt) or MirGridType.Storage (4). Mode 0 = sort, 1 = stack then compact.
    *  Reply: S.UserSlotsRefresh (inventory) or S.UserStorage (storage); 2 s server cooldown. */
   SortItems: (p: { Grid: number; Mode: number }) => frame(C.SortItems, (w) => { w.writeU8(p.Grid); w.writeU8(p.Mode); }),
+  // — Phase 2.4 —
+  /** Spell = Spell enum value of a hero spell. Needs a spawned hero that knows it; reply S.HeroAutoCast (full disabled list). */
+  HeroSpellToggle: (p: { Spell: number; AutoCast: boolean }) => frame(C.HeroSpellToggle, (w) => { w.writeU8(p.Spell); w.writeBool(p.AutoCast); }),
+  /** MapIndex = MapInfo.Index: the current map or one with a BigMap. Needs ServerRules.MapDetailsEnabled; 1 s server cooldown. Reply S.MapDetails. */
+  RequestMapDetails: (p: { MapIndex: number }) => frame(C.RequestMapDetails, (w) => w.writeI32(p.MapIndex)),
 } as const;
 
 export type ClientPacketName = keyof typeof ClientPackets;

@@ -353,6 +353,11 @@ namespace Server.WebAdmin.LiveDb
                                 {
                                     failure = ex; // Main already restored by the applier
                                 }
+                                finally
+                                {
+                                    // respawns, safe zones, maps or monsters may have changed (or been rolled back): rebuild S.MapDetails
+                                    Server.MirEnvir.Envir.Main.InvalidateMapDetails();
+                                }
                             }, _env.Options.GameThreadTimeoutMs);
                         }
                         catch (GameThreadTimeoutException)

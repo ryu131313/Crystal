@@ -888,6 +888,12 @@ namespace Server.MirNetwork
                 case (short)ClientPacketIds.SortItems:
                     SortItems((C.SortItems)p);
                     break;
+                case (short)ClientPacketIds.HeroSpellToggle:
+                    HeroSpellToggle((C.HeroSpellToggle)p);
+                    break;
+                case (short)ClientPacketIds.RequestMapDetails:
+                    RequestMapDetails((C.RequestMapDetails)p);
+                    break;
                 default:
                     MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.InvalidPacketReceived), p.Index));
                     break;
@@ -1293,6 +1299,7 @@ namespace Server.MirNetwork
                 Player = null;
 
                 Enqueue(new S.LogOutSuccess { Characters = Account.GetSelectInfo() });
+                Enqueue(Envir.SelectDetailsPacket(Account));
             }
             else if (Stage == GameStage.Observer)
             {
@@ -1303,6 +1310,7 @@ namespace Server.MirNetwork
                 Stage = GameStage.Select;
 
                 Enqueue(new S.LogOutSuccess { Characters = Account.GetSelectInfo() });
+                Enqueue(Envir.SelectDetailsPacket(Account));
             }
         }
 
@@ -2549,6 +2557,20 @@ namespace Server.MirNetwork
             if (Stage != GameStage.Game) return;
 
             Player.SortItems(p.Grid, p.Mode);
+        }
+
+        private void HeroSpellToggle(C.HeroSpellToggle p)
+        {
+            if (Stage != GameStage.Game) return;
+
+            Player.HeroSpellToggle(p.Spell, p.AutoCast);
+        }
+
+        private void RequestMapDetails(C.RequestMapDetails p)
+        {
+            if (Stage != GameStage.Game) return;
+
+            Player.RequestMapDetails(p.MapIndex);
         }
     }
 

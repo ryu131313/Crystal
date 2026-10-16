@@ -1,0 +1,12 @@
+{
+  "name": "LoginFailed",
+  "dir": "server",
+  "id": 286,
+  "hex": "15001E010402000000FFFFFFFF00E024017D2BDF48",
+  "fields": {
+    "Result": 4,
+    "AccountTriesLeft": 2,
+    "ConnectionTriesLeft": -1,
+    "LockedUntil": "5250963506427387904"
+  }
+}

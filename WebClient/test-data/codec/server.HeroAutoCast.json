@@ -1,0 +1,12 @@
+{
+  "name": "HeroAutoCast",
+  "dir": "server",
+  "id": 284,
+  "hex": "0A001C01020000001F3F",
+  "fields": {
+    "Disabled": [
+      31,
+      63
+    ]
+  }
+}

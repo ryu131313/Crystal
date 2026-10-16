@@ -10,6 +10,7 @@ import { LoginScene } from "./loginScene.ts";
 import { SelectScene } from "./selectScene.ts";
 import { Text, type SceneHost } from "./accountCommon.ts";
 import { serverRules } from "../game/serverRules.ts";
+import { accountDetails } from "../game/accountDetails.ts";
 
 const root = () => document.getElementById("screen")!;
 
@@ -114,6 +115,7 @@ export class Screens {
 
   handle(p: ServerPacket): boolean {
     if (serverRules(this.session).handle(p)) return true; // S.ServerRules after S.LoginSuccess: stored, never backlogged
+    if (accountDetails(this.session).handle(p)) return true; // S.LoginFailed / S.SelectDetails (web-only): stored, never backlogged
     switch (p.type) {
       case "ClientVersion":
         if (p.Result !== 1) this.fatal("Wrong client version (the relay's --version-path does not match the server's VersionPath).");
