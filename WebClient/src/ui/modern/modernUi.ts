@@ -6,7 +6,9 @@
 // the 2D overlay canvas, the layers, the window manager, popups, ticker, theme and HUD scale), then the services in
 // dependency order (drag controller + item cells before the HUD's belt, the tooltip), the bottom HUD (hud/hud.ts) and the
 // HUD parts (chat, minimap, extras, party frames, hero frame, quest tracker). Windows (phases 3b-3f) come from the
-// window catalog (windowRegistry.ts, filled by windows/index.ts) and are built on their first open.
+// window catalog (windowRegistry.ts, filled by windows/index.ts) and are built on their first open. Server-opened
+// windows (storage, inspect: phase 3b) open from their catalog entry's `watch` hook, run here once per game; GameUi.handle
+// feeds every packet to host.packets for the hooks whose packets have no model event (it never consumes).
 //
 // Keys: everything goes through game.ts's input router (src/game/input.ts), registered in bindInput:
 //   modal     popups (core/popups.ts), the drag / pick (Esc cancels)
@@ -100,6 +102,7 @@ export function createModernUi(ctx: GameUiContext): GameUi {
   });
   const sig = rt.signal;
   const events = new Emitter<UiEvent>();
+  const packets = new Emitter<ServerPacket>();
   const drag = dragController(rt, { models: m, now: () => ctx.now() });
   const cells = drag.itemCells;
   const tooltip = itemTooltip(rt, m.gameInfo);
@@ -150,13 +153,22 @@ export function createModernUi(ctx: GameUiContext): GameUi {
 
   drag.hooks = {
     onLink: (item, cell) => chat.linkItem(item, cell.grid in MIR_GRID ? MIR_GRID[cell.grid as keyof typeof MIR_GRID] ?? undefined : undefined),
-    onSockets: () => { openWindow("sockets", true); }, // the socket window arrives with phase 3b (a no-op until then)
+    onSockets: () => { openWindow("sockets", true); }, // the socket window arrives with phase 3d (a no-op until then)
     onPickSound: (item) => ctx.sound.play(itemSound(m.itemInfos.get(item.ItemIndex)?.Type)),
   };
 
   // — The window catalog (windowRegistry.ts) into this game's runtime —
-  const host: ModernUiHost = { rt, ctx, drag, cells, tooltip, chat, hud, events, labelContext, openWindow };
-  const add = (key: string, e: WindowEntry) => rt.registerWindow(key, () => e.factory(host));
+  const host: ModernUiHost = { rt, ctx, drag, cells, tooltip, chat, hud, events, packets, labelContext, openWindow };
+  /** Key -> the removal of its entry's watch hook (server-opened windows). */
+  const watches = new Map<string, () => void>();
+  const add = (key: string, e: WindowEntry) => {
+    if (sig.aborted) return;
+    rt.registerWindow(key, () => e.factory(host));
+    watches.get(key)?.();
+    watches.delete(key);
+    const off = e.options.watch?.(host, (show) => openWindow(key, show));
+    if (off) watches.set(key, off);
+  };
   for (const [key, e] of windowCatalog()) add(key, e);
   const offCatalog = onWindowRegistered(add);
 
@@ -192,6 +204,7 @@ export function createModernUi(ctx: GameUiContext): GameUi {
   const friendPrompts = new Map<string, { close(): void }>();
   const offs: (() => void)[] = [
     offCatalog, offSettings,
+    () => { for (const off of watches.values()) off(); watches.clear(); },
     m.group.invite.on(({ name }) => answer(rt.popups.ask(`Do you want to group with ${name}?`), (y) => m.group.answerInvite(y))),
     m.guild.invite.on(({ name }) => answer(rt.popups.ask(`Do you want to join the ${name} guild?`), (y) => m.guild.answerInvite(y))),
     m.trade.requested.on(({ name }) => answer(rt.popups.ask(`Player ${name} has requested to trade with you.`), (y) => m.trade.reply(y))),
@@ -306,7 +319,7 @@ export function createModernUi(ctx: GameUiContext): GameUi {
     switch (c.kind) {
       case "trade": m.trade.request(); break;
       case "toggle": if (c.window === "miniMap") minimap.toggle(); else openWindow(WINDOW_KEYS.ranking); break;
-      case "inspect": m.inspect.inspect(c.objectId); break; // InspectDialog: the window arrives with phase 3b
+      case "inspect": m.inspect.inspect(c.objectId); break; // InspectDialog: windows/inspect.ts opens on the reply
       case "talk": m.npcSession.talk(c.objectId, c.name); break; // C.CallNPC "[@Main]"; the NPC window arrives with phase 3d
     }
   }
@@ -386,7 +399,8 @@ export function createModernUi(ctx: GameUiContext): GameUi {
 
   return {
     style: "Modern",
-    handle: (_p: ServerPacket) => false, // no UI-only leftovers: every packet the HUD shows lives in a model
+    // No UI-only leftovers: every packet the HUD shows lives in a model; the watch hooks only read (storage).
+    handle: (p: ServerPacket) => { packets.emit(p); return false; },
     notify,
     frame,
     confirm,

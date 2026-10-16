@@ -117,12 +117,13 @@ export class DragController {
     root.addEventListener("contextmenu", (e) => this.context(e), sig);
     this.follow = rafCoalesce((x: number, y: number) => this.move(x, y), this.signal);
     window.addEventListener("pointermove", (e) => {
-      if (!this.press && !this.drag && !this.picking) return;
+      const pk = this.cells.deps.models.itemPick, ghost = this.picking || pk.gold || pk.hudGold; // picked gold has a ghost too
+      if (!this.press && !this.drag && !ghost) return;
       this.last = [e.clientX, e.clientY];
       if (this.press && !this.drag && e.buttons === 0) { this.press = null; return; } // released outside the page
       if (this.drag && e.buttons === 0) { this.cancel(); return; }
       if (this.press && !this.drag && Math.hypot(e.clientX - this.press.x, e.clientY - this.press.y) > DRAG_START) this.start();
-      else if (this.drag || this.picking) this.follow(e.clientX, e.clientY);
+      else if (this.drag || ghost) this.follow(e.clientX, e.clientY);
     }, sig);
     window.addEventListener("pointerup", (e) => this.up(e), sig);
     window.addEventListener("pointercancel", () => { this.press = null; this.cancel(); }, sig);
