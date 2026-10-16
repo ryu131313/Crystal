@@ -7,7 +7,8 @@
 // Values go through settings.ts setSetting (localStorage); volumes go to SoundManager (audio.ts persists them).
 // Allow observe sends `C.Chat "@ALLOWOBSERVE"` like OptionDialog.ToggleObserve; the state (UserInformation.AllowObserve,
 // S.AllowObserve) is in the Account model (src/game/account.ts).
-// "New interface (preview)" (web-only, plan phase 3a) saves settings.ts UiStyle Modern / Classic; it applies at the next
+// "New interface" (web-only, plan phase 3a; "preview" dropped when the new UI became the default in phase 5) saves
+// settings.ts UiStyle Modern / Classic; it applies at the next
 // log-in, so a box offers to log out now (onLogOut: GameActions.logOut, which keeps the combat lock).
 
 import { KeybindOptions, matches } from "../game/keybinds.ts";
@@ -103,7 +104,7 @@ export class OptionWindow {
         set: (v) => { setSetting("Lighting", v ? "Enhanced" : "Classic"); hint(v ? "[Lighting: Enhanced]" : "[Lighting: Classic]"); } },
       { label: "Atmosphere effects", hint: "Glow, spell flashes, lit embers and heat haze (Enhanced lighting only)", ...this.boolRow("Atmosphere") },
       { label: "Cozy mode", hint: "Slightly richer colour and contrast", ...this.boolRow("CozyMode") },
-      { label: "New interface (preview)", hint: "The new game interface; applies at your next log-in", get: () => uiStyle() === "Modern",
+      { label: "New interface", hint: "The new game interface; applies at your next log-in", get: () => uiStyle() === "Modern",
         set: (v) => this.setUiStyle(v ? "Modern" : "Classic") },
     ];
     this.more = new MirControl({ parent: win, size: [180, 12 + moreRows.length * 25], backColour: "rgba(0, 0, 0, 0.8)", border: true, borderColour: "rgb(148, 146, 148)", visible: false });

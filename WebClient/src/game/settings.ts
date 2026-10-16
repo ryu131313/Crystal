@@ -8,9 +8,9 @@ export type LightingMode = "Classic" | "Enhanced";
 /** Web-only: which game UI game.ts builds (src/ui/gameUi.ts). "Default" follows DEFAULT_UI_STYLE; resolve with uiStyle(). */
 export type UiStyle = "Default" | "Modern" | "Classic";
 
-/** What "Default" means: flips to Modern in phase 5 of the UI port. A saved explicit choice always wins; "Default" exists
- *  because setSetting saves the whole object, so a 2-value field would pin every early user to Classic. */
-export const DEFAULT_UI_STYLE: "Modern" | "Classic" = "Classic";
+/** What "Default" means: Modern since phase 5 of the UI port (2026-10-16). A saved explicit choice always wins; "Default"
+ *  exists because setSetting saves the whole object, so a 2-value field would pin every early user to Classic. */
+export const DEFAULT_UI_STYLE: "Modern" | "Classic" = "Modern";
 
 export interface GameSettings {
   // Settings [Game]

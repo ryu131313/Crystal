@@ -125,6 +125,8 @@ Two relays, same program (`WebRelay`), mirroring WoOOLcraft's private/public spl
 | Server | a scratch/test server (default 17000) | the live server (port from its `Setup.ini`, 7100) |
 | Limits | relay budget only | `CF-Connecting-IP` keyed budget + failed-login / account / character limits (`--public`) |
 
+**Interface default (2026-10-16, scene-lab UI phase 5):** the new ("Modern") interface is the default for a player whose `UiStyle` setting is "Default"; a saved "Classic" still wins. Players switch either way from the account-screen footer links, the classic Options "More" panel row "New interface" or the modern game menu ("Switch to classic interface"); the choice saves at once and applies at the next screen (in game a popup offers to log out now). It ships with the `WebClient` snapshot below — no server, relay or patch step.
+
 **One-time setup (operator):**
 1. **Server setting.** Every web player reaches the server from `127.0.0.1`, so the live server needs `[LoadTest] ExemptLoopback=True`. Without it, `MaxIP=5` caps ALL web players at 5, and one player's 5 failed logins (1 min) or 4th account in an hour (24 h) IP-blocks every web player. Set it on the web admin settings page ("Load test: exempt loopback") or in `Build\Server\Release\Configs\Setup.ini` with the server stopped (`Settings.Save()` rewrites the file at exit). The relay re-applies those limits per player address. The exemption covers everything that connects from this machine; desktop players from other machines keep the server's own limits. `start-public-webrelay.ps1` refuses to start without it.
 2. **Cloudflare tunnel route** (Zero Trust → Networks → Tunnels → the "WoooL Home" tunnel → Published application routes → Add):

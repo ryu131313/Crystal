@@ -128,7 +128,7 @@ export function createModernUi(ctx: GameUiContext): GameUi {
 
   const openWindow = (key: string, show?: boolean): boolean => rt.toggleWindow(key, show);
 
-  /** The game menu's "Switch to classic interface" (the mirror of the classic Options "New interface (preview)"). */
+  /** The game menu's "Switch to classic interface" (the mirror of the classic Options "New interface"). */
   const switchToClassic = (): void => {
     if (gameSettings.UiStyle !== "Classic") setSetting("UiStyle", "Classic");
     void rt.popups.ask("The classic interface applies at your next log-in. Log out now?", { title: "Classic interface" })

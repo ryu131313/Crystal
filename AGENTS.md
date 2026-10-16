@@ -272,7 +272,7 @@ Server details: `server.md` §2.3, §3.2. Client details: `client.md` §2.1, §3
 | `Knowledgebase/roadmap.md` | **Proposed 2026-10-08** — ordered modernisation plan (.NET 10, SQLite, server optimisation, DX11 client track), phase gates, rule overrides (⚠), open decisions, status table. Check it before starting any modernisation phase; per-phase mechanics and evidence are in `Future Ideas/Roadmap-Phase-Notes.md` |
 | `Knowledgebase/PatchHost/` | Empty placeholder (Crystal has no PatchHost project; patching = AutoPatcherAdmin(V2) + client `AMain`) |
 | `Knowledgebase/StressClient/` | `stressclient.md` (2026-10-10): the bot load generator, scratch servers, the baseline script |
-| `Knowledgebase/WebClient/` | `webclient.md` (2026-10-12): browser client + WebRelay, packet-port recipe, known gaps (roadmap W) |
+| `Knowledgebase/WebClient/` | `webclient.md` (2026-10-16): browser client + WebRelay, packet-port recipe, the scene-lab UI as the default web UI, known gaps (roadmap W) |
 | `Knowledgebase/Websites/` | Empty placeholder (web admin rules live in `server.md` §2.7 / §3.7 / §4.10 + `Server/WebAdmin/README.md`) |
 | `Knowledgebase/Future Ideas/` | `Roadmap-Phase-Notes.md` (per-phase notes for `roadmap.md`), the overnight decisions log (`Overnight-Log-2026-10-10.md`, D1–D39+), `X1-Security-Review.md`, `Packet-Mutation-Audit.md`, `Review-P2-P6-Threading.md`, `P7-SQLite-Export.md`, `Ametrine-Client-Comparison.md` (2026-10-13: what the Mir Ametrine client does better than ours, adoption order — ideas only) |
 | `Knowledgebase/Future Optimisation/` | Baselines (`Baseline-2026-10-10.md`) and one file per measured P9 change (`P9-NN-*.md`) |
