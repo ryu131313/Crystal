@@ -7,7 +7,7 @@
 // dependency order (drag controller + item cells before the HUD's belt, the tooltip), the bottom HUD (hud/hud.ts) and the
 // HUD parts (chat, minimap, extras, party frames, hero frame, quest tracker). Windows (phases 3b-3f) come from the
 // window catalog (windowRegistry.ts, filled by windows/index.ts) and are built on their first open. Server-opened
-// windows (storage, inspect: phase 3b) open from their catalog entry's `watch` hook, run here once per game; GameUi.handle
+// windows (storage, inspect: phase 3b; the NPC services: phase 3d) open from their catalog entry's `watch` hook, run here once per game; GameUi.handle
 // feeds every packet to host.packets for the hooks whose packets have no model event (it never consumes).
 //
 // Keys: everything goes through game.ts's input router (src/game/input.ts), registered in bindInput:
@@ -56,6 +56,7 @@ import { QuestTracker } from "./hud/tracker.ts";
 import { onWindowRegistered, windowCatalog, type ModernUiHost, type WindowEntry } from "./windowRegistry.ts";
 import "./windows/index.ts";
 import { showTopic } from "./windows/help.ts";
+import { SOCKET_KEY } from "./windows/socket.ts";
 
 export { registerWindow, type ModernUiHost, type ModernWindowFactory, type WindowOptions } from "./windowRegistry.ts";
 
@@ -154,7 +155,7 @@ export function createModernUi(ctx: GameUiContext): GameUi {
 
   drag.hooks = {
     onLink: (item, cell) => chat.linkItem(item, cell.grid in MIR_GRID ? MIR_GRID[cell.grid as keyof typeof MIR_GRID] ?? undefined : undefined),
-    onSockets: () => { openWindow("sockets", true); }, // the socket window arrives with phase 3d (a no-op until then)
+    onSockets: () => { openWindow(SOCKET_KEY, true); }, // windows/socket.ts's watch hook replaces it (it also shows the item)
     onPickSound: (item) => ctx.sound.play(itemSound(m.itemInfos.get(item.ItemIndex)?.Type)),
   };
 
@@ -324,7 +325,7 @@ export function createModernUi(ctx: GameUiContext): GameUi {
       case "trade": m.trade.request(); break;
       case "toggle": if (c.window === "miniMap") minimap.toggle(); else openWindow(WINDOW_KEYS.ranking); break;
       case "inspect": m.inspect.inspect(c.objectId); break; // InspectDialog: windows/inspect.ts opens on the reply
-      case "talk": m.npcSession.talk(c.objectId, c.name); break; // C.CallNPC "[@Main]"; the NPC window arrives with phase 3d
+      case "talk": m.npcSession.talk(c.objectId, c.name); break; // C.CallNPC "[@Main]"; windows/npc.ts opens on the page
     }
   }
 

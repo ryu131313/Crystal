@@ -79,6 +79,9 @@ export class ItemCell {
   private shown = "";
   private img = -2;
   private disposedFlag = false;
+  /** Removes the cell's hook on a caller's `signal` (set by ItemCells.cell; dispose drops it, so a rebuilt cell is not
+   *  kept alive by a long-lived window signal). */
+  unhook: (() => void) | null = null;
 
   constructor(private readonly owner: ItemCells, ref: CellRef, readonly opts: CellOptions) {
     this._ref = ref;
@@ -160,6 +163,8 @@ export class ItemCell {
   dispose(): void {
     if (this.disposedFlag) return;
     this.disposedFlag = true;
+    this.unhook?.();
+    this.unhook = null;
     this.owner.forget(this);
     this.el.remove();
   }
@@ -223,7 +228,13 @@ export class ItemCells {
     this.cells.add(c);
     this.byEl.set(c.el, c);
     const sig = o.signal ?? this.signal;
-    if (sig !== this.signal) sig.addEventListener("abort", () => c.dispose(), { once: true, signal: this.signal });
+    if (sig !== this.signal) {
+      // no runtime signal on this hook (its abort step would keep every disposed cell reachable): the runtime's dispose
+      // disposes every cell, and ItemCell.dispose removes the hook
+      const onAbort = (): void => c.dispose();
+      sig.addEventListener("abort", onAbort, { once: true });
+      c.unhook = () => sig.removeEventListener("abort", onAbort);
+    }
     c.render();
     return c;
   }
