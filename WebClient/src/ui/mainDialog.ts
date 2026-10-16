@@ -8,21 +8,15 @@
 
 import { MirWindow, MirButton, MirLabel, MirImage, Lib } from "./mir/controls.ts";
 import { SoundList } from "../game/audio.ts";
-import { MirClass, AttackMode, PetMode } from "../protocol/enums.generated.ts";
+import { MirClass } from "../protocol/enums.generated.ts";
 import { KeybindOptions, keyLabel, type KeybindOption } from "../game/keybinds.ts";
 import { gameSettings } from "../game/settings.ts";
 import { gameSignal } from "../game/scope.ts";
 import { pixelDetect, Section } from "./hudCommon.ts";
+import { AMODE_TEXT, PMODE_TEXT } from "../game/modeText.ts";
 
-/** ClientTextKeys.AttackMode_* / PetMode_* (English.json). */
-export const AMODE_TEXT: Record<number, string> = {
-  [AttackMode.Peace]: "[Mode: Peaceful]", [AttackMode.Group]: "[Mode: Group]", [AttackMode.Guild]: "[Mode: Guild]",
-  [AttackMode.EnemyGuild]: "[Mode: Enemy Guild]", [AttackMode.RedBrown]: "[Mode: Red/Brown]", [AttackMode.All]: "[Mode: Attack All]",
-};
-export const PMODE_TEXT: Record<number, string> = {
-  [PetMode.Both]: "[Pet: Attack and Move]", [PetMode.MoveOnly]: "[Pet: Do Not Attack]", [PetMode.AttackOnly]: "[Pet: Do Not Move]",
-  [PetMode.None]: "[Pet: Do Not Attack or Move]", [PetMode.FocusMasterTarget]: "[Pet: Focus Master Target]",
-};
+/** ClientTextKeys.AttackMode_* / PetMode_* (English.json); defined in src/game/modeText.ts since phase 3a (game.ts reads them too). */
+export { AMODE_TEXT, PMODE_TEXT };
 
 /** GameLanguage "Name ({0})" hints with the current key (CMain.InputKeys.GetKey). */
 export function keyHint(format: string, opt: KeybindOption): string {

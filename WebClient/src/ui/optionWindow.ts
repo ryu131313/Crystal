@@ -7,13 +7,16 @@
 // Values go through settings.ts setSetting (localStorage); volumes go to SoundManager (audio.ts persists them).
 // Allow observe sends `C.Chat "@ALLOWOBSERVE"` like OptionDialog.ToggleObserve; the state (UserInformation.AllowObserve,
 // S.AllowObserve) is in the Account model (src/game/account.ts).
+// "New interface (preview)" (web-only, plan phase 3a) saves settings.ts UiStyle Modern / Classic; it applies at the next
+// log-in, so a box offers to log out now (onLogOut: GameActions.logOut, which keeps the combat lock).
 
 import { KeybindOptions, matches } from "../game/keybinds.ts";
 import type { Account } from "../game/account.ts";
 import { ClientPackets } from "../protocol/client.ts";
 import { ChatType } from "../protocol/enums.generated.ts";
 import { SoundList, type SoundManager } from "../game/audio.ts";
-import { gameSettings, setSetting, onSettingChange, type GameSettings } from "../game/settings.ts";
+import { gameSettings, setSetting, onSettingChange, uiStyle, type GameSettings } from "../game/settings.ts";
+import { messageBox } from "./messageBox.ts";
 import { gameSignal } from "../game/scope.ts";
 import { MirWindow, MirControl, MirImage, MirButton, MirLabel, closeButton, setPicture, libSize, Lib } from "./mir/controls.ts";
 import { el } from "./screens.ts";
@@ -39,6 +42,8 @@ export class OptionWindow {
   private readonly chat: (text: string, type: number) => void;
   private readonly sound: Pick<SoundManager, "volume" | "musicVolume">;
   private readonly account: Account;
+  /** "Log out now?" Yes after a UI style change (classicUi.ts: ctx.actions.logOut(false, true)). */
+  onLogOut: (() => void) | null = null;
 
   constructor(_stage: HTMLElement, send: (f: Uint8Array) => void, chat: (text: string, type: number) => void, sound: Pick<SoundManager, "volume" | "musicVolume">,
     account: Account) {
@@ -98,6 +103,8 @@ export class OptionWindow {
         set: (v) => { setSetting("Lighting", v ? "Enhanced" : "Classic"); hint(v ? "[Lighting: Enhanced]" : "[Lighting: Classic]"); } },
       { label: "Atmosphere effects", hint: "Glow, spell flashes, lit embers and heat haze (Enhanced lighting only)", ...this.boolRow("Atmosphere") },
       { label: "Cozy mode", hint: "Slightly richer colour and contrast", ...this.boolRow("CozyMode") },
+      { label: "New interface (preview)", hint: "The new game interface; applies at your next log-in", get: () => uiStyle() === "Modern",
+        set: (v) => this.setUiStyle(v ? "Modern" : "Classic") },
     ];
     this.more = new MirControl({ parent: win, size: [180, 12 + moreRows.length * 25], backColour: "rgba(0, 0, 0, 0.8)", border: true, borderColour: "rgb(148, 146, 148)", visible: false });
     moreRows.forEach((r, i) => {
@@ -139,6 +146,14 @@ export class OptionWindow {
   /** GameScene.AllowObserve (Account). */
   get allowObserve(): boolean {
     return this.account.allowObserve;
+  }
+
+  /** Saves UiStyle and offers to log out (the UI is built at log-in). */
+  private setUiStyle(style: "Modern" | "Classic"): void {
+    if (uiStyle() === style) return;
+    setSetting("UiStyle", style);
+    messageBox(document.body, `The ${style === "Modern" ? "new" : "classic"} interface applies at your next log-in. Log out now?`, [
+      { label: "Yes", primary: true, onClick: () => this.onLogOut?.() }, { label: "No" }]);
   }
 
   private boolRow(key: BoolKey): Pick<MoreRow, "get" | "set"> {

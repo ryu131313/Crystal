@@ -139,6 +139,7 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
   });
   /** OptionDialog (F12 / O), HelpDialog (H), ChatOptionDialog; MirButton click sounds on every stage button. */
   const optionWindow = new OptionWindow(stage, send, (t, ty) => chat(t, ty), sound, account);
+  optionWindow.onLogOut = () => actions.logOut(false, true); // "New interface (preview)": log out now (combat lock kept)
   const helpWindow = new HelpWindow(stage, (o) => { // the shortcut pages show the live bindings (keybinds.ts)
     const opt = (KeybindOptions as Record<string, KeybindOption | undefined>)[o];
     return opt === undefined ? HELP_DEFAULT_KEYS[o] ?? "" : keyLabel(opt);

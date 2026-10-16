@@ -11,8 +11,12 @@ namespace WebRelay;
 ///               count, total size or newest write time changes, checked at most every 2 s.
 ///   /js/&lt;id&gt;/x.js  the current id: x.js immutable (Cloudflare and the browser keep it until the next publish).
 ///                   another 12-hex id: 307 to the current one, no-store (a page that raced a publish lands on one build).
-///   /play/        index.html rewritten: ../js/ -> ../js/&lt;id&gt;/, plus one &lt;link rel="modulepreload"&gt; per module, so the
-///                 browser fetches all ~100 modules in parallel instead of walking the import graph level by level.
+///   /play/        index.html rewritten: ../js/ -> ../js/&lt;id&gt;/, plus one &lt;link rel="modulepreload"&gt; per module of
+///                 play/main.js's STATIC import graph (import / export ... from, side-effect imports; parsed from the emitted
+///                 JS, followed transitively), so the browser fetches those modules in parallel instead of walking the graph
+///                 level by level. Dynamic import() targets are left out: the game UI trees (src/ui/uiLoader.ts loads
+///                 classicUi.js or modern/modernUi.js) download only when used, so a player never fetches both. Without
+///                 js\play\main.js every module except tools/ is preloaded (the old behaviour).
 ///                 no-cache + an ETag of the rewritten bytes (Cloudflare's Browser Cache TTL may still hold the page up to
 ///                 4 h: harmless, its old id redirects to the current build).
 /// The old /js/x.js path keeps working (no-cache), for the dev relay workflow and old pages.
@@ -26,6 +30,7 @@ internal sealed partial class PageBuild
     private (int Count, long Size, long Newest) _stamp;
     private string _id = "";
     private string[] _modules = Array.Empty<string>();
+    private string[] _preload = Array.Empty<string>();
 
     public PageBuild(string webRoot, Compression compression)
     {
@@ -35,6 +40,12 @@ internal sealed partial class PageBuild
 
     [GeneratedRegex("^[0-9a-f]{12}$")]
     private static partial Regex BuildIdPattern();
+
+    /// <summary>Static module specifiers of emitted ES module JS: <c>import ... from "x"</c>, <c>export ... from "x"</c> and
+    /// <c>import "x"</c> at a statement start. The clause class has no quotes, parentheses or '=', so a dynamic
+    /// <c>import("x")</c>, a string or an <c>export const</c> never matches.</summary>
+    [GeneratedRegex("""(?:^|[;}\n])[ \t]*(?:import|export)[ \t]*(?:[\w$*{},\s]*?\bfrom[ \t]*)?["']([^"'\n]+)["']""")]
+    private static partial Regex StaticImportPattern();
 
     /// <summary>True when <paramref name="segment"/> looks like a build id (the first path segment after /js/).</summary>
     public static bool IsBuildId(string segment) => BuildIdPattern().IsMatch(segment);
@@ -63,9 +74,56 @@ internal sealed partial class PageBuild
             }
             _id = Convert.ToHexString(sha.GetHashAndReset()).ToLowerInvariant()[..12];
             _modules = modules;
+            _preload = StaticGraph(js, modules);
             _stamp = stamp;
             return (_id, _modules);
         }
+    }
+
+    /// <summary>play/main.js's static import graph (paths relative to js\, '/' separated, main.js first), or every module
+    /// except tools/ when there is no main.js. Only relative specifiers that name a module of the build are followed.</summary>
+    private static string[] StaticGraph(string js, string[] modules)
+    {
+        const string entry = "play/main.js";
+        var known = new HashSet<string>(modules, StringComparer.Ordinal);
+        if (!known.Contains(entry)) return modules.Where(m => !m.StartsWith("tools/", StringComparison.Ordinal)).ToArray();
+        var order = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal) { entry };
+        var queue = new Queue<string>();
+        queue.Enqueue(entry);
+        while (queue.Count > 0)
+        {
+            string module = queue.Dequeue();
+            order.Add(module);
+            string text;
+            try { text = File.ReadAllText(Path.Combine(js, module.Replace('/', Path.DirectorySeparatorChar))); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { continue; }
+            int slash = module.LastIndexOf('/');
+            string dir = slash < 0 ? "" : module[..(slash + 1)];
+            foreach (Match match in StaticImportPattern().Matches(text))
+            {
+                string spec = match.Groups[1].Value;
+                if (!spec.StartsWith("./", StringComparison.Ordinal) && !spec.StartsWith("../", StringComparison.Ordinal)) continue;
+                string? target = Resolve(dir, spec);
+                if (target != null && known.Contains(target) && seen.Add(target)) queue.Enqueue(target);
+            }
+        }
+        return order.ToArray();
+    }
+
+    /// <summary>A relative specifier against a module's directory (both '/' separated, relative to js\); null when it
+    /// leaves js\ or carries a query / hash.</summary>
+    private static string? Resolve(string dir, string spec)
+    {
+        if (spec.IndexOfAny(['?', '#']) >= 0) return null;
+        var parts = new List<string>(dir.Split('/', StringSplitOptions.RemoveEmptyEntries));
+        foreach (string part in spec.Split('/'))
+        {
+            if (part == "." || part.Length == 0) continue;
+            if (part == "..") { if (parts.Count == 0) return null; parts.RemoveAt(parts.Count - 1); }
+            else parts.Add(part);
+        }
+        return string.Join('/', parts);
     }
 
     /// <summary>/js/&lt;id&gt;/rest: the module (immutable) or a 307 to the current build.</summary>
@@ -96,12 +154,14 @@ internal sealed partial class PageBuild
     /// <summary>/play/ (index.html): rewritten with the build id and the modulepreload list.</summary>
     public async Task ServePageAsync(HttpListenerContext ctx, string indexPath)
     {
-        var (id, modules) = Current();
+        Current(); // refresh, then read the id and its preload list together (another request may refresh meanwhile)
+        string id;
+        string[] modules;
+        lock (_lock) { id = _id; modules = _preload; }
         string html = await File.ReadAllTextAsync(indexPath).ConfigureAwait(false);
         var preload = new StringBuilder();
         foreach (var m in modules)
-            if (!m.StartsWith("tools/", StringComparison.Ordinal))
-                preload.Append("  <link rel=\"modulepreload\" href=\"../js/").Append(id).Append('/').Append(m).Append("\">\n");
+            preload.Append("  <link rel=\"modulepreload\" href=\"../js/").Append(id).Append('/').Append(m).Append("\">\n");
         html = html.Replace("\"../js/", "\"../js/" + id + "/", StringComparison.Ordinal)
                    .Replace("</head>", preload + "</head>", StringComparison.Ordinal);
         byte[] bytes = Encoding.UTF8.GetBytes(html);

@@ -8,6 +8,8 @@
 //
 // Each desktop section is an "outline" control (BackColour (50,50,50), Opacity 0.4, Gray border) sized to the label
 // width; here each non-empty section is a block div holding its MirLabel lines (flow layout instead of measuring).
+// itemLabelSections() returns the same sections as data (plus a tone per line) for the new UI's tooltip; this file stays
+// the rules source for both UIs.
 // Not ported: the Hero line of AttackInfoLabel (needs GameScene.HeroInfoList, which the web client does not keep) and
 // the soulbound owner's name (GameScene.GetUserName / C.RequestUserName: no user-name cache in the web client; the
 // desktop also shows an empty name until the answer arrives).
@@ -183,9 +185,61 @@ function gradeNameColor(grade: number): string {
   }
 }
 
-// — Label model —
+// — Label model (exported as data by itemLabelSections for the new UI's tooltip, src/ui/modern/core/tooltip.ts) —
 
-interface Line { text: string; color: string }
+/**
+ * What a line means, for renderers that restyle the label (the classic label uses `color` only):
+ * grade = the grade-coloured name / awakening name; added = cyan (added stats, extra sockets); ok / bad = a requirement
+ * the wearer meets / misses (red); price = the selling price; notice = a yellow bind / restriction line; soulbound = the
+ * "Soulbound to: " line (the owner's name is not ported); hint = how-to text (sockets, gem / stack use); rental /
+ * rentalTime = rental owner / timer; storyTitle / story = the description; gm = "Created by Game Master". Absent = plain.
+ */
+export type ItemLabelTone = "plain" | "grade" | "added" | "ok" | "bad" | "price" | "notice" | "soulbound" | "hint"
+  | "rental" | "rentalTime" | "storyTitle" | "story" | "gm";
+export interface ItemLabelLine {
+  /** May hold "\n" (the desktop label wraps there) or be empty (the desktop's empty MirLabel: not drawn). */
+  text: string;
+  /** The desktop colour (CSS hex). */
+  color: string;
+  tone?: ItemLabelTone;
+  /** Socket lines: whether the socket holds an item. */
+  slot?: "full" | "empty";
+}
+/** The desktop's outline sections (GameScene.CreateItemLabel outlines[0..10]). */
+export type ItemLabelSectionKind = "name" | "attack" | "defence" | "weight" | "awake" | "socket" | "need" | "bind" | "overlap" | "story" | "gm";
+export interface ItemLabelSection { kind: ItemLabelSectionKind; lines: ItemLabelLine[] }
+/** NameInfoLabel's parts before they are joined into its two lines. */
+export interface ItemLabelHead {
+  /** "(*)" + the friendly name when refined. */
+  name: string;
+  /** The grade's text ("" for ItemGrade.None). */
+  gradeText: string;
+  /** The type's text (+ "WeddingRing"). */
+  typeText: string;
+  /** UserItem.Weight (0 = not shown). */
+  weight: number;
+  /** The durability / usage / purity ... text ("" = none). */
+  duraText: string;
+  /** The plain durability numbers (in whole points) when duraText is the "Durability: a/b" line. */
+  dura?: { current: number; max: number };
+}
+export interface ItemLabelData {
+  /** The label's ItemInfo (opts.info ?? ctx.info(item)); undefined until S.NewItemInfo arrives. */
+  info: ItemInfo | undefined;
+  /** Functions.GetRealItem of info. */
+  real: ItemInfo | undefined;
+  /** info.Grade (ItemGrade.None when unknown). */
+  grade: number;
+  /** The desktop's broken-item label border (CurrentDura 0 of a non-zero MaxDura). */
+  broken: boolean;
+  head: ItemLabelHead | undefined;
+  /** real.Stats plus the shown added stats (AddedStats + socket items), by Stat. */
+  stats: Record<number, number>;
+  /** Non-empty sections in the desktop's order. */
+  sections: ItemLabelSection[];
+}
+
+type Line = ItemLabelLine;
 type Section = Line[];
 
 interface Build {
@@ -196,6 +250,7 @@ interface Build {
   inspect: boolean;
   hideDura: boolean;
   hideAdded: boolean;
+  head?: ItemLabelHead;
 }
 
 const stat = (stats: Record<number, number> | null | undefined, s: number) => stats?.[s] ?? 0;
@@ -238,9 +293,10 @@ function nameInfoLabel(b: Build): Section {
   }
   let name = info.Grade !== ItemGrade.None ? `${infoFriendlyName(info)}\n${gradeString}` : infoFriendlyName(info);
   if (item.RefineAdded > 0) name = "(*)" + name;
-  lines.push({ text: name, color: gradeNameColor(info.Grade) });
+  lines.push({ text: name, color: gradeNameColor(info.Grade), tone: "grade" });
 
   let text = "";
+  let dura: ItemLabelHead["dura"];
   if (info.Durability > 0 && !b.hideDura) {
     switch (info.Type) {
       case ItemType.Amulet:
@@ -271,7 +327,7 @@ function nameInfoLabel(b: Build): Section {
       default: {
         const current = Math.floor(item.CurrentDura / 1000);
         const maximum = Math.floor(item.MaxDura / 1000);
-        if (current > 0 || maximum > 0) text = `${T.Durability} ${current}/${maximum}`;
+        if (current > 0 || maximum > 0) { text = `${T.Durability} ${current}/${maximum}`; dura = { current, max: maximum }; }
         break;
       }
     }
@@ -279,6 +335,7 @@ function nameInfoLabel(b: Build): Section {
 
   let baseText = ITEM_TYPE_TEXT[info.Type] ?? "";
   if (item.WeddingRing !== -1) baseText += T.WeddingRing;
+  const typeText = baseText;
 
   const tailParts: string[] = [];
   const weight = itemWeight(item, info);
@@ -289,6 +346,10 @@ function nameInfoLabel(b: Build): Section {
     baseText = baseText ? `${baseText}\n${tailText}` : tailText;
   }
   lines.push({ text: baseText, color: C.White });
+  b.head = {
+    name: (item.RefineAdded > 0 ? "(*)" : "") + infoFriendlyName(info), gradeText: info.Grade !== ItemGrade.None ? gradeString : "",
+    typeText, weight: weight > 0 ? weight : 0, duraText: text, dura,
+  };
   return lines;
 }
 
@@ -298,7 +359,7 @@ function attackInfoLabel(b: Build, addedStats: Record<number, number>): Section 
   const lines: Section = [];
   const addOk = !b.hideAdded && (!info.NeedIdentify || item.Identified);
   const added = (s: number) => (addOk ? stat(addedStats, s) : 0);
-  const push = (text: string, add: number) => lines.push({ text, color: add > 0 ? C.Cyan : C.White });
+  const push = (text: string, add: number) => lines.push(add > 0 ? { text, color: C.Cyan, tone: "added" } : { text, color: C.White });
 
   let fishingItem = false;
   switch (info.Type) {
@@ -422,7 +483,7 @@ function defenceInfoLabel(b: Build, addedStats: Record<number, number>): Section
   const lines: Section = [];
   const addOk = !b.hideAdded && (!info.NeedIdentify || item.Identified);
   const added = (s: number) => (addOk ? stat(addedStats, s) : 0);
-  const push = (text: string, add: number) => lines.push({ text, color: add > 0 ? C.Cyan : C.White });
+  const push = (text: string, add: number) => lines.push(add > 0 ? { text, color: C.Cyan, tone: "added" } : { text, color: C.White });
 
   let fishingItem = false;
   switch (info.Type) {
@@ -557,7 +618,7 @@ function awakeInfoLabel(b: Build): Section {
   const typeName = AwakeTypeName[item.AwakeType] ?? String(item.AwakeType); // AwakeType.ToLocalizedString (English = the name)
 
   // AWAKENAME
-  if (awakeLevel > 0) lines.push({ text: fmt(T.AwakeningWithValue, typeName, awakeLevel), color: gradeNameColor(info.Grade) });
+  if (awakeLevel > 0) lines.push({ text: fmt(T.AwakeningWithValue, typeName, awakeLevel), color: gradeNameColor(info.Grade), tone: "grade" });
   // AWAKE_TOTAL_VALUE
   if (awakeValue > 0) {
     lines.push({ text: fmt(real.Type !== ItemType.Armour ? "{0} + {1}~{2}" : "MAX {0} + {1}", typeName, awakeValue, awakeValue), color: C.White });
@@ -580,9 +641,12 @@ function socketInfoLabel(b: Build): Section {
     count++;
     const slot = slots[i];
     const cyan = count > real.Slots && !FISHING_ROD_SHAPES.includes(real.Shape) && real.Type !== ItemType.Mount;
-    lines.push({ text: fmt(T.SocketWithValue, slot ? itemFriendlyName(slot, ctx.info(slot)) : T.Empty), color: cyan ? C.Cyan : C.White });
+    lines.push({
+      text: fmt(T.SocketWithValue, slot ? itemFriendlyName(slot, ctx.info(slot)) : T.Empty), color: cyan ? C.Cyan : C.White,
+      tone: cyan ? "added" : "plain", slot: slot ? "full" : "empty",
+    });
   }
-  if (count > 0) lines.push({ text: T.OpenSocketsTips, color: C.White });
+  if (count > 0) lines.push({ text: T.OpenSocketsTips, color: C.White, tone: "hint" });
   return lines;
 }
 
@@ -612,7 +676,7 @@ function needInfoLabel(b: Build): Section {
       case RequiredType.MinSC: text = fmt(T.RequiredBaseSC, amount); below(Stat.MinSC); break;
       default: text = T.UnknownTypeRequired; break;
     }
-    lines.push({ text, color: colour });
+    lines.push({ text, color: colour, tone: colour === C.Red ? "bad" : "ok" });
   }
 
   // CLASS
@@ -626,12 +690,12 @@ function needInfoLabel(b: Build): Section {
       case MirClass.Assassin: need(RequiredClass.Assassin); break;
       case MirClass.Archer: need(RequiredClass.Archer); break;
     }
-    lines.push({ text: fmt(T.ClassRequired, requiredClassText(real.RequiredClass)), color: colour });
+    lines.push({ text: fmt(T.ClassRequired, requiredClassText(real.RequiredClass)), color: colour, tone: colour === C.Red ? "bad" : "ok" });
   }
 
   // BUYING - SELLING PRICE (UserItem.Price uses item.Info)
   const price = itemPrice(item, info);
-  if (price > 0) lines.push({ text: fmt(T.SellingPriceGold, groupThousands(Math.floor(price / 2))), color: C.White });
+  if (price > 0) lines.push({ text: fmt(T.SellingPriceGold, groupThousands(Math.floor(price / 2))), color: C.White, tone: "price" });
 
   return lines;
 }
@@ -640,7 +704,7 @@ function needInfoLabel(b: Build): Section {
 function bindInfoLabel(b: Build): Section {
   const { item, info } = b;
   const lines: Section = [];
-  const yellow = (text: string) => lines.push({ text, color: C.Yellow });
+  const yellow = (text: string, tone: ItemLabelTone = "notice") => lines.push({ text, color: C.Yellow, tone });
   const white = (text: string) => lines.push({ text, color: C.White });
   const bind = info.Bind;
   const bound = (flag: number) => bind !== BindMode.None && hasFlag(bind, flag);
@@ -660,7 +724,7 @@ function bindInfoLabel(b: Build): Section {
 
   // BIND_ON_EQUIP
   if (hasFlag(bind, BindMode.BindOnEquip) && item.SoulBoundId === -1) yellow(T.SoulBindsOnEquip);
-  else if (item.SoulBoundId !== -1) yellow(T.SoulboundTo); // not ported: + GetUserName(SoulBoundId) (no user-name cache)
+  else if (item.SoulBoundId !== -1) yellow(T.SoulboundTo, "soulbound"); // not ported: + GetUserName(SoulBoundId) (no user-name cache)
 
   // CURSED
   if (!b.hideAdded && (!info.NeedIdentify || item.Identified) && item.Cursed) yellow(T.Cursed);
@@ -694,19 +758,22 @@ function bindInfoLabel(b: Build): Section {
   // SEALED
   if (item.Sealed) {
     const remainingSeconds = secondsLeft(item.Sealed.ExpiryDate);
-    if (remainingSeconds > 0) lines.push({ text: fmt(T.SealedFor, printTimeSpanFromSeconds(remainingSeconds)), color: C.Red });
+    if (remainingSeconds > 0) lines.push({ text: fmt(T.SealedFor, printTimeSpanFromSeconds(remainingSeconds)), color: C.Red, tone: "bad" });
   }
 
   // Rental
   const rental = item.Rental;
   if (rental && !rental.RentalLocked) {
-    lines.push({ text: T.ItemRentedFrom + rental.OwnerName, color: C.DarkKhaki });
+    lines.push({ text: T.ItemRentedFrom + rental.OwnerName, color: C.DarkKhaki, tone: "rental" });
     const remainingTime = secondsLeft(rental.ExpiryDate);
-    lines.push({ text: remainingTime > 0 ? fmt(T.RentalExpiresIn, printTimeSpanFromSeconds(remainingTime)) : "Rental expired", color: C.Khaki });
+    lines.push({
+      text: remainingTime > 0 ? fmt(T.RentalExpiresIn, printTimeSpanFromSeconds(remainingTime)) : "Rental expired", color: C.Khaki, tone: "rentalTime",
+    });
   } else if (rental && rental.RentalLocked && secondsLeft(rental.ExpiryDate) > 0) {
     const remainingTime = secondsLeft(rental.ExpiryDate);
     lines.push({
       text: remainingTime > 0 ? fmt(T.RentalLockExpiresIn, printTimeSpanFromSeconds(remainingTime)) : "Rental lock expired", color: C.DarkKhaki,
+      tone: "rentalTime",
     });
   }
 
@@ -729,10 +796,10 @@ function overlapInfoLabel(b: Build): Section {
       case 6: text = T.HoldCtrlFullRepairArmourDrapery; break;
       case 8: text = T.HoldCtrlSealItem; break;
     }
-    lines.push({ text, color: C.White });
+    lines.push({ text, color: C.White, tone: "hint" });
   }
   // SPLITUP
-  if (real.StackSize > 1 && real.Type !== ItemType.Gem) lines.push({ text: fmt(T.MaxCombine, real.StackSize, "\n"), color: C.White });
+  if (real.StackSize > 1 && real.Type !== ItemType.Gem) lines.push({ text: fmt(T.MaxCombine, real.StackSize, "\n"), color: C.White, tone: "hint" });
   return lines;
 }
 
@@ -744,38 +811,58 @@ function storyInfoLabel(b: Build): Section {
   let toolTip = info.ToolTip ?? "";
   if (real.Type === ItemType.Scroll && real.Shape === 7) toolTip = fmt(T.AddsCreditsToAccount, info.Price); // Credit Scroll
   if (toolTip) {
-    lines.push({ text: T.ItemDescription, color: C.DarkKhaki });
-    lines.push({ text: toolTip, color: C.Khaki });
+    lines.push({ text: T.ItemDescription, color: C.DarkKhaki, tone: "storyTitle" });
+    lines.push({ text: toolTip, color: C.Khaki, tone: "story" });
   }
   return lines;
 }
 
 /** GameScene.GMMadeLabel. */
 function gmMadeLabel(b: Build): Section {
-  return b.item.GMMade ? [{ text: T.CreatedByGameMaster, color: C.Orchid }] : [];
+  return b.item.GMMade ? [{ text: T.CreatedByGameMaster, color: C.Orchid, tone: "gm" }] : [];
 }
 
-/** GameScene.CreateItemLabel's section list (outlines[0..10]); empty sections are dropped like the desktop's null outlines. */
-function buildSections(item: UserItem, ctx: ItemLabelContext, opts: ItemLabelOptions): Section[] {
+/**
+ * GameScene.CreateItemLabel's content as data: the section list (outlines[0..10]; empty sections are dropped like the
+ * desktop's null outlines) plus the name parts and stats a restyled label needs. The classic label (createItemLabel)
+ * renders exactly these sections; the new UI's tooltip renders them in its own style.
+ */
+export function itemLabelSections(item: UserItem, ctx: ItemLabelContext, opts: ItemLabelOptions = {}): ItemLabelData {
+  const broken = item.CurrentDura === 0 && item.MaxDura !== 0;
   const info = opts.info ?? ctx.info(item);
-  if (!info) return [[{ text: `Item #${item.ItemIndex}`, color: C.Yellow }]];
+  if (!info) {
+    return {
+      info: undefined, real: undefined, grade: ItemGrade.None, broken, head: undefined, stats: {},
+      sections: [{ kind: "name", lines: [{ text: `Item #${item.ItemIndex}`, color: C.Yellow, tone: "grade" }] }],
+    };
+  }
   const b: Build = {
     item, info, real: ctx.realItem(info), ctx, inspect: !!opts.inspect, hideDura: !!opts.hideDura, hideAdded: !!opts.hideAdded,
   };
   const addedStats = getTotalAddedStats(item, ctx);
-  return [
-    nameInfoLabel(b),
-    attackInfoLabel(b, addedStats),
-    defenceInfoLabel(b, addedStats),
-    weightInfoLabel(b),
-    awakeInfoLabel(b),
-    socketInfoLabel(b),
-    needInfoLabel(b),
-    bindInfoLabel(b),
-    overlapInfoLabel(b),
-    storyInfoLabel(b),
-    gmMadeLabel(b),
-  ].filter((s) => s.length > 0);
+  const sections: ItemLabelSection[] = ([
+    ["name", nameInfoLabel(b)],
+    ["attack", attackInfoLabel(b, addedStats)],
+    ["defence", defenceInfoLabel(b, addedStats)],
+    ["weight", weightInfoLabel(b)],
+    ["awake", awakeInfoLabel(b)],
+    ["socket", socketInfoLabel(b)],
+    ["need", needInfoLabel(b)],
+    ["bind", bindInfoLabel(b)],
+    ["overlap", overlapInfoLabel(b)],
+    ["story", storyInfoLabel(b)],
+    ["gm", gmMadeLabel(b)],
+  ] as [ItemLabelSectionKind, Section][]).filter(([, s]) => s.length > 0).map(([kind, lines]) => ({ kind, lines }));
+  const stats: Record<number, number> = { ...(b.real.Stats ?? {}) };
+  if (!b.hideAdded && (!info.NeedIdentify || item.Identified)) {
+    for (const [k, v] of Object.entries(addedStats)) stats[Number(k)] = (stats[Number(k)] ?? 0) + v;
+  }
+  return { info, real: b.real, grade: info.Grade, broken, head: b.head, stats, sections };
+}
+
+/** The section lines only (the classic label and the plain-text form). */
+function buildSections(item: UserItem, ctx: ItemLabelContext, opts: ItemLabelOptions): Section[] {
+  return itemLabelSections(item, ctx, opts).sections.map((s) => s.lines);
 }
 
 // — DOM —

@@ -34,6 +34,21 @@ export interface GameSettings {
   Lighting: LightingMode;
   /** Web-only: the game UI (scene-lab "Modern" or the desktop-look "Classic"); read through uiStyle(). */
   UiStyle: UiStyle;
+  // Web-only, the Modern UI (src/ui/modern): HUD scale k = UiScale x (UiAutoScale ? screen height / 768 : 1)
+  /** HUD scale multiplier (0.5-2). */
+  UiScale: number;
+  /** Scale the HUD with the screen height (768 = 1). */
+  UiAutoScale: boolean;
+  /** Theme preset name (src/ui/modern/core/theme.ts THEME_PRESETS; an unknown name = the default preset). */
+  UiTheme: string;
+  /** Custom colours over the preset: "" = the preset's (else #rrggbb). */
+  UiAccent: string; UiFrame: string; UiText: string;
+  /** Custom knobs over the preset: a negative value = the preset's (hue 0-360, sat 0-2, lit 0.3-2.5, glow 0-2, radius 0-12 px). */
+  UiHue: number; UiSat: number; UiLit: number; UiGlow: number; UiRadius: number;
+  /** HUD opacity (0.2-1). */
+  UiOpacity: number;
+  /** The six HUD stat plates, a comma list of stat keys (src/ui/modern/hud/statPlates.ts PLATE_STATS). */
+  UiPlates: string;
 }
 
 /** Client/Settings.cs defaults. */
@@ -47,7 +62,14 @@ export const DEFAULT_SETTINGS: GameSettings = {
   FilterMentorChat: false, FilterGroupChat: false, FilterGuildChat: false,
   Lighting: "Enhanced", // web default; draws Classic where the GPU has no half-float targets (SceneLights.useEnhanced)
   UiStyle: "Default",
+  UiScale: 1, UiAutoScale: true, UiTheme: "Midnight electric",
+  UiAccent: "", UiFrame: "", UiText: "", UiHue: -1, UiSat: -1, UiLit: -1, UiGlow: -1, UiRadius: -1, UiOpacity: 1,
+  UiPlates: "AC,MAC,DC,Bag,Weight,Gold",
 };
+
+const HEX_COLOUR = /^#[0-9a-f]{6}$/i;
+/** A finite number within [lo, hi], else `def`. */
+const inRange = (v: number, lo: number, hi: number, def: number) => (Number.isFinite(v) && v >= lo && v <= hi ? v : def);
 
 const STORAGE_KEY = "crystal.settings";
 
@@ -62,6 +84,13 @@ function load(): GameSettings {
       }
       if (s.Lighting !== "Classic" && s.Lighting !== "Enhanced") s.Lighting = DEFAULT_SETTINGS.Lighting;
       if (s.UiStyle !== "Default" && s.UiStyle !== "Modern" && s.UiStyle !== "Classic") s.UiStyle = DEFAULT_SETTINGS.UiStyle;
+      s.UiScale = inRange(s.UiScale, 0.5, 2, DEFAULT_SETTINGS.UiScale);
+      s.UiOpacity = inRange(s.UiOpacity, 0.2, 1, DEFAULT_SETTINGS.UiOpacity);
+      if (!s.UiTheme || s.UiTheme.length > 64) s.UiTheme = DEFAULT_SETTINGS.UiTheme;
+      for (const k of ["UiAccent", "UiFrame", "UiText"] as const) if (s[k] !== "" && !HEX_COLOUR.test(s[k])) s[k] = "";
+      // the knobs: negative = the preset's; out-of-range values are clamped where they are applied (theme.ts resolveTheme)
+      for (const k of ["UiHue", "UiSat", "UiLit", "UiGlow", "UiRadius"] as const) if (!Number.isFinite(s[k]) || s[k] < 0) s[k] = -1;
+      if (s.UiPlates.length > 200 || !/^[A-Za-z0-9_, ]*$/.test(s.UiPlates)) s.UiPlates = DEFAULT_SETTINGS.UiPlates;
     }
   } catch { /* private window / blocked storage: defaults */ }
   return s;

@@ -11,6 +11,8 @@ import { SelectScene } from "./selectScene.ts";
 import { Text, type SceneHost } from "./accountCommon.ts";
 import { serverRules } from "../game/serverRules.ts";
 import { accountDetails } from "../game/accountDetails.ts";
+import { uiStyle } from "../game/settings.ts";
+import { preloadUi } from "./uiLoader.ts";
 
 const root = () => document.getElementById("screen")!;
 
@@ -66,6 +68,7 @@ export class Screens {
   }
 
   private showLoginScene(): LoginScene {
+    preloadUi(uiStyle()); // the active game UI tree downloads while the player logs in (uiLoader.ts)
     this.login = new LoginScene(root(), this.host, () => this.session.close());
     return this.login;
   }
@@ -88,6 +91,7 @@ export class Screens {
   /** GameScene.LogOutSuccess -> SelectScene(p.Characters). */
   showSelect(characters: SelectInfo[]): void {
     this.hide();
+    preloadUi(uiStyle()); // after a log-out: the style may have changed in game
     this.select = new SelectScene(root(), this.host, characters, (c) => this.start(c));
   }
 

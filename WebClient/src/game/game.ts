@@ -1,7 +1,8 @@
 // In-game scene: world state from server packets (GameScene.ProcessPacket subset), the frame loop, mouse/keyboard
 // input (MapControl.CheckInput subset: walk, run, turn, attack) and the name labels. The HUD is a GameUi
-// (src/ui/gameUi.ts): today the classic desktop-look windows (src/ui/classicUi.ts: MainDialog, ChatDialog +
-// ChatControlBar, MenuDialog, MiniMapDialog, BuffDialog, DuraStatusDialog, hero panels, ...), built from the models here.
+// (src/ui/gameUi.ts) built by the factory play/main.ts passes in (src/ui/uiLoader.ts, settings.ts uiStyle()): the classic
+// desktop-look windows (src/ui/classicUi.ts: MainDialog, ChatDialog + ChatControlBar, MenuDialog, MiniMapDialog,
+// BuffDialog, DuraStatusDialog, hero panels, ...) or the new UI (src/ui/modern/modernUi.ts), built from the models here.
 // The user moves like the desktop: an action is queued and its packet sent when it starts; the next move waits for
 // the server's S.UserLocation (MapControl.NextAction, 2.5 s fallback).
 
@@ -61,7 +62,7 @@ import { Shop } from "./shop.ts";
 import { Territories } from "./territories.ts";
 import { HeroItems } from "./heroItems.ts";
 import { Weather } from "./weather.ts";
-import { gameSettings, uiStyle } from "./settings.ts";
+import { gameSettings } from "./settings.ts";
 import { monsterActionStart, setMonsterSpecialsWorld } from "./monsterSpecials.ts";
 import { applyGameDataChanged, type GameDataChanges } from "./gameData.ts";
 import { Quests, questIconImage } from "./quests.ts";
@@ -77,8 +78,8 @@ import { KeybindOptions, matches, matchesAny, matchesAnyBinding, type KeybindOpt
 import { createInputRouter } from "./input.ts";
 import { mapCells, rememberMap } from "./mapFiles.ts";
 import { drawDamageNumber, makeDamageNumber, processDamageList, MAX_DAMAGE_NUMBERS, type DamageNumber } from "./damageNumbers.ts";
-import type { GameUi, GameUiContext, PlayerState } from "../ui/gameUi.ts";
-import { createClassicUi, AMODE_TEXT, PMODE_TEXT } from "../ui/classicUi.ts";
+import type { GameUi, GameUiContext, GameUiFactory, PlayerState } from "../ui/gameUi.ts";
+import { AMODE_TEXT, PMODE_TEXT } from "./modeText.ts";
 
 export interface Game { handle(p: ServerPacket): void; dispose(): void }
 
@@ -111,7 +112,8 @@ function friendlyName(name: string, count: number): string {
 
 const argbCss = (c: number) => `rgb(${(c >> 16) & 255},${(c >> 8) & 255},${c & 255})`;
 
-export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvasElement, exits: GameExits): Game {
+/** `createUi`: the active UI's factory (src/ui/uiLoader.ts loadUiFactory: createClassicUi or createModernUi). */
+export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvasElement, exits: GameExits, createUi: GameUiFactory): Game {
   const signal = gameSignal();
   // SelectScene StartGame: Settings.Resolution lowered to the server's [Permission] MaxResolution, then the desktop's
   // switch (1024 x 768, 1280 x 800, 1366 x 768, 1920 x 1080; anything else 1024). The web client prefers 1920 x 1080
@@ -281,10 +283,12 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   /** "Cannot leave game for {0} seconds" (ClientTextKeys.CannotLeaveGame, (LogTime - CMain.Time) / 1000). */
   const cannotLeave = (t: number) => `Cannot leave game for ${Math.trunc((logTime - t) / 1000)} seconds`;
   /** GameScene.LogOut / QuitGame: inside the combat lock (LogTime) the CannotLeaveGame line, else the MirMessageBox,
-   *  then C.LogOut (back to character select; QuitGame's Yes closes the desktop client instead). */
-  const logOut = (exit: boolean) => {
+   *  then C.LogOut (back to character select; QuitGame's Yes closes the desktop client instead). `confirmed`: the caller
+   *  asked already (the UI style switch), so no second box. */
+  const logOut = (exit: boolean, confirmed = false) => {
     const t = now();
     if (t < logTime) { chat(cannotLeave(t), ChatType.System); return; }
+    if (confirmed) { session.send(ClientPackets.LogOut()); return; }
     ui.confirm(exit ? "Do you want to quit Legend of Mir?" : "Do you want to log out of Legend of Mir?", () => session.send(ClientPackets.LogOut()));
   };
 
@@ -327,9 +331,9 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
       setUserGuild: (name) => { if (user) user.guildName = name; },
     },
   };
-  // settings.ts uiStyle(): "Modern" falls back to the classic UI until phase 3a of the UI port (no src/ui/modern/ yet).
-  // The classic windows add their own key listeners here, before game.ts's key router below (desktop key order kept).
-  const ui: GameUi = uiStyle() === "Modern" ? createClassicUi(ctx) : createClassicUi(ctx);
+  // The UI the page loaded for settings.ts uiStyle() (uiLoader.ts). The classic windows add their own key listeners here,
+  // before game.ts's key router below (desktop key order kept); the modern UI only uses the router (bindInput).
+  const ui: GameUi = createUi(ctx);
 
   // Model hooks, set once here (the item hooks used to be set by the Socket / Rental / Mount window constructors)
   inventory.refuse = (text) => chat(text, ChatType.System);

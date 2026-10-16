@@ -1,6 +1,7 @@
 // The game scene's UI seam: what game.ts (the world: GameScene.ProcessPacket, MapControl, the frame loop) hands a UI,
 // and what it calls on that UI. game.ts builds the models and one GameUiContext, then one GameUi: the classic
-// desktop-look windows (classicUi.ts, src/ui/*.ts) or, from phase 3a of the UI port, the scene-lab UI (src/ui/modern/).
+// desktop-look windows (classicUi.ts, src/ui/*.ts) or, since phase 3a of the UI port, the new UI (src/ui/modern/modernUi.ts),
+// chosen by settings.ts uiStyle() and loaded lazily (uiLoader.ts).
 // The desktop has one UI only; the seam is web-only. Everything here is live: getters over startGame's locals, so a UI
 // reads the current value every time and never keeps a copy.
 //
@@ -167,8 +168,9 @@ export interface GameWorld {
 
 /** World actions a UI may start. */
 export interface GameActions {
-  /** GameScene.LogOut / QuitGame: refused with "Cannot leave game for N seconds" inside the combat lock, else the prompt. */
-  logOut(exit: boolean): void;
+  /** GameScene.LogOut / QuitGame: refused with "Cannot leave game for N seconds" inside the combat lock, else the prompt
+   *  (`confirmed`: the caller already asked, e.g. the UI style switch; C.LogOut is sent at once outside the lock). */
+  logOut(exit: boolean, confirmed?: boolean): void;
   /** GameScene KeybindOptions.Pickup (C.PickUp, 200 ms throttle). */
   pickUp(): void;
   /** GameScene.GuildBuffList: the summed guild buff stats (null = none) for RefreshStats and the local Guild buff. */
@@ -224,6 +226,10 @@ export type FramePoint =
   | "afterRender"
   /** Last in the frame. */
   | "end";
+
+/** Builds the game's UI (classicUi.ts createClassicUi / modern/modernUi.ts createModernUi). play/main.ts loads the active
+ *  one with a dynamic import (src/ui/uiLoader.ts) and hands it to startGame, so game.ts imports neither UI tree. */
+export type GameUiFactory = (ctx: GameUiContext) => GameUi;
 
 export interface GameUi {
   readonly style: "Modern" | "Classic";
