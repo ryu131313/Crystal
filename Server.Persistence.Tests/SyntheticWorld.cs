@@ -44,7 +44,7 @@ internal static class SyntheticWorld
         e.MonsterInfoList.Add(new MonsterInfo { Index = 2, Name = "BossHen", Level = 20, Experience = 500, IsBoss = true });
         e.NPCInfoList.Add(new NPCInfo { Index = 1, MapIndex = 1, FileName = "Default", Name = "Guide", Location = new Point(301, 301) });
         e.QuestInfoList.Add(new QuestInfo { Index = 1, Name = "First Steps", Group = "Tutorial", FileName = "FirstSteps", RequiredMinLevel = 1 });
-        e.GameShopList.Add(new GameShopItem { GIndex = 1, ItemIndex = 3, GoldPrice = 500, CreditPrice = 5, Count = 10, Class = "All", Category = "Potions", Date = now, CanBuyGold = true });
+        e.GameShopList.Add(new GameShopItem { GIndex = 1, ItemIndex = 3, GoldPrice = 500, CreditPrice = 5, Count = 10, Class = "All", Category = "Potions", Date = now, CanBuyGold = true, DealGoldPrice = 750, DealCreditPrice = 8 }); // v119 deal prices
 
         // ---- user data ----
         e.NextAccountID = 4; e.NextCharacterID = 3; e.NextUserItemID = 100; e.NextHeroID = 1; e.NextMailID = 2; e.NextAuctionID = 1;
@@ -60,13 +60,21 @@ internal static class SyntheticWorld
         c1.Equipment[(int)EquipmentSlot.Armour] = Item(e, armour, 13);
         c1.CompletedQuests.Add(1);
         c1.Flags[3] = true;
-        var mail = new MailInfo(c1.Index) { MailID = 1, Sender = "System", Message = "Welcome", Gold = 10, DateSent = now };
+        // v119 character fields, all non-default
+        c1.PlayTime = 5 * 3600 + 7;
+        c1.ProfileText = "Hunting hens since 2099";
+        c1.EnableGroupRecall = true; c1.AllowMarriage = true; c1.AllowMentor = true;
+        c1.AllowFriendRequests = false;
+        c1.Magics.Add(new UserMagic(Spell.Fencing) { Level = 1, Key = 2, AutoCast = true });
+        var mail = new MailInfo(c1.Index) { MailID = 1, Sender = "Archer2", Message = "Welcome", Gold = 10, DateSent = now, SenderIndex = 2, SenderHidden = true };
         mail.Items.Add(Item(e, potion, 14, count: 5));
         c1.Mail.Add(mail);
         acc.Characters.Add(c1);
 
         var c2 = NewCharacter(2, "Archer2", MirClass.Archer, acc, now);
-        c2.Magics.Add(new UserMagic(Spell.Concentration) { Level = 2, Key = 1, Experience = 10 });
+        c2.Magics.Add(new UserMagic(Spell.Concentration) { Level = 2, Key = 1, Experience = 10, AutoCast = false }); // v119
+        c2.PlayTime = 42;
+        c2.EnableGuildInvite = true; c2.AllowLoverRecall = true;
         // Concentration is the only Buff.Data writer (HumanObject.cs). Its Data entries are
         // BinaryFormatter-encoded in the v117 format: the case roadmap P3 must migrate.
         var conc = NewBuff(e, BuffType.Concentration, 1, long.MaxValue);
@@ -80,6 +88,14 @@ internal static class SyntheticWorld
         e.AccountList.Add(NewAccount(3, "empty2", now)); // zero characters, not index 0: kept since roadmap P5 (was dropped on load)
 
         e.CharacterList.AddRange(acc.Characters);
+
+        // v119 market sales log (Server.MirADB, after the respawn block): one item past the ring capacity, one short
+        var potionSales = new MarketSaleHistory();
+        for (int i = 0; i < MarketSaleHistory.Capacity + 3; i++) potionSales.Add((uint)(100 + i), now.AddHours(-i));
+        e.MarketSales[potion.Index] = potionSales;
+        var swordSales = new MarketSaleHistory();
+        swordSales.Add(2500, now.AddDays(-2));
+        e.MarketSales[sword.Index] = swordSales;
     }
 
     private static AccountInfo NewAccount(int index, string id, DateTime now) => new AccountInfo

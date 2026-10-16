@@ -106,6 +106,13 @@ namespace Server.MirDatabase
         public bool HeroSpawned;
         public HeroBehaviour HeroBehaviour;
 
+        //v119: persisted social toggles, play time and profile
+        public const int ProfileTextMaxLength = 120;
+        public long PlayTime; //seconds played
+        public string ProfileText = string.Empty;
+        public bool EnableGroupRecall, EnableGuildInvite, AllowMarriage, AllowLoverRecall, AllowMentor;
+        public bool AllowFriendRequests = true;
+
         public CharacterInfo() { }
 
         public CharacterInfo(ClientPackets.NewCharacter p, MirConnection c)
@@ -386,6 +393,18 @@ namespace Server.MirDatabase
 
             if (version > 100)
                 HeroBehaviour = (HeroBehaviour)reader.ReadByte();
+
+            if (version >= 119)
+            {
+                PlayTime = reader.ReadInt64();
+                ProfileText = reader.ReadString();
+                EnableGroupRecall = reader.ReadBoolean();
+                EnableGuildInvite = reader.ReadBoolean();
+                AllowMarriage = reader.ReadBoolean();
+                AllowLoverRecall = reader.ReadBoolean();
+                AllowMentor = reader.ReadBoolean();
+                AllowFriendRequests = reader.ReadBoolean();
+            }
         }
 
         public virtual void Save(BinaryWriter writer)
@@ -567,6 +586,15 @@ namespace Server.MirDatabase
             writer.Write(CurrentHeroIndex);
             writer.Write(HeroSpawned);
             writer.Write((byte)HeroBehaviour);
+
+            writer.Write(PlayTime);
+            writer.Write(ProfileText ?? string.Empty);
+            writer.Write(EnableGroupRecall);
+            writer.Write(EnableGuildInvite);
+            writer.Write(AllowMarriage);
+            writer.Write(AllowLoverRecall);
+            writer.Write(AllowMentor);
+            writer.Write(AllowFriendRequests);
         }
 
         public SelectInfo ToSelectInfo()

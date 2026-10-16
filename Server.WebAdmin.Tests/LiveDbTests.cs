@@ -1573,6 +1573,8 @@ namespace Server.WebAdmin.Tests
             Assert.Equal(LiveClass.Hooked, LiveDbClassification.Effective("items", "Stat_MaxDC").Class);
             Assert.Equal(LiveClass.Hooked, LiveDbClassification.Effective("items", "Unique").Class);
             Assert.Equal(LiveClass.RestartOnly, LiveDbClassification.Effective("items", "Name").Class);
+            Assert.Equal(LiveClass.ReadThrough, LiveDbClassification.Effective("gameshop", "DealGoldPrice").Class); // v119
+            Assert.Equal(LiveClass.ReadThrough, LiveDbClassification.Effective("gameshop", "DealCreditPrice").Class);
             Assert.Equal(LiveClass.RestartOnly, LiveDbClassification.Effective("items", "Type").Class);
             Assert.Equal(LiveClass.RestartOnly, LiveDbClassification.Effective("monsters", "Name").Class);
             Assert.Equal(LiveClass.ReadThrough, LiveDbClassification.Effective("monsters", "Level").Class);

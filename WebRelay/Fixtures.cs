@@ -385,7 +385,7 @@ internal static class Fixtures
             Item = new GameShopItem
             {
                 ItemIndex = 31, GIndex = 4, Info = armourInfo, GoldPrice = 100_000, CreditPrice = 25, Count = 3, Class = "Warrior", Category = "Armours",
-                Stock = 9, iStock = true, Deal = true, TopItem = false, Date = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), CanBuyCredit = true, CanBuyGold = false,
+                Stock = 9, iStock = true, Deal = true, TopItem = false, Date = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), CanBuyCredit = true, CanBuyGold = false, DealGoldPrice = 150_000, DealCreditPrice = 40,
             },
             StockLevel = 5,
         };
@@ -452,7 +452,7 @@ internal static class Fixtures
             Quests = { new ClientQuestInfo { Index = 13, NPCIndex = 5, Name = "Errand", Group = "", Description = { "Go" }, TaskDescription = { }, ReturnDescription = { }, CompletionDescription = { }, MinLevelNeeded = 1, MaxLevelNeeded = 99, QuestNeeded = 0, ClassNeeded = RequiredClass.Taoist, Type = QuestType.General, TimeLimitInSeconds = 0, RewardGold = 10, RewardExp = 20, RewardCredit = 0, FinishNPCIndex = 5 } },
             Magics = { fireBall },
             HeroMagics = { new ClientMagic { Name = "Healing", Spell = Spell.Healing, Key = 17, Delay = 900, CastTime = 0 } },
-            GameShop = { new S.GameDataChanged.ShopEntry { Item = new GameShopItem { ItemIndex = 77, GIndex = 8, Info = torchInfo, GoldPrice = 50, CreditPrice = 5, Count = 1, Class = "All", Category = "Misc", Stock = 0, iStock = false, Deal = false, TopItem = true, Date = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc), CanBuyCredit = true, CanBuyGold = true }, StockLevel = 12 } },
+            GameShop = { new S.GameDataChanged.ShopEntry { Item = new GameShopItem { ItemIndex = 77, GIndex = 8, Info = torchInfo, GoldPrice = 50, CreditPrice = 5, Count = 1, Class = "All", Category = "Misc", Stock = 0, iStock = false, Deal = false, TopItem = true, Date = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc), CanBuyCredit = true, CanBuyGold = true, DealGoldPrice = 0, DealCreditPrice = 7 }, StockLevel = 12 } },
             GameShopRemoved = { 4, 9 },
             MapInfoInvalidated = { 3 },
             Last = true,

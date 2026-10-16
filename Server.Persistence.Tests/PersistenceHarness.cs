@@ -63,7 +63,7 @@ internal static class PersistenceHarness
         e.MapInfoList.Clear(); e.ItemInfoList.Clear(); e.MonsterInfoList.Clear(); e.NPCInfoList.Clear();
         e.QuestInfoList.Clear(); e.MagicInfoList.Clear(); e.GameShopList.Clear(); e.ConquestInfoList.Clear();
         e.AccountList.Clear(); e.CharacterList.Clear(); e.HeroList.Clear(); e.Auctions.Clear();
-        e.GTMapList.Clear(); e.GameshopLog.Clear();
+        e.GTMapList.Clear(); e.GameshopLog.Clear(); e.MarketSales.Clear();
     }
 
     /// <summary>Concentration buffs carrying Buff.Data (the BinaryFormatter-encoded field, roadmap P3).</summary>

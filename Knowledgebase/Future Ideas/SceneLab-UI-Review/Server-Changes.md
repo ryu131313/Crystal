@@ -261,19 +261,21 @@ allocates nothing per tick; `GroupMemberStatus` must be change-driven and thrott
 
 ## Proposed persisted fields (class c)
 
-All optional. If adopted, bundle them into **one** bump `Envir.Version` 118 → 119 (server.md §4.3): gate each read
-`if (version >= 119)`, append writes at the end, take a backup before the first run (older binaries refuse a v119 DB),
-run `Server.Persistence.Tests`. `CustomVersion` stays 0.
+**Done 2026-10-16 (phase 2.3): all rows below shipped as one bump `Envir.Version` 118 → 119** (server.md §2.6 / §4.3;
+backup note in Runbook §3.1; fixtures `Server.Persistence.Tests/Fixtures/v119`). Data and helpers only: the packets and
+events that use them come in phases 2.4-2.6. Also persisted in the same bump: the social toggles `EnableGroupRecall`,
+`EnableGuildInvite`, `AllowMarriage`, `AllowLoverRecall`, `AllowMentor` (were session-only `PlayerObject` fields, reset on
+login; now properties over `CharacterInfo`) and `AllowFriendRequests` (default true, for the Friends requests below).
 
 | Field | Model / file | Used by | Notes |
 |---|---|---|---|
-| `PlayTime` (long, seconds) | `CharacterInfo` (`Server.MirADB`) | Select details | add on logout / periodic save |
-| `ProfileText` (string, capped ~120) | `CharacterInfo` | Friends status, Inspect profile | filter like chat; length cap server-side |
-| `SenderIndex` + `SenderHidden` | `MailInfo` (in the recipient's `CharacterInfo`) | Mail "Sent" folder | sent view = scan, so index it in memory at load |
-| Guild activity log (capped list) | `GuildInfo` (`Guilds\*.mgd`, ctor already takes `version`) | Guild Log tab | set `NeedSave` |
-| Market sales log (capped per ItemIndex) | new list saved beside `Auctions` in `SaveAccounts` | Price history | new collection → old files get an empty list |
-| `DealPrice` | `GameShopItem` (`Server.MirDB`, **and** its packet ctor / `Save(writer, packet)`) | Shop deal badge | wire + DB; appears in web admin Game Data by reflection |
-| Hero auto-cast per spell | `UserMagic` | Hero skills tab | only if it must survive relog |
+| `PlayTime` (long, seconds) | `CharacterInfo` (`Server.MirADB`) | Select details | **done**: folded in at `StopGame` and before each periodic accounts save (`PlayerObject.FoldPlayTime`) |
+| `ProfileText` (string, capped ~120) | `CharacterInfo` | Friends status, Inspect profile | **done** (data): `CharacterInfo.ProfileTextMaxLength` = 120; the write path (filter + cap) comes with its packet |
+| `SenderIndex` + `SenderHidden` | `MailInfo` (in the recipient's `CharacterInfo`) | Mail "Sent" folder | **done** (data): -1 = system/NPC/pre-119 mail; set on player letters and parcels. Sent index + packets: phase 2.6 |
+| Guild activity log (capped list) | `GuildInfo` (`Guilds\*.mgd`, ctor already takes `version`) | Guild Log tab | **done** (data): `GuildInfo.Log` (cap 100), `AddLog(GuildLogKind.X, text)` sets `NeedSave`; events: phase 2.5 |
+| Market sales log (capped per ItemIndex) | new list saved beside `Auctions` in `SaveAccounts` | Price history | **done**: `Envir.MarketSales` (last 14 per ItemIndex, after the respawn block), `RecordMarketSale` on consignment buy / auction win; packets: phase 2.6 |
+| `DealPrice` | `GameShopItem` (`Server.MirDB`, **and** its packet ctor / `Save(writer, packet)`) | Shop deal badge | **done**: `DealGoldPrice` + `DealCreditPrice` (uint, 0 = none), DB + wire (`S.GameShopInfo`, `S.GameDataChanged`; TS + Fixtures); LiveDb read-through; MirDbExport columns |
+| Hero auto-cast per spell | `UserMagic` | Hero skills tab | **done** (data): `UserMagic.AutoCast` (default true, players and heroes); hero AI use: phase 2.4 |
 
 Not recommended: storage "stored by" (per-`UserItem` field), fishing journal / game-shop history / favourites server-side
 (keep local), relationship memories.

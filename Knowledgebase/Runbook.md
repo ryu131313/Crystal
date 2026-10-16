@@ -41,8 +41,14 @@ Protected paths (never overwritten or deleted by the script):
 | What was deployed | How to roll back |
 |---|---|
 | Binary-only change (no `Envir.Version` change) | Stop the server. Copy `<snapshot>\_binaries\*` back over the target, or redeploy the previous scratch build with the script. Start. |
-| DB format change (`Envir.Version` bumped, e.g. 117→118) | **Data must go back too.** The old binaries refuse the newer DB. Stop the server, restore the snapshot's data files and `_binaries`, then start. Everything written since the deploy is lost. |
+| DB format change (`Envir.Version` bumped, e.g. 117→118, 118→119) | **Data must go back too.** The old binaries refuse the newer DB. Stop the server, restore the snapshot's data files and `_binaries`, then start. Everything written since the deploy is lost. |
 | Runtime change (.NET 8 → 10) | Same as binary-only. Keep the old runtime installed on the host. The script removes net10-only files that the old build lacks, if the net10 build was deployed by the script. |
+
+### 3.1 Version 119 (2026-10-16, SceneLab UI phase 2.3)
+
+- **Back up before the first v119 run:** off-box copy of `Server.MirDB`, `Server.MirADB` and `Guilds\` with the world stopped (the deploy script's snapshot plus a second copy). The first v119 save rewrites them as v119; any pre-119 `Server.exe` then refuses `Server.MirDB`/`Server.MirADB` (`LoadDB`/`LoadAccounts` reject a newer version), so a rollback needs the backup.
+- Shared changed (`GameShopItem` deal prices, `S.GameShopInfo` / `S.GameDataChanged` layout): deploy server, desktop client and web client from the **same commit**. An old client misreads the shop.
+- After rollback to a pre-119 build you lose: play time, profiles, persisted social toggles, mail sender data, spell AutoCast flags, guild logs, market sales history and deal prices recorded since the deploy.
 
 ## 4. Restore drill (do once, then after any backup-format change)
 

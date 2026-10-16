@@ -171,13 +171,15 @@ export function readClientIntelligentCreature(r: Reader): ClientIntelligentCreat
 export interface GameShopItem {
   ItemIndex: number; GIndex: number; Info: ItemInfo; GoldPrice: number; CreditPrice: number; Count: number; Class: string; Category: string;
   Stock: number; iStock: boolean; Deal: boolean; TopItem: boolean; Date: bigint; CanBuyCredit: boolean; CanBuyGold: boolean;
+  /** The struck-through "was" prices of a deal (uint32; 0 = none). DB v119, always on the wire. */
+  DealGoldPrice: number; DealCreditPrice: number;
 }
 
 function readGameShopItem(r: Reader): GameShopItem {
   return {
     ItemIndex: r.readI32(), GIndex: r.readI32(), Info: readItemInfo(r), GoldPrice: r.readU32(), CreditPrice: r.readU32(), Count: r.readU16(),
     Class: r.readString(), Category: r.readString(), Stock: r.readI32(), iStock: r.readBool(), Deal: r.readBool(), TopItem: r.readBool(),
-    Date: r.readI64(), CanBuyCredit: r.readBool(), CanBuyGold: r.readBool(),
+    Date: r.readI64(), CanBuyCredit: r.readBool(), CanBuyGold: r.readBool(), DealGoldPrice: r.readU32(), DealCreditPrice: r.readU32(),
   };
 }
 

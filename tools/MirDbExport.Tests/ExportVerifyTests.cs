@@ -30,7 +30,7 @@ public sealed class ExportVerifyTests : IDisposable
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir != null && !File.Exists(Path.Combine(dir.FullName, "Legend of Mir.sln"))) dir = dir.Parent;
         if (dir == null) throw new InvalidOperationException("repo root not found");
-        return Path.Combine(dir.FullName, "Server.Persistence.Tests", "Fixtures", "v118", "Server.MirDB");
+        return Path.Combine(dir.FullName, "Server.Persistence.Tests", "Fixtures", "v119", "Server.MirDB"); // v119: GameShopItem deal prices are non-zero
     }
 
     private string Out(string name = "export.db") => Path.Combine(_dir, name);
@@ -66,6 +66,8 @@ public sealed class ExportVerifyTests : IDisposable
     [InlineData("UPDATE maps SET \"Light\" = \"Light\" + 1 WHERE key = (SELECT min(key) FROM maps)", "column Light")]
     [InlineData("UPDATE magic SET \"MultiplierBase\" = \"MultiplierBase\" + 0.5 WHERE key = (SELECT min(key) FROM magic)", "column MultiplierBase")]
     [InlineData("UPDATE gameshop SET \"Date\" = \"Date\" + 1 WHERE key = (SELECT min(key) FROM gameshop)", "column Date")]
+    [InlineData("UPDATE gameshop SET \"DealGoldPrice\" = \"DealGoldPrice\" + 1 WHERE key = (SELECT min(key) FROM gameshop)", "column DealGoldPrice")]
+    [InlineData("UPDATE gameshop SET \"DealCreditPrice\" = 0 WHERE key = (SELECT min(key) FROM gameshop)", "column DealCreditPrice")]
     [InlineData("UPDATE npcs SET \"Name\" = NULL WHERE key = (SELECT min(key) FROM npcs)", "column Name")]
     [InlineData("UPDATE mapmovements SET parent_index = parent_index + 1 WHERE key = (SELECT min(key) FROM mapmovements)", "column parent_index")]
     [InlineData("DELETE FROM maprespawns WHERE key = (SELECT min(key) FROM maprespawns)", "missing from the export")]
@@ -79,6 +81,20 @@ public sealed class ExportVerifyTests : IDisposable
         var verify = Verifier.Verify(_src, Out());
         Assert.NotEmpty(verify.Mismatches);
         Assert.Contains(verify.Mismatches, m => m.Contains(expectedFragment, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void V119_gameshop_deal_prices_are_exported()
+    {
+        Assert.Empty(Exporter.Export(_src, Out()).Errors);
+        using var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Out(), Mode = SqliteOpenMode.ReadOnly, Pooling = false }.ToString());
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT \"DealGoldPrice\", \"DealCreditPrice\" FROM gameshop ORDER BY key";
+        using var r = cmd.ExecuteReader();
+        Assert.True(r.Read());
+        Assert.Equal(750L, r.GetInt64(0));
+        Assert.Equal(8L, r.GetInt64(1));
     }
 
     [Fact]

@@ -43,7 +43,50 @@ internal static class Oracle
         Root("HeroList", e.HeroList);
         Root("AccountList", e.AccountList);
         Root("Auctions", e.Auctions);
+        // v119 market sales log, in key order, oldest sale first (the ring's slot layout is not persisted)
+        var sales = new List<object>();
+        foreach (var key in e.MarketSales.Keys.OrderBy(k => k))
+        {
+            var history = e.MarketSales[key];
+            var list = new List<Server.MirDatabase.MarketSale>();
+            for (int i = 0; i < history.Count; i++) list.Add(history[i]);
+            sales.Add(new { ItemIndex = key, Sales = list });
+        }
+        Root("MarketSales", sales);
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Oracle lines for data added in DB version 119 (CharacterInfo toggles/play time/profile, MailInfo sender,
+    /// UserMagic.AutoCast, GameShopItem deal prices, the MarketSales root), with the value a pre-119 file loads as.
+    /// </summary>
+    private static readonly System.Text.RegularExpressions.Regex V119Line = new(
+        @"(\.(?<f>PlayTime|ProfileText|EnableGroupRecall|EnableGuildInvite|AllowMarriage|AllowLoverRecall|AllowMentor|AllowFriendRequests|SenderIndex|SenderHidden|AutoCast|DealGoldPrice|DealCreditPrice)=(?<v>.*)$)|^(?<root>MarketSales)(?<rest>.*)$");
+
+    private static readonly Dictionary<string, string> V119Defaults = new(StringComparer.Ordinal)
+    {
+        ["PlayTime"] = "0", ["ProfileText"] = "\"\"", ["EnableGroupRecall"] = "False", ["EnableGuildInvite"] = "False",
+        ["AllowMarriage"] = "False", ["AllowLoverRecall"] = "False", ["AllowMentor"] = "False", ["AllowFriendRequests"] = "True",
+        ["SenderIndex"] = "-1", ["SenderHidden"] = "False", ["AutoCast"] = "True", ["DealGoldPrice"] = "0", ["DealCreditPrice"] = "0",
+    };
+
+    /// <summary>
+    /// Drops the v119-only lines from a dump of an upgraded pre-119 file. Lines that do not hold the pre-119 default go
+    /// to <paramref name="nonDefault"/>: an upgrade must load every new field as its default.
+    /// </summary>
+    public static string WithoutV119(string dump, List<string> nonDefault)
+    {
+        var kept = new List<string>();
+        foreach (var line in dump.Split('\n'))
+        {
+            var m = V119Line.Match(line);
+            if (!m.Success) { kept.Add(line); continue; }
+            bool isDefault = m.Groups["root"].Success
+                ? m.Groups["rest"].Value == ".Count=0"
+                : V119Defaults[m.Groups["f"].Value] == m.Groups["v"].Value;
+            if (!isDefault) nonDefault.Add(line);
+        }
+        return string.Join("\n", kept);
     }
 
     private static void Walk(StringBuilder sb, Dictionary<object, string> visited, string path, object v, int depth)

@@ -62,7 +62,7 @@ namespace Server.MirEnvir
         public static object LoadLock = new object();
 
         public const int MinVersion = 60;
-        public const int Version = 118;   // 118: Buff.Data typed encoding replaces BinaryFormatter (roadmap P3)
+        public const int Version = 119;   // 119: persisted social toggles/play time/profile, mail sender, spell AutoCast, guild log, market sales, GameShop deal prices
         public const int CustomVersion = 0;
         public static readonly string DatabasePath = Path.Combine(".", "Server.MirDB");
         public static readonly string AccountPath = Path.Combine(".", "Server.MirADB");
@@ -142,6 +142,7 @@ namespace Server.MirEnvir
         public LinkedList<AuctionInfo> Auctions = new LinkedList<AuctionInfo>();
         public List<ConquestGuildInfo> ConquestList = new List<ConquestGuildInfo>();
         public Dictionary<int, int> GameshopLog = new Dictionary<int, int>();
+        public Dictionary<int, MarketSaleHistory> MarketSales = new Dictionary<int, MarketSaleHistory>(); //v119: ItemIndex -> last sales
         public List<HeroInfo> HeroList = new List<HeroInfo>();
 
         public int GuildCount; //This shouldn't be needed?? -> remove in the future
@@ -2301,6 +2302,7 @@ namespace Server.MirEnvir
                             _saveNowRequested = false;
                             saveTime = Time + Settings.SaveDelay * Settings.Minute;
                             // Each save is isolated (roadmap P5): since P2 a failed save leaves the previous file intact.
+                            for (var i = 0; i < Players.Count; i++) Players[i].FoldPlayTime(); // v119: a crash loses little play time
                             BeginSaveAccounts();
                             try { if (!SystemDataStale) SaveDB(); } //WebAdmin: never overwrite newer system data saved by the Edit envir
                             catch (Exception ex) { WorldErrors.Record("SaveDB", ex); }
@@ -3010,6 +3012,7 @@ namespace Server.MirEnvir
                         string message = GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.YouWonForGold), info.Item.FriendlyName, info.CurrentBid);
 
                         info.Sold = true;
+                        RecordMarketSale(info.Item.ItemIndex, info.CurrentBid);
                         MailCharacter(info.CurrentBuyerInfo, item: info.Item, customMessage: message);
 
                         MessageAccount(info.CurrentBuyerInfo.AccountInfo, GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.YouBoughtForGold), info.Item.FriendlyName, info.CurrentBid),
@@ -3280,6 +3283,13 @@ namespace Server.MirEnvir
                 {
                     var Save = new RespawnSave { RespawnIndex = Spawn.Info.RespawnIndex, NextSpawnTick = Spawn.NextSpawnTick, Spawned = Spawn.Count >= Spawn.Info.Count * SpawnMultiplier };
                     Save.Save(writer);
+                }
+
+                writer.Write(MarketSales.Count);
+                foreach (var sales in MarketSales)
+                {
+                    writer.Write(sales.Key);
+                    sales.Value.Save(writer);
                 }
             }
 
@@ -3820,6 +3830,17 @@ namespace Server.MirEnvir
                             }
                         }
                     }
+
+                    MarketSales.Clear();
+                    if (LoadVersion >= 119)
+                    {
+                        var salesCount = reader.ReadInt32();
+                        for (var i = 0; i < salesCount; i++)
+                        {
+                            var itemIndex = reader.ReadInt32();
+                            MarketSales[itemIndex] = new MarketSaleHistory(reader);
+                        }
+                    }
                 }
             }
         }
@@ -4232,6 +4253,7 @@ namespace Server.MirEnvir
             MapList.Clear();
             GTMapList.Clear();
             GameshopLog.Clear();
+            MarketSales.Clear();
             CustomCommands.Clear();
             Heroes.Clear();
             MonsterCount = 0;
@@ -6182,6 +6204,18 @@ namespace Server.MirEnvir
             }
 
             return null;
+        }
+
+        /// <summary>Records a completed market sale (consignment bought or auction won) for the price history (game thread).</summary>
+        public void RecordMarketSale(int itemIndex, uint price)
+        {
+            if (!MarketSales.TryGetValue(itemIndex, out var history))
+            {
+                history = new MarketSaleHistory();
+                MarketSales[itemIndex] = history;
+            }
+
+            history.Add(price, Now);
         }
 
         public void ClearGameshopLog()

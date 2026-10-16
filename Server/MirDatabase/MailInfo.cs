@@ -43,6 +43,10 @@ namespace Server.MirEnvir
 
         public bool CanReply;
 
+        //v119: the sending character's Index (-1 = system/NPC mail or mail saved before v119); data for the Sent folder
+        public int SenderIndex = -1;
+        public bool SenderHidden;
+
         public MailInfo(int recipientIndex, bool canReply = false)
         {
             MailID = ++Envir.NextMailID;
@@ -74,6 +78,12 @@ namespace Server.MirEnvir
             Locked = reader.ReadBoolean();
             Collected = reader.ReadBoolean();
             CanReply = reader.ReadBoolean();
+
+            if (version >= 119)
+            {
+                SenderIndex = reader.ReadInt32();
+                SenderHidden = reader.ReadBoolean();
+            }
         }
 
         public void Save(BinaryWriter writer)
@@ -94,6 +104,9 @@ namespace Server.MirEnvir
             writer.Write(Locked);
             writer.Write(Collected);
             writer.Write(CanReply);
+
+            writer.Write(SenderIndex);
+            writer.Write(SenderHidden);
         }
 
         public void Send()

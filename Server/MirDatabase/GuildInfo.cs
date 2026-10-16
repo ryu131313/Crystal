@@ -36,6 +36,11 @@ namespace Server.MirDatabase
         public int GTIndex = -1;
         public int GTKey = 0;
         public int GTPrice;
+
+        //v119: guild activity log, oldest first, capped at MaxLogEntries
+        public const int MaxLogEntries = 100;
+        public List<GuildLogEntry> Log = new List<GuildLogEntry>();
+
         protected static Envir Envir
         {
             get { return Envir.Main; }
@@ -184,6 +189,32 @@ namespace Server.MirDatabase
                 GTPrice = reader.ReadInt32();
                 GTBegin = DateTime.FromBinary(reader.ReadInt64());
             }
+
+            if (version >= 119)
+            {
+                int logCount = reader.ReadInt32();
+                for (int j = 0; j < logCount; j++)
+                {
+                    Log.Add(new GuildLogEntry(reader));
+                }
+
+                if (Log.Count > MaxLogEntries)
+                {
+                    Log.RemoveRange(0, Log.Count - MaxLogEntries);
+                }
+            }
+        }
+
+        /// <summary>Appends a guild log entry (game thread), drops the oldest past MaxLogEntries and marks the guild for saving.</summary>
+        public void AddLog(byte kind, string text)
+        {
+            if (Log.Count >= MaxLogEntries)
+            {
+                Log.RemoveRange(0, Log.Count - MaxLogEntries + 1);
+            }
+
+            Log.Add(new GuildLogEntry { Time = Envir.Now, Kind = kind, Text = text ?? string.Empty });
+            NeedSave = true;
         }
 
         public void Save(BinaryWriter writer)
@@ -252,6 +283,49 @@ namespace Server.MirDatabase
             writer.Write(GTKey);
             writer.Write(GTPrice);
             writer.Write(GTBegin.ToBinary());
+
+            writer.Write(Log.Count);
+            for (int i = 0; i < Log.Count; i++)
+            {
+                Log[i].Save(writer);
+            }
+        }
+    }
+
+    /// <summary>Kinds of <see cref="GuildLogEntry"/>. Stored by byte value in guild files: append only, never renumber.</summary>
+    public static class GuildLogKind
+    {
+        public const byte Join = 0;
+        public const byte Leave = 1;
+        public const byte Kick = 2;
+        public const byte RankChange = 3;
+        public const byte Notice = 4;
+        public const byte Buff = 5;
+        public const byte War = 6;
+        public const byte Territory = 7;
+        public const byte Gold = 8;
+    }
+
+    public class GuildLogEntry
+    {
+        public DateTime Time;
+        public byte Kind;
+        public string Text = string.Empty;
+
+        public GuildLogEntry() { }
+
+        public GuildLogEntry(BinaryReader reader)
+        {
+            Time = DateTime.FromBinary(reader.ReadInt64());
+            Kind = reader.ReadByte();
+            Text = reader.ReadString();
+        }
+
+        public void Save(BinaryWriter writer)
+        {
+            writer.Write(Time.ToBinary());
+            writer.Write(Kind);
+            writer.Write(Text ?? string.Empty);
         }
     }
 }

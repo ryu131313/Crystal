@@ -3,6 +3,8 @@ namespace MirDbExport
     /// <summary>
     /// Names in the exported SQLite file (shared by the exporter and the verifier: names only, never encoding).
     /// Bump <see cref="Version"/> whenever the layout or an encoding rule changes.
+    /// Registry-driven column additions (a new public field on a game-data model, e.g. gameshop DealGoldPrice/DealCreditPrice
+    /// in DB v119) do not bump it: the column set follows meta.envir_version, the layout rule stays "one column per GameDataColumn".
     /// </summary>
     internal static class Schema
     {

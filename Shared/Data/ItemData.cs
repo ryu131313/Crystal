@@ -836,6 +836,10 @@ public class GameShopItem
     public DateTime Date;
     public bool CanBuyGold = false;
     public bool CanBuyCredit = false;
+    /// <summary>Struck-through "was" gold price shown for a deal (0 = none). DB v119+, always on the wire.</summary>
+    public uint DealGoldPrice = 0;
+    /// <summary>Struck-through "was" credit price shown for a deal (0 = none). DB v119+, always on the wire.</summary>
+    public uint DealCreditPrice = 0;
 
     public GameShopItem()
     {
@@ -867,7 +871,11 @@ public class GameShopItem
             CanBuyCredit = reader.ReadBoolean();
             CanBuyGold = reader.ReadBoolean();
         }
-
+        if (version >= 119)
+        {
+            DealGoldPrice = reader.ReadUInt32();
+            DealCreditPrice = reader.ReadUInt32();
+        }
     }
 
     public GameShopItem(BinaryReader reader, bool packet = false)
@@ -887,6 +895,8 @@ public class GameShopItem
         Date = DateTime.FromBinary(reader.ReadInt64());
         CanBuyCredit = reader.ReadBoolean();
         CanBuyGold = reader.ReadBoolean();
+        DealGoldPrice = reader.ReadUInt32();
+        DealCreditPrice = reader.ReadUInt32();
     }
 
     public void Save(BinaryWriter writer, bool packet = false)
@@ -906,6 +916,8 @@ public class GameShopItem
         writer.Write(Date.ToBinary());
         writer.Write(CanBuyCredit);
         writer.Write(CanBuyGold);
+        writer.Write(DealGoldPrice);
+        writer.Write(DealCreditPrice);
     }
 
     public override string ToString()

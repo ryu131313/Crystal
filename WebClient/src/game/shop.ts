@@ -16,6 +16,13 @@ export function isNewShopItem(item: GameShopItem): boolean {
   return dateFromBinary(item.Date).getTime() > Date.now() - NEW_DAYS * 86400000;
 }
 
+/** The struck-through "was" gold price of `item` (GameShopItem.DealGoldPrice, DB v119), or 0 = none. */
+export function dealGoldPrice(item: GameShopItem): number { return item.DealGoldPrice; }
+/** The struck-through "was" credit price of `item` (GameShopItem.DealCreditPrice, DB v119), or 0 = none. */
+export function dealCreditPrice(item: GameShopItem): number { return item.DealCreditPrice; }
+/** True when `item` carries a "was" price in either currency (the new UI strikes it through next to the price). */
+export function hasDealPrice(item: GameShopItem): boolean { return item.DealGoldPrice > 0 || item.DealCreditPrice > 0; }
+
 /** PlayerObject.GameshopBuy PType. */
 export const ShopPayType = { Credit: 0, Gold: 1 } as const;
 

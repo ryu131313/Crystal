@@ -15,7 +15,7 @@ namespace Server.MirObjects
         private long NextGroupInviteTime;
 
         public string GMPassword = Settings.GMPassword;
-        public bool GMLogin, EnableGroupRecall, EnableGuildInvite, AllowMarriage, AllowLoverRecall, AllowMentor, HasMapShout, HasServerShout; //TODO - Remove        
+        public bool GMLogin, HasMapShout, HasServerShout; //TODO - Remove        
 
         public long LastRecallTime, LastTeleportTime, LastProbeTime;
         public long NextMailTime;
@@ -167,6 +167,36 @@ namespace Server.MirObjects
             set { Info.AllowObserve = value; }
         }
 
+        public bool EnableGroupRecall
+        {
+            get { return Info.EnableGroupRecall; }
+            set { Info.EnableGroupRecall = value; }
+        }
+
+        public bool EnableGuildInvite
+        {
+            get { return Info.EnableGuildInvite; }
+            set { Info.EnableGuildInvite = value; }
+        }
+
+        public bool AllowMarriage
+        {
+            get { return Info.AllowMarriage; }
+            set { Info.AllowMarriage = value; }
+        }
+
+        public bool AllowLoverRecall
+        {
+            get { return Info.AllowLoverRecall; }
+            set { Info.AllowLoverRecall = value; }
+        }
+
+        public bool AllowMentor
+        {
+            get { return Info.AllowMentor; }
+            set { Info.AllowMentor = value; }
+        }
+
         public PlayerObject MarriageProposal;
         public PlayerObject DivorceProposal;
         public PlayerObject MentorRequest;
@@ -262,11 +292,33 @@ namespace Server.MirObjects
             }
 
             Info.LastLoginDate = Envir.Now;
+
+            _playTimeMark = Envir.Time;
+            _playTimeCounting = true;
+        }
+
+        private long _playTimeMark; // Envir.Time (ms) up to which this session has been added to Info.PlayTime
+        private bool _playTimeCounting;
+
+        /// <summary>Adds the whole seconds played since the last fold to Info.PlayTime (game thread; StopGame and periodic account saves).</summary>
+        public void FoldPlayTime()
+        {
+            if (!_playTimeCounting) return;
+
+            long elapsed = Envir.Time - _playTimeMark;
+            if (elapsed < 1000) return;
+
+            long seconds = elapsed / 1000;
+            Info.PlayTime += seconds;
+            _playTimeMark += seconds * 1000;
         }
 
         public void StopGame(byte reason)
         {
             if (Node == null) return;
+
+            FoldPlayTime();
+            _playTimeCounting = false;
 
             if (CurrentMap != null && CurrentMap.ValidPoint(CurrentLocation))
             {
@@ -8881,6 +8933,7 @@ namespace Server.MirObjects
                         if (auction.ItemType == MarketItemType.Consign)
                         {
                             auction.Sold = true;
+                            Envir.RecordMarketSale(auction.Item.ItemIndex, auction.Price);
 
                             Account.Gold -= auction.Price;
 
@@ -8984,6 +9037,7 @@ namespace Server.MirObjects
                     }
 
                     auction.Sold = true;
+                    Envir.RecordMarketSale(auction.Item.ItemIndex, auction.CurrentBid);
 
                     string message = GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.YouWonItemForGold), auction.Item.FriendlyName, auction.CurrentBid);
 
@@ -12073,6 +12127,7 @@ namespace Server.MirObjects
             MailInfo mail = new MailInfo(player.Index, true)
             {
                 Sender = Info.Name,
+                SenderIndex = Info.Index,
                 Message = message,
                 Gold = 0
             };
@@ -12194,6 +12249,7 @@ namespace Server.MirObjects
             {
                 MailID = ++Envir.NextMailID,
                 Sender = Info.Name,
+                SenderIndex = Info.Index,
                 Message = message,
                 Gold = gold,
                 Items = giftItems

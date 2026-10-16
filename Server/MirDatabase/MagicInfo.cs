@@ -99,6 +99,7 @@ namespace Server.MirDatabase
         public ushort Experience;
         public bool IsTempSpell;
         public long CastTime;
+        public bool AutoCast = true; //v119: hero AI may cast this spell on its own
 
         private MagicInfo GetMagicInfo(Spell spell)
         {
@@ -131,6 +132,9 @@ namespace Server.MirDatabase
 
             if (version < 65) return;
             CastTime = reader.ReadInt64();
+
+            if (version < 119) return;
+            AutoCast = reader.ReadBoolean();
         }
         public void Save(BinaryWriter writer)
         {
@@ -141,6 +145,7 @@ namespace Server.MirDatabase
             writer.Write(Experience);
             writer.Write(IsTempSpell);
             writer.Write(CastTime);
+            writer.Write(AutoCast);
         }
 
         public Packet GetInfo(bool hero)

@@ -56,7 +56,7 @@ public class ModelRoundTripTests
     [Fact]
     public void GameShopItem_round_trip_db_and_packet_layouts()
     {
-        var g = new GameShopItem { GIndex = 5, ItemIndex = 7, Info = NewItemInfo(), GoldPrice = 100, CreditPrice = 2, Count = 3, Class = "All", Category = "Weapons", Stock = 10, iStock = true, Date = new DateTime(2030, 1, 2), CanBuyGold = true };
+        var g = new GameShopItem { GIndex = 5, ItemIndex = 7, Info = NewItemInfo(), GoldPrice = 100, CreditPrice = 2, Count = 3, Class = "All", Category = "Weapons", Stock = 10, iStock = true, Date = new DateTime(2030, 1, 2), CanBuyGold = true, DealGoldPrice = 150, DealCreditPrice = 3 };
         var db = Bytes(w => g.Save(w));
         Assert.Equal(db, Bytes(w => new GameShopItem(Reader(db), Envir.Version, Envir.CustomVersion).Save(w)));
 

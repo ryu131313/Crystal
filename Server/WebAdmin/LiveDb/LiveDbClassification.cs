@@ -295,7 +295,8 @@ namespace Server.WebAdmin.LiveDb
         {
             var t = new LiveTableRule { Endpoint = "gameshop", PlannedBatch = "C", LiveInThisBuild = true, InsertLive = true, DeleteLive = true };
             Set(t, Read(LiveTiming.Clients, "read when the shop is opened or an item is bought; pushed to clients"), "GoldPrice",
-                "CreditPrice", "Count", "Class", "Category", "Stock", "iStock", "Deal", "TopItem", "Date", "CanBuyGold", "CanBuyCredit");
+                "CreditPrice", "Count", "Class", "Category", "Stock", "iStock", "Deal", "TopItem", "Date", "CanBuyGold", "CanBuyCredit",
+                "DealGoldPrice", "DealCreditPrice");
             Set(t, Hook(LiveTiming.Clients, "bound to the running world's item; pushed to clients"), "ItemIndex");
             return t;
         }
