@@ -41,7 +41,7 @@ import { correctSlot } from "../../game/heroItems.ts";
 import type { GameUi, GameUiContext, UiEvent, UiCommand, FramePoint } from "../gameUi.ts";
 import type { ItemLabelContext } from "../itemLabel.ts";
 import { later } from "./core/dom.ts";
-import type { ThemeSettings } from "./core/theme.ts";
+import { accountThemeSettings as themeSettings } from "./screens/accountRoot.ts";
 import { GOLD_IMG } from "./core/popups.ts";
 import { UiRuntime } from "./core/runtime.ts";
 import { dragController } from "./core/drag.ts";
@@ -88,13 +88,6 @@ function itemSound(type: number | undefined): number {
   }
 }
 
-/** The theme settings (preset + custom colours) from settings.ts. */
-function themeSettings(s: Readonly<GameSettings>): ThemeSettings {
-  return {
-    theme: s.UiTheme,
-    custom: { accent: s.UiAccent, frame: s.UiFrame, text: s.UiText, hue: s.UiHue, sat: s.UiSat, lit: s.UiLit, glow: s.UiGlow, radius: s.UiRadius },
-  };
-}
 const THEME_KEYS = new Set<keyof GameSettings>(["UiTheme", "UiAccent", "UiFrame", "UiText", "UiHue", "UiSat", "UiLit", "UiGlow", "UiRadius"]);
 
 export function createModernUi(ctx: GameUiContext): GameUi {

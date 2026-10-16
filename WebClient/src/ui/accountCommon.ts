@@ -120,6 +120,20 @@ export function binaryFromWallMs(ms: number): bigint {
   return BigInt(Math.round(ms)) * 10000n + TICKS_AT_EPOCH;
 }
 
+/** A server DateTime.ToBinary expiry that honours its Kind bits: Utc (1) and Local (2; ToBinary stores UTC ticks) are
+ *  compared with Date.now() and printed in browser-local time; Unspecified (0) stays wall-clock (wallMs vs nowWallMs). */
+export function expiryClock(binary: bigint): { leftMs: () => number; label: string } {
+  const kind = Number((BigInt.asUintN(64, binary) >> 62n) & 3n);
+  if (kind === 0) {
+    const exp = wallMs(binary);
+    return { leftMs: () => exp - nowWallMs(), label: formatDateTime(exp) };
+  }
+  const ticks = BigInt.asUintN(62, binary);
+  const utc = Number((ticks - TICKS_AT_EPOCH) / 10000n);
+  const local = utc - new Date(utc).getTimezoneOffset() * 60000;
+  return { leftMs: () => utc - Date.now(), label: formatDateTime(local) };
+}
+
 /** AccountBannedReasonDuration / AccountBannedReasonExpiryDuration (same English text). */
 export function banText(reason: string, expiry: bigint): string {
   const exp = wallMs(expiry);

@@ -75,13 +75,39 @@ import { monsterSound, playerSound, fishingFrame, intelligentCreaturePickupSound
 import { canFish, canRideAttack, canCastNextMagic, canUseSpell, canHarvest, canRangeAttack, isFishingAction, isIdleAction, runDistance, transformTypeFromBuffs } from "./riding.ts";
 import { PoisonType, MirClass, BuffType, AttackMode, PetMode, EquipmentSlot } from "../protocol/enums.generated.ts";
 import { KeybindOptions, matches, matchesAny, matchesAnyBinding, type KeybindOption } from "./keybinds.ts";
-import { createInputRouter } from "./input.ts";
+import { createInputRouter, type KeyHandler } from "./input.ts";
+import { Emitter } from "./emitter.ts";
 import { mapCells, rememberMap } from "./mapFiles.ts";
 import { drawDamageNumber, makeDamageNumber, processDamageList, MAX_DAMAGE_NUMBERS, type DamageNumber } from "./damageNumbers.ts";
 import type { GameUi, GameUiContext, GameUiFactory, PlayerState } from "../ui/gameUi.ts";
 import { AMODE_TEXT, PMODE_TEXT } from "./modeText.ts";
 
-export interface Game { handle(p: ServerPacket): void; dispose(): void }
+/** The first entry's loading stages (web-only; the modern loading overlay, src/ui/modern/screens/loading.ts, follows them).
+ *  Emitted for every map load too (MapChanged -> mapLoaded); a listener that only wants the first entry unsubscribes. */
+export interface GameProgress {
+  /** S.MapInformation (the packet: FileName, Title, BigMap, MiniMap, Lights ...). */
+  readonly mapInfo: Emitter<PacketOf<"MapInformation">>;
+  /** loadMap finished (the map file parsed, or failed with a chat line); the file name. */
+  readonly mapLoaded: Emitter<string>;
+  /** S.UserInformation (the user object exists). */
+  readonly userReady: Emitter<PacketOf<"UserInformation">>;
+  /** The first frame drawn with the user in it (once per game). */
+  readonly firstFrame: Emitter<void>;
+}
+
+export interface Game {
+  handle(p: ServerPacket): void;
+  dispose(): void;
+  /** Loading stages (web-only). */
+  readonly progress: GameProgress;
+  /** The game's info cache (S.NewMapInfo / S.MapDetails / item and monster infos). */
+  readonly info: GameInfo;
+  /** Registers a key handler on the input router's "scene" layer (above menus, windows and gameplay); returns its removal.
+   *  Removed with the game too. */
+  sceneKeys(handler: KeyHandler): () => void;
+  /** ServerRules.MapDetailsEnabled (false until S.ServerRules). */
+  mapDetailsEnabled(): boolean;
+}
 
 /** Scene exits (GameScene.LogOutSuccess -> SelectScene, ReturnToLogin -> LoginScene). */
 export interface GameExits { logOut(characters: SelectInfo[]): void; returnToLogin(): void }
@@ -174,6 +200,8 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   const lightState: LightState = currentMap.lights;
   const itemInfos = new ItemInfos();
   /** GameScene MonsterInfoList / NPCInfoList / MapInfoList (NPC page links, big map / world map). */
+  const progress: GameProgress = { mapInfo: new Emitter(), mapLoaded: new Emitter(), userReady: new Emitter(), firstFrame: new Emitter() };
+  let firstFrameSent = false;
   const gameInfo = new GameInfo((f) => session.send(f), itemInfos, () => rulesFor(session)?.MapDetailsEnabled ?? false);
   /** The user's poison timers (S.PoisonStatus, web-only; poisons.ts). */
   const poisons = new PoisonTimers(() => performance.now());
@@ -491,6 +519,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     } catch (e) {
       chat(`Could not load map ${fileName}: ${(e as Error).message}`, ChatType.System);
     }
+    if (!disposed) progress.mapLoaded.emit(fileName);
   }
 
   function addObject(ob: MapObj): void {
@@ -658,6 +687,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
         sound.playMusic(p.Music);
         weather.set(p.WeatherParticles); // GameScene.MapInformation -> MapControl.Weather + UpdateWeather
         void loadMap(p.FileName);
+        progress.mapInfo.emit(p);
         break;
       case "MapChanged": // MiniMap / Title / Lights / MapDarkLight: currentMap.ts
         autoPath = null;
@@ -674,7 +704,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
         canRun = false;
         void loadMap(p.FileName);
         break;
-      case "UserInformation": setupUser(p); break;
+      case "UserInformation": setupUser(p); progress.userReady.emit(p); break;
       case "UserLocation":
         nextAction = 0;
         if (!user) break;
@@ -1459,6 +1489,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
       if (gameSettings.CozyMode) grade.apply(view.painter.width, view.painter.height, COZY_GRADE);
       ui.frame(t, "afterRender"); // classic: minimap and big map canvases
       drawOverlay(t);
+      if (!firstFrameSent) { firstFrameSent = true; progress.firstFrame.emit(); }
     }
     frames++;
     if (t - fpsAt >= 1000) { fps = frames; frames = 0; fpsAt = t; }
@@ -1492,5 +1523,9 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     /** Debug/test hook: hold a mouse button at a canvas pixel (buttons: 1 left, 2 right, 0 release). */
     mouse(x: number, y: number, b: number) { mouse = { x, y }; buttons = b; if (!(b & 2)) canRun = false; },
   };
-  return { handle, dispose };
+  return {
+    handle, dispose, progress, info: gameInfo,
+    sceneKeys: (handler) => input.register("scene", handler),
+    mapDetailsEnabled: () => rulesFor(session)?.MapDetailsEnabled ?? false,
+  };
 }
