@@ -16,15 +16,20 @@
 //                    wedding ring, disassemble, downgrade, reset). An inventory click targets the item (or pick one and click
 //                    the cell, like the desktop); Refine keeps the plain pick for the refine grid.
 // Storage (StorageDialog) is ui/storageWindow.ts; refine / awakening / crafting are ui/npcServices.ts.
+// The state is the NPC session (src/game/npcSession.ts: NPCID / NPCTime / NPCRate, the page, the goods lists, the drop
+// panel's target / type / lock) and the page markup parser is src/game/npcMarkup.ts; these windows are their views.
 // Deliberate differences: the InventoryDialog is not moved beside the NPC dialog (InventoryWindow has no location API);
 // (text/url) links also open https; the BigButton's ForeColour tint is a canvas multiply of the picture.
 
-import type { ServerPacket, UserItem } from "../protocol/server.ts";
-import { ClientPackets } from "../protocol/client.ts";
-import { BindMode, ItemGrade, ItemType, ItemTypeName, MarketPanelType, PanelType, RequiredClass, RequiredClassName, RequiredType, Stat } from "../protocol/enums.generated.ts";
-import type { Session } from "../game/session.ts";
+import type { UserItem } from "../protocol/server.ts";
+import { ItemTypeName, PanelType, RequiredClass, RequiredClassName, RequiredType, Stat } from "../protocol/enums.generated.ts";
 import type { Inventory } from "../game/inventory.ts";
-import { type ItemInfos, itemPrice, repairPrice } from "../game/items.ts";
+import {
+  type ItemInfos, itemPrice, floatText, sellPrice, repairCost, specialRepairCost, refineCost, disassemblePrice, downgradePrice, resetPrice,
+} from "../game/items.ts";
+import { type NpcSession, type NpcDrop, type NpcGoods, type DropType, goodsDisplay } from "../game/npcSession.ts";
+import { MIN_CONSIGNMENT, MAX_CONSIGNMENT } from "../game/market.ts";
+import { EMPTY_PAGE, type NpcPage, type NpcSegment, type NpcLinkKind, type NpcBigButton } from "../game/npcMarkup.ts";
 import { placeCell, type InventoryWindow } from "./inventoryWindow.ts";
 import { LibPath, monsterLibPath } from "../game/libraries.ts";
 import type { CurrentMap } from "../game/currentMap.ts";
@@ -37,31 +42,15 @@ import { amountBox } from "./messageBox.ts";
 import { showItemLabel, moveItemLabel, hideItemLabel } from "./itemLabel.ts";
 import { dragY } from "./mir/controls.ts";
 
-const BIG = /<<((.*?)\/(@.*?))>>/g;
-// One pass over every inline token, in index order like NPCDialog.NewText's sorted match list.
-const INLINE = /<((?:[^<>]*?)\/(?:@[^<>]*?))>|\{(.*?)\/(.*?)\}|\((.*?)\/(.*?)\)|\[(MONSTER|NPC|ITEM):(\d+)(?:\|([^\]]+))?\]|<\$(MONSTER|NPC|ITEM):(\d+)>/gi;
-
 const MAXIMUM_LINES = 8; // NPCDialog.MaximumLines
 const FONT_9 = "9pt Arial"; // NPCDialog.font (Settings.FontName 9F)
-const MIN_CONSIGNMENT = 5000, MAX_CONSIGNMENT = 50000000; // Globals.MinConsignment / MaxConsignment
 
 /** ClientTextKeys used here (Client/Localization/English.json). */
 const T = {
   PriceGold: (n: number) => `Price: ${n} gold`,
   PricePearl: (n: number, s: string) => `Price: ${n} pearl${s}`,
   PurchaseAmount: "Purchase Amount:",
-  LowGold: "Not enough gold.",
-  NotEnoughPearls: "You do not have enough Pearls.",
-  YouNoBagSpace: "You do not have enough space.",
-  CannotSellItem: "Cannot sell this item.",
-  CannotCarryMoreGold: "Cannot carry anymore gold.",
-  CannotRepairItem: "Cannot repair this item.",
-  CannotConsignItem: "Cannot consign this item.",
   ConsignmentPrice: "Consignment Price:",
-  YouDontHaveEnoughGoldToRefine: (n: string) => `You don't have enough gold to refine your ${n}.`,
-  YouHaventDepositedItemsToRefine: (n: string) => `You haven't deposited any items to refine your ${n} with.`,
-  ItemHasntBeenRefinedNoChecking: (n: string) => `Your ${n} hasn't been refined so it doesn't need checking.`,
-  ItemIsNotRing: (n: string) => `${n} isn't a ring.`,
   Sale: "Sale: ", Repair: "Repair: ", SpecialRepair: "S. Repair: ", Consignment: "Consignment: ",
   ItemWillBeDestroyed: "Item will be Destroyed\n\n\n\n\n\n\n\n         ", Downgrade: "Downgrade: ", Reset: "Reset: ",
   Refine: "Refine: ", CheckRefine: "Check Refine", ReplaceWedRing: "Replace: ", Gold2: " Gold",
@@ -69,9 +58,9 @@ const T = {
   MonsterInfoLoading: "Monster info is being loaded...", NPCInfoLoading: "NPC info is being loaded...", ItemInfoLoading: "Item info is being loaded...",
 };
 
-type LinkKind = "MONSTER" | "NPC" | "ITEM";
+type LinkKind = NpcLinkKind;
 interface PageLink { span: HTMLElement; kind: LinkKind; idx: number; name: string | undefined }
-interface BigButtonInfo { text: string; action: string; colour: string }
+type BigButtonInfo = NpcBigButton;
 
 /** RequiredClass.ToLocalizedString (the enum name; a combination of flags reads "Warrior, Wizard" like Enum.ToString). */
 function requiredClassText(value: number): string {
@@ -82,12 +71,8 @@ function requiredClassText(value: number): string {
   return parts.join(", ") || String(value);
 }
 
-/** C# float ToString for the NPCDropDialog prices (uint * NPCRate). */
-export const floatText = (v: number) => String(Number(Math.fround(v).toPrecision(7)));
-/** Stats.Count: the sum of |value| (UserItem.AddedStats.Count in the price formulas). */
-export const addedCount = (item: UserItem) => Object.values(item.AddedStats).reduce((sum, v) => sum + Math.abs(v), 0);
-/** Awake.GetAwakeLevel. */
-export const awakeLevel = (item: UserItem) => item.AwakeLevels.length;
+/** The price helpers moved to src/game/items.ts (re-exported for existing imports). */
+export { floatText, addedCount, awakeLevel } from "../game/items.ts";
 
 /** The element's top-left on the 1024 x 768 stage (DisplayLocation). */
 function stagePoint(target: HTMLElement): [number, number] {
@@ -198,7 +183,7 @@ class BigButtonDialog {
   get visible(): boolean { return this.control.visible; }
 
   /** BigButtonDialog.Show (sizes come from the preloaded pictures). */
-  show(list: BigButtonInfo[], minimumButtons: number, click: (action: string) => void, size: (index: number) => Size): void {
+  show(list: readonly BigButtonInfo[], minimumButtons: number, click: (action: string) => void, size: (index: number) => Size): void {
     this.control.el.replaceChildren();
     this.scrollOffset = 0;
     let width = 0, height = 0;
@@ -261,7 +246,8 @@ export interface GoodsContext {
   inv: Inventory;
   infos: ItemInfos;
   invWindow: InventoryWindow;
-  send: (frame: Uint8Array) => void;
+  /** The NPC session (NPCGoodsDialog.BuyItem's checks and C.BuyItem). */
+  npc: NpcSession;
   /** A system chat line. */
   chat: (text: string) => void;
   /** GameScene.NPCRate. */
@@ -270,8 +256,6 @@ export interface GoodsContext {
   hideAdded: () => boolean;
   /** NPCDialog.Size.Height (NPCGoodsDialog.Show puts the list under it). */
   npcHeight: () => number;
-  /** UserObject.PearlCount (null = unknown: the server decides). */
-  pearls: () => number | null;
   /** GameScene.RecipeInfoList[item].Gold for the craft list. */
   recipeGold: (itemIndex: number) => number | undefined;
 }
@@ -412,52 +396,18 @@ export class GoodsDialog {
     return false;
   }
 
-  /** User.GetMaxGain for a bag purchase (bag space only: free slots and room in matching stacks; weight is the server's). */
-  private maxGain(item: UserItem, stack: number): number {
-    let room = 0;
-    for (const slot of this.ctx.inv.inventory) {
-      if (!slot) room += stack;
-      else if (slot.ItemIndex === item.ItemIndex && slot.Count < stack) room += stack - slot.Count;
-      if (room >= item.Count) return item.Count;
-    }
-    return Math.min(room, item.Count);
-  }
-
-  /** NPCGoodsDialog.BuyItem. */
+  /** NPCGoodsDialog.BuyItem (the checks are NpcSession.buyPlan). */
   private buyItem(): void {
     const sel = this.selected;
     if (!sel) return;
     if (this.checkSubGoods()) return;
-    const info = this.ctx.infos.get(sel.ItemIndex);
-    if (!info) return;
-    const send = (count: number) => this.ctx.send(ClientPackets.BuyItem({ ItemIndex: sel.UniqueID, Count: count, Type: PanelType.Buy }));
-    if (info.StackSize > 1) {
-      let maxQuantity = info.StackSize;
-      const full = { ...sel, Count: info.StackSize };
-      const fullPrice = itemPrice(full, info);
-      const unit = Math.max(1, fullPrice / full.Count);
-      if (this.usePearls) {
-        const pearls = this.ctx.pearls();
-        if (pearls !== null && fullPrice > pearls) {
-          maxQuantity = Math.min(0xffff, Math.trunc(pearls / unit));
-          if (maxQuantity === 0) { this.ctx.chat(T.NotEnoughPearls); return; }
-        }
-      } else if (fullPrice > this.ctx.inv.gold) {
-        maxQuantity = Math.min(0xffff, Math.trunc(this.ctx.inv.gold / unit));
-        if (maxQuantity === 0) { this.ctx.chat(T.LowGold); return; }
-      }
-      const gain = this.maxGain(full, info.StackSize);
-      if (gain === 0) { this.ctx.chat(T.YouNoBagSpace); return; }
-      if (gain < maxQuantity) maxQuantity = gain;
-      amountBox(T.PurchaseAmount, info.Image, maxQuantity, (n) => { if (n > 0) send(n); }, 0, Math.min(sel.Count, maxQuantity));
-      return;
+    const plan = this.ctx.npc.buyPlan(sel, this.usePearls);
+    switch (plan.kind) {
+      case "none": return;
+      case "fail": this.ctx.chat(plan.text); return;
+      case "amount": amountBox(T.PurchaseAmount, plan.image, plan.max, (n) => { if (n > 0) this.ctx.npc.buy(sel, n); }, 0, plan.initial); return;
+      case "one": this.ctx.npc.buy(sel, 1); return;
     }
-    if (this.usePearls) {
-      const pearls = this.ctx.pearls();
-      if (pearls !== null && info.Price > pearls) { this.ctx.chat(T.NotEnoughPearls); return; }
-    } else if (info.Price > this.ctx.inv.gold) { this.ctx.chat(T.LowGold); return; }
-    if (!this.ctx.inv.inventory.some((i) => !i)) { this.ctx.chat(T.YouNoBagSpace); return; }
-    send(1);
   }
 
   /** NPCGoodsDialog.PositionBar_OnMoving. */
@@ -493,23 +443,15 @@ export class GoodsDialog {
     }
   }
 
-  /** NPCGoodsDialog.NewGoods + AddGoods. */
-  newGoods(list: UserItem[]): void {
-    this.goods = [];
-    this.displayGoods = [];
+  /** NPCGoodsDialog.NewGoods + AddGoods (the grouping is npcSession.ts goodsDisplay). */
+  newGoods(list: readonly UserItem[]): void {
     if (this.type === PanelType.BuySub) {
       this.startIndex = 0;
       this.selected = null;
-      list = [...list].sort((a, b) => itemPrice(a, this.ctx.infos.get(a.ItemIndex)) - itemPrice(b, this.ctx.infos.get(b.ItemIndex)));
     }
-    for (const item of list) {
-      // Normal shops just want to show one of each item type
-      if (this.type === PanelType.Buy && !this.usePearls) {
-        this.goods.push(item);
-        if (this.displayGoods.some((x) => x.ItemIndex === item.ItemIndex)) continue;
-      }
-      this.displayGoods.push(item);
-    }
+    const { goods, display } = goodsDisplay(this.type, this.usePearls, list, (i) => this.ctx.infos.get(i.ItemIndex));
+    this.goods = goods;
+    this.displayGoods = display;
     if (this.subGoods?.visible) this.checkSubGoods();
     this.update();
   }
@@ -538,18 +480,15 @@ export class GoodsDialog {
 
 // — NPCDropDialog —
 
-/** The PanelTypes NPCDropDialog serves. */
-export type DropType = typeof PanelType.Sell | typeof PanelType.Repair | typeof PanelType.SpecialRepair | typeof PanelType.Consign
-  | typeof PanelType.Refine | typeof PanelType.CheckRefine | typeof PanelType.ReplaceWedRing
-  | typeof PanelType.Disassemble | typeof PanelType.Downgrade | typeof PanelType.Reset;
+/** The PanelTypes NPCDropDialog serves (src/game/npcSession.ts). */
+export type { DropType };
 
-/** NPCDropDialog: one shared panel for every item service (GameScene.NPCDropDialog). TargetItem is locked in the bag
- *  (OldCell.Locked) while it sits in the cell. */
+/** NPCDropDialog: one shared panel for every item service (GameScene.NPCDropDialog), the view of NpcSession.drop (type,
+ *  TargetItem, Hold, rate; TargetItem is locked in the bag (OldCell.Locked) while it sits in the cell). */
 export class NpcDropDialog {
+  private readonly model: NpcDrop;
   private readonly inv: Inventory;
   private readonly invWindow: InventoryWindow;
-  private readonly send: (f: Uint8Array) => void;
-  private readonly chat: (text: string) => void;
   private readonly npcHeight: () => number;
   private readonly win: MirWindow;
   private readonly holdButton: MirButton;
@@ -559,54 +498,63 @@ export class NpcDropDialog {
   private cell: HTMLElement | null = null;
   private cellItem: UserItem | null | undefined = undefined;
   private hook: ((index: number) => boolean) | null = null;
-  pType: DropType = PanelType.Sell;
-  /** GameScene.NPCRate for the prices. */
-  rate = 1;
-  private hold = false;
-  private target: bigint | null = null; // TargetItem (its bag cell is OldCell)
 
-  constructor(inv: Inventory, invWindow: InventoryWindow, send: (f: Uint8Array) => void, chat: (text: string) => void, npcHeight: () => number) {
+  constructor(model: NpcDrop, inv: Inventory, invWindow: InventoryWindow, npcHeight: () => number) {
+    this.model = model;
     this.inv = inv;
     this.invWindow = invWindow;
-    this.send = send;
-    this.chat = chat;
     this.npcHeight = npcHeight;
     // NPCDropDialog ctor
     this.win = new MirWindow({ library: Lib.Prguse, index: 392, location: [264, 224], sort: true });
     // NPCDropPanel_Click: the (20, 55, 75, 75) area acts as the cell
     new MirControl({ parent: this.win, location: [20, 55], size: [75, 75], onClick: () => this.itemCellClick() });
     this.holdButton = new MirButton({ parent: this.win, library: Lib.Title, index: 293, hoverIndex: 294, pressedIndex: 295, location: [114, 36], sound: SoundList.ButtonA,
-      onClick: () => { this.hold = !this.hold; this.render(); } });
+      onClick: () => model.toggleHold() });
     // AfterDraw: Hold draws Title 295 over the button
     this.holdImage = new MirImage({ parent: this.win, library: Lib.Title, index: 295, location: [114, 36], notControl: true, visible: false });
-    this.confirmButton = new MirButton({ parent: this.win, library: Lib.Title, index: 290, hoverIndex: 291, pressedIndex: 292, location: [114, 62], sound: SoundList.ButtonA, onClick: () => this.confirm() });
+    this.confirmButton = new MirButton({ parent: this.win, library: Lib.Title, index: 290, hoverIndex: 291, pressedIndex: 292, location: [114, 62], sound: SoundList.ButtonA, onClick: () => model.confirm() });
     this.infoLabel = new MirLabel({ parent: this.win, autoSize: true, location: [30, 10], notControl: true });
+    // The cell follows the bag (a view concern: the target's picture and lock redraw with the inventory)
     const prevRender = invWindow.onRender;
     invWindow.onRender = () => { prevRender(); this.render(); };
-    gameSignal().addEventListener("abort", () => this.win.dispose());
+    const offs = [
+      model.shown.on(({ type }) => this.onShown(type)),
+      model.hidden.on(() => this.onHidden()),
+      model.changed.on(() => this.render()),
+      // Confirm, PanelType.Consign: MirAmountBox (ConsignmentPrice, min .. max), then C.ConsignItem
+      model.consignPrice.on(({ item, image }) => {
+        amountBox(T.ConsignmentPrice, image, MAX_CONSIGNMENT, (price) => model.consign(item, price), MIN_CONSIGNMENT);
+      }),
+    ];
+    gameSignal().addEventListener("abort", () => { for (const off of offs) off(); this.win.dispose(); });
   }
 
   get visible(): boolean { return this.win.visible; }
 
-  /** NPCDropDialog.Show (GameScene.NPCSell / NPCRepair / ... set PType first). */
+  /** NPCDropDialog.Show (NpcSession.drop.show). */
   show(type: DropType, rate?: number): void {
-    this.clearTarget();
-    this.pType = type;
-    if (rate !== undefined) this.rate = rate;
-    this.hold = false;
+    this.model.show(type, rate);
+  }
+
+  /** NPCDropDialog.Hide (NpcSession.drop.hide). */
+  hide(): void {
+    this.model.hide();
+  }
+
+  /** NPCDropDialog.Show's view part: the inventory opens; a click on a bag item targets it (Refine keeps the plain pick
+   *  for the refine grid). */
+  private onShown(type: DropType): void {
     this.invWindow.toggle(true);
-    // A click on a bag item targets it; Refine keeps the plain pick for the refine grid.
     if (type !== PanelType.Refine) {
-      this.hook = (index) => { this.takeTarget(index); return true; };
+      this.hook = (index) => { this.model.take(index); return true; };
       this.invWindow.itemClickHook = this.hook;
     } else this.unhook();
     this.win.show();
     this.render();
   }
 
-  /** NPCDropDialog.Hide: the targeted cell unlocks. */
-  hide(): void {
-    this.clearTarget();
+  /** NPCDropDialog.Hide's view part (the model unlocked the target). */
+  private onHidden(): void {
     this.unhook();
     if (!this.win.visible) return;
     this.win.hide();
@@ -617,128 +565,17 @@ export class NpcDropDialog {
     this.hook = null;
   }
 
-  private item(): UserItem | null {
-    if (this.target === null) return null;
-    return this.inv.inventory.find((i) => i?.UniqueID === this.target) ?? null;
-  }
-
-  private setLock(id: bigint, on: boolean): void {
-    if (on) this.inv.locked.add(String(id)); else this.inv.locked.delete(String(id));
-  }
-
-  private clearTarget(): void {
-    if (this.target !== null) { this.setLock(this.target, false); this.target = null; this.inv.changed(); }
-  }
-
-  private friendly(item: UserItem): string {
-    const info = this.inv.info(item);
-    return info ? itemFriendlyName(info) || info.Name : `Item #${item.ItemIndex}`;
-  }
-
   /** The cell / panel click with GameScene.SelectedCell = the picked bag slot. */
   private itemCellClick(): void {
     const slot = this.invWindow.pickedInventorySlot;
     if (slot >= 0) this.invWindow.clearPick();
-    this.takeTarget(slot);
+    this.model.take(slot);
   }
 
-  /** NPCDropDialog.ItemCell_Click with the bag slot `index` (-1 = nothing picked). */
-  private takeTarget(index: number): void {
-    this.clearTarget();
-    const item = index >= 0 ? this.inv.inventory[index] ?? null : null;
-    if (!item || this.inv.isLocked(item)) { this.render(); return; }
-    const info = this.inv.info(item);
-    const type = this.pType;
-    if (type === PanelType.Disassemble || type === PanelType.Downgrade || type === PanelType.Reset) {
-      const ok = type === PanelType.Disassemble ? !!info && info.Grade !== ItemGrade.None && info.Type !== ItemType.Awakening
-        : type === PanelType.Downgrade ? awakeLevel(item) !== 0
-        : addedCount(item) > 0 || (!!info && item.Slots.length > info.Slots); // UserItem.IsAdded
-      if (ok) { this.target = item.UniqueID; this.setLock(item.UniqueID, true); this.inv.changed(); }
-      this.render();
-      return;
-    }
-    if (type !== PanelType.Sell && type !== PanelType.Consign && info && info.Durability === 0) { this.render(); return; }
-    this.target = item.UniqueID;
-    this.setLock(item.UniqueID, true);
-    this.inv.changed();
-    if (this.hold) this.confirm();
-    else this.render();
-  }
-
-  /** NPCDropDialog.Confirm. */
-  private confirm(): void {
-    const item = this.item();
-    if (!item) return;
-    const info = this.inv.info(item);
-    const bind = info?.Bind ?? 0;
-    const index = this.inv.inventory.indexOf(item);
-    switch (this.pType) {
-      case PanelType.Sell:
-        if (bind & BindMode.DontSell) { this.chat(T.CannotSellItem); return; }
-        if (this.inv.gold + Math.trunc(itemPrice(item, info) / 2) > 0xffffffff) { this.chat(T.CannotCarryMoreGold); break; }
-        this.release(); // the request locks it again until S.SellItem
-        this.inv.npcAction(index, "sell");
-        return;
-      case PanelType.Repair:
-        if (bind & BindMode.DontRepair) { this.chat(T.CannotRepairItem); return; }
-        if (this.inv.gold < repairPrice(item, info) * this.rate) { this.chat(T.LowGold); break; }
-        this.release();
-        this.inv.npcAction(index, "repair");
-        return;
-      case PanelType.SpecialRepair:
-        if ((bind & BindMode.DontRepair) || (bind & BindMode.NoSRepair)) { this.chat(T.CannotRepairItem); return; }
-        if (this.inv.gold < repairPrice(item, info) * 3 * this.rate) { this.chat(T.LowGold); break; }
-        this.release();
-        this.inv.npcAction(index, "srepair");
-        return;
-      case PanelType.Consign:
-        if ((bind & BindMode.DontStore) || (bind & BindMode.DontSell)) { this.chat(T.CannotConsignItem); return; }
-        amountBox(T.ConsignmentPrice, info?.Image ?? -1, MAX_CONSIGNMENT, (price) => {
-          if (this.target !== item.UniqueID || price < MIN_CONSIGNMENT) return;
-          this.release();
-          this.inv.consign(item, price, MarketPanelType.Consign); // locked until S.ConsignItem
-        }, MIN_CONSIGNMENT);
-        return;
-      case PanelType.Disassemble: this.send(ClientPackets.DisassembleItem({ UniqueID: item.UniqueID })); break;
-      case PanelType.Downgrade: this.send(ClientPackets.DowngradeAwakening({ UniqueID: item.UniqueID })); break;
-      case PanelType.Reset: if (info && !info.NeedIdentify) this.send(ClientPackets.ResetAddedItem({ UniqueID: item.UniqueID })); break;
-      case PanelType.Refine:
-        if (this.inv.refine.some((i) => i)) {
-          if (this.inv.gold >= (info?.RequiredAmount ?? 0) * 10 * this.rate) {
-            this.send(ClientPackets.RefineItem({ UniqueID: item.UniqueID }));
-            this.target = null; // stays locked: S.RepairItem unlocks it, S.RefineItem removes it
-            this.render();
-            return;
-          }
-          this.chat(T.YouDontHaveEnoughGoldToRefine(this.friendly(item)));
-          return;
-        }
-        this.chat(T.YouHaventDepositedItemsToRefine(this.friendly(item)));
-        break;
-      case PanelType.CheckRefine:
-        if (item.RefineAdded === 0) { this.chat(T.ItemHasntBeenRefinedNoChecking(this.friendly(item))); return; }
-        this.send(ClientPackets.CheckRefine({ UniqueID: item.UniqueID }));
-        break;
-      case PanelType.ReplaceWedRing:
-        if (info?.Type !== ItemType.Ring) { this.chat(T.ItemIsNotRing(this.friendly(item))); return; }
-        this.send(ClientPackets.ReplaceWedRing({ UniqueID: item.UniqueID }));
-        break;
-    }
-    this.clearTarget();
-    this.render();
-  }
-
-  /** TargetItem = null with the lock handed over to the request. */
-  private release(): void {
-    if (this.target !== null) this.setLock(this.target, false);
-    this.target = null;
-  }
-
-  /** NPCDropPanel_BeforeDraw (+ AfterDraw's Hold picture). */
+  /** NPCDropPanel_BeforeDraw (+ AfterDraw's Hold picture); the prices are items.ts. */
   render(): void {
     if (!this.win.visible) return;
-    const item = this.item();
-    if (!item && this.target !== null) this.target = null;
+    const item = this.model.currentItem();
     const info = item ? this.inv.info(item) : undefined;
     let library: string = Lib.Prguse2, index = 351;
     let location: [number, number] = [264, this.npcHeight()];
@@ -747,33 +584,32 @@ export class NpcDropDialog {
     let holdVisible = true;
     let text = "";
     let price: string | null = null;
-    const r = this.rate;
-    switch (this.pType) {
-      case PanelType.Sell: text = T.Sale; if (item) price = String(Math.trunc(itemPrice(item, info) / 2)); break;
-      case PanelType.Repair: text = T.Repair; if (item) price = floatText(repairPrice(item, info) * r); break;
-      case PanelType.SpecialRepair: text = T.SpecialRepair; if (item) price = floatText(repairPrice(item, info) * 3 * r); break;
+    const r = this.model.rate;
+    switch (this.model.type) {
+      case PanelType.Sell: text = T.Sale; if (item) price = String(sellPrice(item, info)); break;
+      case PanelType.Repair: text = T.Repair; if (item) price = floatText(repairCost(item, info, r)); break;
+      case PanelType.SpecialRepair: text = T.SpecialRepair; if (item) price = floatText(specialRepairCost(item, info, r)); break;
       case PanelType.Consign: text = T.Consignment; break;
       case PanelType.Disassemble: {
         text = T.ItemWillBeDestroyed;
         holdVisible = false;
         library = Lib.Title; index = 711; location = [234, 224];
         confirm = [715, 716, 717]; confirmAt = [62, 190]; infoAt = [44, 60]; cellAt = [83, 94];
-        // UserItem.DisassemblePrice
-        if (item) price = String(Math.trunc(1500 * (info?.Grade ?? 0) * Math.fround((addedCount(item) + awakeLevel(item)) * 0.1 + 1)));
+        if (item) price = String(disassemblePrice(item, info));
         break;
       }
-      case PanelType.Downgrade: text = T.Downgrade; holdVisible = false; if (item) price = String(3000 * (1 + (awakeLevel(item) + 1) * 2) * (info?.Grade ?? 0)); break;
-      case PanelType.Reset: text = T.Reset; holdVisible = false; if (item) price = String(Math.trunc(3000 * (info?.Grade ?? 0) * Math.fround(addedCount(item) * 0.2 + 1))); break;
-      case PanelType.Refine: text = T.Refine; holdVisible = false; if (item && info) price = floatText(info.RequiredAmount * 10 * r); break;
+      case PanelType.Downgrade: text = T.Downgrade; holdVisible = false; if (item) price = String(downgradePrice(item, info)); break;
+      case PanelType.Reset: text = T.Reset; holdVisible = false; if (item) price = String(resetPrice(item, info)); break;
+      case PanelType.Refine: text = T.Refine; holdVisible = false; if (item && info) price = floatText(refineCost(info, r)); break;
       case PanelType.CheckRefine: text = T.CheckRefine; holdVisible = false; break;
-      case PanelType.ReplaceWedRing: text = T.ReplaceWedRing; holdVisible = false; if (item && info) price = floatText(info.RequiredAmount * 10 * r); break;
+      case PanelType.ReplaceWedRing: text = T.ReplaceWedRing; holdVisible = false; if (item && info) price = floatText(refineCost(info, r)); break;
     }
     if (price !== null) text += price + T.Gold2;
     this.win.library = library;
     this.win.index = index;
     this.win.location = location;
     this.holdButton.visible = holdVisible;
-    this.holdImage.visible = holdVisible && this.hold;
+    this.holdImage.visible = holdVisible && this.model.hold;
     this.confirmButton.setIndices(confirm[0], confirm[1], confirm[2]);
     this.confirmButton.location = confirmAt;
     this.infoLabel.text = text;
@@ -801,13 +637,8 @@ const SIZE_PICTURES: [string, number][] = [
 ];
 
 export class NpcWindow {
-  private readonly session: Session;
-  private readonly now: () => number;
-  private npcId = 0;
-  private npcName = "";
-  private npcTime = 0; // GameScene.NPCTime
-  private rate = 1;    // GameScene.NPCRate
-  private hideAdded = false; // GameScene.HideAddedStoreStats
+  /** The NPC session (src/game/npcSession.ts): GameScene.NPCID / NPCTime / NPCRate, the page, the goods, the drop panel. */
+  private readonly npc: NpcSession;
 
   private readonly win: MirWindow;
   private readonly nameLabel: MirLabel;
@@ -817,8 +648,8 @@ export class NpcWindow {
   private readonly questButton: MirButton;
   private readonly bigButtonDialog: BigButtonDialog;
   private textControls: MirControl[] = [];
-  private currentLines: string[] = [];
-  private bigButtons: BigButtonInfo[] = [];
+  /** The page on show (NPCDialog.CurrentLines + BigButtons, parsed by npcMarkup.ts). */
+  private page: NpcPage = EMPTY_PAGE;
   private index = 0; // NPCDialog._index
   private height = 0; // NPCDialog.Size.Height
   private questFrame = 0;
@@ -830,10 +661,8 @@ export class NpcWindow {
   /** NPCGoodsDialog / NPCSubGoodsDialog (PanelType Buy / BuySub; also the pearl shop). */
   readonly goods: GoodsDialog;
   readonly subGoods: GoodsDialog;
-  /** NPCDropDialog (shared with npcServices.ts). */
+  /** NPCDropDialog (the view of NpcSession.drop). */
   readonly drop: NpcDropDialog;
-  /** UserObject.PearlCount for the pearl shop (set by NpcServices). */
-  pearlCount: () => number | null = () => null;
   /** HelpButton: HelpDialog.DisplayPage("Purchasing"). */
   onHelp: () => void = () => {}; // game.ts: HelpDialog.DisplayPage("Purchasing")
 
@@ -853,12 +682,11 @@ export class NpcWindow {
 
   private readonly invWindow: InventoryWindow;
 
-  constructor(stage: HTMLElement, session: Session, inv: Inventory, infos: ItemInfos, invWindow: InventoryWindow, now: () => number, gameInfo: GameInfo,
+  constructor(stage: HTMLElement, npc: NpcSession, inv: Inventory, infos: ItemInfos, invWindow: InventoryWindow, gameInfo: GameInfo,
     currentMap: CurrentMap) {
     void stage;
+    this.npc = npc;
     this.currentMap = currentMap;
-    this.session = session;
-    this.now = now;
     this.gameInfo = gameInfo;
     this.sizesReady = Promise.all(SIZE_PICTURES.map(([lib, i]) => libSize(lib, i).then((s) => { this.sizes.set(`${lib}#${i}`, s); }))).then(() => {
       this.sizesLoaded = true;
@@ -873,7 +701,7 @@ export class NpcWindow {
     this.upButton = new MirButton({ parent: this.win, library: Lib.Prguse2, index: 197, hoverIndex: 198, pressedIndex: 199, size: [16, 14], location: [417, 34], sound: SoundList.ButtonA, visible: false,
       onClick: () => { if (this.index <= 0) return; this.index--; this.newText(false); this.updatePositionBar(); } });
     this.downButton = new MirButton({ parent: this.win, library: Lib.Prguse2, index: 207, hoverIndex: 208, pressedIndex: 209, size: [16, 14], location: [417, 175], sound: SoundList.ButtonA, visible: false,
-      onClick: () => { if (this.index + MAXIMUM_LINES >= this.currentLines.length) return; this.index++; this.newText(false); this.updatePositionBar(); } });
+      onClick: () => { if (this.index + MAXIMUM_LINES >= this.page.lines.length) return; this.index++; this.newText(false); this.updatePositionBar(); } });
     this.positionBar = new MirButton({ parent: this.win, library: Lib.Prguse2, index: 205, hoverIndex: 206, pressedIndex: 206, location: [417, 47], sound: 0, visible: false });
     dragY(this.positionBar, (y) => this.positionBarMoving(y));
     closeButton(this.win, [413, 3], () => this.close());
@@ -881,7 +709,7 @@ export class NpcWindow {
     this.bigButtonDialog = new BigButtonDialog(this.win);
     // QuestButton: MirAnimatedButton Title 530 (10 frames, 130 ms, looped), hover 284, pressed 286
     this.questButton = new MirButton({ parent: this.win, library: Lib.Title, index: 530, hoverIndex: 284, pressedIndex: 286, size: [96, 25], sound: SoundList.ButtonA, visible: false,
-      onClick: () => this.onQuestButton(this.npcId) });
+      onClick: () => this.onQuestButton(this.npc.npcId) });
     const questTimer = window.setInterval(() => {
       if (!this.questButton.visible || !this.win.visible) return;
       this.questFrame = (this.questFrame + 1) % 10;
@@ -897,14 +725,20 @@ export class NpcWindow {
 
     this.invWindow = invWindow;
     const ctx: GoodsContext = {
-      inv, infos, invWindow, send: (f) => session.send(f), chat: (t) => invWindow.notify(t), rate: () => this.rate, hideAdded: () => this.hideAdded,
-      npcHeight: () => this.dialogHeight, pearls: () => this.pearlCount(), recipeGold: () => undefined,
+      inv, infos, invWindow, npc, chat: (t) => invWindow.notify(t), rate: () => npc.goodsRate, hideAdded: () => npc.hideAdded,
+      npcHeight: () => this.dialogHeight, recipeGold: () => undefined,
     };
     this.goods = new GoodsDialog(PanelType.Buy, ctx);
     this.subGoods = new GoodsDialog(PanelType.BuySub, ctx);
     this.goods.subGoods = this.subGoods;
-    this.drop = new NpcDropDialog(inv, invWindow, (f) => session.send(f), (t) => invWindow.notify(t), () => this.dialogHeight);
+    this.drop = new NpcDropDialog(npc.drop, inv, invWindow, () => this.dialogHeight);
 
+    // The session's events (subscribed first: NPCDialog hides before the panels that follow `closed`)
+    const offs = [
+      npc.page.on((page) => this.onPage(page)),
+      npc.closed.on(() => this.onClosed()),
+      npc.goods.on((g) => this.onGoods(g)),
+    ];
     // A link's text and its open tooltip follow the info once it arrives (the desktop only fills them on the next page / hover).
     gameInfo.onChange((kind, index) => this.infoArrived(kind, index));
     // GameScene KeybindOptions.Closeall: if (NPCDialog.Visible) NPCDialog.Hide()
@@ -913,7 +747,7 @@ export class NpcWindow {
       if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement) return;
       if (matches(e, KeybindOptions.Closeall) && this.visible) this.close();
     }, { signal: gameSignal() });
-    gameSignal().addEventListener("abort", () => { clearInterval(questTimer); this.win.dispose(); this.tooltip.dispose(); });
+    gameSignal().addEventListener("abort", () => { for (const off of offs) off(); clearInterval(questTimer); this.win.dispose(); this.tooltip.dispose(); });
   }
 
   get visible(): boolean {
@@ -933,122 +767,58 @@ export class NpcWindow {
   /** NPCObject.GetAvailableQuests().Any() for the NPC (GameScene.NPCID). */
   questsAvailable: (npcId: number) => boolean = () => false;
   onQuestButton: (npcId: number) => void = () => {};
-  /** GameScene.NPCID (the NPC the dialog talks to). */
+  /** GameScene.NPCID (the NPC the dialog talks to): NpcSession.npcId. */
   get currentNpcId(): number {
-    return this.npcId;
+    return this.npc.npcId;
   }
   /** NPCDialog.CheckQuestButtonDisplay: the name (before "_") and the quest button. */
   refreshQuestButton(): void {
-    this.nameLabel.text = this.npcName.split("_")[0] ?? "";
-    this.questButton.visible = this.questsAvailable(this.npcId);
+    this.nameLabel.text = this.npc.npcName.split("_")[0] ?? "";
+    this.questButton.visible = this.questsAvailable(this.npc.npcId);
   }
 
-  /** GameScene MapControl click on an NPC: C.CallNPC "[@Main]" (not again within 5 s, or while its dialog is open). */
-  talk(id: number, name: string): void {
-    const t = this.now();
-    if (id === this.npcId && (t <= this.npcTime || this.visible)) return;
-    this.npcTime = t + 5000;
-    this.npcId = id;
-    this.npcName = name;
-    this.session.send(ClientPackets.CallNPC({ ObjectID: id, Key: "[@Main]" }));
-  }
-
-  /** RollDialog.ReturnResult: CallNPC "[page]" on the last NPC (GameScene.NPCID), gated by NPCTime like a dialog link. */
-  callPage(page: string): void {
-    const t = this.now();
-    if (t <= this.npcTime) return;
-    this.npcTime = t + 5000;
-    this.session.send(ClientPackets.CallNPC({ ObjectID: this.npcId, Key: `[${page}]` }));
-  }
-
-  /** NPCDialog.ButtonClicked. */
-  private action(key: string): void {
-    if (key.toLowerCase() === "@exit") { this.close(); return; }
-    const t = this.now();
-    if (t <= this.npcTime) return;
-    this.npcTime = t + 5000;
-    this.session.send(ClientPackets.CallNPC({ ObjectID: this.npcId, Key: `[${key}]` }));
-  }
-
-  /** NPCDialog.Hide: every NPC panel goes with it (the others chain onto onClose). */
+  /** NPCDialog.Hide (close button, @Exit, Escape): the session closes and every NPC panel follows `closed`. */
   close(): void {
+    this.npc.close();
+  }
+
+  /** NPCDialog.Hide's own part (NpcSession.closed; the drop panel follows NpcSession.drop). */
+  private onClosed(): void {
     if (this.win.visible) this.invWindow.location = [0, 0]; // NPCDialog.Hide
     this.win.hide();
     this.goods.hide();
     this.subGoods.hide();
-    this.drop.hide();
     this.bigButtonDialog.hide();
     this.hideTooltip();
-    this.onClose();
   }
 
-  /** NPCDialog.Hide also hides the other NPC panels (refine, awakening, craft, storage, market, quests): they chain onto this. */
-  onClose: () => void = () => {};
-
-  handle(p: ServerPacket): void {
-    switch (p.type) {
-      // S.MapInformation / S.MapChanged: MapControl.Index / Title are in CurrentMap
-      case "NPCResponse":
-        // GameScene.NPCResponse
-        this.npcTime = 0;
-        this.goods.hide();
-        this.subGoods.hide();
-        this.drop.hide();
-        this.showPage(p.Page);
-        break;
-      case "NPCUpdate": this.npcId = p.NPCID; break;
-      case "NPCGoods":
-        // GameScene.NPCGoods (PanelType.Craft is npcServices.ts)
-        this.rate = p.Rate;
-        this.hideAdded = p.HideAddedStats;
-        if (!this.visible) break;
-        if (p.Type === PanelType.Buy) { this.goods.usePearls = false; this.goods.newGoods(p.List); this.goods.show(); }
-        else if (p.Type === PanelType.BuySub) { this.subGoods.usePearls = false; this.subGoods.newGoods(p.List); this.subGoods.show(); }
-        break;
-      case "NPCSell": if (this.visible) this.drop.show(PanelType.Sell); break;
-      case "NPCRepair": this.rate = p.Rate; if (this.visible) this.drop.show(PanelType.Repair, p.Rate); break;
-      case "NPCSRepair": this.rate = p.Rate; if (this.visible) this.drop.show(PanelType.SpecialRepair, p.Rate); break;
-      case "NPCConsign": if (this.visible) this.drop.show(PanelType.Consign); break; // GameScene.NPCConsign
-    }
+  /** GameScene.NPCResponse with a page (the session reset NPCTime and hid the drop panel): the goods lists hide, the
+   *  page shows. */
+  private onPage(page: NpcPage): void {
+    this.goods.hide();
+    this.subGoods.hide();
+    this.showPage(page);
   }
 
-  /** GameScene.NPCPearlGoods: the goods list with UsePearls (called by NpcServices). */
-  showPearlGoods(list: UserItem[], rate: number): void {
-    this.rate = rate;
-    if (!this.visible) return;
-    this.goods.usePearls = true;
-    this.goods.newGoods(list);
-    this.goods.show();
+  /** GameScene.NPCGoods (Buy / BuySub) / NPCPearlGoods (PanelType.Craft is npcServices.ts). */
+  private onGoods(g: NpcGoods): void {
+    if (g.type === PanelType.Buy) { this.goods.usePearls = g.usePearls; this.goods.newGoods(g.list); this.goods.show(); }
+    else if (g.type === PanelType.BuySub) { this.subGoods.usePearls = false; this.subGoods.newGoods(g.list); this.subGoods.show(); }
   }
 
   // — Page (NPCDialog.NewText) —
 
-  /** GameScene.NPCResponse: BigButtons.Clear, BigButtonDialog.Hide, NewText, then Show or Hide. */
-  private showPage(page: string[]): void {
+  /** GameScene.NPCResponse: BigButtons.Clear, BigButtonDialog.Hide, NewText, then Show. */
+  private showPage(page: NpcPage): void {
     this.hideTooltip();
     this.bigButtonDialog.hide();
-    const lines = [...page];
-    const big: BigButtonInfo[] = [];
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const line = lines[i]!;
-      const found: BigButtonInfo[] = [];
-      for (const m of line.matchAll(BIG)) {
-        const [action, colour] = m[3]!.split("/");
-        found.push({ text: m[2]!, action: action!, colour: colour || "RoyalBlue" });
-      }
-      big.unshift(...found);
-      const rest = line.replace(BIG, "");
-      if (rest.trim() === "" && rest !== line) lines.splice(i, 1);
-    }
-    this.currentLines = lines;
-    this.bigButtons = big;
+    this.page = page;
     // Visible at once (an NPCGoods / NPCSell right behind the page checks NPCDialog.Visible); the layout needs the
     // picture sizes, which only the very first page may have to wait for.
     const seq = ++this.pageSeq;
     const layout = () => { if (seq === this.pageSeq) this.newText(true); };
     if (this.sizesLoaded) layout(); else void this.sizesReady.then(layout);
-    if (lines.length > 0 || big.length > 0) this.show();
-    else this.close();
+    this.show();
   }
 
   /** NPCDialog.Show. */
@@ -1060,18 +830,18 @@ export class NpcWindow {
 
   /** NPCDialog.NewText: the BigButtonDialog (on a new page), the background, the scroll buttons and the visible rows. */
   private newText(resetIndex: boolean): void {
-    const lines = this.currentLines;
+    const lines = this.page.lines;
     if (resetIndex) {
       this.index = 0;
       let height = this.size(Lib.Prguse, this.win.index)[1]; // Size = TrueSize
       this.updatePositionBar();
-      if (this.bigButtons.length > 0) {
+      if (this.page.bigButtons.length > 0) {
         let minimumButtons = 0;
         let at: [number, number];
         if (lines.join("").trim() === "") { at = [1, 27]; minimumButtons = 4; }
         else at = [1, height - 33];
         this.bigButtonDialog.control.location = at;
-        this.bigButtonDialog.show(this.bigButtons, minimumButtons, (a) => this.action(a), (i) => this.size(Lib.Title, i));
+        this.bigButtonDialog.show(this.page.bigButtons, minimumButtons, (a) => this.npc.call(a), (i) => this.size(Lib.Title, i));
         height = at[1] + this.bigButtonDialog.height;
       }
       this.height = height;
@@ -1089,49 +859,50 @@ export class NpcWindow {
       // TextLabel[i]: 420 x 20 at (8, 34 + row * 18), 9pt, WordBreak; the links draw over it
       const label = new MirControl({ parent: this.win, location: [8, 34 + (i - this.index) * 18], size: [420, 20], notControl: true, className: "mir-label" });
       label.el.style.font = FONT_9;
-      this.renderLine(label.el, lines[i]!);
+      this.renderLine(label.el, this.page.rows[i]!);
       this.textControls.push(label);
     }
     // keep the scroll / close buttons, the big buttons and the quest button above the rows
     for (const c of [this.upButton, this.downButton, this.positionBar, this.bigButtonDialog.control, this.questButton]) this.win.el.append(c.el);
   }
 
-  /** NewButton / NewColour / NewLink inline on a row. */
-  private renderLine(target: HTMLElement, line: string): void {
-    let at = 0;
-    for (const m of line.matchAll(INLINE)) {
-      if (m.index! > at) target.append(line.slice(at, m.index));
-      at = m.index! + m[0].length;
-      if (m[1] !== undefined) {
+  /** NewButton / NewColour / NewLink inline on a row (the segments of npcMarkup.ts parseLine). */
+  private renderLine(target: HTMLElement, row: readonly NpcSegment[]): void {
+    for (const seg of row) {
+      switch (seg.kind) {
+        case "text": target.append(seg.text); break;
         // NewButton: yellow, red while hovered, Sound ButtonC
-        const slash = m[1].indexOf("/@");
-        const text = m[1].slice(0, slash), key = m[1].slice(slash + 1);
-        target.append(this.textButton(text, () => this.action(key)));
-      } else if (m[2] !== undefined) {
-        // NewColour: Color.FromName
-        const span = document.createElement("span");
-        span.textContent = m[2];
-        span.style.color = CSS.supports("color", m[3]!) ? m[3]! : "transparent";
-        target.append(span);
-      } else if (m[4] !== undefined) {
-        // NewButton with a link: opens http(s) addresses
-        const url = m[5]!;
-        target.append(this.textButton(m[4], () => { if (/^https?:\/\//i.test(url)) window.open(url, "_blank", "noopener,noreferrer"); }));
-      } else {
-        // NewLink: cyan, orange on hover, tooltip on enter, hidden on leave / click
-        const kind = (m[6] ?? m[9])!.toUpperCase() as LinkKind, idx = Number(m[7] ?? m[10]), name = m[8];
-        const span = document.createElement("span");
-        span.textContent = this.linkName(kind, idx, name);
-        Object.assign(span.style, { color: "#00ffff", pointerEvents: "auto" });
-        const link: PageLink = { span, kind, idx, name };
-        span.addEventListener("pointerenter", () => { span.style.color = "#ffa500"; this.showTooltip(link); });
-        span.addEventListener("pointerleave", () => { span.style.color = "#00ffff"; this.hideTooltip(); });
-        span.addEventListener("click", (e) => { e.stopPropagation(); this.hideTooltip(); });
-        this.links.push(link);
-        target.append(span);
+        case "link": target.append(this.textButton(seg.text, () => this.npc.call(seg.key))); break;
+        case "colour": {
+          // NewColour: Color.FromName
+          const span = document.createElement("span");
+          span.textContent = seg.text;
+          span.style.color = CSS.supports("color", seg.colour) ? seg.colour : "transparent";
+          target.append(span);
+          break;
+        }
+        case "url": {
+          // NewButton with a link: opens http(s) addresses
+          const url = seg.url;
+          target.append(this.textButton(seg.text, () => { if (/^https?:\/\//i.test(url)) window.open(url, "_blank", "noopener,noreferrer"); }));
+          break;
+        }
+        case "info": {
+          // NewLink: cyan, orange on hover, tooltip on enter, hidden on leave / click
+          const { link: kind, index: idx, name } = seg;
+          const span = document.createElement("span");
+          span.textContent = this.linkName(kind, idx, name);
+          Object.assign(span.style, { color: "#00ffff", pointerEvents: "auto" });
+          const link: PageLink = { span, kind, idx, name };
+          span.addEventListener("pointerenter", () => { span.style.color = "#ffa500"; this.showTooltip(link); });
+          span.addEventListener("pointerleave", () => { span.style.color = "#00ffff"; this.hideTooltip(); });
+          span.addEventListener("click", (e) => { e.stopPropagation(); this.hideTooltip(); });
+          this.links.push(link);
+          target.append(span);
+          break;
+        }
       }
     }
-    if (at < line.length) target.append(line.slice(at));
   }
 
   /** NPCDialog.NewButton: a yellow label, red under the mouse, yellow while pressed. */
@@ -1149,7 +920,7 @@ export class NpcWindow {
 
   /** NPCDialog_MouseWheel. */
   private mouseWheel(count: number): void {
-    const n = this.currentLines.length;
+    const n = this.page.lines.length;
     if (this.index === 0 && count >= 0) return;
     if (this.index === n - 1 && count <= 0) return;
     if (n <= MAXIMUM_LINES) return;
@@ -1164,7 +935,7 @@ export class NpcWindow {
   private positionBarMoving(y: number): void {
     if (y >= 155) y = 155;
     if (y <= 47) y = 47;
-    const extra = this.currentLines.length - MAXIMUM_LINES;
+    const extra = this.page.lines.length - MAXIMUM_LINES;
     if (extra <= 0) return;
     const interval = Math.max(1, Math.trunc(108 / extra));
     this.index = Math.min(extra, Math.trunc((y - 47) / interval));
@@ -1174,7 +945,7 @@ export class NpcWindow {
 
   /** NPCDialog.UpdatePositionBar. */
   private updatePositionBar(): void {
-    const extra = this.currentLines.length - MAXIMUM_LINES;
+    const extra = this.page.lines.length - MAXIMUM_LINES;
     if (extra <= 0) return;
     const interval = Math.trunc(108 / extra);
     let y = 48 + this.index * interval;

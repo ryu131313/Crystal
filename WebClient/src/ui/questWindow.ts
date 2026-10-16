@@ -21,6 +21,7 @@ import { MAX_CONCURRENT_QUESTS, MAX_TRACKED_QUESTS, entryIcon, printTimeSpanFrom
 import type { ItemInfos } from "../game/items.ts";
 import { type GameInfo, itemFriendlyName } from "../game/gameInfo.ts";
 import type { NpcWindow } from "./npcWindow.ts";
+import type { NpcSession } from "../game/npcSession.ts";
 import { itemIcon, type InventoryWindow } from "./inventoryWindow.ts";
 import { messageBox } from "./messageBox.ts";
 import { el } from "./screens.ts";
@@ -297,6 +298,8 @@ export class QuestWindow {
   private readonly stage: HTMLElement;
   private readonly quests: Quests;
   private readonly npc: NpcWindow;
+  /** GameScene.NPCID / NPCDialog.Hide (src/game/npcSession.ts). */
+  private readonly session: NpcSession;
   private readonly invWindow: InventoryWindow;
   private readonly items: ItemInfos;
   private readonly gameInfo: GameInfo;
@@ -339,10 +342,11 @@ export class QuestWindow {
   private readonly itemsWindow: MirWindow;
   private readonly itemsGrid: MirControl;
 
-  constructor(stage: HTMLElement, quests: Quests, npc: NpcWindow, invWindow: InventoryWindow, items: ItemInfos, gameInfo: GameInfo) {
+  constructor(stage: HTMLElement, quests: Quests, npc: NpcWindow, session: NpcSession, invWindow: InventoryWindow, items: ItemInfos, gameInfo: GameInfo) {
     this.stage = stage;
     this.quests = quests;
     this.npc = npc;
+    this.session = session;
     this.invWindow = invWindow;
     this.items = items;
     this.gameInfo = gameInfo;
@@ -352,7 +356,7 @@ export class QuestWindow {
     this.tracking = new MirWindow({ location: [0, 100], movable: true, sort: false });
 
     // QuestListDialog ctor: Prguse 950 at (NPCDialog.Size.Width + 47, 0)
-    this.list = new MirWindow({ library: Lib.Prguse, index: 950, movable: true, sort: true, location: [0, 0], onHide: () => this.npc.close() });
+    this.list = new MirWindow({ library: Lib.Prguse, index: 950, movable: true, sort: true, location: [0, 0], onHide: () => this.session.close() });
     void libSize(Lib.Prguse, 995).then(([w]) => { this.list.location = [w + 47, 0]; });
     new MirImage({ parent: this.list, library: Lib.Title, index: 14, location: [18, 9] });
     new MirButton({ parent: this.list, library: Lib.Prguse, index: 951, hoverIndex: 952, pressedIndex: 953, location: [291, 35], sound: SoundList.ButtonA, onClick: () => this.scrollRows(-1) });
@@ -399,8 +403,7 @@ export class QuestWindow {
     // NPCDialog.QuestButton -> QuestListDialog.Toggle; NPCDialog.Hide hides QuestListDialog
     npc.questsAvailable = (id) => quests.availableQuests(id).length > 0;
     npc.onQuestButton = () => this.toggleList();
-    const prevClose = npc.onClose;
-    npc.onClose = () => { prevClose(); this.hideList(); };
+    const offClosed = session.closed.on(() => this.hideList());
 
     quests.onChange((c) => this.changed(c));
     gameInfo.onChange(() => this.refreshMessages()); // link names follow their info
@@ -413,6 +416,7 @@ export class QuestWindow {
       else if (matches(e, KeybindOptions.Closeall)) { this.hideList(); this.detail.hide(); this.diary.hide(); this.itemsWindow.hide(); }
     }, { signal: gameSignal() });
     gameSignal().addEventListener("abort", () => {
+      offClosed();
       for (const w of [this.list, this.detail, this.diary, this.tracking, this.itemsWindow]) w.dispose();
       itemLabelBox?.remove();
       itemLabelBox = null;
@@ -474,7 +478,7 @@ export class QuestWindow {
 
   /** QuestListDialog.Show: CurrentNPCID = GameScene.NPCID, Reset, DisplayInfo. */
   private showList(): void {
-    this.currentNpcId = this.npc.currentNpcId;
+    this.currentNpcId = this.session.npcId;
     this.selected = null;
     this.startIndex = 0;
     this.selectedIndex = 0;

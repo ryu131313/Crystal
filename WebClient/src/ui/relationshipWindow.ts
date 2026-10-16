@@ -1,10 +1,9 @@
 // Marriage + mentor: RelationshipDialog (Client/MirScenes/Dialogs/RelationshipDialog.cs, Prguse 583; L / Lover button)
 // and MentorDialog (MentorDialog.cs, Prguse 170; Mentor key / button) + GameScene's handlers (MarriageRequest,
-// DivorceRequest, LoverUpdate, MentorRequest, MentorUpdate). Requests are answered in a non-blocking MirMessageBox
-// (messageBox.ts) so the frame loop keeps running. Esc closes both (GameScene Closeall).
+// DivorceRequest, LoverUpdate, MentorRequest, MentorUpdate). Since phase 1c the state and sends live in the
+// Relationship / Mentor models (src/game/relationship.ts); these windows are views over them. Requests are answered in a
+// non-blocking MirMessageBox (messageBox.ts) so the frame loop keeps running. Esc closes both (GameScene Closeall).
 
-import type { ServerPacket } from "../protocol/server.ts";
-import { ClientPackets } from "../protocol/client.ts";
 import { ChatType, MirClassName } from "../protocol/enums.generated.ts";
 import { MirWindow, MirImage, MirButton, MirLabel, closeButton, Lib } from "./mir/controls.ts";
 import { messageBox, inputBox } from "./messageBox.ts";
@@ -12,6 +11,7 @@ import { SoundList } from "../game/audio.ts";
 import { dateFromBinary } from "../game/itemChanges.ts";
 import { gameSignal } from "../game/scope.ts";
 import { KeybindOptions, matches } from "../game/keybinds.ts";
+import type { Relationship, Mentor } from "../game/relationship.ts";
 
 /** DateTime.FromBinary(v).Ticks (Kind bits dropped). */
 function ticksOf(v: bigint): bigint {
@@ -34,14 +34,14 @@ function typing(): boolean {
 }
 
 export class RelationshipWindow {
-  // RelationshipDialog fields
-  loverName = "";
-  date = 0n;
-  mapName = "";
-  marriedDays = 0;
+  // RelationshipDialog fields (the model's)
+  get loverName(): string { return this.model.loverName; }
+  get date(): bigint { return this.model.date; }
+  get mapName(): string { return this.model.mapName; }
+  get marriedDays(): number { return this.model.marriedDays; }
   /** MailButton: MailComposeLetterDialog.ComposeMail (set by the game; the button does nothing until then). */
   composeMail: ((name: string) => void) | null = null;
-  private readonly send: (f: Uint8Array) => void;
+  private readonly model: Relationship;
   private readonly chat: (text: string, type: number) => void;
   private readonly prefillChat: (text: string) => void;
   private readonly stage: HTMLElement;
@@ -52,9 +52,9 @@ export class RelationshipWindow {
   private readonly lengthLabel: MirLabel;
   private readonly onlineLabel: MirLabel;
 
-  constructor(stage: HTMLElement, send: (f: Uint8Array) => void, chat: (text: string, type: number) => void, prefillChat: (text: string) => void) {
+  constructor(stage: HTMLElement, model: Relationship, chat: (text: string, type: number) => void, prefillChat: (text: string) => void) {
     this.stage = stage;
-    this.send = send;
+    this.model = model;
     this.chat = chat;
     this.prefillChat = prefillChat;
     // RelationshipDialog ctor
@@ -62,11 +62,11 @@ export class RelationshipWindow {
     new MirImage({ parent: this.win, library: Lib.Title, index: 52, location: [18, 8] });
     closeButton(this.win, [260, 3], () => this.toggle(false));
     this.allowButton = new MirButton({ parent: this.win, library: Lib.Prguse, index: 610, hoverIndex: 611, pressedIndex: 612, location: [50, 164], sound: SoundList.ButtonA,
-      hint: "Allow/Block Marriage", onClick: () => this.send(ClientPackets.ChangeMarriage()) });
+      hint: "Allow/Block Marriage", onClick: () => this.model.changeMarriage() });
     new MirButton({ parent: this.win, library: Lib.Prguse, index: 600, hoverIndex: 601, pressedIndex: 602, location: [85, 164], sound: SoundList.ButtonA,
-      hint: "Request Marriage", onClick: () => this.request() });
+      hint: "Request Marriage", onClick: () => this.model.requestMarriage() });
     new MirButton({ parent: this.win, library: Lib.Prguse, index: 616, hoverIndex: 617, pressedIndex: 618, location: [120, 164], sound: SoundList.ButtonA,
-      hint: "Request Divorce", onClick: () => this.divorce() });
+      hint: "Request Divorce", onClick: () => this.model.requestDivorce() });
     new MirButton({ parent: this.win, library: Lib.Prguse, index: 437, hoverIndex: 438, pressedIndex: 439, location: [155, 164], sound: SoundList.ButtonA,
       hint: "Mail Lover", onClick: () => this.mail() });
     new MirButton({ parent: this.win, library: Lib.Prguse, index: 566, hoverIndex: 567, pressedIndex: 568, location: [190, 164], sound: SoundList.ButtonA,
@@ -82,24 +82,26 @@ export class RelationshipWindow {
       if (matches(e, KeybindOptions.Relationship)) this.toggle();
       else if (matches(e, KeybindOptions.Closeall) && this.win.visible) this.toggle(false);
     }, { signal });
-    signal.addEventListener("abort", () => this.win.dispose());
     // the desktop fills the labels on the first S.LoverUpdate only (the server sends one at login)
+    const offChanged = model.changed.on(() => this.updateInterface());
+    // GameScene.MarriageRequest / DivorceRequest: MirMessageBox YesNo
+    const offMarriage = model.marriageRequest.on(({ name }) => {
+      messageBox(this.stage, `${name} has asked for your hand in marriage.`, [
+        { label: "Yes", primary: true, onClick: () => model.answerMarriage(true) },
+        { label: "No", onClick: () => model.answerMarriage(false) },
+      ]);
+    });
+    const offDivorce = model.divorceRequest.on(({ name }) => {
+      messageBox(this.stage, `${name} has requested a divorce`, [
+        { label: "Yes", primary: true, onClick: () => model.answerDivorce(true) },
+        { label: "No", onClick: () => model.answerDivorce(false) },
+      ]);
+    });
+    signal.addEventListener("abort", () => { offChanged(); offMarriage(); offDivorce(); this.win.dispose(); });
   }
 
   toggle(show = !this.win.visible): void {
     if (show) this.win.show(); else this.win.hide();
-  }
-
-  /** RequestButton.Click. */
-  private request(): void {
-    if (this.loverName !== "") { this.chat("You're already married.", ChatType.System); return; }
-    this.send(ClientPackets.MarriageRequest());
-  }
-
-  /** DivorceButton.Click. */
-  private divorce(): void {
-    if (this.loverName === "") { this.chat("You're not married.", ChatType.System); return; }
-    this.send(ClientPackets.DivorceRequest());
   }
 
   /** MailButton.Click. */
@@ -113,32 +115,6 @@ export class RelationshipWindow {
     if (this.loverName === "") { this.chat("You're not married.", ChatType.System); return; }
     if (this.mapName === "") { this.chat("Lover is not online", ChatType.System); return; }
     this.prefillChat(":)");
-  }
-
-  /** Server packets; returns true when handled. */
-  handle(p: ServerPacket): boolean {
-    switch (p.type) {
-      case "MarriageRequest": // GameScene.MarriageRequest
-        messageBox(this.stage, `${p.Name} has asked for your hand in marriage.`, [
-          { label: "Yes", primary: true, onClick: () => this.send(ClientPackets.MarriageReply({ AcceptInvite: true })) },
-          { label: "No", onClick: () => this.send(ClientPackets.MarriageReply({ AcceptInvite: false })) },
-        ]);
-        return true;
-      case "DivorceRequest": // GameScene.DivorceRequest
-        messageBox(this.stage, `${p.Name} has requested a divorce`, [
-          { label: "Yes", primary: true, onClick: () => this.send(ClientPackets.DivorceReply({ AcceptInvite: true })) },
-          { label: "No", onClick: () => this.send(ClientPackets.DivorceReply({ AcceptInvite: false })) },
-        ]);
-        return true;
-      case "LoverUpdate": // GameScene.LoverUpdate
-        this.loverName = p.Name;
-        this.date = p.Date;
-        this.mapName = p.MapName;
-        this.marriedDays = p.MarriedDays;
-        this.updateInterface();
-        return true;
-    }
-    return false;
   }
 
   /** RelationshipDialog.UpdateInterface. */
@@ -169,13 +145,12 @@ export class RelationshipWindow {
 export interface MentorUser { name: string; level: number; cls: number }
 
 export class MentorWindow {
-  // MentorDialog fields
-  mentorName = "";
-  mentorLevel = 0;
-  mentorOnline = false;
-  menteeExp = 0n;
-  private readonly send: (f: Uint8Array) => void;
-  private readonly chat: (text: string, type: number) => void;
+  // MentorDialog fields (the model's)
+  get mentorName(): string { return this.model.mentorName; }
+  get mentorLevel(): number { return this.model.mentorLevel; }
+  get mentorOnline(): boolean { return this.model.mentorOnline; }
+  get menteeExp(): bigint { return this.model.menteeExp; }
+  private readonly model: Mentor;
   private readonly me: () => MentorUser;
   private readonly stage: HTMLElement;
   private readonly win: MirWindow;
@@ -187,10 +162,9 @@ export class MentorWindow {
   private readonly studentOnlineLabel: MirLabel;
   private readonly menteeExpLabel: MirLabel;
 
-  constructor(stage: HTMLElement, send: (f: Uint8Array) => void, chat: (text: string, type: number) => void, me: () => MentorUser) {
+  constructor(stage: HTMLElement, model: Mentor, me: () => MentorUser) {
     this.stage = stage;
-    this.send = send;
-    this.chat = chat;
+    this.model = model;
     this.me = me;
     // MentorDialog ctor
     this.win = new MirWindow({ library: Lib.Prguse, index: 170, movable: true, sort: true, location: "center" });
@@ -199,7 +173,7 @@ export class MentorWindow {
     // AllowButton: C.AllowMentor toggles on the server. The desktop's index swap tests Index == 116, which the button never
     // has at rest, so it always resets to 114 / 115 / 116: the picture never changes.
     new MirButton({ parent: this.win, library: Lib.Prguse, index: 114, hoverIndex: 115, pressedIndex: 116, location: [30, 178], sound: SoundList.ButtonA,
-      hint: "Allow/Disallow Mentor Requests", onClick: () => this.send(ClientPackets.AllowMentor()) });
+      hint: "Allow/Disallow Mentor Requests", onClick: () => this.model.allowMentor() });
     new MirButton({ parent: this.win, library: Lib.Title, index: 213, hoverIndex: 214, pressedIndex: 215, location: [60, 178], sound: SoundList.ButtonA,
       hint: "Add Mentor", onClick: () => this.add() });
     new MirButton({ parent: this.win, library: Lib.Title, index: 216, hoverIndex: 217, pressedIndex: 218, location: [135, 178], sound: SoundList.ButtonA,
@@ -222,7 +196,16 @@ export class MentorWindow {
       if (matches(e, KeybindOptions.Mentor)) this.toggle();
       else if (matches(e, KeybindOptions.Closeall) && this.win.visible) this.toggle(false);
     }, { signal });
-    signal.addEventListener("abort", () => this.win.dispose());
+    const offChanged = model.changed.on(() => this.updateInterface());
+    // GameScene.MentorRequest: MirMessageBox YesNo with the user's class
+    const offRequest = model.request.on(({ name, level }) => {
+      const cls = MirClassName[this.me().cls] ?? "";
+      messageBox(this.stage, `${name} (Level ${level}) has requested you teach him the ways of the ${cls}.`, [
+        { label: "Yes", primary: true, onClick: () => model.answerMentor(true) },
+        { label: "No", onClick: () => model.answerMentor(false) },
+      ]);
+    });
+    signal.addEventListener("abort", () => { offChanged(); offRequest(); this.win.dispose(); });
     this.updateInterface();
   }
 
@@ -233,39 +216,17 @@ export class MentorWindow {
 
   /** AddButton.Click (MirInputBox). */
   private add(): void {
-    if (this.mentorLevel !== 0) { this.chat("You already have a Mentor.", ChatType.System); return; }
-    inputBox(this.stage, "Please enter the name of the person you would like to be your Mentor.", "", (name) => { this.send(ClientPackets.AddMentor({ Name: name })); });
+    if (!this.model.canAdd()) return;
+    inputBox(this.stage, "Please enter the name of the person you would like to be your Mentor.", "", (name) => { this.model.addMentor(name); });
   }
 
   /** RemoveButton.Click. */
   private remove(): void {
-    if (this.mentorName === "") { this.chat("You don't currently have a Mentorship to cancel.", ChatType.System); return; }
+    if (!this.model.canCancel()) return;
     messageBox(this.stage, "Cancelling a Mentorship early will cause a cooldown. Are you sure?", [
-      { label: "Yes", primary: true, onClick: () => this.send(ClientPackets.CancelMentor()) },
+      { label: "Yes", primary: true, onClick: () => this.model.cancelMentor() },
       { label: "No" },
     ]);
-  }
-
-  /** Server packets; returns true when handled. */
-  handle(p: ServerPacket): boolean {
-    switch (p.type) {
-      case "MentorRequest": { // GameScene.MentorRequest
-        const cls = MirClassName[this.me().cls] ?? "";
-        messageBox(this.stage, `${p.Name} (Level ${p.Level}) has requested you teach him the ways of the ${cls}.`, [
-          { label: "Yes", primary: true, onClick: () => this.send(ClientPackets.MentorReply({ AcceptInvite: true })) },
-          { label: "No", onClick: () => this.send(ClientPackets.MentorReply({ AcceptInvite: false })) },
-        ]);
-        return true;
-      }
-      case "MentorUpdate": // GameScene.MentorUpdate
-        this.mentorName = p.Name;
-        this.mentorLevel = p.Level;
-        this.mentorOnline = p.Online;
-        this.menteeExp = p.MenteeEXP;
-        this.updateInterface();
-        return true;
-    }
-    return false;
   }
 
   /** MentorDialog.UpdateInterface: the higher level is the mentor; MENTEE EXP shows only for the mentor. */

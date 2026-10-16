@@ -1,7 +1,8 @@
 // Guild: GuildDialog + GuildBuffButton (Client/MirScenes/Dialogs/GuildDialog.cs) with the desktop artwork (Prguse 180,
-// Title 25, the page bases Prguse 1850-1853, GuildSkill icons) + GameScene's guild handlers (GuildStatus, GuildInvite,
-// GuildNameRequest, GuildNoticeChange, GuildMemberChange, GuildExpGain, GuildStorageGoldChange, GuildBuffList,
-// GuildRequestWar; the storage items are in Inventory). Toggle with G (or the Guild button), Esc closes.
+// Title 25, the page bases Prguse 1850-1853, GuildSkill icons), a view over the guild model (src/game/guild.ts: the
+// GuildDialog state + GameScene's guild handlers; the storage items are in Inventory). The window answers the model's
+// prompts (GuildInvite, GuildNameRequest, GuildRequestWar) and redraws on its events. Toggle with G (or the Guild
+// button), Esc closes.
 // Left pages (LeftDialog): notice (view / edit, scroll buttons), members (18 rows: rank drop-down, name, last login,
 // kick; show offline), storage (8 x 14 cells, 8 rows shown, gold deposit / leader-only retrieve), ranks (rename, Add
 // New, the 8 option bits). Right pages (RightDialog): status (name, level, members, recruit) and buffs (8
@@ -14,11 +15,11 @@
 // GuildMemberChange status 7 for the user's own rank updates their rights even when the member list was never loaded;
 // GuildNameRequest drops characters other than letters and digits on OK (the desktop blocks them while typing).
 
-import type { ServerPacket, GuildRank, GuildBuff, GuildBuffInfo } from "../protocol/server.ts";
 import { StatName, ChatType } from "../protocol/enums.generated.ts";
 import { ClientPackets } from "../protocol/client.ts";
 import { placeCell, type InventoryWindow } from "./inventoryWindow.ts";
 import { GUILD_STORAGE_SLOTS } from "../game/inventory.ts";
+import { GuildRankOptions as Opt, type GuildState, type GuildView } from "../game/guild.ts";
 import { dateFromBinary } from "../game/itemChanges.ts";
 import { gameSignal } from "../game/scope.ts";
 import { KeybindOptions, matches } from "../game/keybinds.ts";
@@ -27,8 +28,6 @@ import { MirWindow, MirImage, MirButton, MirLabel, MirControl, MirTextBox, Lib, 
 import { messageBox, inputBox, amountBox } from "./messageBox.ts";
 import { dragY } from "./mir/controls.ts";
 
-/** GuildRankOptions ([Flags] byte, Shared/Enums.cs). */
-const Opt = { CanChangeRank: 1, CanRecruit: 2, CanKick: 4, CanStoreItem: 8, CanRetrieveItem: 16, CanChangeNotice: 64, CanActivateBuff: 128 } as const;
 /** GuildDialog ctor: the rank option labels, bit i = 1 << i. */
 const OPTION_NAMES = ["Edit ranks", "Recruit member", "Kick member", "Store item", "Retrieve item", "Alter alliance", "Change notice", "Activate Buff"];
 /** GuildDialog.MemberPageRows. */
@@ -191,35 +190,13 @@ class GuildBuffButton {
 }
 
 export class Guild {
-  /** UserObject.GuildName / GuildRankName. */
-  name = "";
-  rankName = "";
-  level = 0;
-  experience = 0n;
-  maxExperience = 0n;
-  gold = 0;
-  memberCount = 0;
-  maxMembers = 0;
-  myOptions = 0;
-  myRankId = 0;
-  ranks: GuildRank[] = [];
-  sparePoints = 0;
-  /** GuildDialog.GuildBuffInfos (the server's catalogue, sent at login) / EnabledBuffs (bought; Active = running). */
-  buffInfos: GuildBuffInfo[] = [];
-  enabledBuffs: GuildBuff[] = [];
-  notice: string[] = [];
-  private requestedBuffList = false;
+  /** The guild state (src/game/guild.ts: name, rank, level, funds, ranks and members, buffs, notice). */
+  private readonly m: GuildState;
   private lastBuffRequest = 0;
-  /** GuildDialog.NoticeChanged / MembersChanged: ask again (RequestGuildInfo) when the page is shown. */
-  private noticeChanged = true;
-  private membersChanged = true;
-  private lastNoticeRequest = 0;
-  private lastMemberRequest = 0;
   /** GuildDialog.LastGuildMsg: one recruit / kick / rank change per 5 s. */
   private lastGuildMsg = 0;
   private lastRankNameChange = Number.MAX_SAFE_INTEGER;
   private editing = false;
-  private retry: ReturnType<typeof setTimeout> | 0 = 0;
   private rankNameTimer: ReturnType<typeof setTimeout> | 0 = 0;
   private readonly stage: HTMLElement;
   private readonly send: (f: Uint8Array) => void;
@@ -227,8 +204,6 @@ export class Guild {
   private readonly me: () => string;
   private readonly now: () => number;
   private readonly userGold: () => number;
-  /** The user's Guild buff (GameScene.GuildBuffList adds / removes BuffType.Guild): summed active stats, or null to remove. */
-  private readonly setGuildBuff: (stats: Record<number, number> | null) => void;
 
   // — GuildDialog controls —
   private readonly win: MirWindow;
@@ -291,16 +266,16 @@ export class Guild {
   private startIndex = 0;
   private buffLabel: HTMLDivElement | null = null;
 
-  constructor(stage: HTMLElement, send: (f: Uint8Array) => void, chat: (text: string, type: number) => void, me: () => string, now: () => number,
-    _guildChat: () => void, invWindow: InventoryWindow, userGold: () => number, setGuildBuff: (stats: Record<number, number> | null) => void) {
+  constructor(stage: HTMLElement, guild: GuildState, send: (f: Uint8Array) => void, chat: (text: string, type: number) => void, me: () => string,
+    now: () => number, _guildChat: () => void, invWindow: InventoryWindow, userGold: () => number) {
     this.stage = stage;
+    this.m = guild;
     this.send = send;
     this.chat = chat;
     this.me = me;
     this.now = now;
     this.userGold = userGold;
-    this.setGuildBuff = setGuildBuff;
-    invWindow.guildOptions = () => this.myOptions;
+    invWindow.guildOptions = () => guild.myOptions;
     invWindow.deny = (text) => this.chat(text, ChatType.System);
 
     // — GuildDialog ctor: TabUI —
@@ -430,7 +405,7 @@ export class Guild {
       onClick: () => { if (this.startIndex === 0) return; this.startIndex--; this.updatePositionBar(); this.refresh(); } });
     new MirButton({ parent: this.buffPage, library: Lib.Prguse2, index: 207, hoverIndex: 208, pressedIndex: 209, location: [203, 317], sound: SoundList.ButtonA,
       onClick: () => {
-        if (this.buffInfos.length < 8 || this.startIndex === this.buffInfos.length - 8) return;
+        if (this.m.buffInfos.length < 8 || this.startIndex === this.m.buffInfos.length - 8) return;
         this.startIndex++; this.updatePositionBar(); this.refresh();
       } });
     this.buffPositionBar = new MirButton({ parent: this.buffPage, library: Lib.Prguse2, index: 205, hoverIndex: 206, pressedIndex: 206, location: [203, 39], sound: 0 });
@@ -445,9 +420,27 @@ export class Guild {
       else if (matches(e, KeybindOptions.Closeall) && this.win.visible) this.toggle(false);
     }, { signal: gameSignal() });
     win.onHide = () => this.disposeHintLabel();
+    // The model's events (GameScene's guild handlers): the prompts, the parts to redraw, then (last, after every guild
+    // packet) RequestUpdateMembers + the redraw
+    const offs = [
+      guild.view.on((v) => this.onView(v)),
+      guild.changed.on(() => { this.requestUpdates(); this.refresh(); }),
+      guild.invite.on(({ name }) => {
+        // GameScene.GuildInvite (MirMessageBox YesNo)
+        messageBox(this.stage, `Do you want to join the ${name} guild?`, [{ label: "Yes", onClick: () => guild.answerInvite(true) }, { label: "No", onClick: () => guild.answerInvite(false) }]);
+      }),
+      guild.nameRequest.on(() => {
+        // GameScene.GuildNameRequest (MirInputBox; letters and digits only, no backslash: guild.ts returnName)
+        inputBox(this.stage, "Please enter a guild name, length must be 3~20 characters.", "", (name) => guild.returnName(name));
+      }),
+      guild.warRequest.on(() => {
+        // GameScene.GuildRequestWar (MirInputBox)
+        inputBox(this.stage, "Please enter the guild you would like to go to war with.", "", (name) => guild.returnWar(name));
+      }),
+    ];
     gameSignal().addEventListener("abort", () => {
+      for (const off of offs) off();
       this.disposeHintLabel();
-      if (this.retry) clearTimeout(this.retry);
       if (this.rankNameTimer) clearTimeout(this.rankNameTimer);
       win.dispose();
     });
@@ -464,7 +457,7 @@ export class Guild {
   toggle(show = !this.win.visible): void {
     if (!show) { this.win.hide(); return; }
     if (this.win.visible) { this.win.show(); return; }
-    if (!this.name) { messageBox(this.stage, "You are not in a guild.", [{ label: "OK" }]); return; }
+    if (!this.m.name) { messageBox(this.stage, "You are not in a guild.", [{ label: "OK" }]); return; }
     this.win.show();
     if (this.leftPage === 0) this.requestUpdateNotice();
     this.requestUpdates();
@@ -490,20 +483,15 @@ export class Guild {
 
   // — RequestUpdateNotice / RequestUpdateMembers —
 
+  /** GuildDialog.RequestUpdateNotice (5 s throttle, guild.ts). */
   private requestUpdateNotice(): void {
-    if (this.noticeChanged && this.lastNoticeRequest < this.now()) {
-      this.lastNoticeRequest = this.now() + 5000;
-      this.send(ClientPackets.RequestGuildInfo({ Type: 0 }));
-    }
+    this.m.requestNotice();
   }
 
-  /** MembersPage / RankPage BeforeDraw -> RequestUpdateMembers: asks while the page is shown (5 s throttle); a change
-   *  inside the throttle window asks again when it ends. */
+  /** MembersPage / RankPage BeforeDraw -> RequestUpdateMembers: asks while the page is shown (5 s throttle, guild.ts); a
+   *  change inside the throttle window asks again when it ends. */
   private requestUpdates(): void {
-    if (!this.win.visible || (this.leftPage !== 1 && this.leftPage !== 3) || !this.membersChanged) return;
-    const t = this.now();
-    if (this.lastMemberRequest < t) { this.lastMemberRequest = t + 5000; this.send(ClientPackets.RequestGuildInfo({ Type: 1 })); return; }
-    if (!this.retry) this.retry = setTimeout(() => { this.retry = 0; this.requestUpdates(); }, this.lastMemberRequest - t + 50);
+    this.m.requestMembers(() => this.win.visible && (this.leftPage === 1 || this.leftPage === 3));
   }
 
   // — Notice page —
@@ -522,14 +510,12 @@ export class Guild {
     this.refresh();
   }
 
-  /** GuildDialog.NoticeChange. */
-  private noticeChange(lines: string[]): void {
+  /** GuildDialog.NoticeChange (the model holds the new lines). */
+  private noticeChange(): void {
     this.editing = false;
     this.noticeBox.input.readOnly = true;
     this.noticeScrollIndex = 0;
-    this.notice = lines;
-    this.noticeBox.text = lines.join("\n");
-    this.noticeChanged = false;
+    this.noticeBox.text = this.m.notice.join("\n");
     this.updateNotice();
   }
 
@@ -568,12 +554,12 @@ export class Guild {
 
   // — Members page —
 
-  /** GuildDialog.RefreshMemberList: Ranks[i].Index = i, the drop-down items. */
+  /** GuildDialog.RefreshMemberList: the drop-down items (guild.ts already set Ranks[i].Index = i). */
   private refreshMemberList(): void {
     this.memberScrollIndex = 0;
-    const names = this.ranks.map((r, i) => { r.Index = i; return r.Name; });
-    for (const box of this.membersRanks) { box.items = names; box.minimumOption = this.myRankId; }
-    this.ranksSelectBox.items = this.ranks.length < 255 ? [...names, "Add New"] : [...names];
+    const names = this.m.ranks.map((r) => r.Name);
+    for (const box of this.membersRanks) { box.items = names; box.minimumOption = this.m.myRankId; }
+    this.ranksSelectBox.items = this.m.ranks.length < 255 ? [...names, "Add New"] : [...names];
     this.ranksSelectBox.minimumOption = 0;
     this.updateMembers();
     this.updateRanks();
@@ -582,7 +568,7 @@ export class Guild {
   /** GuildDialog.UpdateMembers. */
   private updateMembers(): void {
     this.membersShowCount = 0;
-    for (const r of this.ranks) for (const m of r.Members) if (this.showOffline || m.Online) this.membersShowCount++;
+    for (const r of this.m.ranks) for (const m of r.Members) if (this.showOffline || m.Online) this.membersShowCount++;
     if (this.membersShowCount < MEMBER_ROWS) this.memberScrollIndex = 0;
     for (let i = 0; i < MEMBER_ROWS; i++) {
       const shown = this.membersShowCount > i;
@@ -597,7 +583,7 @@ export class Guild {
     const me = this.me();
     const now = Date.now();
     let offset = 0, row = 0;
-    for (const rank of this.ranks) {
+    for (const rank of this.m.ranks) {
       for (const m of rank.Members) {
         if (offset < this.memberScrollIndex) {
           if (this.showOffline || m.Online) offset++;
@@ -605,8 +591,8 @@ export class Guild {
         }
         if (!this.showOffline && !m.Online) continue;
         const box = this.membersRanks[row]!;
-        box.enabled = this.can(Opt.CanChangeRank) && rank.Index >= this.myRankId;
-        this.membersDelete[row]!.visible = this.can(Opt.CanKick) && rank.Index >= this.myRankId && m.Name !== me;
+        box.enabled = this.can(Opt.CanChangeRank) && rank.Index >= this.m.myRankId;
+        this.membersDelete[row]!.visible = this.can(Opt.CanKick) && rank.Index >= this.m.myRankId && m.Name !== me;
         box.selectedIndex = rank.Index;
         this.membersName[row]!.text = m.Name;
         const status = this.membersStatus[row]!;
@@ -662,9 +648,9 @@ export class Guild {
 
   /** GuildDialog.OnNewRank (a member's rank drop-down; MinimumOption = MyRankId). */
   private onNewRank(row: number, wanted: number): void {
-    if (wanted >= this.ranks.length || this.lastGuildMsg > this.now()) return;
+    if (wanted >= this.m.ranks.length || this.lastGuildMsg > this.now()) return;
     const name = this.membersName[row]!.text;
-    const rank = this.ranks[wanted]!;
+    const rank = this.m.ranks[wanted]!;
     messageBox(this.stage, `Are you sure you want to change the rank of ${name} to ${rank.Name}?`, [{ label: "Yes", onClick: () => {
       this.send(ClientPackets.EditGuildMember({ ChangeType: 2, RankIndex: rank.Index, Name: name, RankName: rank.Name }));
       this.lastGuildMsg = this.now() + 5000;
@@ -743,7 +729,7 @@ export class Guild {
   /** GuildDialog.StorageRemoveGold (MirAmountBox up to the guild's gold). */
   private storageRemoveGold(): void {
     if (this.lastGuildMsg > this.now()) return;
-    amountBox("Gold to retrieve:", 116, this.gold, (amount) => {
+    amountBox("Gold to retrieve:", 116, this.m.gold, (amount) => {
       if (amount <= 0) return;
       this.lastGuildMsg = this.now() + 100;
       this.send(ClientPackets.GuildStorageGoldChange({ Type: 1, Amount: amount }));
@@ -755,12 +741,12 @@ export class Guild {
   /** GuildDialog.UpdateRanks: ranks above your own (Index < MyRankId) are read-only. */
   private updateRanks(): void {
     const sel = this.ranksSelectBox.selectedIndex;
-    const rank = sel >= 0 ? this.ranks[sel] : undefined;
+    const rank = sel >= 0 ? this.m.ranks[sel] : undefined;
     for (let i = 0; i < this.ranksOptionsStatus.length; i++) {
       this.ranksOptionsStatus[i]!.visible = !!rank && (rank.Options & (1 << i)) !== 0;
-      this.ranksOptionsButtons[i]!.enabled = !!rank && rank.Index >= this.myRankId;
+      this.ranksOptionsButtons[i]!.enabled = !!rank && rank.Index >= this.m.myRankId;
     }
-    if (!rank || rank.Index < this.myRankId) {
+    if (!rank || rank.Index < this.m.myRankId) {
       this.lastRankNameChange = Number.MAX_SAFE_INTEGER;
       this.ranksName.text = "";
     } else {
@@ -783,10 +769,10 @@ export class Guild {
 
   /** GuildDialog.OnRankSelect: the last entry is "Add New" (C.EditGuildMember ChangeType 4 after a Yes/No). */
   private onRankSelect(index: number): void {
-    if (index < this.ranks.length) this.ranksSelectBox.selectedIndex = index;
-    else if (this.ranks.length < 255 && this.lastGuildMsg <= this.now()) {
+    if (index < this.m.ranks.length) this.ranksSelectBox.selectedIndex = index;
+    else if (this.m.ranks.length < 255 && this.lastGuildMsg <= this.now()) {
       messageBox(this.stage, "Are you sure you want to create a new rank?", [{ label: "Yes", onClick: () => {
-        this.send(ClientPackets.EditGuildMember({ ChangeType: 4, RankIndex: 0, Name: "", RankName: `Rank-${this.ranks.length - 1}` }));
+        this.send(ClientPackets.EditGuildMember({ ChangeType: 4, RankIndex: 0, Name: "", RankName: `Rank-${this.m.ranks.length - 1}` }));
         this.lastGuildMsg = this.now() + 5000;
       } }, { label: "No" }]);
     }
@@ -796,7 +782,7 @@ export class Guild {
   /** GuildDialog.SwitchRankOption (ChangeType 5): Name "true" sets the bit, "false" clears it; 300 ms between clicks. */
   private switchRankOption(bit: number): void {
     const sel = this.ranksSelectBox.selectedIndex;
-    const rank = this.ranks[sel];
+    const rank = this.m.ranks[sel];
     if (sel === -1 || !rank || this.lastGuildMsg > this.now()) return;
     this.send(ClientPackets.EditGuildMember({ ChangeType: 5, RankIndex: rank.Index, Name: this.ranksOptionsStatus[bit]!.visible ? "false" : "true", RankName: String(bit) }));
     this.lastGuildMsg = this.now() + 300;
@@ -804,7 +790,7 @@ export class Guild {
 
   /** GuildDialog.RanksChangeName (ChangeType 3). */
   private ranksChangeName(): void {
-    const rank = this.ranks[this.ranksSelectBox.selectedIndex];
+    const rank = this.m.ranks[this.ranksSelectBox.selectedIndex];
     const name = this.ranksName.text;
     if (!rank || !name || this.lastRankNameChange >= this.now()) return;
     this.send(ClientPackets.EditGuildMember({ ChangeType: 3, RankIndex: rank.Index, Name: "", RankName: name }));
@@ -816,16 +802,16 @@ export class Guild {
 
   /** GuildDialog.RequestBuff: buy a buff not owned yet (points, guild level, rank), else activate a timed one (guild gold). */
   private requestBuff(id: number): void {
-    const info = this.buffInfos[id + this.startIndex];
+    const info = this.m.buffInfos[id + this.startIndex];
     if (!info) return;
-    const buff = this.findGuildBuff(info.Id);
+    const buff = this.m.findBuff(info.Id);
     let error = "";
     if (!buff) {
-      if (this.sparePoints < info.PointsRequirement) error = "Insufficient points available.";
-      if (this.level < info.LevelRequirement) error = "Guild level too low.";
+      if (this.m.sparePoints < info.PointsRequirement) error = "Insufficient points available.";
+      if (this.m.level < info.LevelRequirement) error = "Guild level too low.";
     } else {
       if (buff.Active) error = "Buff is still active.";
-      if (this.gold < info.ActivationCost) error = "Insufficient guild funds.";
+      if (this.m.gold < info.ActivationCost) error = "Insufficient guild funds.";
     }
     if (!this.can(Opt.CanActivateBuff)) error = "Guild rank does not allow buff activation.";
     if (error) { messageBox(this.stage, error, [{ label: "OK" }]); return; }
@@ -834,13 +820,9 @@ export class Guild {
     this.send(ClientPackets.GuildBuffUpdate({ Action: buff ? 2 : 1, Id: info.Id }));
   }
 
-  private findGuildBuff(id: number): GuildBuff | undefined {
-    return this.enabledBuffs.find((b) => b.Id === id);
-  }
-
   /** UpdatePositionBar. */
   private updatePositionBar(): void {
-    const span = this.buffInfos.length - 8;
+    const span = this.m.buffInfos.length - 8;
     const h = span > 0 ? Math.trunc(((277 - this.buffPositionBar.size[1]) / span) * this.startIndex) : 0;
     this.buffPositionBar.location = [203, 39 + h];
   }
@@ -850,7 +832,7 @@ export class Guild {
     if (y >= 296) y = 296;
     if (y < 39) y = 39;
     this.buffPositionBar.location = [203, y];
-    const span = this.buffInfos.length - 8;
+    const span = this.m.buffInfos.length - 8;
     if (span <= 0) return;
     const h = Math.round((y - 39) / ((277 - this.buffPositionBar.size[1]) / span));
     if (h === this.startIndex) return;
@@ -862,9 +844,9 @@ export class Guild {
   private buffsWheel(e: WheelEvent): void {
     const count = wheelCount(e);
     if (this.startIndex === 0 && count >= 0) return;
-    if (this.startIndex === this.buffInfos.length - 8 && count <= 0) return;
+    if (this.startIndex === this.m.buffInfos.length - 8 && count <= 0) return;
     this.startIndex -= count > 0 ? 1 : -1;
-    if (this.buffInfos.length <= 8) this.startIndex = 0;
+    if (this.m.buffInfos.length <= 8) this.startIndex = 0;
     this.updatePositionBar();
     this.refresh();
   }
@@ -872,7 +854,7 @@ export class Guild {
   /** GuildDialog.CreateHintLabel (GameScene.GuildBuffLabel: (50,50,50) at 70 %, gray border, at the mouse + 15). */
   private createHintLabel(id: number, e: PointerEvent): void {
     this.disposeHintLabel();
-    const info = this.buffInfos[id + this.startIndex];
+    const info = this.m.buffInfos[id + this.startIndex];
     if (!info) return;
     const lines = [info.Name];
     const req: string[] = [];
@@ -881,7 +863,7 @@ export class Guild {
     if (info.ActivationCost > 0) req.push(`Activation Cost: ${info.ActivationCost} gold.`);
     if (req.length) lines.push(req.join("\n"));
     if (info.TimeLimit > 0) {
-      const active = this.findGuildBuff(info.Id);
+      const active = this.m.findBuff(info.Id);
       lines.push(active?.Active ? `Time Remaining: ${active.ActiveTimeRemaining} minutes` : `Buff Length: ${info.TimeLimit} minutes.`);
     }
     // GuildBuffInfo.ShowStats
@@ -922,150 +904,27 @@ export class Guild {
     this.buffLabel = null;
   }
 
-  /** GuildDialog.RequestGuildBuffList (once). */
-  private requestBuffList(): void {
-    if (this.requestedBuffList) return;
-    this.requestedBuffList = true;
-    this.send(ClientPackets.GuildBuffUpdate({ Action: 0, Id: 0 }));
-  }
-
-  /** GameScene.GuildBuffList + UpdateGuildBuff + the Guild buff (GuildDialog.UpdateActiveStats sums the active buffs' stats). */
-  private buffList_(p: Extract<ServerPacket, { type: "GuildBuffList" }>): void {
-    if (p.GuildBuffs.length > 0) this.buffInfos = p.GuildBuffs;
-    for (const b of p.ActiveBuffs) {
-      const i = this.enabledBuffs.findIndex((x) => x.Id === b.Id);
-      if (i >= 0) { if (p.Remove === 1) this.enabledBuffs.splice(i, 1); else this.enabledBuffs[i] = b; }
-      else if (p.Remove !== 1) this.enabledBuffs.push(b);
-    }
-    // GuildDialog.FindGuildBuffInfo asks for the catalogue when an enabled buff has no info yet
-    if (this.enabledBuffs.some((b) => !this.buffInfos.some((i) => i.Id === b.Id))) this.requestBuffList();
-    this.refreshGuildBuff();
-  }
-
-  private refreshGuildBuff(): void {
-    const active = this.enabledBuffs.filter((b) => b.Active);
-    if (active.length === 0) { this.setGuildBuff(null); return; }
-    const stats: Record<number, number> = {};
-    for (const b of active) {
-      const info = this.buffInfos.find((i) => i.Id === b.Id);
-      if (info) for (const [k, v] of Object.entries(info.Stats)) stats[Number(k)] = (stats[Number(k)] ?? 0) + v;
-    }
-    this.setGuildBuff(stats);
-  }
-
   private can(option: number): boolean {
-    return (this.myOptions & option) !== 0;
+    return this.m.can(option);
   }
 
-  // — Server packets —
+  // — The model's events (GameScene's guild handlers, src/game/guild.ts) —
 
-  /** Server packets; returns true when handled. `setUserGuild` updates the user's label (UserObject.GuildName). */
-  handle(p: ServerPacket, setUserGuild: (name: string, rank: string) => void): boolean {
-    switch (p.type) {
-      case "GuildStatus":
-        // GameScene.GuildStatus
-        if (!this.name && p.GuildName) { this.noticeChanged = true; this.membersChanged = true; }
-        if (!p.GuildName) this.win.hide();
-        // GuildChange: reset the guild buffs and drop the Guild buff
-        if (this.name !== p.GuildName) { this.enabledBuffs = []; this.setGuildBuff(null); }
-        this.sparePoints = p.SparePoints;
-        this.name = p.GuildName; this.rankName = p.GuildRankName; this.level = p.Level; this.experience = p.Experience;
-        this.maxExperience = p.MaxExperience; this.gold = p.Gold; this.memberCount = p.MemberCount; this.maxMembers = p.MaxMembers;
-        // StatusChanged: the notice box leaves edit mode
-        this.myOptions = p.MyOptions; this.myRankId = p.MyRankId;
+  /** The GuildDialog parts a guild packet changed, in the desktop's order (`changed` follows with the redraw). */
+  private onView(v: GuildView): void {
+    switch (v.kind) {
+      case "status":
+        // GameScene.GuildStatus: no guild hides the dialog; StatusChanged: the notice box leaves edit mode
+        if (v.left) this.win.hide();
         this.editing = false;
         this.noticeBox.input.readOnly = true;
-        if (!p.GuildName) { this.ranks = []; this.notice = []; this.noticeBox.text = ""; this.refreshMemberList(); }
-        setUserGuild(p.GuildName, p.GuildRankName);
+        if (v.left) { this.noticeBox.text = ""; this.refreshMemberList(); }
         this.updateMembers();
         break;
-      case "GuildInvite": {
-        const answer = (yes: boolean) => this.send(ClientPackets.GuildInvite({ AcceptInvite: yes }));
-        messageBox(this.stage, `Do you want to join the ${p.Name} guild?`, [{ label: "Yes", onClick: () => answer(true) }, { label: "No", onClick: () => answer(false) }]);
-        break;
-      }
-      case "GuildNameRequest":
-        // GameScene.GuildNameRequest (MirInputBox; letters and digits only, no backslash)
-        inputBox(this.stage, "Please enter a guild name, length must be 3~20 characters.", "", (name) => {
-          this.send(ClientPackets.GuildNameReturn({ Name: name.replace(/[^A-Za-z0-9]/g, "") }));
-        });
-        break;
-      case "GuildNoticeChange":
-        if (p.update === -1) this.noticeChanged = true;
-        else this.noticeChange(p.notice);
-        break;
-      case "GuildMemberChange": this.memberChange(p, setUserGuild); break;
-      case "GuildExpGain": this.experience += BigInt(p.Amount); break;
-      case "GuildBuffList": this.buffList_(p); break;
-      case "GuildRequestWar":
-        // GameScene.GuildRequestWar (MirInputBox)
-        inputBox(this.stage, "Please enter the guild you would like to go to war with.", "", (name) => {
-          this.send(ClientPackets.GuildWarReturn({ Name: name }));
-        });
-        break;
-      case "GuildStorageGoldChange":
-        // GameScene.GuildStorageGoldChange
-        if (p.Type === 0) this.chat(`${p.Name} donated ${p.Amount} gold to guild funds.`, ChatType.Guild);
-        if (p.Type === 1) this.chat(`${p.Name} retrieved ${p.Amount} gold from guild funds.`, ChatType.Guild);
-        if (p.Type === 0 || p.Type === 3) this.gold += p.Amount;
-        else this.gold = this.gold > p.Amount ? this.gold - p.Amount : 0;
-        break;
-      default: return false;
-    }
-    this.requestUpdates();
-    this.refresh();
-    return true;
-  }
-
-  /** GameScene.GuildMemberChange. */
-  private memberChange(p: Extract<ServerPacket, { type: "GuildMemberChange" }>, setUserGuild: (name: string, rank: string) => void): void {
-    const setOnline = (online: boolean) => { for (const r of this.ranks) for (const m of r.Members) if (m.Name === p.Name) m.Online = online; this.updateMembers(); };
-    switch (p.Status) {
-      case 0: setOnline(false); break;
-      case 1: this.chat(`${p.Name} logged on.`, ChatType.Guild); setOnline(true); break;
-      case 2: this.chat(`${p.Name} joined guild.`, ChatType.Guild); this.memberCount++; this.membersChanged = true; break;
-      case 3: this.chat(`${p.Name} got removed from the guild.`, ChatType.Guild); this.memberCount = Math.max(0, this.memberCount - 1); this.membersChanged = true; break;
-      case 4: this.chat(`${p.Name} left the guild.`, ChatType.Guild); this.memberCount = Math.max(0, this.memberCount - 1); this.membersChanged = true; break;
-      case 5: this.membersChanged = true; break;
-      case 6: // GuildDialog.NewRankRecieved
-        if (p.Ranks[0]) { this.ranks.splice(this.ranks.length > 1 ? this.ranks.length - 1 : 1, 0, p.Ranks[0]); this.refreshMemberList(); }
-        break;
-      case 7: { // GuildDialog.RankChangeRecieved
-        const r = p.Ranks[0];
-        const old = r && this.ranks.find((x) => x.Index === r.Index);
-        // The desktop only applies this when its member list is loaded (Ranks non-empty), so a member who never opened it
-        // keeps stale rights; the packet carries the rank's members, so the user's own options are taken from it directly.
-        if (r && (r.Members.some((m) => m.Name === this.me()) || old?.Members.some((m) => m.Name === this.me()))) {
-          this.rankName = r.Name; this.myOptions = r.Options; setUserGuild(this.name, r.Name);
-        }
-        if (r && old) {
-          const renamed = old.Name !== r.Name;
-          this.ranks[this.ranks.indexOf(old)] = r;
-          if (renamed) this.refreshMemberList();
-        }
-        this.updateMembers();
-        this.updateRanks();
-        break;
-      }
-      case 8: { // GuildDialog.MyRankChanged
-        const r = p.Ranks[0];
-        if (!r) break;
-        this.myOptions = r.Options; this.rankName = r.Name; setUserGuild(this.name, r.Name);
-        const old = this.ranks[this.myRankId];
-        this.myRankId = r.Index;
-        const i = old ? old.Members.findIndex((m) => m.Name === this.me()) : -1;
-        if (!old || i < 0) break;
-        const [member] = old.Members.splice(i, 1);
-        if (this.ranks[r.Index]) this.ranks[r.Index]!.Members.push(member!); else this.membersChanged = true;
-        this.updateMembers();
-        break;
-      }
-      case 255: // GuildDialog.NewMembersList
-        this.ranks = p.Ranks;
-        this.memberCount = this.ranks.reduce((n, r) => n + r.Members.length, 0);
-        this.membersChanged = false;
-        this.refreshMemberList();
-        break;
+      case "notice": this.noticeChange(); break;
+      case "ranks": this.refreshMemberList(); break;
+      case "members": this.updateMembers(); break;
+      case "rank": this.updateMembers(); this.updateRanks(); break;
     }
   }
 
@@ -1074,12 +933,12 @@ export class Guild {
   /** GuildDialog BeforeDraw (RefreshInterface) + the pages' BeforeDraw + StatusChanged / ResetButtonStats. */
   private refresh(): void {
     // RefreshInterface: no guild -> hide
-    if (!this.name) { this.win.hide(); }
+    if (!this.m.name) { this.win.hide(); }
     if (this.startIndex < 0) this.startIndex = 0;
     // tab buttons (StatusChanged) + LeftDialog / RightDialog indices
     this.storageButton.visible = this.can(Opt.CanStoreItem) || this.can(Opt.CanRetrieveItem);
     this.rankButton.visible = this.can(Opt.CanChangeRank);
-    this.buffButton.visible = this.buffInfos.length > 0;
+    this.buffButton.visible = this.m.buffInfos.length > 0;
     this.noticeButton.index = this.leftPage === 0 ? 94 : 93;
     this.membersButton.index = this.leftPage === 1 ? 100 : 99;
     this.storageButton.index = this.leftPage === 2 ? 106 : 105;
@@ -1099,16 +958,16 @@ export class Guild {
     this.noticeSaveButton.visible = this.editing;
 
     // StatusPage.BeforeDraw
-    this.statusGuildName.text = this.name;
-    this.statusLevel.text = this.name ? String(this.level) : "";
-    this.statusMembers.text = this.name ? `${this.memberCount}${this.maxMembers === 0 ? "" : "/" + this.maxMembers}` : "";
+    this.statusGuildName.text = this.m.name;
+    this.statusLevel.text = this.m.name ? String(this.m.level) : "";
+    this.statusMembers.text = this.m.name ? `${this.m.memberCount}${this.m.maxMembers === 0 ? "" : "/" + this.m.maxMembers}` : "";
 
     // StatusExpBar_BeforeDraw
-    if (this.maxExperience === 0n) {
+    if (this.m.maxExperience === 0n) {
       this.expLabel.text = "";
       this.expBack.hidden = this.expClip.hidden = true;
     } else {
-      let percent = Number(this.experience) / Number(this.maxExperience);
+      let percent = Number(this.m.experience) / Number(this.m.maxExperience);
       this.expLabel.text = `${Math.round(percent * 10000) / 100}%`; // {0:#0.##%}
       if (percent > 1) percent = 1;
       this.expBack.hidden = false;
@@ -1117,21 +976,21 @@ export class Guild {
     }
 
     // StoragePage.BeforeDraw
-    this.storageGoldText.text = this.gold > 0 ? this.gold.toLocaleString("en-US") : "0";
-    this.storageGoldRemove.visible = this.myRankId === 0;
+    this.storageGoldText.text = this.m.gold > 0 ? this.m.gold.toLocaleString("en-US") : "0";
+    this.storageGoldRemove.visible = this.m.myRankId === 0;
 
     // RefreshInterface: the buff buttons
-    this.pointsLeft.text = String(this.sparePoints);
+    this.pointsLeft.text = String(this.m.sparePoints);
     for (let i = 0; i < this.buffs.length; i++) {
       const b = this.buffs[i]!;
-      const info = this.buffInfos[this.startIndex + i];
+      const info = this.m.buffInfos[this.startIndex + i];
       if (!info) { b.control.visible = false; continue; }
       b.control.visible = true;
-      const buff = this.findGuildBuff(info.Id);
+      const buff = this.m.findBuff(info.Id);
       b.name.text = info.Name;
       let icon = info.Icon;
       if (!buff) {
-        const low = info.LevelRequirement > this.level;
+        const low = info.LevelRequirement > this.m.level;
         b.info.text = low ? "Insufficient Level" : "Available";
         b.info.foreColour = low ? "#ff0000" : "#ffffff";
         icon += 2;

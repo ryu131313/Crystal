@@ -2,7 +2,8 @@
 // artwork (Prguse 680, Title 54) and GameScene.GuildTerritoryPage. Opened by the server (an NPC script calls
 // GetGuildTerritories(0)), not by a key. 7 rows a page (GT #, owning guild, guild leaders, status, price), prev / next
 // send C.GuildTerritoryPage, a row click selects it (lime border); Mail composes a letter to the selected owner's leader
-// (MailComposeLetterDialog.ComposeMail).
+// (MailComposeLetterDialog.ComposeMail). Since phase 1c the list, page, length, selection and page sends live in the
+// Territories model (src/game/territories.ts); this window is a view that opens on its `received` event.
 // Purchase is inert: C.PurchaseGuildTerritory has no GetClientPacket case in Shared/Packet.cs, so the server would
 // discard the connection's whole receive buffer (Client §3.5 Known defect); it is deliberately not in client.ts. The
 // button shows like the desktop's (a selected "For Sale" row) but sends nothing.
@@ -10,13 +11,11 @@
 // the desktop keeps the old Page and mislabels the rows); the window opens centred (the desktop never sets a Location,
 // so it opens at 0, 0).
 
-import type { ClientGTMap, ServerPacket } from "../protocol/server.ts";
-import { ClientPackets } from "../protocol/client.ts";
 import { MirWindow, MirImage, MirButton, MirLabel, MirControl, Lib } from "./mir/controls.ts";
 import { SoundList } from "../game/audio.ts";
 import { gameSignal } from "../game/scope.ts";
+import { TERRITORY_ROWS as ROWS, type Territories } from "../game/territories.ts";
 
-const ROWS = 7;
 const NONE = "None"; // ClientTextKeys.None (the server sends "None" for an unowned territory)
 const FOR_SALE = "For Sale"; // ClientTextKeys.ForSale
 const GOLDENROD = "#daa520"; // Color.Goldenrod
@@ -46,21 +45,15 @@ class GTRow {
 }
 
 export class GuildTerritoryWindow {
-  /** GuildTerritoryDialog.GTMapList. */
-  private list: ClientGTMap[] = [];
-  private page = 0;
-  /** GuildTerritoryDialog.Lenght (the server's GTMapList.Count). */
-  private length = 0;
-  /** selectedIndex: the GT # of the selected row (-1 = none). */
-  private selected = -1;
-  private readonly send: (f: Uint8Array) => void;
+  /** GTMapList, Page, Lenght, selectedIndex (the model's). */
+  private readonly model: Territories;
   private readonly composeMail: (name: string) => void;
   private readonly win: MirWindow;
   private readonly rows: GTRow[] = [];
   private readonly buyButton: MirButton;
 
-  constructor(_stage: HTMLElement, send: (f: Uint8Array) => void, composeMail: (name: string) => void) {
-    this.send = send;
+  constructor(_stage: HTMLElement, model: Territories, composeMail: (name: string) => void) {
+    this.model = model;
     this.composeMail = composeMail;
     // GuildTerritoryDialog ctor
     this.win = new MirWindow({ library: Lib.Prguse, index: 680, movable: true, sort: true, location: "center" });
@@ -86,7 +79,12 @@ export class GuildTerritoryWindow {
       row.price.text = "10,000,000";
       this.rows.push(row);
     }
-    gameSignal().addEventListener("abort", () => this.win.dispose());
+    // GameScene.GuildTerritoryPage
+    const offReceived = model.received.on(() => {
+      if (!this.visible) { model.resetPage(); this.reset(); this.toggle(true); }
+      this.updateInterface();
+    });
+    gameSignal().addEventListener("abort", () => { offReceived(); this.win.dispose(); });
   }
 
   get visible(): boolean {
@@ -98,51 +96,34 @@ export class GuildTerritoryWindow {
     if (show) this.win.show(); else this.win.hide();
   }
 
-  /** Server packets; returns true when handled. */
-  handle(p: ServerPacket): boolean {
-    if (p.type !== "GuildTerritoryPage") return false;
-    // GameScene.GuildTerritoryPage
-    if (!this.visible) { this.page = 0; this.reset(); this.toggle(true); }
-    this.list = p.Listings;
-    this.length = p.length;
-    this.updateInterface();
-    return true;
-  }
-
   /** prevButton.Click. */
   private prev(): void {
-    if (this.page - 1 < 0) return;
-    this.page--;
-    this.send(ClientPackets.GuildTerritoryPage({ Page: this.page }));
-    this.reset();
+    if (this.model.prev()) this.reset();
   }
 
   /** nextButton.Click. */
   private next(): void {
-    if ((this.page + 1) * ROWS >= this.length) return;
-    this.page++;
-    this.send(ClientPackets.GuildTerritoryPage({ Page: this.page }));
-    this.reset();
+    if (this.model.next()) this.reset();
   }
 
   /** GuildTerritoryDialog.Reset. */
   private reset(): void {
     for (const r of this.rows) r.border = false;
-    this.selected = -1;
+    this.model.select(-1);
   }
 
   /** GTRow.Click. */
   private rowClick(row: GTRow): void {
     this.reset();
     if (row.guildOwner.text === "") return;
-    this.selected = Number.parseInt(row.idx.text, 10);
-    if (Number.isNaN(this.selected)) this.selected = 0; // int.TryParse
+    const gt = Number.parseInt(row.idx.text, 10);
+    this.model.select(Number.isNaN(gt) ? 0 : gt); // int.TryParse
     row.border = true;
     this.buyButton.visible = row.status.text === FOR_SALE;
   }
 
   private selectedRow(): GTRow | undefined {
-    return this.rows.find((r) => r.idx.text === String(this.selected));
+    return this.rows.find((r) => r.idx.text === String(this.model.selected));
   }
 
   /** mailButton.Click: ComposeMail(GT.Owner1) unless the leader reads None. */
@@ -156,12 +137,12 @@ export class GuildTerritoryWindow {
   private updateInterface(): void {
     for (let i = 0; i < this.rows.length; i++) {
       const row = this.rows[i]!;
-      const gt = this.list[i];
+      const gt = this.model.list[i];
       if (!gt) {
         row.idx.text = row.guildOwner.text = row.ownerName.text = row.status.text = row.price.text = "";
         continue;
       }
-      row.idx.text = String(i + 1 + this.page * ROWS);
+      row.idx.text = String(i + 1 + this.model.page * ROWS);
       row.guildOwner.text = gt.Owner;
       row.owner1 = gt.Leader;
       row.owner2 = gt.Leader2;

@@ -45,6 +45,18 @@ import { Fishing } from "./fishing.ts";
 import { GroupState } from "./group.ts";
 import { Trade } from "./trade.ts";
 import { Rental } from "./rental.ts";
+import { NpcSession } from "./npcSession.ts";
+import { Recipes } from "./recipes.ts";
+import { Awakening } from "./awakening.ts";
+import { Market } from "./market.ts";
+import { GuildState } from "./guild.ts";
+import { MailBox } from "./mail.ts";
+import { Friends } from "./friends.ts";
+import { Relationship, Mentor } from "./relationship.ts";
+import { Rankings, rankingDetails } from "./rankings.ts";
+import { Inspect } from "./inspect.ts";
+import { Shop } from "./shop.ts";
+import { Territories } from "./territories.ts";
 import { HeroItems } from "./heroItems.ts";
 import { Weather } from "./weather.ts";
 import { gameSettings, uiStyle } from "./settings.ts";
@@ -227,6 +239,40 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   const trade = new Trade((f) => session.send(f));
   /** Rental guest side + rented-items list (the user's side is ItemChanges). */
   const rental = new Rental(itemChanges, inventory, (f) => session.send(f), (i) => gameInfo.requestItem(i), () => performance.now());
+  // Phase 1c: the NPC, social and shop state the classic windows used to keep (the windows are the UI's views)
+  /** NPCDialog / NPCGoodsDialog / NPCDropDialog state + GameScene's NPC handlers (GameScene.NPCID / NPCRate). */
+  const npcSession = new NpcSession({ send: (f) => session.send(f), now: () => performance.now(), inventory, chat: (t) => chat(t, ChatType.System) });
+  /** GameScene.RecipeInfoList. */
+  const recipes = new Recipes();
+  /** NPCAwakeDialog state. */
+  const awakening = new Awakening({ send: (f) => session.send(f), inventory });
+  /** TrustMerchantDialog state (NPCMarket / NPCMarketPage / MarketFail / MarketSuccess). */
+  const market = new Market({ send: (f) => session.send(f), now: () => performance.now(), inventory, chat: (t, ty) => chat(t, ty) });
+  /** GuildDialog state + GameScene's guild handlers. */
+  const guild = new GuildState({
+    send: (f) => session.send(f), chat: (t, ty) => chat(t, ty), me: () => user?.name ?? "", now: () => performance.now(),
+    setUserGuild: (name) => ctx.actions.setUserGuild(name), // ctx is built below; only called from handle()
+    setGuildBuff: (stats) => ctx.actions.setGuildBuff(stats),
+    signal,
+  });
+  /** UserObject.Mail / NewMail + GameScene's mail handlers. */
+  const mail = new MailBox((f) => session.send(f), (t, ty) => chat(t, ty), inventory, (i) => gameInfo.requestItem(i));
+  /** FriendDialog.Friends. */
+  const friends = new Friends((f) => session.send(f));
+  /** RelationshipDialog / MentorDialog state + GameScene's marriage, divorce and mentor handlers. */
+  const relationship = new Relationship((f) => session.send(f), (t, ty) => chat(t, ty));
+  const mentor = new Mentor((f) => session.send(f), (t, ty) => chat(t, ty));
+  /** InspectDialog state (GameScene.PlayerInspect). */
+  const inspect = new Inspect({
+    send: (f) => session.send(f), now: () => performance.now(), chat: (t, ty) => chat(t, ty),
+    requestItem: (i) => gameInfo.requestItem(i), group, me: () => user?.name ?? "",
+  });
+  /** RankingDialog lists (the details cache is per connection, like the desktop's static dictionary). */
+  const rankings = new Rankings((f) => session.send(f), rankingDetails(session));
+  /** GameScene.GameShopInfoList. */
+  const shop = new Shop((f) => session.send(f));
+  /** GuildTerritoryDialog list. */
+  const territories = new Territories((f) => session.send(f));
 
   /** "Cannot leave game for {0} seconds" (ClientTextKeys.CannotLeaveGame, (LogTime - CMain.Time) / 1000). */
   const cannotLeave = (t: number) => `Cannot leave game for ${Math.trunc((logTime - t) / 1000)} seconds`;
@@ -250,6 +296,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     models: {
       itemInfos, gameInfo, inventory, hero, heroItems, itemChanges, magic, quests, creatures, chatLog, hudState, account, currentMap,
       itemPick, heroStats, mount: mountState, fishing, group, trade, rental,
+      npcSession, recipes, awakening, market, guild, mail, friends, relationship, mentor, inspect, rankings, shop, territories,
     },
     player,
     world: {
@@ -541,9 +588,21 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     if (hudState.handle(p)) return; // output / notice / timers / compass / roll / browser / NPC input: consumed
     group.handle(p); // never consumes
     trade.handle(p); // never consumes
-    // The UI's packets (classic: quest share, storage, social, shop, guild, NPC, big map, market windows, in that
-    // order); true = consumed
+    // Phase 1c models, in the old classic chain's order (quest share and storage windows first, then relationship,
+    // mentor, inspect, ranking, mail, friends, game shop, territories, guild, NPC, NPC services, big map, market). The
+    // quest share and storage windows (still in ui.handle) read none of the packets the models below consume.
+    if (relationship.handle(p) || mentor.handle(p) || inspect.handle(p) || rankings.handle(p) || mail.handle(p) || friends.handle(p)) return;
+    if (shop.handle(p)) return; // GameShopInfo / GameShopStock (GameDataChanged re-dispatches GameShopInfo through here)
+    guild.handle(p); // never consumes (the classic chain ignored the guild window's return)
+    npcSession.handle(p); // NPC packets + RefineItem close; never consumes
+    recipes.handle(p); // NewRecipeInfo; never consumes
+    awakening.handle(p); // NPCAwakening / AwakeningNeedMaterials / AwakeningLockedItem / Awakening; never consumes
+    // The UI's packets (classic: quest share, storage, the game shop's money refresh, NPC services, big map and the
+    // market window's NPCResponse close, in that order); true = consumed
     if (ui.handle(p)) return;
+    // After ui.handle: the classic GameShopDialog.Process money refresh ran on these before their windows consumed them
+    if (territories.handle(p)) return; // GuildTerritoryPage
+    if (market.handle(p)) return; // NPCMarket / NPCMarketPage / MarketFail / MarketSuccess
     if (gameInfo.handle(p)) return;
     switch (p.type) {
       case "GainExperience":
@@ -794,7 +853,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
           dispatch: (q) => handle(q),
           userMagics: () => magic.magics,
           heroMagics: () => magic.heroMagics,
-          shopItems: () => ui.shopItems(),
+          shopItems: () => shop.editableItems(),
           invalidateMap: (m) => gameInfo.invalidateMap(m),
         }, gameDataChanges);
         if (p.Last) { // the refresh after the last chunk: stats, skill bars, an open shop

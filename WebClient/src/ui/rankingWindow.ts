@@ -2,18 +2,19 @@
 // (overall + one per class), 20 RankingRows from RowOffset (Prev / Next / scroll bar / mouse wheel, re-requested 0.5 s
 // after the last move), the Online Only check box, the user's rank; a row click inspects that character
 // (C.Inspect Ranking = true, ObjectID = (uint)PlayerId).
-// The server sends each RankCharacterInfo once per connection (Envir.CheckListing), so the details are kept in
-// rankingList (GameScene.RankingList) and Listings only carries ids. Toggle with K (game.ts) or the Ranking button;
-// Esc closes (GameScene Closeall).
+// The server sends each RankCharacterInfo once per connection (Envir.CheckListing), so the details are kept per Session
+// (src/game/rankings.ts rankingDetails) and Listings only carries ids. Since phase 1c the lists, the user's rank and the
+// requests live in the Rankings model; this window keeps the tab, the row offset, Online Only and the delayed request.
+// Toggle with K (game.ts) or the Ranking button; Esc closes (GameScene Closeall).
 
-import type { ServerPacket, RankCharacterInfo } from "../protocol/server.ts";
-import { ClientPackets } from "../protocol/client.ts";
+import type { RankCharacterInfo } from "../protocol/server.ts";
 import { MirClassName } from "../protocol/enums.generated.ts";
 import { MirWindow, MirButton, MirCheckBox, MirControl, MirLabel, closeButton, dragY, Lib } from "./mir/controls.ts";
 import { SoundList } from "../game/audio.ts";
 import { gameSignal } from "../game/scope.ts";
 import { KeybindOptions, matches } from "../game/keybinds.ts";
-import type { InspectWindow } from "./inspectWindow.ts";
+import type { Rankings } from "../game/rankings.ts";
+import type { Inspect } from "../game/inspect.ts";
 
 const ROWS = 20;
 // RankType 0..5 = AllButton, WarButton, WizButton, TaoButton, SinButton, ArchButton
@@ -69,26 +70,23 @@ class RankingRow {
 export class RankingWindow {
   rankType = 0;
   private rowOffset = 0;
-  rankCount = 0;
-  private readonly rankList: RankCharacterInfo[][] = TAB_HINTS.map(() => []);
-  private readonly rank: number[] = TAB_HINTS.map(() => 0);
+  /** RankingDialog.RankCount (the model's). */
+  get rankCount(): number { return this.model.count; }
   private onlineOnly = false;
   private gapPerRow = 0;
-  /** GameScene.RankingList: PlayerId -> details. */
-  private readonly rankingList = new Map<bigint, RankCharacterInfo>();
   private nextRequest: ReturnType<typeof setTimeout> | null = null;
   /** This scene's scope (gameSignal() returns the next scene's after a log out). */
   private readonly signal = gameSignal();
-  private readonly send: (f: Uint8Array) => void;
+  private readonly model: Rankings;
   private readonly me: () => string;
-  private readonly inspect: InspectWindow;
+  private readonly inspect: Inspect;
   private readonly win: MirWindow;
   private readonly rows: RankingRow[] = [];
   private readonly myRank: MirLabel;
   private readonly scrollBar: MirButton;
 
-  constructor(_stage: HTMLElement, send: (f: Uint8Array) => void, me: () => string, inspect: InspectWindow) {
-    this.send = send;
+  constructor(_stage: HTMLElement, model: Rankings, me: () => string, inspect: Inspect) {
+    this.model = model;
     this.me = me;
     this.inspect = inspect;
     // RankingDialog ctor
@@ -121,7 +119,13 @@ export class RankingWindow {
     window.addEventListener("keydown", (e) => {
       if (matches(e, KeybindOptions.Closeall) && this.win.visible) this.toggle(false); // GameScene Esc hides RankingDialog
     }, { signal: this.signal });
-    this.signal.addEventListener("abort", () => { if (this.nextRequest) clearTimeout(this.nextRequest); this.win.dispose(); });
+    // GameScene.Rankings -> RankingDialog.RecieveRanks: UpdateRanks, then the scroll gap
+    const offChanged = model.changed.on(() => {
+      this.render();
+      const extraRows = model.count - ROWS;
+      this.gapPerRow = extraRows > 0 ? SCROLL_HEIGHT / extraRows : 0; // the desktop divides by <= 0 here
+    });
+    this.signal.addEventListener("abort", () => { offChanged(); if (this.nextRequest) clearTimeout(this.nextRequest); this.win.dispose(); });
     this.render();
   }
 
@@ -156,8 +160,7 @@ export class RankingWindow {
 
   /** RankingDialog.RequestRanks. */
   private requestRanks(rankType: number): void {
-    if (rankType > 6) return;
-    this.send(ClientPackets.GetRanking({ RankType: rankType, RankIndex: this.rowOffset, OnlineOnly: this.onlineOnly }));
+    this.model.request(rankType, this.rowOffset, this.onlineOnly);
   }
 
   /** RankingDialog.SelectRank. */
@@ -168,37 +171,15 @@ export class RankingWindow {
     this.requestRanks(rankType);
   }
 
-  /** Server packets; returns true when handled. */
-  handle(p: ServerPacket): boolean {
-    if (p.type !== "Rankings") return false;
-    // GameScene.Rankings
-    for (const info of p.ListingDetails) this.rankingList.set(info.PlayerId, info);
-    const listings: RankCharacterInfo[] = [];
-    for (const id of p.Listings) {
-      const info = this.rankingList.get(id);
-      if (info) listings.push(info); // the desktop would throw on an unknown id
-    }
-    // RankingDialog.RecieveRanks
-    if (p.RankType < this.rankList.length) {
-      this.rankList[p.RankType] = listings;
-      this.rank[p.RankType] = p.MyRank;
-    }
-    this.rankCount = p.Count;
-    this.render();
-    const extraRows = p.Count - ROWS;
-    this.gapPerRow = extraRows > 0 ? SCROLL_HEIGHT / extraRows : 0; // the desktop divides by <= 0 here
-    return true;
-  }
-
   /** RankingDialog.UpdateRanks. */
   private render(): void {
-    const list = this.rankList[this.rankType] ?? [];
+    const list = this.model.list(this.rankType);
     const me = this.me();
     for (let i = 0; i < this.rows.length; i++) {
       if (i >= this.rankCount || i >= list.length) this.rows[i]!.clear();
       else this.rows[i]!.update(list[i]!, this.rowOffset + i + 1, me);
     }
-    const r = this.rank[this.rankType] ?? 0;
+    const r = this.model.myRank(this.rankType);
     this.myRank.text = r === 0 ? "Not Listed" : `Ranked: ${r}`;
   }
 }

@@ -1,11 +1,11 @@
 // Friends: FriendDialog (Client/MirScenes/Dialogs/FriendDialog.cs, Title 199: Friends / Blacklist tab pictures, 12
 // FriendRows per page in two columns, online names green, the selected row gray; Add / Remove / Memo / Mail / Whisper)
 // + FriendRow + MemoDialog (Title 209) + GameScene.CreateMemoLabel (the memo box that follows the mouse over a row)
-// + GameScene.FriendUpdate. Toggle with F (KeybindOptions.Friends) or the HUD Friends button; opening sends
-// C.RefreshFriends; Esc closes (GameScene Closeall).
+// as a view over the friends model (src/game/friends.ts: FriendDialog.Friends + GameScene.FriendUpdate). Toggle with F
+// (KeybindOptions.Friends) or the HUD Friends button; opening sends C.RefreshFriends; Esc closes (GameScene Closeall).
 
-import type { ServerPacket, ClientFriend } from "../protocol/server.ts";
-import { ClientPackets } from "../protocol/client.ts";
+import type { ClientFriend } from "../protocol/server.ts";
+import type { Friends } from "../game/friends.ts";
 import { ChatType } from "../protocol/enums.generated.ts";
 import { MirWindow, MirImage, MirButton, MirControl, MirLabel, MirTextBox, closeButton, getUiRoot, uiSound, Lib, SCREEN_WIDTH, SCREEN_HEIGHT } from "./mir/controls.ts";
 import { messageBox, inputBox } from "./messageBox.ts";
@@ -65,11 +65,9 @@ class FriendRow {
 }
 
 export class FriendWindow {
-  /** FriendDialog.Friends (S.FriendUpdate). */
-  friends: ClientFriend[] = [];
-
   private readonly stage: HTMLElement;
-  private readonly send: (f: Uint8Array) => void;
+  /** FriendDialog.Friends (S.FriendUpdate; src/game/friends.ts). */
+  private readonly model: Friends;
   private readonly chat: (text: string, type: number) => void;
   private readonly composeMail: (name: string) => void;
   /** ChatDialog.ChatTextBox prefill (GameUi.prefillChat). */
@@ -90,10 +88,10 @@ export class FriendWindow {
   private readonly memoText: MirTextBox;
   private memoFriend: ClientFriend | null = null;
 
-  constructor(stage: HTMLElement, send: (f: Uint8Array) => void, chat: (text: string, type: number) => void, composeMail: (name: string) => void,
+  constructor(stage: HTMLElement, friends: Friends, chat: (text: string, type: number) => void, composeMail: (name: string) => void,
     prefillChat: (text: string) => void) {
     this.stage = stage;
-    this.send = send;
+    this.model = friends;
     this.chat = chat;
     this.composeMail = composeMail;
     this.prefillChat = prefillChat;
@@ -134,13 +132,18 @@ export class FriendWindow {
     closeButton(this.memoWin, [168, 3], () => this.hideMemo());
 
     const signal = gameSignal();
+    // GameScene.FriendUpdate (the model replaced the list): a visible dialog redraws keeping the selection (Update(false))
+    const offChanged = friends.changed.on(() => {
+      if (this.selected) this.selected = friends.list.find((f) => f.Index === this.selected!.Index && f.Blocked === this.blockedTab) ?? null;
+      this.render();
+    });
     window.addEventListener("keydown", (e) => {
       const a = document.activeElement;
       if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement) return;
       if (matches(e, KeybindOptions.Friends)) this.toggle();
       else if (matches(e, KeybindOptions.Closeall) && this.win.visible) this.toggle(false); // GameScene Esc hides FriendDialog
     }, { signal });
-    signal.addEventListener("abort", () => { this.disposeMemoLabel(); this.win.dispose(); this.memoWin.dispose(); });
+    signal.addEventListener("abort", () => { offChanged(); this.disposeMemoLabel(); this.win.dispose(); this.memoWin.dispose(); });
   }
 
   get visible(): boolean {
@@ -152,23 +155,13 @@ export class FriendWindow {
     if (show) {
       if (this.win.visible) { this.win.bringToFront(); return; }
       this.win.show();
-      this.send(ClientPackets.RefreshFriends());
+      this.model.refresh();
       this.render();
     } else {
       this.win.hide();
       this.hideMemo();
       this.disposeMemoLabel();
     }
-  }
-
-  /** Server packets; returns true when handled. */
-  handle(p: ServerPacket): boolean {
-    if (p.type !== "FriendUpdate") return false;
-    // GameScene.FriendUpdate: replace the list; a visible dialog redraws keeping the selection (Update(false))
-    this.friends = p.Friends;
-    if (this.selected) this.selected = this.friends.find((f) => f.Index === this.selected!.Index && f.Blocked === this.blockedTab) ?? null;
-    this.render();
-    return true;
   }
 
   // FriendLabel / BlacklistLabel -> UpdateDisplay: a tab change swaps the tab pictures, clears the selection and hides the memo
@@ -183,7 +176,7 @@ export class FriendWindow {
   }
 
   private filtered(): ClientFriend[] {
-    return this.friends.filter((f) => f.Blocked === this.blockedTab);
+    return this.model.list.filter((f) => f.Blocked === this.blockedTab);
   }
 
   // PreviousButton / NextButton (deliberate: the page count uses the shown tab, the desktop counts both lists)
@@ -197,7 +190,7 @@ export class FriendWindow {
   private add(): void {
     const text = this.blockedTab ? "Please enter the name of the person you would like to Block." : "Please enter the name of the person you would like to Add.";
     const blocked = this.blockedTab;
-    inputBox(this.stage, text, "", (name) => { if (name.trim()) this.send(ClientPackets.AddFriend({ Name: name.trim(), Blocked: blocked })); });
+    inputBox(this.stage, text, "", (name) => { if (name.trim()) this.model.add(name.trim(), blocked); });
   }
 
   // RemoveButton (ConfirmRemoveItem, YesNo)
@@ -205,7 +198,7 @@ export class FriendWindow {
     const f = this.selected;
     if (!f) return;
     messageBox(this.stage, `Are you sure you wish to remove '${f.Name}'?`, [
-      { label: "Yes", onClick: () => this.send(ClientPackets.RemoveFriend({ CharacterIndex: f.Index })) },
+      { label: "Yes", onClick: () => this.model.remove(f.Index) },
       { label: "No" },
     ]);
   }
@@ -224,7 +217,7 @@ export class FriendWindow {
 
   // MemoDialog.OKButton (the server ignores an empty memo or one over 200 characters)
   private saveMemo(): void {
-    if (this.memoFriend) this.send(ClientPackets.AddMemo({ CharacterIndex: this.memoFriend.Index, Memo: this.memoText.text.replace(/\r?\n/g, "\r\n") }));
+    if (this.memoFriend) this.model.setMemo(this.memoFriend.Index, this.memoText.text.replace(/\r?\n/g, "\r\n"));
     this.hideMemo();
   }
 

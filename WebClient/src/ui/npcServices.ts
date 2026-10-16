@@ -11,21 +11,26 @@
 //                 (npcWindow.ts GoodsDialog); CraftDialog (Prguse 1109, movable) shows 3 tool + 6 ingredient cells with the
 //                 recipe's shadow items; pick tools / ingredients into them (or Auto Fill), Craft sends C.CraftItem with the
 //                 inventory slots.
-//   NPCGoodsDialog with UsePearls: S.NPCPearlGoods goes to NpcWindow.showPearlGoods (the desktop reuses the goods list).
+//   NPCGoodsDialog with UsePearls: S.NPCPearlGoods is the NPC session's Buy list (the desktop reuses the goods list).
+// The state is in src/game: the NPC session (npcSession.ts: the drop panel, the goods lists, NPCRate, the refine /
+// craft opens), the recipes (recipes.ts) and the awakening (awakening.ts); these windows are their views.
 // Deliberate differences: awakening cells take items picked from the bag (the desktop also swaps between its cells);
 // the needed-material cells show the item name as a hint instead of the full item label.
 
 import type { ClientRecipeInfo, ItemInfo, ServerPacket, UserItem } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
-import { AwakeType, ChatType, ItemGrade, ItemType, PanelType, Stat } from "../protocol/enums.generated.ts";
+import { ChatType, PanelType, Stat } from "../protocol/enums.generated.ts";
 import { REFINE_SLOTS, type Inventory } from "../game/inventory.ts";
 import type { ItemInfos } from "../game/items.ts";
+import type { NpcSession, NpcGoods } from "../game/npcSession.ts";
+import type { Recipes } from "../game/recipes.ts";
+import { AWAKE_CELLS, type Awakening } from "../game/awakening.ts";
 import { itemFriendlyName } from "../game/gameInfo.ts";
 import { gameSignal } from "../game/scope.ts";
 import { SoundList } from "../game/audio.ts";
 import { KeybindOptions, matches } from "../game/keybinds.ts";
 import { placeCell, type InventoryWindow } from "./inventoryWindow.ts";
-import { GoodsDialog, awakeLevel, type NpcWindow } from "./npcWindow.ts";
+import { GoodsDialog, type NpcWindow } from "./npcWindow.ts";
 import { MirWindow, MirImage, MirButton, MirLabel, MirControl, Lib, closeButton, setPicture, libSize } from "./mir/controls.ts";
 import { messageBox, amountBox } from "./messageBox.ts";
 import { showItemLabel, moveItemLabel, hideItemLabel } from "./itemLabel.ts";
@@ -36,29 +41,25 @@ export interface NpcServicesOptions {
   inv: Inventory;
   infos: ItemInfos;
   invWindow: InventoryWindow;
+  /** The NPC dialog (NPCDialog.Size.Height for the craft list). */
   npc: NpcWindow;
+  /** The NPC session (NPCDialog.Visible / Hide, the drop panel, the goods lists, NPCRate). */
+  session: NpcSession;
+  /** GameScene.RecipeInfoList. */
+  recipes: Recipes;
+  /** NPCAwakeDialog's state. */
+  awakening: Awakening;
   chat: (text: string, type: number) => void;
   /** UserObject.Stats[stat] (CraftDialog's Stat.CraftRatePercent). */
   stat?: (stat: number) => number;
-  /** UserObject.PearlCount (S.UpdateIntelligentCreatureList, not ported yet): null = unknown, the server decides. */
-  pearls?: () => number | null;
 }
 
 const TOOL_COUNT = 3, INGREDIENT_COUNT = 6; // CraftDialog._toolCount / _ingredientCount
-const AWAKE_CELLS = 7; // NPCAwakeDialog.Items (0 base, 1-2 needed materials, 3-4 materials, 5-6 extra)
 
 /** ClientTextKeys used here (Client/Localization/English.json). */
 const T = {
-  SelectUpgradeItem: "Select Upgrade Item.", SelectUpgradeType: "Select Upgrade Type.",
-  NeedItemQuantity: (name: string, n: number) => `${name}\nQuantity: ${n}`,
   YouDoNotHaveEnoughGold: "You do not have enough gold.", CraftAmount: "Craft Amount:",
   YouDoNotHaveRequiredToolsOrIngredients: "You do not have the required tools or ingredients.",
-};
-
-/** NPCAwakeDialog.getAwakeTypeText. */
-const AWAKE_TYPE_TEXT: Record<number, string> = {
-  [AwakeType.DC]: "Bravery Glyph", [AwakeType.MC]: "Magic Glyph", [AwakeType.SC]: "Soul Glyph",
-  [AwakeType.AC]: "Protection Glyph", [AwakeType.MAC]: "EvilSlayer Glyph", [AwakeType.HPMP]: "Body Glyph",
 };
 
 /** The MirItemCell look for a cell this file draws itself (awakening / craft): 36 x 32 (or `size`), the item centred,
@@ -130,7 +131,7 @@ class DropDownBox {
   readonly control: MirControl;
   private readonly label: MirLabel;
   private readonly options: MirLabel[] = [];
-  private items: string[] = [];
+  private items: readonly string[] = [];
   selectedIndex = -1;
   onChange: ((index: number) => void) | null = null;
 
@@ -149,7 +150,7 @@ class DropDownBox {
     this.control.el.addEventListener("pointerleave", () => this.close());
   }
 
-  setItems(items: string[], selected: number): void {
+  setItems(items: readonly string[], selected: number): void {
     this.items = items;
     this.selectedIndex = selected;
     this.close();
@@ -170,27 +171,18 @@ class DropDownBox {
 
 export class NpcServices {
   private readonly o: Required<NpcServicesOptions>;
-  private rate = 1; // GameScene.NPCRate (the NPC packets these panels follow)
 
   // RefineDialog
   private readonly refine: MirWindow;
 
-  // NPCAwakeDialog
+  // NPCAwakeDialog (state: Awakening)
   private readonly awake: MirWindow;
-  private readonly awakeItems: (UserItem | null)[] = new Array<UserItem | null>(AWAKE_CELLS).fill(null);
   private readonly awakeViews: ItemView[] = [];
   private readonly awakeType: DropDownBox;
   private readonly goldLabel: MirLabel;
   private readonly needLabels: MirLabel[];
-  private materials: ({ info: ItemInfo; count: number } | null)[] = [null, null]; // ItemCells[1] / [2]
-  private awakeTypes: { text: string; type: number }[] = [];
-  private awakeSelected = 0;
-  private currentAwakeType: number = AwakeType.None;
-  /** Inventory items this port locked locally for the awakening cells (MirItemCell.Locked). */
-  private readonly awakeLocks = new Set<string>();
 
-  // NPCCraftGoodsDialog + CraftDialog
-  private readonly recipes = new Map<number, ClientRecipeInfo>(); // GameScene.RecipeInfoList (by Item.ItemIndex)
+  // NPCCraftGoodsDialog + CraftDialog (recipes: Recipes; the list: the session's PanelType.Craft goods)
   private readonly craftGoods: GoodsDialog;
   private readonly craft: MirWindow;
   private readonly craftViews: ItemView[] = [];
@@ -203,9 +195,8 @@ export class NpcServices {
   private readonly selected = new Map<number, { slot: number; id: bigint }>();
 
   constructor(options: NpcServicesOptions) {
-    this.o = { stat: () => 0, pearls: () => null, ...options };
-    const { invWindow, npc } = this.o;
-    npc.pearlCount = () => this.o.pearls();
+    this.o = { stat: () => 0, ...options };
+    const { invWindow, npc, session, recipes, awakening } = this.o;
 
     // RefineDialog ctor
     this.refine = new MirWindow({ library: Lib.Prguse, index: 1002, location: [0, 225], sort: true });
@@ -225,18 +216,18 @@ export class NpcServices {
       new MirLabel({ parent: this.awake, autoSize: true, location: [67, 317], notControl: true }),
       new MirLabel({ parent: this.awake, autoSize: true, location: [192, 317], notControl: true }),
     ];
-    new MirButton({ parent: this.awake, library: Lib.Title, index: 712, hoverIndex: 713, pressedIndex: 714, location: [115, 391], sound: SoundList.ButtonA, onClick: () => this.awaken() });
-    closeButton(this.awake, [284, 4], () => this.hideAwake());
+    new MirButton({ parent: this.awake, library: Lib.Title, index: 712, hoverIndex: 713, pressedIndex: 714, location: [115, 391], sound: SoundList.ButtonA, onClick: () => awakening.awaken() });
+    closeButton(this.awake, [284, 4], () => awakening.hide());
     const cellAt: [number, number][] = [[202, 91], [31, 316], [155, 316], [175, 199], [230, 199], [175, 256], [230, 256]];
     cellAt.forEach((at, i) => this.awakeViews.push(new ItemView(this.awake, at, invWindow, () => this.awakeCellClick(i))));
     this.awakeType = new DropDownBox(this.awake, [35, 141], [109, 14]);
-    this.awakeType.onChange = (i) => { this.onAwakeTypeSelect(i); this.render(); };
+    this.awakeType.onChange = (i) => { awakening.selectType(i); this.render(); };
 
     // NPCCraftGoodsDialog (NPCGoodsDialog with PanelType.Craft)
     this.craftGoods = new GoodsDialog(PanelType.Craft, {
-      inv: this.o.inv, infos: this.o.infos, invWindow, send: this.o.send, chat: (t) => this.system(t), rate: () => this.rate,
-      hideAdded: () => false, npcHeight: () => npc.dialogHeight, pearls: () => this.o.pearls(),
-      recipeGold: (itemIndex) => this.recipes.get(itemIndex)?.Gold,
+      inv: this.o.inv, infos: this.o.infos, invWindow, npc: session, chat: (t) => this.system(t), rate: () => session.craftRate,
+      hideAdded: () => false, npcHeight: () => npc.dialogHeight,
+      recipeGold: (itemIndex) => recipes.gold(itemIndex),
     });
     this.craftGoods.onSelect = (item) => this.selectRecipe(item);
     this.craftGoods.onHide = () => this.hideCraft();
@@ -255,21 +246,35 @@ export class NpcServices {
     this.craftButton = new MirButton({ parent: this.craft, library: Lib.Title, index: 336, hoverIndex: 337, pressedIndex: 338, location: [215, 185], sound: SoundList.ButtonA, grayScale: true, enabled: false,
       onClick: () => this.craftItem() });
 
-    // NPCDialog.Hide hides every NPC panel
-    const prevClose = npc.onClose;
-    npc.onClose = () => { prevClose(); this.closeAll(); };
-    // Cells share the inventory window's pick: redraw with it (CraftDialog.BeforeDraw also hides the craft dialog with the bag)
+    const offs = [
+      // NPCDialog.Hide hides every NPC panel
+      session.closed.on(() => this.closeAll()),
+      // GameScene.NPCGoods, PanelType.Craft (Buy / BuySub are npcWindow.ts)
+      session.goods.on((g) => this.onGoods(g)),
+      // GameScene.NPCRefine (the drop panel showed first): RefineDialog.Show()
+      session.refine.on(() => this.showRefine()),
+      // MirScene.NewRecipeInfo: the craft list's prices
+      recipes.changed.on(() => this.craftGoods.refresh()),
+      // NPCAwakeDialog
+      awakening.shown.on(() => { this.awake.show(); this.o.invWindow.toggle(true); this.render(); }),
+      awakening.hidden.on(() => { this.awake.hide(); hideItemLabel(); }),
+      awakening.types.on(() => this.awakeType.setItems(awakening.typeTexts, awakening.selected)),
+      awakening.changed.on(() => this.render()),
+      awakening.result.on(({ text }) => { messageBox(this.o.stage, text); }),
+    ];
+    // Cells share the inventory window's pick: redraw with it (CraftDialog.BeforeDraw also hides the craft dialog with the
+    // bag); a view concern, so it stays an onRender chain
     const prevRender = invWindow.onRender;
     invWindow.onRender = () => { prevRender(); this.render(); };
     const signal = gameSignal();
     // GameScene Escape: NPCAwakeDialog.Hide + RefineDialog.Hide
     window.addEventListener("keydown", (e) => {
       if (!matches(e, KeybindOptions.Closeall)) return;
-      this.hideAwake();
+      awakening.hide();
       this.hideRefine();
     }, { signal });
-    signal.addEventListener("abort", () => { this.refine.dispose(); this.awake.dispose(); this.craft.dispose(); });
-    this.itemCellClick();
+    signal.addEventListener("abort", () => { for (const off of offs) off(); this.refine.dispose(); this.awake.dispose(); this.craft.dispose(); });
+    this.awakeType.setItems(awakening.typeTexts, awakening.selected); // NPCAwakeDialog ctor: ItemCell_Click
   }
 
   private get inv(): Inventory { return this.o.inv; }
@@ -279,71 +284,34 @@ export class NpcServices {
     const info = this.info(item);
     return info ? itemFriendlyName(info) || info.Name : `Item #${item.ItemIndex}`;
   }
-  private findInv(id: bigint | null): number {
-    return id === null ? -1 : this.inv.inventory.findIndex((i) => i?.UniqueID === id);
-  }
   private setLock(id: bigint, on: boolean): void {
     if (on) this.inv.locked.add(String(id)); else this.inv.locked.delete(String(id));
   }
 
-  /** Server packets for these panels (Inventory.handle has already run for the item packets). */
+  /** The packets these windows still react to themselves (the NPC session, Recipes and Awakening models have the rest;
+   *  Inventory.handle has already run for the item packets). */
   handle(p: ServerPacket): void {
-    const npc = this.o.npc;
-    const npcVisible = npc.visible;
     switch (p.type) {
       case "NPCResponse": this.closeAll(); break; // GameScene.NPCResponse hides the panels
-      // GameScene.NPCRefine
-      case "NPCRefine":
-        this.rate = p.Rate;
-        if (!npcVisible) break;
-        if (p.Refining) { npc.drop.hide(); npc.close(); }
-        else { npc.drop.show(PanelType.Refine, p.Rate); this.showRefine(); } // NPCDropDialog BeforeDraw: RefineDialog.Show()
-        break;
-      case "NPCCheckRefine": if (npcVisible) npc.drop.show(PanelType.CheckRefine); break; // GameScene.NPCCheckRefine
-      case "NPCCollectRefine": if (npcVisible) npc.close(); break; // GameScene.NPCCollectRefine
-      case "NPCReplaceWedRing": // GameScene.NPCReplaceWedRing
-        if (!npcVisible) break;
-        this.rate = p.Rate;
-        npc.drop.show(PanelType.ReplaceWedRing, p.Rate);
-        break;
-      case "NPCDisassemble": if (npcVisible) npc.drop.show(PanelType.Disassemble); break; // GameScene.NPCDisassemble
-      case "NPCDowngrade": if (npcVisible) npc.drop.show(PanelType.Downgrade); break; // GameScene.NPCDowngrade
-      case "NPCReset": if (npcVisible) npc.drop.show(PanelType.Reset); break; // GameScene.NPCReset
-      // GameScene.RefineItem: RefineReset + NPCDialog.Hide (Inventory removed the item and cleared the grid)
-      case "RefineItem": npc.close(); break;
       case "RefineCancel": this.render(); break;
-      // MirScene.NewRecipeInfo
-      case "NewRecipeInfo": this.recipes.set(p.Info.Item.ItemIndex, p.Info); this.craftGoods.refresh(); break;
-      // GameScene.NPCGoods, PanelType.Craft (Buy / BuySub are npcWindow.ts)
-      case "NPCGoods":
-        if (p.Type !== PanelType.Craft) break;
-        this.rate = p.Rate;
-        if (!npcVisible) break;
-        this.craftGoods.usePearls = false;
-        this.craftGoods.newGoods(p.List);
-        this.craftGoods.show();
-        this.showCraft();
-        break;
       case "CraftItem": if (p.Success) this.updateCraftCells(); break; // GameScene.CraftItem
-      // GameScene.NPCPearlGoods: NPCGoodsDialog with UsePearls
-      case "NPCPearlGoods": this.rate = p.Rate; npc.showPearlGoods(p.List, p.Rate); break;
-      case "NPCAwakening": if (!this.awake.visible) this.showAwake(); break; // GameScene.NPCAwakening
-      case "AwakeningNeedMaterials": this.setNeedItems(p.Materials, p.MaterialsCount); break;
-      case "AwakeningLockedItem": // GameScene.AwakeningLockedItem
-        if (this.findInv(p.UniqueID) < 0) break;
-        this.setLock(p.UniqueID, p.Locked);
-        if (!p.Locked) this.awakeLocks.delete(String(p.UniqueID));
-        this.inv.changed();
-        break;
-      case "Awakening": this.awakening(p.result, p.removeID); break;
     }
+  }
+
+  /** GameScene.NPCGoods, PanelType.Craft: NPCCraftGoodsDialog + CraftDialog. */
+  private onGoods(g: NpcGoods): void {
+    if (g.type !== PanelType.Craft) return;
+    this.craftGoods.usePearls = false;
+    this.craftGoods.newGoods(g.list);
+    this.craftGoods.show();
+    this.showCraft();
   }
 
   /** NPCDialog.Hide / GameScene.NPCResponse: every panel here (the drop panel is NpcWindow's). */
   private closeAll(): void {
     this.craftGoods.hide();
     this.hideCraft();
-    this.hideAwake();
+    this.o.awakening.hide();
     this.hideRefine();
   }
 
@@ -360,189 +328,30 @@ export class NpcServices {
     this.o.send(ClientPackets.RefineCancel());
   }
 
-  // — NPCAwakeDialog —
-
-  /** NPCAwakeDialog.Show (+ InventoryDialog.Show). */
-  private showAwake(): void {
-    this.awake.show();
-    this.o.invWindow.toggle(true);
-    this.itemCellClick();
-    this.render();
-  }
-
-  /** NPCAwakeDialog.Hide: unlock every cell's item through the server (S.AwakeningLockedItem echo), clear, reset. */
-  private hideAwake(): void {
-    if (!this.awake.visible) return;
-    for (let i = 0; i < AWAKE_CELLS; i++) {
-      const item = this.awakeItems[i];
-      if (item) this.o.send(ClientPackets.AwakeningLockedItem({ UniqueID: item.UniqueID, Locked: false }));
-      this.awakeItems[i] = null;
-    }
-    this.itemCellClick();
-    this.awake.hide();
-    hideItemLabel();
-  }
-
-  /** NPCAwakeDialog.ItemCellClear. */
-  private itemCellClear(): void {
-    this.materials = [null, null];
-    for (const l of this.needLabels) l.text = "";
-    this.goldLabel.text = "";
-  }
-
-  /** NPCAwakeDialog.ItemCell_Click: rebuild the glyph list for the base item. */
-  private itemCellClick(): void {
-    this.itemCellClear();
-    this.awakeTypes = [];
-    const base = this.awakeItems[0];
-    if (!base) {
-      this.awakeTypes.push({ text: T.SelectUpgradeItem, type: AwakeType.None });
-      this.awakeSelected = 0;
-      this.currentAwakeType = AwakeType.None;
-    } else if (awakeLevel(base) === 0) {
-      this.awakeTypes.push({ text: T.SelectUpgradeType, type: AwakeType.None });
-      const t = this.info(base)?.Type;
-      const types = t === ItemType.Weapon ? [AwakeType.DC, AwakeType.MC, AwakeType.SC]
-        : t === ItemType.Helmet ? [AwakeType.AC, AwakeType.MAC] : [AwakeType.HPMP];
-      for (const type of types) this.awakeTypes.push({ text: AWAKE_TYPE_TEXT[type]!, type });
-    } else {
-      this.awakeTypes.push({ text: AWAKE_TYPE_TEXT[base.AwakeType] ?? T.SelectUpgradeItem, type: base.AwakeType });
-      if (this.currentAwakeType !== base.AwakeType) {
-        this.currentAwakeType = base.AwakeType;
-        this.onAwakeTypeSelect(0);
-      }
-    }
-    if (this.awakeSelected >= this.awakeTypes.length) this.awakeSelected = 0;
-    this.awakeType.setItems(this.awakeTypes.map((t) => t.text), this.awakeSelected);
-  }
-
-  /** NPCAwakeDialog.OnAwakeTypeSelect: ask the server for the materials of this glyph. */
-  private onAwakeTypeSelect(index: number): void {
-    this.awakeSelected = index;
-    this.awakeType.setItems(this.awakeTypes.map((t) => t.text), index);
-    const type = this.awakeTypes[index]?.type ?? AwakeType.None;
-    this.currentAwakeType = type;
-    const base = this.awakeItems[0];
-    if (type !== AwakeType.None && base) this.o.send(ClientPackets.AwakeningNeedMaterials({ UniqueID: base.UniqueID, Type: type }));
-  }
-
-  /** NPCAwakeDialog.setNeedItems (a null list clears the cells; the desktop would throw). */
-  private setNeedItems(materials: (ItemInfo | null)[] | null, counts: number[] | null): void {
-    for (let i = 0; i < 2; i++) {
-      const info = materials?.[i] ?? null, count = counts?.[i] ?? 0;
-      this.materials[i] = info && count !== 0 ? { info, count } : null;
-      this.needLabels[i]!.text = info && count !== 0 ? T.NeedItemQuantity(info.Name.replace(/[\d-]/g, ""), count) : "";
-    }
-    const base = this.awakeItems[0];
-    if (base) {
-      // UserItem.AwakeningPrice
-      const grade = this.info(base)?.Grade ?? 0;
-      this.goldLabel.text = String(1500 * (1 + awakeLevel(base) * 2) * grade);
-    }
-    this.render();
-  }
+  // — NPCAwakeDialog (state: Awakening) —
 
   /** MirItemCell "To Awakening" with the picked inventory slot; a filled cell clicked with nothing picked goes back. */
   private awakeCellClick(slot: number): void {
     const from = this.o.invWindow.pickedInventorySlot;
-    if (from < 0) {
-      // "From AwakenItem" (the desktop sends a no-op C.MoveItem from == to to unlock; the lock is local, so just drop it)
-      const item = this.awakeItems[slot];
-      if (!item || slot === 1 || slot === 2) return;
-      this.unlockAwake(item);
-      this.awakeItems[slot] = null;
-      if (slot === 0) this.itemCellClick();
-      this.inv.changed();
-      return;
-    }
+    if (from < 0) { this.o.awakening.takeBack(slot); return; }
     this.o.invWindow.clearPick();
-    const item = this.inv.inventory[from];
-    if (!item || this.inv.isLocked(item)) return;
-    const info = this.info(item);
-    if (!info) return;
-    const put = () => {
-      this.awakeItems[slot] = item;
-      this.setLock(item.UniqueID, true);
-      this.awakeLocks.add(String(item.UniqueID));
-    };
-    switch (slot) {
-      case 0: // base item
-        if ((info.Type !== ItemType.Weapon && info.Type !== ItemType.Helmet && info.Type !== ItemType.Armour) || info.Grade === ItemGrade.None) return;
-        if (this.awakeItems[0]) this.o.send(ClientPackets.AwakeningLockedItem({ UniqueID: this.awakeItems[0].UniqueID, Locked: false }));
-        put();
-        this.itemCellClick();
-        this.onAwakeTypeSelect(0);
-        break;
-      case 3: case 4: // materials
-        if (info.Type !== ItemType.Awakening || info.Shape >= 200 || this.awakeItems[slot]) return;
-        put();
-        break;
-      case 5: case 6: // success-rate / protection items (Shape 200)
-        if (info.Type !== ItemType.Awakening || info.Shape !== 200) return;
-        if (this.awakeItems[slot]) this.unlockAwake(this.awakeItems[slot]!);
-        put();
-        break;
-      default: return; // 1, 2 show the needed materials
-    }
-    this.inv.changed();
-  }
-
-  private unlockAwake(item: UserItem): void {
-    this.setLock(item.UniqueID, false);
-    this.awakeLocks.delete(String(item.UniqueID));
-  }
-
-  /** NPCAwakeDialog.CheckNeedMaterials. */
-  private checkNeedMaterials(): boolean {
-    const maxEqual = !this.materials[0] || !this.materials[1] ? 1 : 2;
-    let equal = 0;
-    for (const need of this.materials) {
-      if (!need) continue;
-      for (let j = 3; j < 5; j++) {
-        const have = this.awakeItems[j];
-        if (have && this.info(have)?.Name === need.info.Name && need.count <= have.Count) equal++;
-      }
-    }
-    return equal >= maxEqual;
-  }
-
-  /** NPCAwakeDialog.Awakening. */
-  private awaken(): void {
-    if (!this.checkNeedMaterials()) return;
-    const type = this.awakeTypes[this.awakeSelected]?.type ?? AwakeType.None;
-    const base = this.awakeItems[0];
-    if (type !== AwakeType.None && base) this.o.send(ClientPackets.Awakening({ UniqueID: base.UniqueID, Type: type, PositionIdx: 0 }));
-  }
-
-  /** GameScene.Awakening: hide the dialog, drop the destroyed item, unlock, report. */
-  private awakening(result: number, removeID: bigint): void {
-    this.hideAwake();
-    if (removeID >= 0n) {
-      const i = this.findInv(BigInt.asUintN(64, removeID));
-      if (i >= 0) { this.setLock(this.inv.inventory[i]!.UniqueID, false); this.inv.inventory[i] = null; }
-    }
-    // The desktop unlocks every locked inventory cell; this port only clears the locks the awakening cells set.
-    for (const id of this.awakeLocks) this.inv.locked.delete(id);
-    this.awakeLocks.clear();
-    this.inv.changed();
-    const text: Record<number, string> = {
-      [-4]: "You have not supplied enough materials.", [-3]: "Not enough gold.",
-      [-2]: "Awakening already at maximum level.", [-1]: "Cannot awaken this item.",
-    };
-    if (text[result]) messageBox(this.o.stage, text[result]);
+    this.o.awakening.put(slot, from);
   }
 
   /** The awakening cells (MirItemCell GridType AwakenItem). */
   private renderAwake(): void {
+    const awakening = this.o.awakening;
+    for (let i = 0; i < 2; i++) this.needLabels[i]!.text = awakening.needText(i);
+    this.goldLabel.text = awakening.gold === null ? "" : String(awakening.gold);
     for (let slot = 0; slot < AWAKE_CELLS; slot++) {
       const view = this.awakeViews[slot]!;
       if (slot === 1 || slot === 2) {
-        const need = this.materials[slot - 1];
+        const need = awakening.materials[slot - 1];
         view.set(need ? need.info.Image : -1, false, need && need.info.StackSize > 1 ? String(need.count) : "", "#ffff00", null);
         view.control.hint = need ? need.info.Name : "";
         continue;
       }
-      const item = this.awakeItems[slot];
+      const item = awakening.items[slot] ?? null;
       const info = item ? this.info(item) : undefined;
       view.set(info ? info.Image : -1, false, item && info && info.StackSize > 1 ? String(item.Count) : "", "#ffff00", item);
     }
@@ -576,7 +385,7 @@ export class NpcServices {
   }
 
   private get recipe(): ClientRecipeInfo | undefined {
-    return this.recipeItem ? this.recipes.get(this.recipeItem.ItemIndex) : undefined;
+    return this.recipeItem ? this.o.recipes.get(this.recipeItem.ItemIndex) : undefined;
   }
 
   /** CraftDialog.ShadowItems[i]: tools in 0..2, ingredients in 3..8. */

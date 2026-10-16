@@ -1,15 +1,16 @@
 // Mail: the desktop mail dialogs (Client/MirScenes/Dialogs/MailDialogs.cs) with their artwork — MailListDialog (Title 670,
 // 10 MailItemRows a page), MailReadLetterDialog (Title 672), MailReadParcelDialog (Title 675), MailComposeLetterDialog
 // (Title 671), MailComposeParcelDialog (Title 674: recipient, message, gold, stamp, up to 5 inventory items with the
-// mail-locked-item flow and the C.MailCost query) — and GameScene's mail handlers (ReceiveMail / MailLockedItem /
-// MailSendRequest / MailSent / ParcelCollected / MailCost) + GameScene.CreateMailLabel (the row hover label).
-// The list opens from the HUD Mail button (MiniMapDialog.MailButton); parcels are composed only after S.MailSendRequest
-// (an NPC script), like the desktop. Closeall (Escape) hides every mail dialog (GameScene key handling).
+// mail-locked-item flow and the C.MailCost query) — a view over the mailbox model (src/game/mail.ts: UserObject.Mail,
+// GameScene.NewMail and GameScene's mail handlers ReceiveMail / MailLockedItem / MailSendRequest / MailSent /
+// ParcelCollected / MailCost, whose prompts and results the window answers) + GameScene.CreateMailLabel (the row hover
+// label). The list opens from the HUD Mail button (MiniMapDialog.MailButton); parcels are composed only after
+// S.MailSendRequest (an NPC script), like the desktop. Closeall (Escape) hides every mail dialog (GameScene key handling).
 
-import type { ServerPacket, UserItem, ClientMail } from "../protocol/server.ts";
-import { ClientPackets } from "../protocol/client.ts";
+import type { UserItem, ClientMail } from "../protocol/server.ts";
 import { ChatType, ItemType, BindMode } from "../protocol/enums.generated.ts";
 import type { Inventory } from "../game/inventory.ts";
+import { type MailBox, isParcel, MAIL_PARCEL_CELLS } from "../game/mail.ts";
 import { dateFromBinary } from "../game/itemChanges.ts";
 import { SoundList } from "../game/audio.ts";
 import { gameSignal } from "../game/scope.ts";
@@ -20,7 +21,7 @@ import { messageBox, inputBox, amountBox } from "./messageBox.ts";
 import { el } from "./screens.ts";
 
 const ROWS = 10; // MailListDialog.Rows
-const PARCEL_CELLS = 5; // MailComposeParcelDialog._cellCount
+const PARCEL_CELLS = MAIL_PARCEL_CELLS; // MailComposeParcelDialog._cellCount
 const MAX_MESSAGE = 500; // PlayerObject.SendMail refuses longer messages
 const MAIL_CELL: readonly [number, number] = [35, 31]; // the mail MirItemCells' Size
 const TITLE_FONT = "italic 7pt Arial"; // new Font(Settings.FontName, Settings.FontSize - 1, FontStyle.Italic)
@@ -32,7 +33,6 @@ function formatDate(v: bigint): string {
   return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${p(d.getFullYear() % 100)} ${d.getHours()}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-const isParcel = (m: ClientMail) => m.Gold > 0 || m.Items.length > 0;
 
 /** A Title.Lib button with Index / Index + 1 / Index + 2 (the dialogs' common pattern). */
 function titleButton(parent: MirControl, index: number, location: [number, number], onClick: () => void, hint?: string, library: string = Lib.Title): MirButton {
@@ -110,18 +110,14 @@ class MailItemRow {
 }
 
 export class MailWindow {
-  /** UserObject.Mail (sorted like GameScene.ReceiveMail). */
-  mail: ClientMail[] = [];
-  /** GameScene.NewMail: any unopened mail (MiniMapDialog blinks the NewMail icon). */
-  newMail = false;
   /** MailListDialog.HelpButton (GameScene.HelpDialog.DisplayPage("")); set by game.ts. */
   onHelp: (() => void) | null = null;
 
+  /** UserObject.Mail + the mail packets (src/game/mail.ts). */
+  private readonly box: MailBox;
   private readonly inv: Inventory;
   private readonly invWindow: InventoryWindow;
-  private readonly send: (f: Uint8Array) => void;
   private readonly chat: (text: string, type: number) => void;
-  private readonly requestItem: (index: number) => void;
   private readonly stage: HTMLElement;
 
   // MailListDialog
@@ -173,15 +169,12 @@ export class MailWindow {
   private stamped = false;
   private retryRender = 0;
 
-  constructor(stage: HTMLElement, inv: Inventory, invWindow: InventoryWindow, send: (f: Uint8Array) => void,
-    chat: (text: string, type: number) => void, requestItem: (index: number) => void) {
+  constructor(stage: HTMLElement, box: MailBox, inv: Inventory, invWindow: InventoryWindow, chat: (text: string, type: number) => void) {
     this.stage = stage;
+    this.box = box;
     this.inv = inv;
     this.invWindow = invWindow;
-    this.send = send;
     this.chat = chat;
-    this.requestItem = requestItem;
-
 
     // — MailListDialog ctor —
     this.listWin = new MirWindow({ library: Lib.Title, index: 670, movable: true, sort: true, location: [SCREEN_WIDTH - 312 - 150, 5],
@@ -265,7 +258,17 @@ export class MailWindow {
       if (!matches(e, KeybindOptions.Closeall) || document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement) return;
       for (const w of [this.letterWin, this.parcelWin, this.listWin, this.letterReadWin, this.parcelReadWin]) w.hide();
     }, { signal: gameSignal() });
+    // The mailbox's events (GameScene's mail handlers, src/game/mail.ts)
+    const offs = [
+      box.changed.on(() => this.listChanged()),
+      box.sendRequest.on(() => this.mailSendRequest()),
+      box.sent.on(({ result }) => this.mailSent(result)),
+      box.collected.on(({ result }) => this.parcelCollected(result)),
+      // GameScene.MailCost (the gold sound is not played)
+      box.cost.on(({ cost }) => { if (this.parcelWin.visible) this.costLabel.text = cost.toLocaleString("en-US"); }),
+    ];
     gameSignal().addEventListener("abort", () => {
+      for (const off of offs) off();
       this.hideMailLabel();
       for (const w of [this.letterWin, this.parcelWin, this.listWin, this.letterReadWin, this.parcelReadWin]) w.dispose();
     });
@@ -275,41 +278,21 @@ export class MailWindow {
     return this.listWin.visible;
   }
 
+  /** GameScene.NewMail: any unopened mail (MiniMapDialog blinks the NewMail icon; mail.ts). */
+  get newMail(): boolean {
+    return this.box.newMail;
+  }
+
   // MailListDialog.Toggle / Show (UpdateInterface) / Hide (SelectedMail = null)
   toggle(show = !this.listWin.visible): void {
     if (show) this.listWin.show(); else this.listWin.hide();
     this.renderList();
   }
 
-  /** Server packets; returns true when handled. */
-  handle(p: ServerPacket): boolean {
-    switch (p.type) {
-      case "ReceiveMail": this.receiveMail(p.Mail); return true;
-      case "MailLockedItem": {
-        // GameScene.MailLockedItem: InventoryDialog.GetCell(UniqueID).Locked = Locked
-        const item = this.inv.inventory.find((i) => i?.UniqueID === p.UniqueID);
-        if (item) this.inv.setLocked(item, p.Locked);
-        return true;
-      }
-      case "MailSendRequest": this.mailSendRequest(); return true;
-      case "MailSent": this.mailSent(p.Result); return true;
-      case "ParcelCollected": this.parcelCollected(p.Result); return true;
-      case "MailCost":
-        // GameScene.MailCost (the gold sound is not played)
-        if (this.parcelWin.visible) this.costLabel.text = p.Cost.toLocaleString("en-US");
-        return true;
-      default: return false;
-    }
-  }
-
-  // GameScene.ReceiveMail: replace the list (unlocked first, then newest first), flag new mail, refresh the list
-  private receiveMail(list: ClientMail[]): void {
-    const time = (m: ClientMail) => dateFromBinary(m.DateSent).getTime();
-    this.mail = [...list].sort((a, b) => (Number(!b.Locked) - Number(!a.Locked)) || (time(b) - time(a)));
-    for (const m of this.mail) for (const item of m.Items) this.requestItem(item.ItemIndex); // GameScene.Bind
-    this.setNewMail(this.mail.some((m) => !m.Opened));
+  // GameScene.ReceiveMail (the model replaced the list and set NewMail): refresh the list
+  private listChanged(): void {
     // the desktop keeps the old ClientMail objects in the open dialogs; re-resolve them by MailID
-    const fresh = (m: ClientMail | null) => (m ? this.mail.find((x) => x.MailID === m.MailID) ?? null : null);
+    const fresh = (m: ClientMail | null) => (m ? this.box.find(m.MailID) : null);
     this.selected = fresh(this.selected);
     if (this.readingLetter) {
       const f = fresh(this.readingLetter);
@@ -322,11 +305,6 @@ export class MailWindow {
     this.renderList();
   }
 
-  private setNewMail(on: boolean): void {
-    this.newMail = on;
-    // the MiniMapDialog mail icon blinks from `newMail` (miniMap.ts)
-  }
-
   // GameScene.MailSendRequest: MirInputBox for the recipient, then MailComposeParcelDialog.ComposeMail + the inventory
   private mailSendRequest(): void {
     inputBox(this.stage, ENTER_NAME, "", (name) => {
@@ -337,11 +315,8 @@ export class MailWindow {
 
   // GameScene.MailSent: unlock the mailed cells and hide the parcel dialog (Hide -> Reset -> ResetLockedCells)
   private mailSent(result: number): void {
-    if (result === -1) {
-      // deliberate: the desktop closes the dialog silently; keep it open so the message is not lost
-      this.chat("The parcel could not be sent (not enough gold for the postage, or an item cannot be mailed).", ChatType.System);
-      return;
-    }
+    // -1: deliberate: the desktop closes the dialog silently; it stays open so the model's chat line is not lost
+    if (result === -1) return;
     for (const item of this.items) if (item) this.inv.setLocked(item, false);
     this.parcelWin.hide();
   }
@@ -379,7 +354,7 @@ export class MailWindow {
     const m = this.selected;
     if (!m || m.Locked) return;
     const del = () => {
-      this.send(ClientPackets.DeleteMail({ MailID: m.MailID }));
+      this.box.delete(m.MailID);
       if (this.selected === m) this.selected = null;
       this.renderList();
     };
@@ -400,12 +375,12 @@ export class MailWindow {
   // MailListDialog.UpdateInterface + UpdateRows
   private renderList(): void {
     if (!this.listWin.visible) return;
-    this.pageCount = Math.max(1, Math.ceil(this.mail.length / ROWS));
+    this.pageCount = Math.max(1, Math.ceil(this.box.list.length / ROWS));
     if (this.currentPage > this.pageCount) { this.currentPage = this.pageCount; this.startIndex = (this.pageCount - 1) * ROWS; }
     this.pageLabel.text = `${this.currentPage} / ${this.pageCount}`;
     let missing = false;
     for (let i = 0; i < ROWS; i++) {
-      const m = this.mail[i + this.startIndex] ?? null;
+      const m = this.box.list[i + this.startIndex] ?? null;
       const known = this.rows[i]!.update(m, !!m && this.selected?.MailID === m.MailID, (item) => this.inv.info(item)?.Image);
       if (!known) missing = true;
     }
@@ -464,7 +439,7 @@ export class MailWindow {
 
   // MailListDialog ReadButton / row: a parcel (gold or items) opens the parcel dialog, else the letter dialog. ReadMail: C.ReadMail when unopened
   private read(m: ClientMail): void {
-    if (!m.Opened) this.send(ClientPackets.ReadMail({ MailID: m.MailID }));
+    this.box.read(m);
     if (isParcel(m)) {
       this.readingParcel = m;
       this.parcelReadWin.show();
@@ -508,7 +483,7 @@ export class MailWindow {
   private deleteReading(): void {
     const m = this.readingLetter;
     if (!m || m.Locked) return;
-    this.send(ClientPackets.DeleteMail({ MailID: m.MailID }));
+    this.box.delete(m.MailID);
     this.letterReadWin.hide();
   }
 
@@ -516,14 +491,13 @@ export class MailWindow {
   private toggleLock(): void {
     const m = this.readingLetter;
     if (!m) return;
-    m.Locked = !m.Locked;
-    this.send(ClientPackets.LockMail({ MailID: m.MailID, Lock: m.Locked }));
+    this.box.toggleLock(m);
     this.renderList();
   }
 
   // MailReadParcelDialog.CollectButton
   private collect(): void {
-    if (this.readingParcel) this.send(ClientPackets.CollectParcel({ MailID: this.readingParcel.MailID }));
+    if (this.readingParcel) this.box.collect(this.readingParcel.MailID);
   }
 
   // — MailComposeLetterDialog —
@@ -539,7 +513,7 @@ export class MailWindow {
 
   // MailComposeLetterDialog.SendButton (no gold, no items)
   private sendLetter(): void {
-    this.send(ClientPackets.SendMail({ Name: this.letterTo.text, Message: this.messageText(this.letterText), Gold: 0, ItemsIdx: new Array<bigint>(PARCEL_CELLS).fill(0n), Stamped: false }));
+    this.box.sendMail(this.letterTo.text, this.messageText(this.letterText));
     this.letterWin.hide();
   }
 
@@ -571,14 +545,14 @@ export class MailWindow {
 
   // CalculatePostage: ask the server (S.MailCost answers)
   private calculatePostage(): void {
-    this.send(ClientPackets.MailCost({ Gold: this.giftGold, ItemsIdx: this.itemsIdx(), Stamped: this.stamped }));
+    this.box.queryCost(this.giftGold, this.itemsIdx(), this.stamped);
   }
 
   // ResetLockedCells: ask the server to unlock each cell item (it echoes S.MailLockedItem), then clear the cells
   private resetLockedCells(): void {
     for (let i = 0; i < PARCEL_CELLS; i++) {
       const item = this.items[i];
-      if (item) this.send(ClientPackets.MailLockedItem({ UniqueID: item.UniqueID, Locked: false }));
+      if (item) this.box.unlockItem(item.UniqueID);
       this.items[i] = null;
     }
   }
@@ -634,7 +608,7 @@ export class MailWindow {
 
   // SendButton: the server answers with S.MailSent (and S.LoseGold / S.DeleteItem on success)
   private sendParcel(): void {
-    this.send(ClientPackets.SendMail({ Name: this.parcelTo.text, Message: this.messageText(this.parcelText), Gold: this.giftGold, ItemsIdx: this.itemsIdx(), Stamped: this.stamped }));
+    this.box.sendMail(this.parcelTo.text, this.messageText(this.parcelText), this.giftGold, this.itemsIdx(), this.stamped);
   }
 
   // UpdateParcel (StampButton 203 / 204, ItemCover) + the cells at (27 + i * 36, 311) + GoldSendLabel

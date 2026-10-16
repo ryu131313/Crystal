@@ -3,10 +3,11 @@
 // the cross-window hooks, and feeds them the packets and frame calls game.ts used to make itself. Window listeners
 // register in the same order as before (they run before game.ts's key router, which is created after this). Since
 // phase 1b the packet-driven state lives in src/game models (chatLog, hudState, account, currentMap, itemPick,
-// heroStats, mount, fishing, group, trade, rental, creatures): game.ts feeds them, and the windows here are views that
-// subscribe to their events.
+// heroStats, mount, fishing, group, trade, rental, creatures; since phase 1c also the NPC session, recipes, awakening,
+// market, guild, mail, friends, relationship, mentor, inspect, rankings, shop and territories): game.ts feeds them, and
+// the windows here are views that subscribe to their events.
 
-import type { ServerPacket, GameShopItem } from "../protocol/server.ts";
+import type { ServerPacket } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
 import { ChatType, MirGridType, Stat, StatName } from "../protocol/enums.generated.ts";
 import { KeybindOptions, keyLabel, matches, type KeybindOption } from "../game/keybinds.ts";
@@ -69,6 +70,8 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
   const {
     itemInfos, gameInfo, inventory, hero, heroItems, itemChanges, magic, quests, creatures, chatLog, hudState, account, currentMap,
     itemPick, heroStats, mount, fishing, group: groupState, trade: tradeState, rental: rentalState,
+    npcSession, recipes, awakening, market: marketState, guild: guildState, mail: mailBox, friends: friendList,
+    relationship: relationshipState, mentor: mentorState, inspect: inspectState, rankings, shop: shopState, territories: territoryState,
   } = ctx.models;
   const [width] = screen;
   const send = (f: Uint8Array) => ctx.send(f);
@@ -101,14 +104,14 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
   });
 
   const inventoryWindow = new InventoryWindow(stage, inventory, () => performance.now(), itemPick);
-  const npcWindow = new NpcWindow(stage, session, inventory, itemInfos, inventoryWindow, () => performance.now(), gameInfo, currentMap);
+  const npcWindow = new NpcWindow(stage, npcSession, inventory, itemInfos, inventoryWindow, gameInfo, currentMap);
   /** TrustMerchantDialog (NPCMarket / NPCMarketPage / MarketFail / MarketSuccess; closes with the NPC dialog). */
-  const market = new MarketWindow(stage, inventory, inventoryWindow, send, (t, ty) => chat(t, ty), () => performance.now(), npcWindow);
+  const market = new MarketWindow(stage, marketState, inventory, inventoryWindow, npcSession);
   /** StorageDialog (opened by S.NPCStorage; the items live in inventory.storage). */
-  const storageWindow = new StorageWindow(stage, inventoryWindow, send, (t, ty) => chat(t, ty), npcWindow, account);
+  const storageWindow = new StorageWindow(stage, inventoryWindow, send, (t, ty) => chat(t, ty), npcSession, account);
   /** NPC item services: refine, wedding ring, crafting, awakening, disassemble / downgrade / reset, pearl shop. */
   const npcServices = new NpcServices({
-    stage, send, inv: inventory, infos: itemInfos, invWindow: inventoryWindow, npc: npcWindow,
+    stage, send, inv: inventory, infos: itemInfos, invWindow: inventoryWindow, npc: npcWindow, session: npcSession, recipes, awakening,
     chat: (t, ty) => chat(t, ty), stat: (st) => player.stats?.stats[st] ?? 0,
   });
   /** Sockets / mount and fishing slots, seal, combine, upgrade, rental items (itemChanges.ts) + their windows. */
@@ -147,12 +150,11 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
   const group = new Group(stage, groupState, (t, ty) => chat(t, ty), userName);
   bigMap.onWalk = (cell) => world.walkTo(cell); // MapControl.AutoPath
   const trade = new TradeWindow(stage, inventory, inventoryWindow, tradeState, userName);
-  const guild = new Guild(stage, send, (t, ty) => chat(t, ty), userName, () => performance.now(),
-    () => chatDialog.setText("!~"), inventoryWindow, () => inventory.gold,
-    (stats) => actions.setGuildBuff(stats));
+  const guild = new Guild(stage, guildState, send, (t, ty) => chat(t, ty), userName, () => performance.now(),
+    () => chatDialog.setText("!~"), inventoryWindow, () => inventory.gold);
   const extras = new HudExtras({ stage, state: hudState, now: () => performance.now(), screen });
   // RollDialog.ReturnResult: C.CallNPC "[page]" through the NPC dialog (GameScene.NPCID, NPCTime)
-  const offRoll = hudState.rollDone.on(({ page }) => npcWindow.callPage(page));
+  const offRoll = hudState.rollDone.on(({ page }) => npcSession.callPage(page));
   ctx.signal.addEventListener("abort", offRoll);
   const characterWindow = new CharacterWindow(stage, () => {
     const user = player.user;
@@ -225,40 +227,37 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
   new HeroManageWindow(stage, hero, send);
   new NewHeroWindow(stage, hero, send);
   /** Quests: the NPC quest list, details, log (Q), tracking panel, quest items (state: quests.ts). */
-  const questWindow = new QuestWindow(stage, quests, npcWindow, inventoryWindow, itemInfos, gameInfo);
+  const questWindow = new QuestWindow(stage, quests, npcWindow, npcSession, inventoryWindow, itemInfos, gameInfo);
   questWindow.onHelp = () => helpWindow.displayPageNamed("Quests");
   mountWindow.onHelp = () => helpWindow.displayPageNamed("Mounts");
   npcWindow.onHelp = () => helpWindow.displayPageNamed("Purchasing");
   inventoryWindow.onQuestTab = () => questWindow.toggleItems(true);
   // — Section 4: social windows (RankingWindow renders in its constructor and reads the user) —
   const prefillChat = (text: string) => chatDialog.setText(text);
-  const relationship = new RelationshipWindow(stage, send, (t, ty) => chat(t, ty), prefillChat);
-  const mentor = new MentorWindow(stage, send, (t, ty) => chat(t, ty), () => ({ name: userName(), level: player.level, cls: player.user?.look.class ?? 0 }));
-  const inspect = new InspectWindow(stage, send, (t, ty) => chat(t, ty), prefillChat,
-    () => groupState.list, userName, () => performance.now(), inventoryWindow, gameInfo, account);
-  const ranking = new RankingWindow(stage, send, userName, inspect);
-  const mail = new MailWindow(stage, inventory, inventoryWindow, send, (t, ty) => chat(t, ty), (i) => gameInfo.requestItem(i));
+  const relationship = new RelationshipWindow(stage, relationshipState, (t, ty) => chat(t, ty), prefillChat);
+  const mentor = new MentorWindow(stage, mentorState, () => ({ name: userName(), level: player.level, cls: player.user?.look.class ?? 0 }));
+  const inspect = new InspectWindow(stage, inspectState, prefillChat, inventoryWindow, gameInfo, account);
+  const ranking = new RankingWindow(stage, rankings, userName, inspectState);
+  const mail = new MailWindow(stage, mailBox, inventory, inventoryWindow, (t, ty) => chat(t, ty));
   inspect.composeMail = (n) => mail.composeLetter(n);
   market.mailTo = (name, msg) => mail.composeLetter(name, msg);
   mail.onHelp = () => helpWindow.toggle(true);
-  const friends = new FriendWindow(stage, send, (t, ty) => chat(t, ty), (name) => mail.composeLetter(name), prefillChat);
+  const friends = new FriendWindow(stage, friendList, (t, ty) => chat(t, ty), (name) => mail.composeLetter(name), prefillChat);
   relationship.composeMail = (n) => mail.composeLetter(n);
   /** Section 5: game shop (Y / Shop button) and the guild territory list (opened by the server). */
-  const gameShop = new GameShopWindow(stage, inventoryWindow, send, (t, ty) => chat(t, ty),
+  const gameShop = new GameShopWindow(stage, shopState, inventoryWindow, (t, ty) => chat(t, ty),
     () => inventory.gold, () => inventory.credit, () => player.user?.look.class ?? 0);
-  const territories = new GuildTerritoryWindow(stage, send, (name) => mail.composeLetter(name));
+  const territories = new GuildTerritoryWindow(stage, territoryState, (name) => mail.composeLetter(name));
   /** IntelligentCreatureDialog (E; X / Alt+A pick up at the mouse cell, via bindInput). */
   const creatureWindow = new CreatureWindow(stage, creatures, send, (t, ty) => chat(t, ty), () => world.mouseCell());
 
-  /** The window half of GameScene.ProcessPacket, in game.ts's old order and with its early returns (the models game.ts
-   *  runs first took rental, AllowObserve, creatures, the HUD packets, group and trade out of this chain). */
+  /** The window half of GameScene.ProcessPacket, in game.ts's old order (the models game.ts runs first took rental,
+   *  AllowObserve, creatures, the HUD packets, group, trade and, since phase 1c, the social, shop, guild and NPC
+   *  packets out of this chain; the territory and market models run right after it). Never consumes. */
   function handle(p: ServerPacket): boolean {
     questWindow.handle(p);
     storageWindow.handle(p);
-    if (relationship.handle(p) || mentor.handle(p) || inspect.handle(p) || ranking.handle(p) || mail.handle(p) || friends.handle(p)) return true;
-    if (gameShop.handle(p) || territories.handle(p)) return true;
-    guild.handle(p, (name) => actions.setUserGuild(name));
-    npcWindow.handle(p);
+    gameShop.process(); // GameShopDialog.Process: the money labels, on every packet that reached the old window
     npcServices.handle(p);
     bigMap.handle(p);
     return market.handle(p);
@@ -327,7 +326,7 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
       case "trade": trade.request(); break;
       case "toggle": if (c.window === "ranking") ranking.toggle(); else miniMap.toggle(); break;
       case "inspect": inspect.inspect(c.objectId); break;
-      case "talk": npcWindow.talk(c.objectId, c.name); break;
+      case "talk": npcSession.talk(c.objectId, c.name); break; // MapControl NPC click: C.CallNPC "[@Main]"
     }
   }
 
@@ -364,7 +363,6 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
     prefillChat,
     mapMouseDown,
     command,
-    shopItems: (): GameShopItem[] => gameShop.items,
     bindInput,
     debug: {
       miniMap, bigMap, group, trade, guild, market, storageWindow, npcServices, rental, relationship, mentor, inspect, ranking, mail, friends,

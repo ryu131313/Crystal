@@ -17,6 +17,7 @@ import type { ServerPacket } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
 import { ChatType } from "../protocol/enums.generated.ts";
 import type { Account } from "../game/account.ts";
+import type { Emitter } from "../game/emitter.ts";
 import { STORAGE_GRID_SIZE } from "../game/inventory.ts";
 import { placeCell, type InventoryWindow } from "./inventoryWindow.ts";
 import { messageBox } from "./messageBox.ts";
@@ -56,9 +57,9 @@ function dateFromBinary(v: bigint): Date {
   return new Date(Number((ticks - 621355968000000000n) / 10000n));
 }
 
-/** What the window needs from the NPC dialog (GameScene.NPCDialog.Visible / Hide; NPCDialog.Hide also hides the
- *  StorageDialog, through onClose). */
-export interface StorageNpc { readonly visible: boolean; close(): void; onClose: () => void }
+/** What the window needs from the NPC session (src/game/npcSession.ts: NPCDialog.Visible / Hide; NPCDialog.Hide also
+ *  hides the StorageDialog, through `closed`). */
+export interface StorageNpc { readonly open: boolean; close(): void; readonly closed: Emitter<void> }
 
 /** MirInputBox (Prguse 660) with InputTextBox.Password = true and OKButton.Enabled following the text. `onSubmit`
  *  returning false keeps the box open (refocused); Cancel closes it, then calls onCancel. Returns a close function. */
@@ -133,13 +134,12 @@ export class StorageWindow {
       }
     }
     // NPCDialog.Hide hides the StorageDialog
-    const prevClose = npc.onClose;
-    npc.onClose = () => { prevClose(); this.hide(); };
+    const offClosed = npc.closed.on(() => this.hide());
     // KeybindOptions.Closeall (Escape) hides StorageDialog with the rest
     window.addEventListener("keydown", (e) => {
       if (matches(e, KeybindOptions.Closeall) && this.win.visible && !(document.activeElement instanceof HTMLInputElement)) this.hide();
     }, { signal: gameSignal() });
-    gameSignal().addEventListener("abort", () => { this.closeBoxes(); this.win.dispose(); });
+    gameSignal().addEventListener("abort", () => { offClosed(); this.closeBoxes(); this.win.dispose(); });
   }
 
   get visible(): boolean {
@@ -157,7 +157,7 @@ export class StorageWindow {
   handle(p: ServerPacket): void {
     switch (p.type) {
       // GameScene.NPCStorage: only while the NPC dialog is open
-      case "NPCStorage": if (this.npc.visible) this.show(); break;
+      case "NPCStorage": if (this.npc.open) this.show(); break;
       // GameScene.NPCResponse hides StorageDialog (a new page from any NPC)
       case "NPCResponse": if (this.visible) this.hide(); break;
       case "StorageUnlockResult": this.handleStorageUnlockResult(p); break;

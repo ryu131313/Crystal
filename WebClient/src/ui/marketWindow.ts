@@ -7,13 +7,19 @@
 //   Consign / Auction tabs ("my items", UserMode = true): sell cell (pick an item in the bag, then click the cell), price
 //                box (consign 5,000 - 50,000,000; starting bid 0 - 50,000), Sell, Get Back, Collect Sold (consign),
 //                Sell Now (auction, when the seller column reads "Bid Met").
+// The state (user mode, tab, throttles, listings, pages, selection, price sort, filter selection, sell slot) and the
+// market packets are the Market model (src/game/market.ts); this window is its view.
 // Not ported: the GameShop tab (TrustMerchantDialog.Show(true) is never called), the TotalGold label (hidden on the
 // desktop too).
 
 import type { ClientAuction, ServerPacket, UserItem } from "../protocol/server.ts";
-import { ClientPackets } from "../protocol/client.ts";
-import { BindMode, ChatType, ItemGrade, ItemType, MarketCollectionMode, MarketItemType, MarketPanelType } from "../protocol/enums.generated.ts";
+import { BindMode, ItemGrade, MarketItemType, MarketPanelType } from "../protocol/enums.generated.ts";
 import type { Inventory } from "../game/inventory.ts";
+import type { Emitter } from "../game/emitter.ts";
+import {
+  type Market, type MarketFilter, MARKET_FILTERS, MARKET_PAGE_ROWS, CONSIGNMENT_LENGTH, CONSIGNMENT_COST, MIN_CONSIGNMENT, MAX_CONSIGNMENT,
+  AUCTION_COST, MIN_STARTING_BID, MAX_STARTING_BID, UINT_MAX,
+} from "../game/market.ts";
 import { itemFriendlyName } from "../game/gameInfo.ts";
 import { SoundList } from "../game/audio.ts";
 import { type InventoryWindow, placeCell } from "./inventoryWindow.ts";
@@ -24,17 +30,6 @@ import { messageBox, amountBox } from "./messageBox.ts";
 import { gameSignal } from "../game/scope.ts";
 import { KeybindOptions, matches } from "../game/keybinds.ts";
 
-// Shared/Globals.cs
-const SEARCH_DELAY = 500;
-const CONSIGNMENT_LENGTH = 7;
-const CONSIGNMENT_COST = 5000;
-const MIN_CONSIGNMENT = 5000;
-const MAX_CONSIGNMENT = 50000000;
-const AUCTION_COST = 5000;
-const MIN_STARTING_BID = 0;
-const MAX_STARTING_BID = 50000;
-const UINT_MAX = 4294967295;
-
 /** ClientTextKeys.ConsignmentRules / AuctionRules (English). */
 const CONSIGNMENT_TEXT = `1. Consignment is ${CONSIGNMENT_COST} gold per item \n\n2. 1% of sale price is paid to Trust Merchant at sale end\n\n3. Maximum ${CONSIGNMENT_LENGTH} days of item sale registration until item is removed\n\n4. Maximum of unlimited items allowed for sale\n\n5. Sale price can be set between: ${MIN_CONSIGNMENT} - ${MAX_CONSIGNMENT} gold`;
 const AUCTION_TEXT = `1. Auction cost is ${AUCTION_COST} gold, max starting bid is ${MAX_STARTING_BID} gold per item \n\n2. 1% of final bid price is paid to Trust Merchant at auction end\n\n3. Maximum ${CONSIGNMENT_LENGTH} days of item sale registration, afterwards the item will be sent to highest bidder\n\n4. Maximum of unlimited items allowed for auction\n\n`;
@@ -43,50 +38,6 @@ const AUCTION_TEXT = `1. Auction cost is ${AUCTION_COST} gold, max starting bid 
 const TITLE_FONT = "italic 7pt Arial";
 const HELP_FONT = "7pt Arial";
 const MAX_LINES = 19; // MaxLines
-
-/** GameScene.MarketFail reasons (ClientTextKeys English text). */
-const FAIL_TEXT: Record<number, string> = {
-  0: "You cannot use the TrustMerchant when dead.",
-  1: "You cannot buy from the TrustMerchant without using.",
-  2: "This item has already been sold.",
-  3: "This item has Expired and cannot be brought.",
-  4: "Not enough gold.",
-  5: "You do not have enough weight or space spare to buy this item.",
-  6: "You cannot buy your own items.",
-  7: "You are too far away from the Trust Merchant.",
-  8: "You cannot hold enough gold to get your sale.",
-  9: "This item has not met the minimum bid yet.",
-  10: "Auction has already ended for this item.",
-};
-
-/** TrustMerchantDialog.Filter. Type null = a category that only expands. */
-interface Filter { index: number; title: string; type: number | null; minShape: number; maxShape: number; sub: Filter[] }
-
-function f(index: number, title: string, type: number | null, minShape = 0, maxShape = 32767, sub: Filter[] = []): Filter {
-  return { index, title, type, minShape, maxShape, sub };
-}
-
-/** TrustMerchantDialog.SetupFilters. */
-const FILTERS: Filter[] = [
-  f(0, "Show All Items", ItemType.Nothing),
-  f(1, "Weapon Items", ItemType.Weapon),
-  f(2, "Drapery Items", null, 0, 32767, [
-    f(201, "Armour", ItemType.Armour), f(202, "Helmet", ItemType.Helmet), f(203, "Belt", ItemType.Belt),
-    f(204, "Boots", ItemType.Boots), f(205, "Stone", ItemType.Stone)]),
-  f(3, "Accessory Items", null, 0, 32767, [
-    f(301, "Necklaces", ItemType.Necklace), f(302, "Bracelets", ItemType.Bracelet), f(303, "Rings", ItemType.Ring)]),
-  f(4, "Consumable Items", null, 0, 32767, [
-    f(401, "Recovery Pots", ItemType.Potion, 0, 2), f(402, "Buff Pots", ItemType.Potion, 3, 4),
-    f(403, "Scrolls / Oils", ItemType.Scroll), f(404, "Misc Items", ItemType.Script)]),
-  f(5, "Enhancement", null, 0, 32767, [f(501, "Gems", ItemType.Potion, 3, 3), f(502, "Orbs", ItemType.Potion, 4, 4)]),
-  f(6, "Books", null, 0, 32767, [
-    f(601, "Warrior", ItemType.Book, 0, 30), f(602, "Wizard", ItemType.Book, 31, 60), f(603, "Taoist", ItemType.Book, 61, 90),
-    f(604, "Assassin", ItemType.Book, 91, 120), f(605, "Archer", ItemType.Book, 121, 150)]),
-  f(7, "Craft Items", null, 0, 32767, [
-    f(701, "Materials", ItemType.CraftingMaterial), f(703, "Meat", ItemType.Meat), f(704, "Ore", ItemType.Ore)]),
-];
-
-type PriceFilter = "normal" | "low" | "high"; // MarketPriceFilter
 
 /** DateTime.FromBinary (copy of screens.ts dateFromBinary): low 62 bits = ticks since 0001-01-01; kind bits ignored. */
 function dateFromBinary(v: bigint): Date {
@@ -210,29 +161,16 @@ class AuctionRow {
 
 export class MarketWindow {
   private readonly stage: HTMLElement;
+  /** The Trust Merchant's state (src/game/market.ts). */
+  private readonly market: Market;
   private readonly inv: Inventory;
   private readonly invWindow: InventoryWindow;
-  private readonly send: (f: Uint8Array) => void;
-  private readonly chat: (text: string, type: number) => void;
-  private readonly now: () => number;
   /** MailButton: GameScene.Scene.MailComposeLetterDialog.ComposeMail(seller, message); set by game.ts (inert while null). */
   mailTo: ((name: string, message: string) => void) | null = null;
 
-  // TrustMerchantDialog state
-  private userMode = false;           // UserMode
-  private marketType: number = MarketPanelType.Market; // MarketType
-  private searchTime = 0;             // SearchTime
-  private marketTime = 0;             // MarketTime
-  private listings: ClientAuction[] = [];
-  private page = 0;
-  private pageCount = 0;
-  private selected: ClientAuction | null = null; // Selected.Listing
-  private priceFilter: PriceFilter = "normal";
-  private filterIndex = -1;           // SelectedIndex
-  private subFilterIndex = -1;        // SelectedSubIndex
+  // TrustMerchantDialog view state (the rest lives in the Market model)
   private skip = 0;                   // Skip
   private possibleTotal = 0;          // PossibleTotal
-  private sellItem: UserItem | null = null; // SellItemSlot (tempCell locked)
   private amount = 0;                 // Amount
   private amountValid = false;        // SellItemButton.Enabled
 
@@ -265,17 +203,21 @@ export class MarketWindow {
   private readonly titleExpiry: MirLabel;
   private filterButtons: MirButton[] = [];
 
-  constructor(stage: HTMLElement, inv: Inventory, invWindow: InventoryWindow, send: (f: Uint8Array) => void,
-    chat: (text: string, type: number) => void, now: () => number, npc: { onClose: () => void }) {
+  constructor(stage: HTMLElement, market: Market, inv: Inventory, invWindow: InventoryWindow, npc: { readonly closed: Emitter<void> }) {
     this.stage = stage;
-    // NPCDialog.Hide hides the TrustMerchantDialog
-    const prevClose = npc.onClose;
-    npc.onClose = () => { prevClose(); this.close(); };
+    this.market = market;
     this.inv = inv;
     this.invWindow = invWindow;
-    this.send = send;
-    this.chat = chat;
-    this.now = now;
+    const offs = [
+      // NPCDialog.Hide hides the TrustMerchantDialog
+      npc.closed.on(() => this.close()),
+      // GameScene.NPCMarket: Show() before the listings are applied
+      market.opened.on(() => this.show()),
+      market.changed.on(() => this.render()),
+      market.sellChanged.on(() => { if (this.visible) this.renderSellCell(); }),
+      // GameScene.MarketFail / MarketSuccess
+      market.message.on(({ text }) => { messageBox(this.stage, text); }),
+    ];
 
     // — TrustMerchantDialog ctor —
     const w = this.win = new MirWindow({ library: Lib.Title, index: 786, movable: true, sort: true, location: [0, 0], size: [492, 478], onHide: () => this.onHidden() });
@@ -283,7 +225,7 @@ export class MarketWindow {
     const tab = (index: number, pressed: number, x: number, type: number) =>
       new MirButton({ parent: w, library: Lib.Title, index, pressedIndex: pressed, location: [x, 35], onClick: () => {
         this.setTab(type);
-        if (type === MarketPanelType.Market) { this.releaseSellItem(); this.render(); }
+        if (type === MarketPanelType.Market) { this.market.releaseSellItem(); this.render(); }
       } });
     this.marketButton = tab(789, 788, 9, MarketPanelType.Market);
     this.consignmentButton = tab(791, 790, 104, MarketPanelType.Consign);
@@ -293,25 +235,25 @@ export class MarketWindow {
     this.helpLabel = new MirLabel({ parent: w, text: CONSIGNMENT_TEXT, size: [115, 205], location: [8, 237], font: HELP_FONT, visible: false });
     const btn = (library: string, index: number, location: [number, number], onClick: () => void) =>
       new MirButton({ parent: w, library, index, hoverIndex: index + 1, pressedIndex: index + 2, location, sound: SoundList.ButtonA, onClick });
-    btn(Lib.Prguse2, 240, [251, 419], () => this.back());
-    btn(Lib.Prguse2, 243, [320, 419], () => this.next());
+    btn(Lib.Prguse2, 240, [251, 419], () => this.market.back());
+    btn(Lib.Prguse2, 243, [320, 419], () => this.market.next());
     this.pageLabel = new MirLabel({ parent: w, size: [70, 18], location: [260, 419], align: "center", text: "0/0", notControl: true });
     this.upButton = new MirButton({ parent: w, library: Lib.Prguse2, index: 197, hoverIndex: 198, pressedIndex: 199, size: [16, 14], location: [108, 60], sound: SoundList.ButtonA,
-      onClick: () => { if (this.skip <= 0) return; this.skip--; this.drawFilters(this.filterIndex, this.subFilterIndex); } });
+      onClick: () => { if (this.skip <= 0) return; this.skip--; this.drawFilters(this.market.filterIndex, this.market.subFilterIndex); } });
     this.downButton = new MirButton({ parent: w, library: Lib.Prguse2, index: 207, hoverIndex: 208, pressedIndex: 209, size: [16, 14], location: [108, 429], sound: SoundList.ButtonA,
-      onClick: () => { if (this.skip + MAX_LINES >= this.possibleTotal) return; this.skip++; this.drawFilters(this.filterIndex, this.subFilterIndex); } });
+      onClick: () => { if (this.skip + MAX_LINES >= this.possibleTotal) return; this.skip++; this.drawFilters(this.market.filterIndex, this.market.subFilterIndex); } });
     this.positionBar = new MirButton({ parent: w, library: Lib.Prguse2, index: 205, hoverIndex: 206, pressedIndex: 206, location: [108, 73], sound: 0, visible: false });
     dragY(this.positionBar, (y) => this.positionBarMoving(y));
 
     this.mailButton = btn(Lib.Prguse, 437, [350, 448], () => this.mail());
     this.refreshButton = btn(Lib.Prguse, 663, [320, 448], () => this.refresh());
     this.buyButton = btn(Lib.Title, 703, [380, 448], () => this.buy());
-    this.sellNowButton = btn(Lib.Title, 700, [324, 448], () => this.sellNow());
-    this.collectSoldButton = btn(Lib.Title, 680, [300, 448], () => this.collectSold());
+    this.sellNowButton = btn(Lib.Title, 700, [324, 448], () => this.market.sellNow());
+    this.collectSoldButton = btn(Lib.Title, 680, [300, 448], () => this.market.collectSold());
 
     this.searchBox = new MirTextBox({ parent: w, location: [11, 452], size: [110, 18], maxLength: 20,
-      onEnter: () => { this.search(true); this.searchBox.input.blur(); }, onEscape: () => this.searchBox.input.blur() });
-    this.findButton = btn(Lib.Title, 480, [124, 448], () => this.search(false));
+      onEnter: () => { this.market.search(this.searchBox.text, true); this.searchBox.input.blur(); }, onEscape: () => this.searchBox.input.blur() });
+    this.findButton = btn(Lib.Title, 480, [124, 448], () => this.market.search(this.searchBox.text, false));
 
     // ItemCell (47, 104): the sell slot (a MirItemCell, lime border)
     this.itemCellHost = new MirControl({ parent: w, location: [47, 104], size: [36, 32], visible: false });
@@ -320,8 +262,8 @@ export class MarketWindow {
     this.sellButton = new MirButton({ parent: w, library: Lib.Title, index: 700, hoverIndex: 701, pressedIndex: 702, location: [39, 188], sound: SoundList.ButtonA,
       visible: false, enabled: false, onClick: () => this.sell() });
 
-    for (let i = 0; i < 10; i++) {
-      this.rows.push(new AuctionRow(w, [127, 82 + i * 33], (row) => { this.selected = row.listing; this.render(); }, (row, e) => this.rowHover(row, e)));
+    for (let i = 0; i < MARKET_PAGE_ROWS; i++) {
+      this.rows.push(new AuctionRow(w, [127, 82 + i * 33], (row) => this.market.select(row.listing), (row, e) => this.rowHover(row, e)));
     }
 
     const title = (text: string, size: [number, number], location: [number, number]) =>
@@ -338,49 +280,19 @@ export class MarketWindow {
     window.addEventListener("keydown", (e) => {
       if (matches(e, KeybindOptions.Closeall) && this.visible && !(document.activeElement instanceof HTMLInputElement)) this.close();
     }, { signal: gameSignal() });
-    gameSignal().addEventListener("abort", () => w.dispose());
+    gameSignal().addEventListener("abort", () => { for (const off of offs) off(); w.dispose(); });
   }
 
   get visible(): boolean {
     return this.win.visible;
   }
 
-  /** Server packets; returns true when handled. */
+  /** The packets the window still reacts to itself (the Market model has the market packets); never consumes. */
   handle(p: ServerPacket): boolean {
     switch (p.type) {
-      case "NPCMarket":
-        // GameScene.NPCMarket (Show() first: on a fresh open it sends the Market search like the desktop)
-        this.show();
-        this.userMode = p.UserMode;
-        this.listings = p.Listings.slice();
-        this.page = 0;
-        this.pageCount = p.Pages;
-        this.render();
-        return true;
-      case "NPCMarketPage":
-        // GameScene.NPCMarketPage
-        if (!this.visible) return true;
-        this.listings.push(...p.Listings);
-        this.page = Math.trunc((this.listings.length - 1) / 10);
-        this.render();
-        return true;
-      case "MarketFail":
-        // GameScene.MarketFail
-        this.marketTime = 0;
-        if (FAIL_TEXT[p.Reason]) messageBox(this.stage, FAIL_TEXT[p.Reason]!);
-        return true;
-      case "MarketSuccess":
-        // GameScene.MarketSuccess
-        this.marketTime = 0;
-        messageBox(this.stage, p.Message);
-        return true;
       case "NPCResponse":
         // GameScene.NPCResponse hides the TrustMerchantDialog
         this.close();
-        return false;
-      case "ConsignItem":
-        if (this.sellItem && this.sellItem.UniqueID === p.UniqueID) this.sellItem = null;
-        if (this.visible) this.renderSellCell();
         return false;
       default: return false;
     }
@@ -401,27 +313,17 @@ export class MarketWindow {
   }
 
   private onHidden(): void {
-    this.listings = [];
-    this.selected = null;
-    this.releaseSellItem();
+    this.market.reset(); // listings, selection, the sell slot's lock
     hideItemLabel();
     this.invWindow.location = [0, 0];
   }
 
-  /** The tempCell unlock (Market button, ItemCell_Click, Hide). */
-  private releaseSellItem(): void {
-    if (this.sellItem) {
-      this.inv.setLocked(this.sellItem, false);
-      this.sellItem = null;
-    }
-  }
-
   /** TrustMerchantDialog.TMerchantDialog: switch the panel (artwork, buttons, titles) and search the user's (Consign /
-   *  Auction) or all (Market) listings. */
+   *  Auction) or all (Market) listings (the model's MarketType + C.MarketSearch, first: nothing below sends). */
   private setTab(type: number): void {
     const market = type === MarketPanelType.Market;
     const auction = type === MarketPanelType.Auction;
-    this.marketType = type;
+    this.market.setTab(type);
     this.marketButton.index = market ? 788 : 789;
     this.consignmentButton.index = type === MarketPanelType.Consign ? 790 : 791;
     this.auctionButton.index = auction ? 816 : 817;
@@ -457,23 +359,21 @@ export class MarketWindow {
       this.sellButton.enabled = false;
       this.setPriceBorder("");
     }
-    this.send(ClientPackets.MarketSearch({ Match: "", Type: ItemType.Nothing, Usermode: !market, MinShape: 0, MaxShape: 5000, MarketType: type }));
     this.renderSellCell();
     this.render();
   }
 
   /** DrawFilters: the visible filter buttons (Prguse2 920 / 921, sub-filters 922 / 923) from Skip, at most MaxLines. */
   private drawFilters(index: number, subIndex: number): void {
-    this.filterIndex = index;
-    this.subFilterIndex = subIndex;
+    this.market.selectFilter(index, subIndex);
     for (const b of this.filterButtons) b.dispose();
     this.filterButtons = [];
     const x = 7;
     let y = 60, current = 0, skipped = this.skip;
-    this.possibleTotal = FILTERS.length;
+    this.possibleTotal = MARKET_FILTERS.length;
     const label = (parent: MirButton, text: string, lx: number) =>
       new MirLabel({ parent, size: [99, 18], location: [lx, 1], text, notControl: true });
-    for (const item of FILTERS) {
+    for (const item of MARKET_FILTERS) {
       if (skipped > 0) { skipped--; continue; }
       if (current >= MAX_LINES) break;
       current++;
@@ -500,12 +400,9 @@ export class MarketWindow {
   }
 
   /** The filter buttons' Click: expand, and search when the filter has a type. */
-  private filterClick(item: Filter, sub: Filter | null): void {
+  private filterClick(item: MarketFilter, sub: MarketFilter | null): void {
     this.drawFilters(item.index, sub ? sub.index : -1);
-    const target = sub ?? (item.sub.length ? null : item);
-    if (target && target.type !== null) {
-      this.send(ClientPackets.MarketSearch({ Match: this.searchBox.text, Type: target.type, Usermode: false, MinShape: target.minShape, MaxShape: target.maxShape, MarketType: this.marketType }));
-    }
+    this.market.filterSearch(item, sub, this.searchBox.text);
   }
 
   private posRange(): [number, number] {
@@ -514,7 +411,7 @@ export class MarketWindow {
 
   /** UpdatePositionBar. */
   private updatePositionBar(): void {
-    if (this.possibleTotal <= MAX_LINES || this.marketType !== MarketPanelType.Market) { this.positionBar.visible = false; return; }
+    if (this.possibleTotal <= MAX_LINES || this.market.marketType !== MarketPanelType.Market) { this.positionBar.visible = false; return; }
     this.positionBar.visible = true;
     const [min, max] = this.posRange();
     const interval = Math.trunc((max - min) / (this.possibleTotal - MAX_LINES));
@@ -529,65 +426,20 @@ export class MarketWindow {
     const interval = Math.trunc((max - min) / (this.possibleTotal - MAX_LINES)) || 1;
     this.skip = Math.floor((y - min) / interval);
     this.positionBar.location = [108, y];
-    this.drawFilters(this.filterIndex, this.subFilterIndex);
+    this.drawFilters(this.market.filterIndex, this.market.subFilterIndex);
   }
 
-  private searchWait(): boolean {
-    const t = this.now();
-    if (t >= this.searchTime) return false;
-    this.chat(`You can search again after ${Math.ceil((this.searchTime - t) / 1000)} seconds.`, ChatType.System);
-    return true;
-  }
-
-  /** FindButton (empty text first) / SearchTextBox_KeyPress Enter (the wait first). */
-  private search(enter: boolean): void {
-    const match = this.searchBox.text;
-    if (!match && !enter) return;
-    if (this.searchWait()) return;
-    if (!match) return;
-    this.searchTime = this.now() + SEARCH_DELAY;
-    this.send(ClientPackets.MarketSearch({ Match: match, Type: ItemType.Nothing, Usermode: false, MinShape: 0, MaxShape: 5000, MarketType: this.marketType }));
-  }
-
-  /** RefreshButton. */
+  /** RefreshButton (the search box clears when the refresh goes out). */
   private refresh(): void {
-    if (this.searchWait()) return;
-    this.searchTime = this.now() + SEARCH_DELAY;
-    this.searchBox.text = "";
-    this.send(ClientPackets.MarketRefresh());
-  }
-
-  /** BackButton. */
-  private back(): void {
-    if (this.page <= 0) return;
-    this.page--;
-    this.render();
-  }
-
-  /** NextButton: a cached page, else C.MarketPage. */
-  private next(): void {
-    if (this.page >= this.pageCount - 1) return;
-    if (this.page < Math.trunc((this.listings.length - 1) / 10)) {
-      this.page++;
-      this.render();
-      return;
-    }
-    this.send(ClientPackets.MarketPage({ Page: this.page + 1 }));
+    if (this.market.refresh()) this.searchBox.text = "";
   }
 
   /** CyclePriceFilter: Normal -> Low -> High -> Normal (UpdatePriceFilterIcon: Prguse2 925 low / 926 high). */
   private cyclePriceFilter(): void {
-    this.priceFilter = this.priceFilter === "normal" ? "low" : this.priceFilter === "low" ? "high" : "normal";
-    this.priceFilterIcon.visible = this.priceFilter !== "normal";
-    this.priceFilterIcon.index = this.priceFilter === "low" ? 925 : 926;
-    this.render();
-  }
-
-  /** GetOrderedListings. */
-  private ordered(): ClientAuction[] {
-    if (this.priceFilter === "high") return this.listings.slice().sort((a, b) => b.Price - a.Price);
-    if (this.priceFilter === "low") return this.listings.slice().sort((a, b) => a.Price - b.Price);
-    return this.listings;
+    const next = this.market.priceFilter === "normal" ? "low" : this.market.priceFilter === "low" ? "high" : "normal";
+    this.priceFilterIcon.visible = next !== "normal";
+    this.priceFilterIcon.index = next === "low" ? 925 : 926;
+    this.market.cyclePriceFilter();
   }
 
   private name(item: UserItem): string {
@@ -598,19 +450,19 @@ export class MarketWindow {
 
   /** MailButton: a letter to the seller ("I am interested in purchasing {0} for {1}."). */
   private mail(): void {
-    const s = this.selected;
-    if (!s || this.now() < this.marketTime || !this.mailTo) return;
+    const s = this.market.selected;
+    if (!s || !this.market.ready || !this.mailTo) return;
     this.mailTo(s.Seller, `I am interested in purchasing ${this.name(s.Item)} for ${s.Price}.`);
   }
 
   /** BuyButton: user mode = get back (confirm when unsold), else buy (confirm) or bid (MirAmountBox, then confirm). */
   private buy(): void {
-    const s = this.selected;
-    if (!s || this.now() < this.marketTime) return;
+    const s = this.market.selected;
+    if (!s || !this.market.ready) return;
     const name = this.name(s.Item);
     const yesNo = (text: string, yes: () => void) => messageBox(this.stage, text, [{ label: "Yes", onClick: yes }, { label: "No" }]);
-    const getBack = () => { this.marketTime = this.now() + 3000; this.send(ClientPackets.MarketGetBack({ Mode: MarketCollectionMode.Any, AuctionID: s.AuctionID })); };
-    if (this.userMode) {
+    const getBack = () => this.market.getBack(s);
+    if (this.market.userMode) {
       const unsold = (s.ItemType === MarketItemType.Consign && s.Seller === "For Sale") || (s.ItemType === MarketItemType.Auction && s.Seller === "No Bid");
       if (s.ItemType !== MarketItemType.Consign && s.ItemType !== MarketItemType.Auction) return;
       if (unsold) yesNo(`${name} has not sold, Are you sure you want to get it back?`, getBack);
@@ -620,49 +472,25 @@ export class MarketWindow {
     switch (s.ItemType) {
       case MarketItemType.Consign:
       case MarketItemType.GameShop:
-        yesNo(`Are you sure you want to buy ${name} for ${n0(s.Price)} Gold?`, () => {
-          this.marketTime = this.now() + 3000;
-          this.send(ClientPackets.MarketBuy({ AuctionID: s.AuctionID, BidPrice: 0 }));
-        });
+        yesNo(`Are you sure you want to buy ${name} for ${n0(s.Price)} Gold?`, () => this.market.buy(s, 0));
         break;
       case MarketItemType.Auction: {
         // MirAmountBox(BidAmount, Info.Image, uint.MaxValue, Price + 1, Price + 1)
         const min = Math.min(UINT_MAX, s.Price + 1);
         amountBox("Bid Amount:", this.inv.info(s.Item)?.Image ?? -1, UINT_MAX, (bid) => {
-          yesNo(`Are you sure you want to bid ${n0(bid)} Gold for ${name}?`, () => {
-            this.marketTime = this.now() + 3000;
-            this.send(ClientPackets.MarketBuy({ AuctionID: s.AuctionID, BidPrice: bid }));
-          });
+          yesNo(`Are you sure you want to bid ${n0(bid)} Gold for ${name}?`, () => this.market.buy(s, bid));
         }, min, min);
         break;
       }
     }
   }
 
-  /** SellNowButton. */
-  private sellNow(): void {
-    const s = this.selected;
-    if (!s || this.now() < this.marketTime) return;
-    this.marketTime = this.now() + 3000;
-    this.send(ClientPackets.MarketSellNow({ AuctionID: s.AuctionID }));
-  }
-
-  /** CollectSoldButton (user mode only): collect every sold item, then refresh. */
-  private collectSold(): void {
-    if (this.now() < this.marketTime || !this.userMode) return;
-    this.marketTime = this.now() + 3000;
-    this.send(ClientPackets.MarketGetBack({ Mode: MarketCollectionMode.Sold, AuctionID: 0n }));
-    this.send(ClientPackets.MarketRefresh());
-  }
-
   /** ItemCell_Click: the picked inventory item (GameScene.SelectedCell) becomes the sell item, its cell locked. */
   private sellCellClick(): void {
-    this.releaseSellItem();
     const slot = this.invWindow.pickedInventorySlot;
     const item = slot >= 0 ? this.inv.inventory[slot] ?? null : null;
-    if (!item) { this.renderSellCell(); return; }
-    this.sellItem = item;
-    this.inv.setLocked(item, true);
+    this.market.setSellItem(item); // the old slot unlocks first; sellChanged redraws the cell
+    if (!item) return;
     this.invWindow.clearPick();
     this.renderSellCell();
     this.priceBox.focus();
@@ -671,13 +499,13 @@ export class MarketWindow {
   /** The ItemCell's picture (a read-only MirItemCell over the slot; clicks go to ItemCell_Click, right-click clears). */
   private renderSellCell(): void {
     this.itemCell?.remove();
-    const cell = placeCell(this.invWindow.viewCell(this.sellItem), this.itemCellHost, [0, 0]);
+    const cell = placeCell(this.invWindow.viewCell(this.market.sellItem), this.itemCellHost, [0, 0]);
     cell.addEventListener("mousedown", (e) => {
       if (e.button === 0) this.sellCellClick();
-      else if (e.button === 2) { this.releaseSellItem(); this.renderSellCell(); }
+      else if (e.button === 2) { this.market.releaseSellItem(); this.renderSellCell(); }
     });
     this.itemCell = cell;
-    this.sellButton.enabled = this.amountValid && !!this.sellItem;
+    this.sellButton.enabled = this.amountValid && !!this.market.sellItem;
   }
 
   /** PriceTextBox.BorderColour (the desktop sets it without Border = true; drawn here as the feedback it intends). */
@@ -690,22 +518,21 @@ export class MarketWindow {
     const digits = this.priceBox.text.replace(/[^\d]/g, "");
     if (!digits) { this.amount = 0; this.amountValid = false; this.priceBox.text = ""; this.setPriceBorder(""); this.sellButton.enabled = false; return; }
     let amount = Math.min(UINT_MAX, Number(digits));
-    const auction = this.marketType === MarketPanelType.Auction;
+    const auction = this.market.marketType === MarketPanelType.Auction;
     const min = auction ? MIN_STARTING_BID : MIN_CONSIGNMENT, max = auction ? MAX_STARTING_BID : MAX_CONSIGNMENT;
     this.amountValid = amount >= min;
     if (this.amountValid && amount > max) amount = max;
     this.amount = amount;
     this.priceBox.text = n0(amount);
     this.setPriceBorder(!this.amountValid ? "#ff0000" : amount === max ? "#ffa500" : "#00ff00");
-    this.sellButton.enabled = this.amountValid && !!this.sellItem;
+    this.sellButton.enabled = this.amountValid && !!this.market.sellItem;
   }
 
   /** SellItemButton: C.ConsignItem with the panel's type (the cell stays locked until S.ConsignItem), then re-open the tab. */
   private sell(): void {
-    if (!this.sellItem || !this.amountValid) return;
-    this.inv.consign(this.sellItem, this.amount, this.marketType);
-    this.sellItem = null;
-    this.setTab(this.marketType);
+    if (!this.market.sellItem || !this.amountValid) return;
+    this.market.sell(this.amount);
+    this.setTab(this.market.marketType);
   }
 
   /** AuctionRow hover: GameScene.CreateItemLabel(Listing.Item). */
@@ -718,17 +545,15 @@ export class MarketWindow {
   /** TrustMerchantDialog.UpdateInterface. */
   private render(): void {
     if (!this.visible) return;
-    const ordered = this.ordered();
-    this.pageLabel.text = `${this.page + 1}/${this.pageCount}`;
-    const pageRows = ordered.slice(this.page * 10, this.page * 10 + 10);
-    if (this.selected && !pageRows.includes(this.selected)) this.selected = null;
-    for (let i = 0; i < 10; i++) {
+    this.pageLabel.text = `${this.market.page + 1}/${this.market.pageCount}`;
+    const pageRows = this.market.pageRows(); // drops a selection that is not on this page
+    const sel = this.market.selected;
+    for (let i = 0; i < MARKET_PAGE_ROWS; i++) {
       const l = pageRows[i];
       if (!l) { this.rows[i]!.clear(); continue; }
       const info = this.inv.info(l.Item);
-      this.rows[i]!.update(l, this.name(l.Item), info?.Image, info?.Grade ?? 0, this.userMode, l === this.selected);
+      this.rows[i]!.update(l, this.name(l.Item), info?.Image, info?.Grade ?? 0, this.market.userMode, l === sel);
     }
-    const sel = this.selected;
     this.buyButton.enabled = !!sel; this.buyButton.grayScale = !sel;
     this.collectSoldButton.enabled = !sel; this.collectSoldButton.grayScale = !!sel;
     this.mailButton.enabled = !!sel; this.mailButton.grayScale = !sel;

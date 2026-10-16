@@ -12,7 +12,7 @@ export interface GameDataHost {
   dispatch(p: ServerPacket): void;
   userMagics(): UserMagic[];
   heroMagics(): UserMagic[];
-  /** GameScene.GameShopInfoList (gameShopWindow.ts `items`). */
+  /** GameScene.GameShopInfoList (shop.ts `Shop.items`, edited in place). */
   shopItems(): GameShopItem[];
   invalidateMap(mapIndex: number): void;
 }

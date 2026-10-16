@@ -5,16 +5,18 @@
 // the name / guild labels, class image, LoverButton (Prguse 604, hint = LoverName) and the Group / Friend / Mail / Trade /
 // Observe buttons (Prguse 431 / 434 / 437 / 523, Title 854), hidden for a hero. Escape hides it (GameScene Closeall).
 // The item labels use the inspected player's level and class (GameScene.CreateItemLabel with Inspect).
+// Since phase 1c the inspected player's data, the InspectTime gate, the request and the button sends live in the Inspect
+// model (src/game/inspect.ts); this window is a view that opens on its `received` event.
 // Also reads the AllowObserve flag (the Account model: S.UserInformation / S.AllowObserve; OptionDialog.ToggleObserve = the
 // "@ALLOWOBSERVE" chat command).
 // Deliberate differences: the Observe button stays hidden (a granted C.Observe ends the requester's own game (StopGame)
 // and the observer mode is not ported); the Mail button calls `composeMail` (set by game.ts; inert while null); the
 // name label takes a click (the desktop's NameLabel.Click never fires: NotControl).
 
-import type { ServerPacket, UserItem } from "../protocol/server.ts";
-import { ClientPackets } from "../protocol/client.ts";
-import { ChatType, EquipmentSlot, MirClass, MirGender } from "../protocol/enums.generated.ts";
+import type { UserItem } from "../protocol/server.ts";
+import { EquipmentSlot, MirClass, MirGender } from "../protocol/enums.generated.ts";
 import type { Account } from "../game/account.ts";
+import type { Inspect } from "../game/inspect.ts";
 import type { GameInfo } from "../game/gameInfo.ts";
 import { gameSignal } from "../game/scope.ts";
 import { SoundList } from "../game/audio.ts";
@@ -24,13 +26,8 @@ import { showItemLabel, type ItemLabelContext } from "./itemLabel.ts";
 import { placeCell, type InventoryWindow } from "./inventoryWindow.ts";
 import { gameItemInfos, gameUser } from "./userRefs.ts";
 
-const MAX_GROUP = 11; // Globals.MaxGroup
-const INSPECT_DELAY = 500; // GameScene.InspectTime = CMain.Time + 500
-
 const T = { // ClientTextKeys (English.json)
   InviteToGroup: "Invite to Group", AddToFriendsList: "Add to Friends List", SendMail: "Send Mail", Trade: "Trade", Observe: "Observe",
-  GroupHasMaxMembers: "Your group already has the maximum number of members.", YouNotGroupLeader: "You are not the leader of your group.",
-  PlayerDisabledObservation: "That player has disabled observation.",
 };
 
 /** InspectDialog cell Locations (Parent = CharacterPage). */
@@ -42,31 +39,26 @@ const CELLS: [number, [number, number]][] = [
 ];
 
 export class InspectWindow {
-  // InspectDialog fields
-  items: (UserItem | null)[] = [];
-  name = "";
-  guildName = "";
-  guildRank = "";
-  cls = 0;
-  gender = 0;
-  hair = 0;
-  level = 0;
-  loverName = "";
-  allowObserve = false;
-  isHero = false;
+  // InspectDialog fields (the model's)
+  get items(): readonly (UserItem | null)[] { return this.model.items; }
+  get name(): string { return this.model.name; }
+  get guildName(): string { return this.model.guildName; }
+  get guildRank(): string { return this.model.guildRank; }
+  get cls(): number { return this.model.cls; }
+  get gender(): number { return this.model.gender; }
+  get hair(): number { return this.model.hair; }
+  get level(): number { return this.model.level; }
+  get loverName(): string { return this.model.loverName; }
+  get allowObserve(): boolean { return this.model.allowObserve; }
+  get isHero(): boolean { return this.model.isHero; }
   /** InspectDialog.InspectID. */
-  inspectId = 0;
+  get inspectId(): number { return this.model.inspectId; }
   /** GameScene.AllowObserve (the user's own flag): S.UserInformation / S.AllowObserve (the Account model). */
   get userAllowObserve(): boolean { return this.account.allowObserve; }
   /** MailButton: MailComposeLetterDialog.ComposeMail(Name) (game.ts: `= (n) => mail.composeLetter(n)`). */
   composeMail: ((name: string) => void) | null = null;
-  private inspectTime = 0;
-  private readonly send: (f: Uint8Array) => void;
-  private readonly chat: (text: string, type: number) => void;
+  private readonly model: Inspect;
   private readonly prefillChat: (text: string) => void;
-  private readonly groupList: () => string[];
-  private readonly me: () => string;
-  private readonly now: () => number;
   private readonly invWindow: InventoryWindow;
   private readonly gameInfo: GameInfo;
   private readonly account: Account;
@@ -81,15 +73,10 @@ export class InspectWindow {
   private readonly loverButton: MirButton;
   private readonly playerButtons: MirButton[];
 
-  constructor(_stage: HTMLElement, send: (f: Uint8Array) => void, chat: (text: string, type: number) => void, prefillChat: (text: string) => void,
-    groupList: () => string[], me: () => string, now: () => number, invWindow: InventoryWindow, gameInfo: GameInfo, account: Account) {
+  constructor(_stage: HTMLElement, model: Inspect, prefillChat: (text: string) => void, invWindow: InventoryWindow, gameInfo: GameInfo, account: Account) {
     this.account = account;
-    this.send = send;
-    this.chat = chat;
+    this.model = model;
     this.prefillChat = prefillChat;
-    this.groupList = groupList;
-    this.me = me;
-    this.now = now;
     this.invWindow = invWindow;
     this.gameInfo = gameInfo;
 
@@ -112,13 +99,13 @@ export class InspectWindow {
     const button = (library: string, index: number, x: number, hint: string, onClick: () => void) =>
       new MirButton({ parent: this.win, library, index, hoverIndex: index + 1, pressedIndex: index + 2, location: [x, 357], sound: SoundList.ButtonA, hint, onClick });
     this.playerButtons = [
-      button(Lib.Prguse, 431, 55, T.InviteToGroup, () => this.group()),
-      button(Lib.Prguse, 434, 85, T.AddToFriendsList, () => this.send(ClientPackets.AddFriend({ Name: this.name, Blocked: false }))),
+      button(Lib.Prguse, 431, 55, T.InviteToGroup, () => this.model.addToGroup()),
+      button(Lib.Prguse, 434, 85, T.AddToFriendsList, () => this.model.addFriend()),
       button(Lib.Prguse, 437, 115, T.SendMail, () => this.composeMail?.(this.name)),
-      button(Lib.Prguse, 523, 145, T.Trade, () => this.send(ClientPackets.TradeRequest())),
+      button(Lib.Prguse, 523, 145, T.Trade, () => this.model.tradeRequest()),
     ];
     // ObserveButton (Title 854): hidden until observer mode is ported
-    const observe = button(Lib.Title, 854, 175, T.Observe, () => this.observe());
+    const observe = button(Lib.Title, 854, 175, T.Observe, () => this.model.observe());
     observe.visible = false;
     // NameLabel.Click: "/Name " in the chat box
     this.nameLabel = new MirLabel({ parent: this.win, location: [50, 12], size: [190, 20], center: true, onClick: () => this.prefillChat(`/${this.name} `) });
@@ -136,7 +123,9 @@ export class InspectWindow {
       if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement) return;
       if (matches(e, KeybindOptions.Closeall)) this.toggle(false); // InspectDialog.Hide()
     }, { signal });
-    signal.addEventListener("abort", () => this.win.dispose());
+    // GameScene.PlayerInspect: InspectDialog.RefreshInferface + Show
+    const offReceived = model.received.on(() => this.toggle(true));
+    signal.addEventListener("abort", () => { offReceived(); this.win.dispose(); });
   }
 
   toggle(show = !this.win.visible): void {
@@ -147,50 +136,7 @@ export class InspectWindow {
   /** MapControl.OnMouseClick (Right + Ctrl on another PlayerObject / HeroObject) and RankingRow.Inspect, with the shared
    *  GameScene.InspectTime gate. `objectId` is the player's ObjectID, or `(uint)PlayerId` with ranking = true. */
   inspect(objectId: number, ranking = false, hero = false): boolean {
-    const t = this.now();
-    if (t < this.inspectTime || (ranking && t <= this.inspectTime)) return false;
-    this.inspectTime = t + INSPECT_DELAY;
-    this.inspectId = objectId >>> 0;
-    this.send(ClientPackets.Inspect({ ObjectID: objectId >>> 0, Ranking: ranking, Hero: hero }));
-    return true;
-  }
-
-  /** Server packets; returns true when handled. */
-  handle(p: ServerPacket): boolean {
-    switch (p.type) {
-      case "PlayerInspect": // GameScene.PlayerInspect
-        this.items = p.Equipment;
-        this.name = p.Name;
-        this.guildName = p.GuildName;
-        this.guildRank = p.GuildRank;
-        this.cls = p.Class;
-        this.gender = p.Gender;
-        this.hair = p.Hair;
-        this.level = p.Level;
-        this.loverName = p.LoverName;
-        this.allowObserve = p.AllowObserve;
-        this.isHero = p.IsHero;
-        // InspectDialog.RefreshInferface: GameScene.Bind each item (asks for missing ItemInfo)
-        for (const item of this.items) if (item) this.gameInfo.requestItem(item.ItemIndex);
-        this.toggle(true);
-        return true;
-      // S.AllowObserve (GameScene.ProcessPacket: AllowObserve = p.Allow): the Account model
-    }
-    return false;
-  }
-
-  /** InspectDialog.GroupButton.Click (the desktop still sends after the not-leader line; the server refuses). */
-  private group(): void {
-    const list = this.groupList();
-    if (list.length >= MAX_GROUP) { this.chat(T.GroupHasMaxMembers, ChatType.System); return; }
-    if (list.length > 0 && list[0] !== this.me()) this.chat(T.YouNotGroupLeader, ChatType.System);
-    this.send(ClientPackets.AddMember({ Name: this.name }));
-  }
-
-  /** InspectDialog.ObserveButton.Click. */
-  private observe(): void {
-    if (this.allowObserve) this.send(ClientPackets.Observe({ Name: this.name }));
-    else this.chat(T.PlayerDisabledObservation, ChatType.System);
+    return this.model.inspect(objectId, ranking, hero);
   }
 
   /** GameScene.CreateItemLabel with Inspect: the inspected player's level and class are the wearer's. */

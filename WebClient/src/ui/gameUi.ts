@@ -5,13 +5,14 @@
 // reads the current value every time and never keeps a copy.
 //
 // Packets: game.ts runs the models first (hero, inventory, item changes, hero items, magic, quests, then the phase 1b
-// models: rental, chat log, current map, account, creatures, HUD state, group, trade), then GameUi.handle (the UI-only
-// leftovers: packets whose state still lives in a classic window; phase 1c moves more of them into src/game models, so
-// handle() shrinks to prompts and window opening), then GameInfo and the big switch. Models announce changes and
+// models: rental, chat log, current map, account, creatures, HUD state, group, trade; the phase 1c models: relationship,
+// mentor, inspect, rankings, mail, friends, shop, guild, NPC session, recipes, awakening), then GameUi.handle (the
+// UI-only leftovers: packets whose state still lives in a classic window, prompts and window opening), then the
+// territory and market models, then GameInfo and the big switch. Models announce changes and
 // prompts through Emitter fields (src/game/emitter.ts); a UI subscribes and unsubscribes on `signal` abort.
 
 import type { Session } from "../game/session.ts";
-import type { ServerPacket, BaseStats, GameShopItem } from "../protocol/server.ts";
+import type { ServerPacket, BaseStats } from "../protocol/server.ts";
 import type { WirePoint } from "../protocol/binaryCodec.ts";
 import type { MapCells } from "../map/mapReader.ts";
 import type { MapObj } from "../game/objects.ts";
@@ -37,6 +38,18 @@ import type { Fishing } from "../game/fishing.ts";
 import type { GroupState } from "../game/group.ts";
 import type { Trade } from "../game/trade.ts";
 import type { Rental } from "../game/rental.ts";
+import type { NpcSession } from "../game/npcSession.ts";
+import type { Recipes } from "../game/recipes.ts";
+import type { Awakening } from "../game/awakening.ts";
+import type { Market } from "../game/market.ts";
+import type { GuildState } from "../game/guild.ts";
+import type { MailBox } from "../game/mail.ts";
+import type { Friends } from "../game/friends.ts";
+import type { Relationship, Mentor } from "../game/relationship.ts";
+import type { Rankings } from "../game/rankings.ts";
+import type { Inspect } from "../game/inspect.ts";
+import type { Shop } from "../game/shop.ts";
+import type { Territories } from "../game/territories.ts";
 import type { UserStats } from "../game/stats.ts";
 import type { UserBuff } from "../game/buffs.ts";
 import type { InputRouter } from "../game/input.ts";
@@ -104,6 +117,32 @@ export interface GameModels {
   readonly trade: Trade;
   /** The rental guest side + rented-items list (src/game/rental.ts). */
   readonly rental: Rental;
+  /** NPCDialog / goods / drop state + GameScene's NPC handlers, NPCID and NPCRate (src/game/npcSession.ts). */
+  readonly npcSession: NpcSession;
+  /** GameScene.RecipeInfoList (src/game/recipes.ts). */
+  readonly recipes: Recipes;
+  /** NPCAwakeDialog state (src/game/awakening.ts). */
+  readonly awakening: Awakening;
+  /** TrustMerchantDialog state (src/game/market.ts). */
+  readonly market: Market;
+  /** GuildDialog state + GameScene guild handlers (src/game/guild.ts). */
+  readonly guild: GuildState;
+  /** UserObject.Mail / NewMail + GameScene mail handlers (src/game/mail.ts). */
+  readonly mail: MailBox;
+  /** FriendDialog.Friends + GameScene.FriendUpdate (src/game/friends.ts). */
+  readonly friends: Friends;
+  /** RelationshipDialog + GameScene marriage / divorce handlers (src/game/relationship.ts). */
+  readonly relationship: Relationship;
+  /** MentorDialog + GameScene mentor handlers (src/game/relationship.ts). */
+  readonly mentor: Mentor;
+  /** InspectDialog state (src/game/inspect.ts). */
+  readonly inspect: Inspect;
+  /** RankingDialog lists (src/game/rankings.ts). */
+  readonly rankings: Rankings;
+  /** GameScene.GameShopInfoList (src/game/shop.ts). */
+  readonly shop: Shop;
+  /** GuildTerritoryDialog list (src/game/territories.ts). */
+  readonly territories: Territories;
 }
 
 /** The world as the UI may read it (MapControl). */
@@ -207,8 +246,6 @@ export interface GameUi {
   /** A left / right mouse-down on the map, after Ctrl + right inspect: a picked item / gold dropped on the map. True = consumed. */
   mapMouseDown(e: MouseEvent): boolean;
   command(c: UiCommand): void;
-  /** Leftover until shop.ts (phase 1c): GameScene.GameShopInfoList for GameDataChanged. */
-  shopItems(): GameShopItem[];
   /** Registers the UI's router handlers (called once by game.ts where its own key handling is registered). */
   bindInput(input: InputRouter): void;
   /** Debug refs for window.crystalGame (the classic windows by their old names). */

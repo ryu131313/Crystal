@@ -7,15 +7,15 @@
 //   A cell: name in its grade colour, the item (label on hover), count, stock (0 = unlimited), credit / gold price x
 //   quantity, quantity - / + (Shift = 10; capped at 5 stacks, 99 and the stock), Buy (MirMessageBox YesNo, then
 //   C.GameshopBuy).
-// The window owns GameScene.GameShopInfoList. Toggle with Y (KeybindOptions.GameShop) or the Shop HUD button; Escape
+// GameScene.GameShopInfoList, GameShopUpdate / GameShopStock and the buy send live in the Shop model (src/game/shop.ts,
+// phase 1c); this window is a view over it and keeps the GameShopDialog.Process money refresh. Toggle with Y (KeybindOptions.GameShop) or the Shop HUD button; Escape
 // (Closeall) hides it. Not ported: the GameShopViewer (draws the item on the user's paperdoll sprites): the Preview
 // button shows for weapons / armours / mounts / transforms like the desktop but does nothing.
 
-import type { GameShopItem, ServerPacket, UserItem } from "../protocol/server.ts";
-import { ClientPackets } from "../protocol/client.ts";
+import type { GameShopItem, UserItem } from "../protocol/server.ts";
 import { ChatType, ItemGrade, ItemType, MirClassName } from "../protocol/enums.generated.ts";
 import { itemFriendlyName } from "../game/gameInfo.ts";
-import { dateFromBinary } from "../game/itemChanges.ts";
+import { isNewShopItem, ShopPayType, type Shop } from "../game/shop.ts";
 import { gameSignal } from "../game/scope.ts";
 import { SoundList } from "../game/audio.ts";
 import { KeybindOptions, matches } from "../game/keybinds.ts";
@@ -30,7 +30,6 @@ import { el } from "./screens.ts";
 
 const CELLS = 8; // GameShopDialog.Grid (4 x 2)
 const FILTERS = 22; // GameShopDialog.Filters
-const NEW_DAYS = 7;
 const SHOW_ALL = "Show All";
 type Section = "Show All" | "TopItems" | "DealItems" | "NewItems";
 const FONT_7 = "7pt Arial";
@@ -50,11 +49,6 @@ function gradeNameColor(grade: number): string {
     case ItemGrade.Heroic: return "#ff0000";
     default: return "#ffff00";
   }
-}
-
-/** GameScene.GameShopUpdate's `Date > CMain.Now.AddDays(-7)`. */
-function isNew(item: GameShopItem): boolean {
-  return dateFromBinary(item.Date).getTime() > Date.now() - NEW_DAYS * 86400000;
 }
 
 /** GameShopCell.OnMouseMove: ShowItem = new UserItem(Item.Info) { MaxDura = CurrentDura = Info.Durability, Count = Item.Count }. */
@@ -180,8 +174,8 @@ class GameShopCell {
 }
 
 export class GameShopWindow {
-  /** GameScene.GameShopInfoList. */
-  readonly items: GameShopItem[] = [];
+  /** GameScene.GameShopInfoList (the Shop model's). */
+  get items(): readonly GameShopItem[] { return this.shop.items; }
   private classFilter = SHOW_ALL;
   private typeFilter = SHOW_ALL;
   private sectionFilter: Section = "Show All";
@@ -192,8 +186,8 @@ export class GameShopWindow {
   private maxPage = 1;
   private categoryList: string[] = [];
   private readonly stage: HTMLElement;
+  private readonly shop: Shop;
   private readonly invWindow: InventoryWindow;
-  private readonly send: (f: Uint8Array) => void;
   private readonly chat: (text: string, type: number) => void;
   private readonly gold: () => number;
   private readonly credit: () => number;
@@ -215,11 +209,11 @@ export class GameShopWindow {
   /** ALL / War / Sin / Tao / Wiz / Arch with their class filter and base Index (the selected one shows Index + 1). */
   private readonly classButtons: { button: MirButton; cls: string; index: number }[] = [];
 
-  constructor(stage: HTMLElement, invWindow: InventoryWindow, send: (f: Uint8Array) => void, chat: (text: string, type: number) => void,
+  constructor(stage: HTMLElement, shop: Shop, invWindow: InventoryWindow, chat: (text: string, type: number) => void,
     gold: () => number, credit: () => number, userClass: () => number) {
     this.stage = stage;
+    this.shop = shop;
     this.invWindow = invWindow;
-    this.send = send;
     this.chat = chat;
     this.gold = gold;
     this.credit = credit;
@@ -266,7 +260,7 @@ export class GameShopWindow {
     this.allItems = tab(770, 138, "Show All");
     this.topItems = tab(776, 209, "TopItems");
     this.deals = tab(772, 280, "DealItems");
-    this.newItems = tab(774, 351, "NewItems", false);
+    this.newItems = tab(774, 351, "NewItems", shop.hasNewItems);
     const classes: [string, number, Point][] = [[SHOW_ALL, 751, [539, 37]], ["Warrior", 754, [568, 38]], ["Assassin", 757, [591, 38]], ["Taoist", 760, [614, 38]],
       ["Wizard", 763, [637, 38]], ["Archer", 766, [660, 38]]];
     for (const [cls, index, location] of classes) {
@@ -312,8 +306,11 @@ export class GameShopWindow {
       this.filters.push(f);
     }
 
+    // GameScene.GameShopUpdate: New.Visible; GameScene.GameShopStock: UpdateShop while open
+    const offAdded = shop.added.on(() => { if (shop.hasNewItems) this.newItems.visible = true; });
+    const offStock = shop.stockChanged.on(() => { if (this.visible) this.updateShop(); });
     const signal = gameSignal();
-    signal.addEventListener("abort", () => win.dispose());
+    signal.addEventListener("abort", () => { offAdded(); offStock(); win.dispose(); });
     window.addEventListener("keydown", (e) => {
       const a = document.activeElement;
       if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement) return;
@@ -349,29 +346,10 @@ export class GameShopWindow {
     this.getCategories();
   }
 
-  /** Server packets; returns true when handled. */
-  handle(p: ServerPacket): boolean {
-    switch (p.type) {
-      case "GameShopInfo": // GameScene.GameShopUpdate
-        p.Item.Stock = p.StockLevel;
-        this.items.push(p.Item);
-        if (isNew(p.Item)) this.newItems.visible = true;
-        return true;
-      case "GameShopStock": // GameScene.GameShopStock
-        for (let i = 0; i < this.items.length; i++) {
-          const item = this.items[i]!;
-          if (item.GIndex !== p.GIndex) continue;
-          if (p.StockLevel === 0) { this.items.splice(i, 1); i--; }
-          else item.Stock = p.StockLevel;
-          if (this.visible) this.updateShop();
-        }
-        return true;
-      default:
-        // GameShopDialog.Process: totalCredits / totalGold (refreshed on any packet while open; gold and credit
-        // change only through packets). Not consumed: Inventory handles GainedGold / GainedCredit / ...
-        if (this.visible) this.updateMoney();
-        return false;
-    }
+  /** GameShopDialog.Process: totalCredits / totalGold, refreshed on every packet the classic chain hands the window while
+   *  it is open (gold and credit change only through packets; Inventory handles GainedGold / GainedCredit / ...). */
+  process(): void {
+    if (this.visible) this.updateMoney();
   }
 
   /** GameShopDialog.Process. */
@@ -436,7 +414,7 @@ export class GameShopWindow {
   }
 
   /** The search filter of GetCategories / UpdateShop (FriendlyName contains the text, case-insensitive). */
-  private shopList(): GameShopItem[] {
+  private shopList(): readonly GameShopItem[] {
     const text = this.search.text.toLowerCase();
     if (text === "") return this.items;
     return this.items.filter((f) => itemFriendlyName(f.Info).toLowerCase().includes(text));
@@ -448,7 +426,7 @@ export class GameShopWindow {
 
   private matchesSection(item: GameShopItem): boolean {
     const s = this.sectionFilter;
-    return s === "Show All" || (s === "TopItems" && item.TopItem) || (s === "DealItems" && item.Deal) || (s === "NewItems" && isNew(item));
+    return s === "Show All" || (s === "TopItems" && item.TopItem) || (s === "DealItems" && item.Deal) || (s === "NewItems" && isNewShopItem(item));
   }
 
   /** GameShopDialog.GetCategories. */
@@ -500,8 +478,8 @@ export class GameShopWindow {
   /** GameShopCell.BuyProduct: PType 0 = credit, 1 = gold (PlayerObject.GameshopBuy). */
   buyProduct(item: GameShopItem, quantity: number): void {
     let pType = -1;
-    if (this.paymentTypeCredit.checked && item.CanBuyCredit) pType = 0;
-    else if (this.paymentTypeGold.checked && item.CanBuyGold) pType = 1;
+    if (this.paymentTypeCredit.checked && item.CanBuyCredit) pType = ShopPayType.Credit;
+    else if (this.paymentTypeGold.checked && item.CanBuyGold) pType = ShopPayType.Gold;
     if (pType === -1) { this.chat("You MUST select a payment type!", ChatType.System); return; } // YouMustSelectPaymentType
     const cost = (pType === 0 ? item.CreditPrice : item.GoldPrice) * quantity;
     if (cost > (pType === 0 ? this.credit() : this.gold())) { this.chat("You can't afford the selected item.", ChatType.System); return; }
@@ -511,7 +489,7 @@ export class GameShopWindow {
       ? `Are you sure would you like to buy ${quantity} x \n${name}(${item.Count}) for ${cost} Credits?`
       : `Are you sure would you like to buy${quantity} x \n${name}(${item.Count}) for ${cost} Gold?`;
     messageBox(this.stage, text, [
-      { label: "Yes", onClick: () => this.send(ClientPackets.GameshopBuy({ GIndex: item.GIndex, Quantity: quantity, PType: pType })) },
+      { label: "Yes", onClick: () => this.shop.buy(item.GIndex, quantity, pType) },
       { label: "No" },
     ]);
   }
