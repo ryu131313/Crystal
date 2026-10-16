@@ -3098,4 +3098,27 @@ namespace ClientPackets
             writer.Write(Accept);
         }
     }
+
+    /// <summary>
+    /// Sets one social allow toggle to an explicit value (phase 2.8); idempotent, unlike the old flip packets
+    /// (C.SwitchGroup, C.ChangeTrade, ...), which keep working. Server validates Toggle; answers with S.AllowToggles.
+    /// </summary>
+    public sealed class SetAllowToggle : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.SetAllowToggle; } }
+
+        public AllowToggle Toggle;
+        public bool Value;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Toggle = (AllowToggle)reader.ReadByte();
+            Value = reader.ReadBoolean();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write((byte)Toggle);
+            writer.Write(Value);
+        }
+    }
 }

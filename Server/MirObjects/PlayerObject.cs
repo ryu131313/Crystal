@@ -2146,6 +2146,7 @@ namespace Server.MirObjects
             Enqueue(new S.ChangeAMode { Mode = AMode });
             Enqueue(new S.ChangePMode { Mode = PMode });
             Enqueue(new S.SwitchGroup { AllowGroup = AllowGroup });
+            SendAllowToggles();
 
             Enqueue(new S.DefaultNPC { ObjectID = Envir.DefaultNPC.LoadedObjectID });
 
@@ -3418,9 +3419,8 @@ namespace Server.MirObjects
                         UpdateGMBuff();
                         break;
                     case "ALLOWGUILD":
-                        EnableGuildInvite = !EnableGuildInvite;
-                        hintstring = EnableGuildInvite ? GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildInvitesEnabled) : GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildInvitesDisabled);
-                        ReceiveChat(hintstring, ChatType.Hint);
+                        SetEnableGuildInvite(!EnableGuildInvite);
+                        SendAllowToggles();
                         break;
                     case "RECALL":
                         if (!IsGM) return;
@@ -3442,9 +3442,8 @@ namespace Server.MirObjects
                         player.AddObserver(Connection);
                         break;
                     case "ENABLEGROUPRECALL":
-                        EnableGroupRecall = !EnableGroupRecall;
-                        hintstring = EnableGroupRecall ? GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GroupRecallEnabled) : GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GroupRecallDisabled);
-                        ReceiveChat(hintstring, ChatType.Hint);
+                        SetEnableGroupRecall(!EnableGroupRecall);
+                        SendAllowToggles();
                         break;
 
                     case "GROUPRECALL":
@@ -4262,12 +4261,8 @@ namespace Server.MirObjects
                         break;
 
                     case "ALLOWTRADE":
-                        AllowTrade = !AllowTrade;
-
-                        if (AllowTrade)
-                            ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.AllowTradeNow), ChatType.System);
-                        else
-                            ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.NoLongerAllowTrade), ChatType.System);
+                        SetAllowTrade(!AllowTrade);
+                        SendAllowToggles();
                         break;
 
                     case "TRIGGER":
@@ -4672,8 +4667,7 @@ namespace Server.MirObjects
                         break;
 
                     case "ALLOWOBSERVE":
-                        AllowObserve = !AllowObserve;
-                        Enqueue(new S.AllowObserve { Allow = AllowObserve });
+                        SetAllowObserve(!AllowObserve);
                         break;
 
                     case "INFO":
@@ -10477,12 +10471,119 @@ namespace Server.MirObjects
         {
             Enqueue(new S.SwitchGroup { AllowGroup = allow });
 
-            if (AllowGroup == allow) return;
-            AllowGroup = allow;
+            if (AllowGroup != allow)
+            {
+                AllowGroup = allow;
 
-            // If we just disabled grouping and we’re in a party, leave immediately
-            if (!AllowGroup && GroupMembers != null)
-                LeaveGroup();
+                // If we just disabled grouping and we’re in a party, leave immediately
+                if (!AllowGroup && GroupMembers != null)
+                    LeaveGroup();
+            }
+
+            SendAllowToggles();
+        }
+
+        /// <summary>Sends the player's own social allow toggles (S.AllowToggles). Call after any of them changes.</summary>
+        public void SendAllowToggles()
+        {
+            S.AllowToggles p = new S.AllowToggles();
+            p.Set(AllowToggle.Group, AllowGroup);
+            p.Set(AllowToggle.Trade, AllowTrade);
+            p.Set(AllowToggle.Observe, AllowObserve);
+            p.Set(AllowToggle.GuildInvite, EnableGuildInvite);
+            p.Set(AllowToggle.GroupRecall, EnableGroupRecall);
+            p.Set(AllowToggle.Marriage, AllowMarriage);
+            p.Set(AllowToggle.LoverRecall, AllowLoverRecall);
+            p.Set(AllowToggle.Mentor, AllowMentor);
+            p.Set(AllowToggle.FriendRequests, Info.AllowFriendRequests);
+            Enqueue(p);
+        }
+
+        /// <summary>
+        /// Explicit, idempotent setter behind C.SetAllowToggle (the older flip packets and @ commands keep working).
+        /// Group and Observe reuse their existing paths; the others set the saved flag and send the existing hint
+        /// only when the value changes. Always echoes S.AllowToggles.
+        /// </summary>
+        public void SetAllowToggle(AllowToggle toggle, bool value)
+        {
+            switch (toggle)
+            {
+                case AllowToggle.Group:
+                    SwitchGroup(value);
+                    return;
+                case AllowToggle.Observe:
+                    SetAllowObserve(value);
+                    return;
+                case AllowToggle.Trade:
+                    if (AllowTrade != value) SetAllowTrade(value);
+                    break;
+                case AllowToggle.GuildInvite:
+                    if (EnableGuildInvite != value) SetEnableGuildInvite(value);
+                    break;
+                case AllowToggle.GroupRecall:
+                    if (EnableGroupRecall != value) SetEnableGroupRecall(value);
+                    break;
+                case AllowToggle.Marriage:
+                    // Same gate as C.ChangeMarriage: only an unmarried player changes AllowMarriage (still echoed to resync).
+                    if (Info.Married == 0 && AllowMarriage != value)
+                    {
+                        AllowMarriage = value;
+                        ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(value ? ServerTextKeys.YouAllowMarriageRequests : ServerTextKeys.YouBlockMarriageRequests), ChatType.Hint);
+                    }
+                    break;
+                case AllowToggle.LoverRecall:
+                    // Same gate as C.ChangeMarriage: only a married player changes AllowLoverRecall.
+                    if (Info.Married != 0 && AllowLoverRecall != value)
+                    {
+                        AllowLoverRecall = value;
+                        ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(value ? ServerTextKeys.YouAllowRecallFromLover : ServerTextKeys.YouBlockRecallFromLover), ChatType.Hint);
+                    }
+                    break;
+                case AllowToggle.Mentor:
+                    if (AllowMentor != value)
+                    {
+                        AllowMentor = value;
+                        ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(value ? ServerTextKeys.AllowingMentorRequests : ServerTextKeys.BlockingMentorRequests), ChatType.Hint);
+                    }
+                    break;
+                case AllowToggle.FriendRequests:
+                    Info.AllowFriendRequests = value;
+                    break;
+                default:
+                    return;
+            }
+
+            SendAllowToggles();
+        }
+
+        private void SetAllowTrade(bool value)
+        {
+            AllowTrade = value;
+
+            if (AllowTrade)
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.AllowTradeNow), ChatType.System);
+            else
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.NoLongerAllowTrade), ChatType.System);
+        }
+
+        private void SetEnableGuildInvite(bool value)
+        {
+            EnableGuildInvite = value;
+            ReceiveChat(EnableGuildInvite ? GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildInvitesEnabled) : GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildInvitesDisabled), ChatType.Hint);
+        }
+
+        private void SetEnableGroupRecall(bool value)
+        {
+            EnableGroupRecall = value;
+            ReceiveChat(EnableGroupRecall ? GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GroupRecallEnabled) : GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GroupRecallDisabled), ChatType.Hint);
+        }
+
+        /// <summary>The AllowObserve change path (@ALLOWOBSERVE and C.SetAllowToggle): sets, echoes S.AllowObserve and S.AllowToggles.</summary>
+        public void SetAllowObserve(bool value)
+        {
+            AllowObserve = value;
+            Enqueue(new S.AllowObserve { Allow = AllowObserve });
+            SendAllowToggles();
         }
 
         public void LeaveGroup()
@@ -11267,6 +11368,7 @@ namespace Server.MirObjects
             MyGuild.Info.AddLog(GuildLogKind.Join, GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildLogJoined, Name));
             PendingGuildInvite = null;
             EnableGuildInvite = false;
+            SendAllowToggles();
             GuildCanRequestItems = true;
             //refresh guildbuffs
             RefreshStats();

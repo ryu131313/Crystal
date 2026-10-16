@@ -1,0 +1,10 @@
+{
+  "name": "SetAllowToggle",
+  "dir": "client",
+  "id": 172,
+  "hex": "0600AC000801",
+  "fields": {
+    "Toggle": 8,
+    "Value": true
+  }
+}

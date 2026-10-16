@@ -348,6 +348,13 @@ export const ClientPackets = {
    *  requester S.FriendRequestResult. The request must still be pending (60 s). */
   FriendRequestReply: (p: { Name: string; Accept: boolean }) =>
     frame(C.FriendRequestReply, (w) => { w.writeString(p.Name); w.writeBool(p.Accept); }),
+  /** Explicit setter (not a flip) for Player.AllowTrade. The server echoes S.AllowToggles. */
+  ChangeTrade: (p: { AllowTrade: boolean }) => frame(C.ChangeTrade, (w) => w.writeBool(p.AllowTrade)),
+  /** Idempotent setter for one social allow toggle; Toggle = AllowToggle (enums.generated.ts). Undefined values are
+   *  rejected by the server. Group/Observe run the same server paths as C.SwitchGroup / the observe toggle.
+   *  The server echoes S.AllowToggles. */
+  SetAllowToggle: (p: { Toggle: number; Value: boolean }) =>
+    frame(C.SetAllowToggle, (w) => { w.writeU8(p.Toggle); w.writeBool(p.Value); }),
 } as const;
 
 /** GuildTerritoryActionKind (Shared/Enums.cs, byte). Hand-copied: WebRelay/TsEmitter.cs does not emit that enum yet. */

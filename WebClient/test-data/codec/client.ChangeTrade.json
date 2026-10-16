@@ -1,0 +1,9 @@
+{
+  "name": "ChangeTrade",
+  "dir": "client",
+  "id": 46,
+  "hex": "05002E0001",
+  "fields": {
+    "AllowTrade": true
+  }
+}

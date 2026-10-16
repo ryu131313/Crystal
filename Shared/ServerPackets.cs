@@ -7747,4 +7747,35 @@ namespace ServerPackets
             writer.Write(Result);
         }
     }
+
+    /// <summary>
+    /// The player's social allow toggles (phase 2.8): bit (1 << (int)AllowToggle.X) set when that toggle is on.
+    /// Sent at login and after every change of any toggle, from any path (C.SetAllowToggle, the old flip packets, NPC commands).
+    /// </summary>
+    public sealed class AllowToggles : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.AllowToggles; } }
+        public override bool Observable => false;
+
+        public ushort Flags;
+
+        public bool Get(AllowToggle toggle)
+        {
+            return (Flags & (1 << (int)toggle)) != 0;
+        }
+        public void Set(AllowToggle toggle, bool value)
+        {
+            if (value) Flags = (ushort)(Flags | (1 << (int)toggle));
+            else Flags = (ushort)(Flags & ~(1 << (int)toggle));
+        }
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Flags = reader.ReadUInt16();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Flags);
+        }
+    }
 }

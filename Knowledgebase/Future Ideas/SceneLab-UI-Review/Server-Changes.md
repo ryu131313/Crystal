@@ -13,7 +13,7 @@ tests) · **d** = cosmetic or client-side settings (`localStorage` / `Mir2Config
 ## Summary
 
 - The protocol already covers the large majority of the mocks. The web client ports every packet except
-  `S.UserName` and a few client packets (`ChangeTrade`, `ReportIssue`, `RequestUserName`; `S.UserSlotsRefresh`,
+  `S.UserName` and a few client packets (`ReportIssue`, `RequestUserName`; `ChangeTrade` ported 2026-10-16 phase 2.8; `S.UserSlotsRefresh`,
   `DeleteItem`, `PurchaseGuildTerritory` and `RemoveStoragePassword` ported 2026-10-16), so most windows are **client work over existing packets**.
 - The HUD itself (HP/MP, EXP %, level, AC/MAC/DC, bag/weight/gold, buff row with timers, F1-F8 skill row with
   cooldowns, attack-mode and pet-mode slots) is **all class a**. **Belt decision (user, 2026-10-15): keep the 10-slot
@@ -146,7 +146,7 @@ tests) · **d** = cosmetic or client-side settings (`localStorage` / `Mir2Config
 |---|---|---|---|
 | Trade: request, 10 slots + gold, confirm, unlock on change | a | `S.TradeRequest`…`TradeCancel`, `C.Trade*`, `C.DepositTradeItem` | — |
 | Trade partner card (class, level) | a | `S.ObjectPlayer` of the partner in view (partner must face you) | — |
-| Allow trade toggle | a | `C.ChangeTrade` (exists; web client has not ported it) | port it |
+| Allow trade toggle | a | `C.ChangeTrade` (exists; web client has not ported it) | ~~port it~~ **Done 2026-10-16 (phase 2.8)**: ported; the state is echoed by `S.AllowToggles` (AllowTrade was saved but never sent) |
 | Trade chat | a | whisper | — |
 | Rental: whole flow | a | `C.ItemRental*`, `S.ItemRental*`, `S.GetRentedItems`, `C.ConfirmItemRental` | — |
 | Market browse by category / search / usable by me | a | `C.MarketSearch` (Match, Type, Usermode, Shape range, MarketType), `C.MarketPage`/`Refresh` | — |
@@ -253,6 +253,8 @@ Prefer **new** packets over changing existing ones: existing packets are already
 | ~~`SetProfile`~~ **Done 2026-10-16 (phase 2.5)**, id 165: cut to `MaxChatLength`, control chars removed, trimmed, capped at 120, ignored while chat-banned, 10 s cooldown (`ProfileCooldown`), acked with `ProfileUpdated`. No server word filter exists (chat filtering is client-side), so none is applied | C→S | Text | | |
 | ~~`FriendRequestReply`~~ **Done 2026-10-16 (phase 2.7)**, id 171 | C→S | Name, Accept | | |
 | ~~(changed) `ClientFriend` in `S.FriendUpdate`~~ **Done 2026-10-16 (phase 2.7)**: `LastSeen` = `LastLogoutDate.ToBinary()` (0 online) | S→C | + Class, Level, Gender, GuildName, LastSeen (no `FriendDetails` packet needed) | | |
+| ~~`AllowToggles`~~ **Done 2026-10-16 (phase 2.8)**, id 300: bit `1 << (int)AllowToggle.X` per toggle (new shared enum `AllowToggle : byte`, explicit values Group 0 … FriendRequests 8); sent at login after `S.SwitchGroup` and after every toggle change (`PlayerObject.SendAllowToggles()`) | S→C | ushort Flags | false | |
+| ~~`SetAllowToggle`~~ **Done 2026-10-16 (phase 2.8)**, id 172: idempotent explicit setter (the old flip packets stay for the desktop); Group / Observe reuse `SwitchGroup` / `SetAllowObserve`; FriendRequests sets `CharacterInfo.AllowFriendRequests`; Marriage only when unmarried and LoverRecall only when married (the `C.ChangeMarriage` gate); undefined values rejected; always answered by `S.AllowToggles` | C→S | `AllowToggle` byte, bool Value | | |
 | ~~`SellItems` / `RepairItems`~~ **Done 2026-10-16 (phase 2.1)**, ids 153 / 154 | C→S | list of (UniqueID, Count) / Special + list of UniqueID; per-item checks and replies of the existing handlers | | |
 | ~~`CollectAllParcels` / `ReadMails`~~ **Done 2026-10-16 (phase 2.1)**, ids 155 / 156 | C→S | — / list of MailID | | |
 | ~~`SortStorage` / `StackStorage`~~ → `SortItems` **Done 2026-10-16 (phase 2.1)**, id 157 | C→S | Grid (`MirGridType` byte: Inventory / Storage), Mode byte | | |
@@ -269,6 +271,8 @@ backup note in Runbook §3.1; fixtures `Server.Persistence.Tests/Fixtures/v119`)
 events that use them come in phases 2.4-2.6. Also persisted in the same bump: the social toggles `EnableGroupRecall`,
 `EnableGuildInvite`, `AllowMarriage`, `AllowLoverRecall`, `AllowMentor` (were session-only `PlayerObject` fields, reset on
 login; now properties over `CharacterInfo`) and `AllowFriendRequests` (default true, for the Friends requests below).
+**Phase 2.8 (2026-10-16):** all of them, plus `AllowGroup`, `AllowTrade` and `AllowObserve`, are echoed to the client by
+`S.AllowToggles` and settable by `C.SetAllowToggle`.
 
 | Field | Model / file | Used by | Notes |
 |---|---|---|---|
@@ -285,7 +289,7 @@ Not recommended: storage "stored by" (per-`UserItem` field), fishing journal / g
 
 ## Friends: requests and details (user request 2026-10-16)
 
-**Done 2026-10-16 (phase 2.7), server + protocol + web codec** (details: `Knowledgebase/Server/server.md` §2.5 "Friends"). As planned: online-only requests (60 s, cap 10 per target, cleared at logout), accept = both sides, remove = both sides, block instant and one-sided (also drops you from their list), `NotifyFriendsChanged()` at login / logout / level up (10 s throttle) / guild create, join, leave, kick; `Settings.FriendRequestsEnabled` = true. **Deviations:** `FriendRequestResult` is sent (with a chat line) and gained `NotAccepting` (5); `AllowFriendRequests` is honoured but **no packet sets it yet**; blocking an existing friend now converts the entry to a block (was `PlayerAlreadyAdded`); adding someone who has a live request to you = accept (the desktop's only way to accept); `LastSeen` is `DateTime.ToBinary()`; level-down refresh not covered. **Not done:** desktop Yes/No box and `FriendDialog` columns (user: web only); web Requests tab / UI. **Open risk:** `S.FriendUpdate` has no row cap and can exceed 65 535 bytes with long memos.
+**Done 2026-10-16 (phase 2.7), server + protocol + web codec** (details: `Knowledgebase/Server/server.md` §2.5 "Friends"). As planned: online-only requests (60 s, cap 10 per target, cleared at logout), accept = both sides, remove = both sides, block instant and one-sided (also drops you from their list), `NotifyFriendsChanged()` at login / logout / level up (10 s throttle) / guild create, join, leave, kick; `Settings.FriendRequestsEnabled` = true. **Deviations:** `FriendRequestResult` is sent (with a chat line) and gained `NotAccepting` (5); `AllowFriendRequests` is honoured; ~~no packet sets it yet~~ **since phase 2.8 it is set by `C.SetAllowToggle { FriendRequests }` and echoed by `S.AllowToggles`** (the desktop has no UI for it); blocking an existing friend now converts the entry to a block (was `PlayerAlreadyAdded`); adding someone who has a live request to you = accept (the desktop's only way to accept); `LastSeen` is `DateTime.ToBinary()`; level-down refresh not covered. **Not done:** desktop Yes/No box and `FriendDialog` columns (user: web only); web Requests tab / UI. **Open risk:** `S.FriendUpdate` has no row cap and can exceed 65 535 bytes with long memos.
 
 The user wants accept / decline requests plus class, level and guild on every friend (everything the mock shows
 except location, status message, favourites and recent activity). **Feasible and small; no saved-format change.**
@@ -402,7 +406,7 @@ Tests: `Server.Persistence.Tests` (synthetic characters built with 46 cells, so 
 2. **Done 2026-10-16 (phase 2.1)** **Safety before bulk buttons:** `SellItems`, `RepairItems`, `CollectAllParcels`, `ReadMails`, `SortStorage` /
    `StackStorage`; fix the `C.PurchaseGuildTerritory` factory case.
 3. **Done 2026-10-16 (phase 2.2)** **`S.ServerRules`** (id 281; new `[Game] MapDetailsEnabled` / `MaxFriends` settings, in the web admin catalogue) (unblocks refine / awakening / mentor / marriage / mail / territory panels).
-4. **Class b detail packets**, one small commit each (**done 2026-10-16, phase 2.4:** `PoisonStatus`, `GroupMemberStatus`, `SelectDetails`, `LoginFailed`, `HeroSpellToggle`, `MapDetails`; **phase 2.5:** `GuildMemberDetails`, `GuildWarList`, `GuildLog`, `RankingsDetail`, guild board, `MentorDetails`, `FindMentor`, `GuildTerritoryAction`, profiles; **phase 2.6:** `GameshopGift`, `MarketSearchEx`, `MarketPriceHistory`, `SentMail`): `PoisonStatus`, `GroupMemberStatus`, `GuildMemberDetails` +
+4. **Class b detail packets**, one small commit each (**done 2026-10-16, phase 2.4:** `PoisonStatus`, `GroupMemberStatus`, `SelectDetails`, `LoginFailed`, `HeroSpellToggle`, `MapDetails`; **phase 2.5:** `GuildMemberDetails`, `GuildWarList`, `GuildLog`, `RankingsDetail`, guild board, `MentorDetails`, `FindMentor`, `GuildTerritoryAction`, profiles; **phase 2.6:** `GameshopGift`, `MarketSearchEx`, `MarketPriceHistory`, `SentMail`; **phase 2.8:** `AllowToggles` / `SetAllowToggle` + the `C.ChangeTrade` web port): `PoisonStatus`, `GroupMemberStatus`, `GuildMemberDetails` +
    `GuildWarList`, `RankingsDetail`, `SelectDetails`, `LoginFailed`, `HeroSpellToggle`, `MentorDetails` /
    `FindMentor`, `GameshopGift`, `GuildTerritoryAction`, `MarketSearchEx`, `MapDetails` (behind a setting),
    friend requests + `ClientFriend` details (see "Friends: requests and details").

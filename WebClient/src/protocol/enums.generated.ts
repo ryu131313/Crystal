@@ -302,6 +302,7 @@ export const ServerPacketIds = {
   SentMail: 297,
   FriendRequest: 298,
   FriendRequestResult: 299,
+  AllowToggles: 300,
 } as const;
 export type ServerPacketIds = (typeof ServerPacketIds)[keyof typeof ServerPacketIds];
 export const ServerPacketIdsName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(ServerPacketIds).map(([k, v]) => [v, k]));
@@ -479,6 +480,7 @@ export const ClientPacketIds = {
   RequestSentMail: 169,
   HideSentMail: 170,
   FriendRequestReply: 171,
+  SetAllowToggle: 172,
 } as const;
 export type ClientPacketIds = (typeof ClientPacketIds)[keyof typeof ClientPacketIds];
 export const ClientPacketIdsName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(ClientPacketIds).map(([k, v]) => [v, k]));
@@ -1877,4 +1879,18 @@ export const HeroBehaviour = {
 } as const;
 export type HeroBehaviour = (typeof HeroBehaviour)[keyof typeof HeroBehaviour];
 export const HeroBehaviourName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(HeroBehaviour).map(([k, v]) => [v, k]));
+
+export const AllowToggle = {
+  Group: 0,
+  Trade: 1,
+  Observe: 2,
+  GuildInvite: 3,
+  GroupRecall: 4,
+  Marriage: 5,
+  LoverRecall: 6,
+  Mentor: 7,
+  FriendRequests: 8,
+} as const;
+export type AllowToggle = (typeof AllowToggle)[keyof typeof AllowToggle];
+export const AllowToggleName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(AllowToggle).map(([k, v]) => [v, k]));
 

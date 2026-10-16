@@ -1157,10 +1157,19 @@ const decoders = {
   FriendRequest: (r: Reader) => ({ Name: r.readString(), Class: r.readU8(), Level: r.readU16() }),
   /** S.FriendRequestResult (private): the outcome of this player's request to Name; Result = FriendRequestResults. */
   FriendRequestResult: (r: Reader) => ({ Name: r.readString(), Result: r.readU8() }),
+  /** S.AllowToggles (private): every social allow toggle as one bit mask; bit (1 << AllowToggle.X) set = on.
+   *  Sent at login and after any toggle change (C.SwitchGroup, C.ChangeTrade, C.SetAllowToggle, NPC @ALLOW* commands, ...).
+   *  Test a bit with allowToggleOn(Flags, AllowToggle.Trade). */
+  AllowToggles: (r: Reader) => ({ Flags: r.readU16() }),
 } satisfies Record<string, (r: Reader) => object>;
 
 /** S.FriendRequestResult.Result codes (byte constants on the C# class, not an enum). */
 export const FriendRequestResults = { Accepted: 0, Declined: 1, Expired: 2, Offline: 3, ListFull: 4, NotAccepting: 5 } as const;
+
+/** True when S.AllowToggles.Flags has the bit for toggle (an AllowToggle value from enums.generated.ts). */
+export function allowToggleOn(flags: number, toggle: number): boolean {
+  return (flags & (1 << toggle)) !== 0;
+}
 
 type Decoders = typeof decoders;
 export type ServerPacketName = keyof Decoders;

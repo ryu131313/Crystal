@@ -299,6 +299,7 @@ S	296	MarketPriceHistory	MarketPriceHistory	1	3691F1B2
 S	297	SentMail	SentMail	0	BC3146B7
 S	298	FriendRequest	FriendRequest	0	AFCF382A
 S	299	FriendRequestResult	FriendRequestResult	0	85399F49
+S	300	AllowToggles	AllowToggles	0	E747B3D2
 C	0	ClientVersion	ClientVersion	1	BA76D321
 C	1	Disconnect	Disconnect	1	E3B0C442
 C	2	KeepAlive	KeepAlive	1	1AC00927
@@ -471,3 +472,4 @@ C	168	MarketPriceHistory	MarketPriceHistory	1	732C5818
 C	169	RequestSentMail	RequestSentMail	1	E3B0C442
 C	170	HideSentMail	HideSentMail	1	F1E2ECCB
 C	171	FriendRequestReply	FriendRequestReply	1	C4B5AD13
+C	172	SetAllowToggle	SetAllowToggle	1	07E45C09

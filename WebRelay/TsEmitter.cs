@@ -18,6 +18,7 @@ internal static class TsEmitter
         typeof(AttackMode), typeof(PetMode), typeof(OutputMessageType), typeof(ItemSet), typeof(BindMode), typeof(SpecialItemMode), typeof(StatFormula),
         typeof(RequiredClass), typeof(RequiredGender), typeof(ItemGrade), typeof(MarketItemType), typeof(MarketPanelType), typeof(MarketCollectionMode), typeof(AwakeType), typeof(QuestState), typeof(QuestType), typeof(QuestIcon),
         typeof(IntelligentCreatureType), typeof(IntelligentCreaturePickupMode), typeof(MountSlot), typeof(FishingSlot), typeof(HeroSpawnState), typeof(HeroBehaviour),
+        typeof(AllowToggle),
     };
 
     public static int Emit(string outFile)

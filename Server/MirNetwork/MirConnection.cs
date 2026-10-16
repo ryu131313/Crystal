@@ -930,6 +930,9 @@ namespace Server.MirNetwork
                 case (short)ClientPacketIds.FriendRequestReply:
                     FriendRequestReply((C.FriendRequestReply)p);
                     break;
+                case (short)ClientPacketIds.SetAllowToggle:
+                    SetAllowToggle((C.SetAllowToggle)p);
+                    break;
                 default:
                     MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.InvalidPacketReceived), p.Index));
                     break;
@@ -1651,6 +1654,7 @@ namespace Server.MirNetwork
             if (Stage != GameStage.Game) return;
 
             Player.AllowTrade = p.AllowTrade;
+            Player.SendAllowToggles();
         }
         private void Attack(C.Attack p)
         {
@@ -2014,6 +2018,8 @@ namespace Server.MirNetwork
                 else
                     Player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.YouBlockRecallFromLover), ChatType.Hint);
             }
+
+            Player.SendAllowToggles();
         }
 
         private void DivorceRequest(C.DivorceRequest p)
@@ -2053,6 +2059,8 @@ namespace Server.MirNetwork
                 Player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.AllowingMentorRequests), ChatType.Hint);
                 else
                     Player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.BlockingMentorRequests), ChatType.Hint);
+
+            Player.SendAllowToggles();
         }
 
         private void CancelMentor(C.CancelMentor p)
@@ -2703,6 +2711,14 @@ namespace Server.MirNetwork
             if (Stage != GameStage.Game) return;
 
             Player.FriendRequestReply(p.Name, p.Accept);
+        }
+
+        private void SetAllowToggle(C.SetAllowToggle p)
+        {
+            if (Stage != GameStage.Game) return;
+            if (!Enum.IsDefined(typeof(AllowToggle), p.Toggle)) return;
+
+            Player.SetAllowToggle(p.Toggle, p.Value);
         }
     }
 

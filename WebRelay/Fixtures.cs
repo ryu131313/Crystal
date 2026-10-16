@@ -567,6 +567,11 @@ internal static class Fixtures
         };
         yield return new S.FriendRequest { Name = "Ally 盟友", Class = MirClass.Archer, Level = 65535 };
         yield return new S.FriendRequestResult { Name = "Sage", Result = S.FriendRequestResult.NotAccepting };
+        var allowToggles = new S.AllowToggles();
+        allowToggles.Set(AllowToggle.Group, true);
+        allowToggles.Set(AllowToggle.Trade, true);
+        allowToggles.Set(AllowToggle.FriendRequests, true);
+        yield return allowToggles;
     }
 
     private static IEnumerable<Packet> ClientSamples()
@@ -754,6 +759,8 @@ internal static class Fixtures
         yield return new C.RequestSentMail();
         yield return new C.HideSentMail { MailID = 9_000_000_000_000UL };
         yield return new C.FriendRequestReply { Name = "Ally 盟友", Accept = true };
+        yield return new C.ChangeTrade { AllowTrade = true };
+        yield return new C.SetAllowToggle { Toggle = AllowToggle.FriendRequests, Value = true };
     }
 
     public static int Emit(string dir)

@@ -453,6 +453,8 @@ public abstract class Packet
                 return new C.HideSentMail();
             case (short)ClientPacketIds.FriendRequestReply:
                 return new C.FriendRequestReply();
+            case (short)ClientPacketIds.SetAllowToggle:
+                return new C.SetAllowToggle();
             default:
                 return null;
         }
@@ -522,6 +524,8 @@ public abstract class Packet
                 return new S.FriendRequest();
             case (short)ServerPacketIds.FriendRequestResult:
                 return new S.FriendRequestResult();
+            case (short)ServerPacketIds.AllowToggles:
+                return new S.AllowToggles();
             case (short)ServerPacketIds.Login:
                 return new S.Login();
             case (short)ServerPacketIds.LoginBanned:

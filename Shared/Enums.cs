@@ -1733,6 +1733,7 @@ public enum ServerPacketIds : short
     SentMail, // the player's sent mail still in the recipients' boxes, reply to C.RequestSentMail / C.HideSentMail (phase 2.6); append-only
     FriendRequest, // someone online asks to be your friend; reply C.FriendRequestReply (phase 2.7); append-only
     FriendRequestResult, // outcome of a friend request this player sent: accepted / declined / expired / ... (phase 2.7); append-only
+    AllowToggles, // the player's social allow toggles as AllowToggle bit flags, at login and after every change (phase 2.8); append-only
 }
 
 public enum ClientPacketIds : short
@@ -1916,6 +1917,7 @@ public enum ClientPacketIds : short
     RequestSentMail, // phase 2.6; append-only
     HideSentMail, // phase 2.6; append-only
     FriendRequestReply, // phase 2.7; append-only
+    SetAllowToggle, // phase 2.8; append-only
 }
 
 /// <summary>C.GuildTerritoryAction kinds (phase 2.5). Sent by byte value: explicit values, append only, never renumber.</summary>
@@ -1926,6 +1928,23 @@ public enum GuildTerritoryActionKind : byte
     ListForSale = 2,
     CancelSale = 3,
     Teleport = 4,
+}
+
+/// <summary>
+/// A player's social allow toggles (phase 2.8): the bit (1 << value) of S.AllowToggles.Flags, and the C.SetAllowToggle target.
+/// Sent by byte value and used as a bit index of a ushort: explicit values, append only (max 15), never renumber.
+/// </summary>
+public enum AllowToggle : byte
+{
+    Group = 0,
+    Trade = 1,
+    Observe = 2,
+    GuildInvite = 3,
+    GroupRecall = 4,
+    Marriage = 5,
+    LoverRecall = 6,
+    Mentor = 7,
+    FriendRequests = 8,
 }
 
 public enum ConquestType : byte

@@ -1,0 +1,9 @@
+{
+  "name": "AllowToggles",
+  "dir": "server",
+  "id": 300,
+  "hex": "06002C010301",
+  "fields": {
+    "Flags": 259
+  }
+}

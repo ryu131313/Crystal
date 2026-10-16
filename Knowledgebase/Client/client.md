@@ -573,7 +573,7 @@ private void ObjectTurn(S.ObjectTurn p)
 
 #### Recipe — add a server→client packet (client half; server half in `Knowledgebase/Server/server.md`)
 
-1. `Shared/Enums.cs`: append the member at the **end** of `ServerPacketIds` (current last: `FriendRequestResult` = 299, 2026-10-16; re-count before relying on an ordinal).
+1. `Shared/Enums.cs`: append the member at the **end** of `ServerPacketIds` (current last: `AllowToggles` = 300, 2026-10-16; re-count before relying on an ordinal).
 2. `Shared/ServerPackets.cs`:
    ```csharp
    public sealed class MyThing : Packet
@@ -587,10 +587,12 @@ private void ObjectTurn(S.ObjectTurn p)
    Read/Write in identical order and types. Keep < 64 KB. Override `Observable => false` if spectators must not receive it.
 3. `Shared/Packet.cs` `GetServerPacket` switch: `case (short)ServerPacketIds.MyThing: return new S.MyThing();` — missing ⇒ the client discards its whole receive buffer.
 4. `GameScene.ProcessPacket`: `case` + `private void MyThing(S.MyThing p)` (template above), or `LoginScene`/`SelectScene`/`MirScene` base if needed outside the game.
-5. Client → server is the mirror: `ClientPacketIds` (append; current last `FriendRequestReply` = 171, 2026-10-16), `Shared/ClientPackets.cs`, `GetClientPacket` case, server `MirConnection.ProcessPacket` handler; client sends `Network.Enqueue(new C.X { ... })`.
+5. Client → server is the mirror: `ClientPacketIds` (append; current last `SetAllowToggle` = 172, 2026-10-16), `Shared/ClientPackets.cs`, `GetClientPacket` case, server `MirConnection.ProcessPacket` handler; client sends `Network.Enqueue(new C.X { ... })`.
 6. Compile both `Client\Client.csproj` and `Server\Server.Library.csproj`; deploy client + server together.
 
 **Friends on the desktop (2026-10-16, Scene Lab UI phase 2.7; user decision: requests are web only).** The server now turns `C.AddFriend { Blocked = false }` into an online friend request, and removing a friend removes both sides. The desktop has **no** handler for `S.FriendRequest` / `S.FriendRequestResult` and never sends `C.FriendRequestReply` (no `MirScene.ProcessPacket` case, so they are dropped there). A desktop player sees only the chat lines ("X wants to be your friend.", "... has been sent ...") and can accept only by adding the requester back while the request is pending (the server treats that as an accept). `ClientFriend` (in `S.FriendUpdate`) grew `Class`, `Level`, `Gender`, `GuildName`, `LastSeen` after `Online`; `FriendDialog` ignores them but decodes them through `Shared.dll`, so the desktop must ship from the same commit as the server. A desktop Yes/No box and extra `FriendDialog` columns are listed in `Knowledgebase/Future Ideas/SceneLab-UI-Review/Server-Changes.md` ("Friends: requests and details") and are not planned.
+
+**Allow toggles on the desktop (2026-10-16, Scene Lab UI phase 2.8; web only).** The server now sends `S.AllowToggles` (Observable false) at login and after every social toggle change; the desktop has no `MirScene.ProcessPacket` case, so it is dropped there, and it never sends `C.SetAllowToggle`. Its existing flips (`C.SwitchGroup`, `C.ChangeTrade`, `C.ChangeMarriage`, `C.AllowMentor`, `@` commands) behave as before and still get `S.SwitchGroup` / `S.AllowObserve`.
 
 ### 4.6 MapObject / Rendering Pattern
 
