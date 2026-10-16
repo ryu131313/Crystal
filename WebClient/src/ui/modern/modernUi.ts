@@ -55,6 +55,7 @@ import { HeroFrame } from "./hud/heroFrame.ts";
 import { QuestTracker } from "./hud/tracker.ts";
 import { onWindowRegistered, windowCatalog, type ModernUiHost, type WindowEntry } from "./windowRegistry.ts";
 import "./windows/index.ts";
+import { showTopic } from "./windows/help.ts";
 
 export { registerWindow, type ModernUiHost, type ModernWindowFactory, type WindowOptions } from "./windowRegistry.ts";
 
@@ -158,7 +159,10 @@ export function createModernUi(ctx: GameUiContext): GameUi {
   };
 
   // — The window catalog (windowRegistry.ts) into this game's runtime —
-  const host: ModernUiHost = { rt, ctx, drag, cells, tooltip, chat, hud, events, packets, labelContext, openWindow };
+  const host: ModernUiHost = {
+    rt, ctx, drag, cells, tooltip, chat, hud, events, packets, labelContext, openWindow,
+    help: (topic = null) => showTopic(host, topic),
+  };
   /** Key -> the removal of its entry's watch hook (server-opened windows). */
   const watches = new Map<string, () => void>();
   const add = (key: string, e: WindowEntry) => {

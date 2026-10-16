@@ -48,6 +48,9 @@ export interface ModernUiHost {
   labelContext(): ItemLabelContext;
   /** Opens / closes / toggles (show undefined) a window by key; false when nothing is registered for it. */
   openWindow(key: string, show?: boolean): boolean;
+  /** Opens the help window on a topic: a HelpDialog page title ("Quests", "Mounts", "Purchasing", ...) or a topic id,
+   *  null / unknown = the home page (windows/help.ts showTopic). False when no help window is registered. */
+  help(topic?: string | null): boolean;
 }
 
 /** Builds a window on its first open (once per game). */

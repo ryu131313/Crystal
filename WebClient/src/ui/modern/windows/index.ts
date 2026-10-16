@@ -6,3 +6,11 @@ import "./inventory.ts";
 import "./character.ts";
 import "./storage.ts";
 import "./inspect.ts";
+
+// Phase 3c: skills, options, key bindings, help (showTopic: ModernUiHost.help) and the big map (the minimap's World map
+// button and B open it).
+import "./skills.ts";
+import "./options.ts";
+import "./keybinds.ts";
+import "./help.ts";
+import "./bigMap.ts";

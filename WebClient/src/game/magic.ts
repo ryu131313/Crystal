@@ -24,6 +24,12 @@ interface NextMagic { magic: UserMagic; location: WirePoint; object: MapObj | nu
 
 const PASSIVE = new Set<number>([Spell.Fencing, Spell.FatalSword, Spell.MPEater, Spell.Hemorrhage, Spell.SpiritSword, Spell.Slaying, Spell.Focus, Spell.Meditation]);
 
+/** GameScene.UseSpell's passive list: these spells do nothing when their key is pressed (they still take a key, as on
+ *  the desktop). */
+export function isPassiveSpell(spell: number): boolean {
+  return PASSIVE.has(spell);
+}
+
 const ENEMY_TARGET = new Set<number>([
   Spell.FireBall, Spell.GreatFireBall, Spell.ElectricShock, Spell.Poisoning, Spell.ThunderBolt, Spell.FlameDisruptor, Spell.SoulFireBall, Spell.TurnUndead,
   Spell.FrostCrunch, Spell.Vampirism, Spell.Revelation, Spell.Entrapment, Spell.Hallucination, Spell.DarkBody, Spell.FireBounce, Spell.MeteorShower,
@@ -397,6 +403,16 @@ export class Magic {
     }
     this.host.send(ClientPackets.Magic({ ObjectID: this.heroId, Spell: s, Direction: dir, TargetID: target?.id ?? 0, Location: location, SpellTargetLock: false }));
     this.casted(); // MapControl.UseMagic: GameScene.LogTime is set before the actor == User branch, so hero casts lock log-out too
+  }
+
+  /** AssignKeyPanel.SaveButton with Actor = User (keys 1-16, 0 = none): one key per spell, so the key is taken from
+   *  whichever spell had it; C.MagicKey, then the new key is set at once (the server sends no answer). Shared by the
+   *  classic MagicBar.assign and the new UI's Skills window; the subscribe() listeners re-render both. */
+  assignKey(m: UserMagic, key: number): void {
+    for (const other of this.magics) if (other.Key === key) other.Key = 0;
+    this.host.send(ClientPackets.MagicKey({ Spell: m.Spell, Key: key, OldKey: m.Key }));
+    m.Key = key;
+    this.changed();
   }
 
   /** AssignKeyPanel with Actor = Hero (keys 17-24): one key per spell, sent as C.MagicKey (the server picks the hero for keys > 16). */

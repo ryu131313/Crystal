@@ -5,7 +5,6 @@
 // CharacterDialog on its skill page, R (KeybindOptions.Skillbar) shows / hides the bars. The hero's spells
 // (keys 17-24, Shift+F1-F8) have their own window: heroMagicWindow.ts.
 
-import { ClientPackets } from "../protocol/client.ts";
 import type { Magic, UserMagic } from "../game/magic.ts";
 import { gameSignal } from "../game/scope.ts";
 import { SoundList } from "../game/audio.ts";
@@ -182,14 +181,13 @@ function useSpellKey(key: number): void {
 
 export class MagicBar {
   private readonly magic: Magic;
-  private readonly send: (f: Uint8Array) => void;
   private readonly bars: SkillBar[];
   /** Settings.SkillBar. */
   private showBars = true;
 
-  constructor(_stage: HTMLElement, magic: Magic, send: (f: Uint8Array) => void) {
+  /** `_send` is unused since C.MagicKey moved into Magic.assignKey (kept for classicUi.ts). */
+  constructor(_stage: HTMLElement, magic: Magic, _send: (f: Uint8Array) => void) {
     this.magic = magic;
-    this.send = send;
     registerUserWindow("magic", this);
     this.bars = [new SkillBar(magic, 0), new SkillBar(magic, 1)];
     magic.subscribe(() => this.render());
@@ -223,12 +221,10 @@ export class MagicBar {
     else ch.toggle(false);
   }
 
-  /** AssignKeyPanel.SaveButton: one key per spell; the key is taken from whichever spell had it. */
+  /** AssignKeyPanel.SaveButton: one key per spell; the key is taken from whichever spell had it (Magic.assignKey,
+   *  shared with the new UI; its change event re-renders the bars through the subscribe() above). */
   assign(m: UserMagic, key: number): void {
-    for (const other of this.magic.magics) if (other.Key === key) other.Key = 0;
-    this.send(ClientPackets.MagicKey({ Spell: m.Spell, Key: key, OldKey: m.Key }));
-    m.Key = key;
-    this.render();
+    this.magic.assignKey(m, key);
   }
 
   /** SkillBarDialog.Update for both bars + GameScene.DialogProcess (Settings.SkillBar: Show only when HasSkill). */
