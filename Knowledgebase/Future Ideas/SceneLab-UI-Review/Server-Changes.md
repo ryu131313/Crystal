@@ -48,9 +48,9 @@ tests) · **d** = cosmetic or client-side settings (`localStorage` / `Mir2Config
 | Buff row with countdowns | a | `S.AddBuff` / `RemoveBuff` / `PauseBuff` (`ClientBuff.ExpireTime`, `Infinite`, `Paused`, `Stats`) | — |
 | Skill row F1-F8, cooldown sweep, "armed" toggle | a | `ClientMagic` (Key, Delay, CastTime, Level, Experience), `S.MagicDelay`, `C.MagicKey`, `C.SpellToggle`/`S.SpellToggle` | — |
 | Attack-mode slot (left) / pet-mode slot (right) | a | `C.ChangeAMode`/`S.ChangeAMode`, `C.ChangePMode`/`S.ChangePMode` (incl. `PetMode.FocusMasterTarget`) | — |
-| Belt, 6 slots | a | `Inventory[0..5]` (client `UserObject.BeltIdx = 6`), `C.MoveItem`/`UseItem`/`EquipItem` | — |
+| Belt, 8 slots (6 until phase 2.9, 2026-10-16) | a | `Inventory[0..7]` (client `UserObject.BeltIdx = 8`; the desktop belt bar shows 0-5 only), `C.MoveItem`/`UseItem`/`EquipItem` | — |
 | Belt slots 9-0 = hero potions (**kept, user 2026-10-15**) | a | Hero belt `HeroInfo.Inventory[0..1]` (client `HeroBeltIdx = 2`, desktop `HeroBeltDialog`); `C.UseItem { Grid = HeroInventory }` → `MirConnection.UseItem` → `HeroObject.UseItem` (refused while the hero is dead); `C.MoveItem`/`TransferHeroItem` to fill them; `S.HeroInformation` sends the hero bag | Client: draw the hero's two belt cells, grey them out when no hero is summoned, accept only potions (the server does not restrict the cell type) |
-| Belt slots 7-8 = player belt cells 7-8 (**proper cells, user 2026-10-16**) | b (constants; no saved-format change, user DB wiped) | Belt = `Inventory[0..5]` today; `CharacterInfo.Inventory` 46 → `ResizeInventory` 54…86; `PlayerObject.cs` ~L3682 `(Inventory.Length - 46) / 4`; client `BeltIdx = 6` | Grow the belt to 8 cells: see "Belt: 8 player cells" below |
+| Belt slots 7-8 = player belt cells 7-8 (**proper cells, user 2026-10-16**) | b (constants; no saved-format change, user DB wiped) | Belt = `Inventory[0..5]` today; `CharacterInfo.Inventory` 46 → `ResizeInventory` 54…86; `PlayerObject.cs` ~L3682 `(Inventory.Length - 46) / 4`; client `BeltIdx = 6` | Grow the belt to 8 cells: see "Belt: 8 player cells" below **Done 2026-10-16 (phase 2.9).** |
 | Belt takes gear for a quick swap | a | Server does not restrict belt cells by type (desktop client does); `C.EquipItem` swaps the worn item back to the source cell | — (client relaxes its own check) |
 | Durability strip (amber/red/broken) | a | `S.DuraChanged`, `UserItem.CurrentDura/MaxDura` | — |
 | Poison debuff row **with timers** | **b** | `S.Poisoned` carries only the `PoisonType` flags; `S.ObjectPoisoned` likewise | `S.PoisonStatus` (per poison: type, ms left, value) **Done 2026-10-16 (phase 2.4).** |
@@ -340,6 +340,14 @@ friend requests" toggle.
 
 ## Belt: 8 player cells (user decision 2026-10-16)
 
+**Done 2026-10-16 (phase 2.9).** Server: `CharacterInfo.Inventory` 48, `ResizeInventory` `== 48` (+8) / `>= 88`, `@ADDINVENTORY`
+`- 48`, `HumanObject.BeltSize` 8, auto-fill bands **unchanged** (potions/scrolls 0-3, amulets 4-5; cells 7-8 by hand
+only), web admin `SecondBagStart` 48 + slot names, `PlayerInfoForm`. Territory owners need no reset: deleting
+`Guilds\*.mgd` clears them (see Runbook §3.2 for the full wipe list). Desktop: compat fix only (`BeltIdx` 8, bag grid
+offsets), its belt bar keeps 6 cells and the `KeybindOptions` are unchanged. Web: `BELT_IDX` 8, 8-cell classic belt
+bar, keys 1-8 = `Belt1..Belt8`, web-only `HeroBelt1/2` (+`Alt`) on 9 / 0. No packets, no `Envir.Version` bump. The
+table below is the original plan.
+
 The HUD belt is 10 slots: keys 1-8 are the player's belt (`Inventory[0..7]`), keys 9-0 the hero's belt (hero
 `Inventory[0..1]`, unchanged). Growing the player belt 6 → 8 keeps the bag at 40 + the Bag II steps, so every
 "46" becomes "48" and every "86" becomes "88". **No migration:** the user DB is wiped when this ships. The saved format
@@ -412,6 +420,6 @@ Tests: `Server.Persistence.Tests` (synthetic characters built with 46 cells, so 
    friend requests + `ClientFriend` details (see "Friends: requests and details").
 5. **One class-c bundle (Version 119)** only for the fields the user keeps: `PlayTime`, `ProfileText`, mail
    `SenderIndex`, guild log, market sales log, `DealPrice`.
-6. **With the user-DB wipe:** the 8-cell player belt (constants only, "Belt: 8 player cells").
+6. **Done 2026-10-16 (phase 2.9)** **With the user-DB wipe:** the 8-cell player belt (constants only, "Belt: 8 player cells").
 7. **Defer / drop:** group loot rules, guild alliances, storage "stored by", fish sizes,
    relationship memories / letters, shop top-up.

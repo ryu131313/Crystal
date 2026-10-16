@@ -205,7 +205,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   const doors = new Doors();
   /** MapControl.AutoPath / CurrentPath: walking a path found by a big-map click. */
   let autoPath: WirePoint[] | null = null;
-  /** The hero's bag, belt (7 / 8), equipment and auto-pot (heroItems.ts). */
+  /** The hero's bag, belt (9 / 0), equipment and auto-pot (heroItems.ts). */
   const heroItems = new HeroItems(hero, inventory, (f) => session.send(f));
   /** GameScene.SelectedCell / PickedUpGold (itemPick.ts), shared by the UIs. */
   const itemPick = new ItemPick();
@@ -1119,9 +1119,15 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
       else if (user && loc && canUseSpell(user)) magic.useSpell(i + 1, loc, mouseObject(), mouseDirection());
       return;
     }
-    // Belt keys 1-6 / NumPad1-6 (KeybindOptions.Belt1..6 / Belt1Alt..6Alt -> BeltDialog.Grid[i].UseItem)
+    // Belt keys 1-8 / NumPad1-8 (KeybindOptions.Belt1..8 / Belt1Alt..8Alt -> BeltDialog.Grid[i].UseItem; BeltIdx 8)
     for (let i = 0; i < BELT_IDX; i++) {
       if (matchesAny(e, (KeybindOptions.Belt1 + i * 2) as KeybindOption, (KeybindOptions.Belt1Alt + i * 2) as KeybindOption)) inventory.use(i, now());
+    }
+    // Web-only hero belt keys 9 / 0 (KeybindOptions.HeroBelt1 / HeroBelt2 + Alt -> HeroBeltDialog.Grid[0/1].UseItem;
+    // the desktop's Belt7 / Belt8 hero use, moved because those keys are the player's belt cells 7-8 now)
+    if (hero.info) {
+      if (matchesAny(e, KeybindOptions.HeroBelt1, KeybindOptions.HeroBelt1Alt)) heroItems.use(0, now());
+      if (matchesAny(e, KeybindOptions.HeroBelt2, KeybindOptions.HeroBelt2Alt)) heroItems.use(1, now());
     }
   });
   const SET_AMODE: [KeybindOption, AttackMode][] = [[KeybindOptions.AttackmodePeace, AttackMode.Peace], [KeybindOptions.AttackmodeGroup, AttackMode.Group],

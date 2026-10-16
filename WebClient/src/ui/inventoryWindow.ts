@@ -114,8 +114,10 @@ function itemSound(type: number): number {
 }
 
 const UI_32BIT = "UI_32bit"; // Libraries.UI_32bit
-const INVENTORY_BASE = 46; // UserObject.Inventory.Length before any @ADDINVENTORY
 const BAG_PAGE = 40; // cells per bag page
+/** UserObject.Inventory.Length before any @ADDINVENTORY: the belt + bag I (48 since phase 2.9 = CharacterInfo.Inventory;
+ *  the @ADDINVENTORY price ladder is (Length - 48) / 4, PlayerObject). */
+const INVENTORY_BASE = BELT_IDX + BAG_PAGE;
 
 /** One MirItemCell element and what it currently shows. */
 interface CellView {
@@ -234,7 +236,7 @@ export class InventoryWindow {
       this.picks.toggleGold(this.inv.gold); // if (SelectedCell == null) PickedUpGold = !PickedUpGold && Gold > 0
       this.drawFloating();
     });
-    // Grid: 8 x 10 cells for slots 6..85; rows 5-9 (the second bag) sit on rows 0-4
+    // Grid: 8 x 10 cells for slots BeltIdx..BeltIdx + 79 (8..87); rows 5-9 (the second bag) sit on rows 0-4
     for (let x = 0; x < 8; x++) {
       for (let y = 0; y < 10; y++) {
         const idx = 8 * y + x;

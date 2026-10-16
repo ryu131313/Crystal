@@ -87,7 +87,7 @@ namespace Client.MirScenes.Dialogs
             };
             AddButton.Click += (o1, e) =>
             {
-                int openLevel = (GameScene.User.Inventory.Length - 46) / 4;
+                int openLevel = (GameScene.User.Inventory.Length - UserObject.BagStart2) / 4;
                 int openGold = (1000000 + openLevel * 1000000);
                 MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.ExtraSlots4), openGold), MirMessageBoxButtons.OKCancel);
 
@@ -154,7 +154,7 @@ namespace Client.MirScenes.Dialogs
                     int idx = 8 * y + x;
                     Grid[idx] = new MirItemCell
                     {
-                        ItemSlot = 6 + idx,
+                        ItemSlot = UserObject.BeltSize + idx,
                         GridType = MirGridType.Inventory,
                         Library = Libraries.Items,
                         Parent = this,
@@ -227,7 +227,7 @@ namespace Client.MirScenes.Dialogs
                 return;
             }
 
-            if (GameScene.User.Inventory.Length == 46 && sender == ItemButton2)
+            if (GameScene.User.Inventory.Length == UserObject.BagStart2 && sender == ItemButton2)
             {
                 MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ExtraSlots8), MirMessageBoxButtons.OKCancel);
 
@@ -255,7 +255,7 @@ namespace Client.MirScenes.Dialogs
                     ItemButton2.Index = 738;
                     QuestButton.Index = 198;
 
-                    if (GameScene.User.Inventory.Length == 46)
+                    if (GameScene.User.Inventory.Length == UserObject.BagStart2)
                     {
                         ItemButton2.Index = 169;
                     }
@@ -342,14 +342,14 @@ namespace Client.MirScenes.Dialogs
             ItemButton2.Index = 738;
             QuestButton.Index = 739;
 
-            if (GameScene.User.Inventory.Length == 46)
+            if (GameScene.User.Inventory.Length == UserObject.BagStart2)
             {
                 ItemButton2.Index = 169;
             }
 
             foreach (var grid in Grid)
             {
-                if (grid.ItemSlot < 46)
+                if (grid.ItemSlot < UserObject.BagStart2)
                     grid.Visible = true;
                 else
                     grid.Visible = false;
@@ -366,13 +366,13 @@ namespace Client.MirScenes.Dialogs
 
             foreach (var grid in Grid)
             {
-                if (grid.ItemSlot < 46 || grid.ItemSlot >= GameScene.User.Inventory.Length)
+                if (grid.ItemSlot < UserObject.BagStart2 || grid.ItemSlot >= GameScene.User.Inventory.Length)
                     grid.Visible = false;
                 else
                     grid.Visible = true;
             }
 
-            int openLevel = (GameScene.User.Inventory.Length - 46) / 4;
+            int openLevel = (GameScene.User.Inventory.Length - UserObject.BagStart2) / 4;
             for (int i = 0; i < LockBar.Length; i++)
             {
                 LockBar[i].Visible = (i < openLevel) ? false : true;
@@ -651,9 +651,11 @@ namespace Client.MirScenes.Dialogs
             };
             CloseButton.Click += (o, e) => Hide();
 
-            Grid = new MirItemCell[6];
+            //One cell per belt slot (UserObject.BeltSize 8) so Grid[slot] is valid for every belt slot; the art has six,
+            //so cells 6-7 (the web client's belt cells 7-8) stay hidden on the desktop.
+            Grid = new MirItemCell[UserObject.BeltSize];
 
-            for (int x = 0; x < 6; x++)
+            for (int x = 0; x < Grid.Length; x++)
             {
                 Grid[x] = new MirItemCell
                 {
@@ -663,6 +665,7 @@ namespace Client.MirScenes.Dialogs
                     Library = Libraries.Items,
                     Parent = this,
                     Location = new Point(x * 35 + 12, 3),
+                    Visible = x < Key.Length,
                 };
             }
 

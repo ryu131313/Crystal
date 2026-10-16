@@ -51,6 +51,24 @@ Protected paths (never overwritten or deleted by the script):
 - 2026-10-16 (phase 2.7, friends): `ClientFriend` grew five fields, so `S.FriendUpdate` changed layout (no DB change, still v119). Deploy server, desktop client and web client (relay + `WebClient`) from the **same commit**; an older client misreads the friend list (garbled entries, or a decode error: the desktop client can crash on its socket thread). Friend requests live in server memory only: a restart drops pending ones.
 - After rollback to a pre-119 build you lose: play time, profiles, persisted social toggles, mail sender data, spell AutoCast flags, guild logs, market sales history and deal prices recorded since the deploy.
 
+### 3.2 Eight-cell player belt + user-DB wipe (2026-10-16, SceneLab UI phase 2.9)
+
+The player belt grows 6 → 8 cells (`Inventory[0..7]`, new characters 48 cells, bag resized up to 88). Still `Envir.Version` 119 and no wire change, but old characters (46 cells) do not fit the new resize steps, so **this build ships only together with a wipe of the user data** (user decision 2026-10-16). `Server.MirDB` (system data: items, monsters, maps, NPCs) is kept.
+
+1. **Stop** the world (web admin or SMain) and close `Server.exe`.
+2. **Back up**: run the deploy below with `-DryRun` first, then for real (its snapshot holds the old data and `_binaries`), and keep a second off-box copy of the whole run folder.
+3. **Wipe** in the run folder (`Build\Server\Release`). Move each item into a dated folder outside the run folder rather than deleting it outright:
+   - `Server.MirADB`, plus `Server.MirADBn` / `Server.MirADBo` if present (accounts, characters, heroes, mail, market, `NextGuildID` / `NextUserItemID`);
+   - **`Back Up\Accounts\`** (all of it). Otherwise the start fails closed: `LoadAccounts` refuses to create a new accounts DB while `Back Up\Accounts\*.bak` or `Server.MirADBn/o` exist (`Envir.HasPriorDataEvidence`);
+   - `Guilds\*.mgd` (guilds). **This also clears the territory owners:** the territory list is rebuilt from the map data with owner "None" at every start and only guilds whose saved `GTIndex` matches claim one (`Envir.StartEnvir`, `LoadGTInfo`), so no separate reset step or setting exists or is needed;
+   - `Conquests\*.mcd` (conquest owners are stored as guild numbers, which restart at 0 after the wipe, so new guilds would inherit old conquests);
+   - `Envir\Goods\*.msd` (NPC buy-back stock; its item `UniqueID`s restart with `NextUserItemID` and would collide);
+   - `Archive\*.MirCA` (archived/deleted characters, still 46 cells; restoring one would give a broken bag).
+4. **Deploy** the server, the desktop client and the web client (`WebClient` rebuilt with `tsc`) from the **same commit**. An old client shows the wrong belt/bag split (desktop older than this commit can index past its bag grid on an 88-cell bag). The relay (`WebRelay`) needs no rebuild or restart: no packet IDs or enums changed.
+5. **Start** and check the log: `Server.MirADB` is created empty, no "[Load] … Refusing" line. Create a test character: bag 48 cells, keys 1-8 = belt, 9/0 = hero belt (web client).
+
+**Rollback:** stop, restore the snapshot's `_binaries` **and** the moved files from step 3 (the old binaries expect 46-cell characters; characters made on the new build would not match the old resize steps), start. Everything played on the new build is lost.
+
 ## 4. Restore drill (do once, then after any backup-format change)
 
 1. Make a scratch folder, e.g. `D:\mir2-drill`.

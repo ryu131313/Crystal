@@ -160,10 +160,11 @@ namespace Server.WebAdmin.Tests
         [Theory]
         [InlineData(0, "Belt 1")]
         [InlineData(5, "Belt 6")]
-        [InlineData(6, "Bag I #1")]
-        [InlineData(45, "Bag I #40")]
-        [InlineData(46, "Bag II #1")]
-        [InlineData(53, "Bag II #8")]
+        [InlineData(7, "Belt 8")]
+        [InlineData(8, "Bag I #1")]
+        [InlineData(47, "Bag I #40")]
+        [InlineData(48, "Bag II #1")]
+        [InlineData(55, "Bag II #8")]
         public void InventorySlotName(int slot, string expected)
         {
             Assert.Equal(expected, CharacterLogic.InventorySlotName(slot));
@@ -267,19 +268,19 @@ namespace Server.WebAdmin.Tests
         [Fact]
         public void PreferredInventorySlot_FollowsAddItemRules()
         {
-            var inv = new UserItem[46];
+            var inv = new UserItem[48];
             Assert.Equal(0, CharacterLogic.PreferredInventorySlot(inv, Info(1, "HP Potion", ItemType.Potion)));
             Assert.Equal(0, CharacterLogic.PreferredInventorySlot(inv, Info(2, "TownScroll", ItemType.Script, effect: 1)));
-            Assert.Equal(6, CharacterLogic.PreferredInventorySlot(inv, Info(3, "OtherScript", ItemType.Script, effect: 0)));
+            Assert.Equal(8, CharacterLogic.PreferredInventorySlot(inv, Info(3, "OtherScript", ItemType.Script, effect: 0)));
             Assert.Equal(4, CharacterLogic.PreferredInventorySlot(inv, Info(4, "Amulet", ItemType.Amulet)));
-            Assert.Equal(6, CharacterLogic.PreferredInventorySlot(inv, Info(5, "Sword", ItemType.Weapon)));
+            Assert.Equal(8, CharacterLogic.PreferredInventorySlot(inv, Info(5, "Sword", ItemType.Weapon)));
 
             // Bag full: a weapon falls back to a free belt slot (HumanObject.AddItem's last loop).
             var sword = Info(5, "Sword");
-            for (var i = 6; i < inv.Length; i++) inv[i] = Item(sword, (ulong)(100 + i));
+            for (var i = 8; i < inv.Length; i++) inv[i] = Item(sword, (ulong)(100 + i));
             Assert.Equal(0, CharacterLogic.PreferredInventorySlot(inv, sword));
 
-            for (var i = 0; i < 6; i++) inv[i] = Item(sword, (ulong)(200 + i));
+            for (var i = 0; i < 8; i++) inv[i] = Item(sword, (ulong)(200 + i));
             Assert.Equal(-1, CharacterLogic.PreferredInventorySlot(inv, sword));
         }
 
@@ -357,7 +358,7 @@ namespace Server.WebAdmin.Tests
         {
             var info = Info(1, "Ring");
             var equipment = new UserItem[14];
-            var inventory = new UserItem[46];
+            var inventory = new UserItem[48];
             var quest = new UserItem[40];
             var storage = new UserItem[80];
             equipment[7] = Item(info, 10);

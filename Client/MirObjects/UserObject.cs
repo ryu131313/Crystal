@@ -34,8 +34,14 @@ namespace Client.MirObjects
 
         public virtual BuffDialog GetBuffDialog => GameScene.Scene.BuffsDialog;
 
-        public UserItem[] Inventory = new UserItem[46], Equipment = new UserItem[14], Trade = new UserItem[10], QuestInventory = new UserItem[40];
-        public int BeltIdx = 6, HeroBeltIdx = 2;
+        public UserItem[] Inventory = new UserItem[48], Equipment = new UserItem[14], Trade = new UserItem[10], QuestInventory = new UserItem[40];
+        public int BeltIdx = BeltSize, HeroBeltIdx = 2;
+
+        //Belt = Inventory[0..BeltSize-1] (server HumanObject.BeltSize 8). The belt bar shows cells 0-5 only; cells 6-7 exist
+        //for the web client's 8-cell belt. Auto-fill bands (server PotionBeltMaximum / AmuletBeltMinimum / AmuletBeltMaximum):
+        //potions 0-3, amulets 4-5. Bag I = Inventory[BeltSize..BagStart2-1], Bag II from BagStart2.
+        public const int BeltSize = 8, PotionBeltMaximum = 4, AmuletBeltMinimum = 4, AmuletBeltMaximum = 6;
+        public const int BagPageSize = 40, BagStart2 = BeltSize + BagPageSize;
         public bool HasExpandedStorage = false;
         public bool HasStoragePassword = false;
         public bool RequireStoragePassword = true;

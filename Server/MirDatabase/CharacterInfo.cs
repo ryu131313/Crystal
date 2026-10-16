@@ -72,7 +72,7 @@ namespace Server.MirDatabase
         public byte MentalState;
         public byte MentalStateLvl;
 
-        public UserItem[] Inventory = new UserItem[46], Equipment = new UserItem[14], Trade = new UserItem[10], QuestInventory = new UserItem[40], Refine = new UserItem[16];
+        public UserItem[] Inventory = new UserItem[48], Equipment = new UserItem[14], Trade = new UserItem[10], QuestInventory = new UserItem[40], Refine = new UserItem[16];
         public List<ItemRentalInformation> RentedItems = new List<ItemRentalInformation>();
         public List<ItemRentalInformation> RentedItemsToRemove = new List<ItemRentalInformation>();
         public bool HasRentedItem;
@@ -621,15 +621,17 @@ namespace Server.MirDatabase
         }
         public virtual int ResizeInventory()
         {
-            if (Inventory.Length >= 86) return Inventory.Length;
+            if (Inventory.Length >= 88) return Inventory.Length;
 
-            if (Inventory.Length == 46)
+            if (Inventory.Length == 48)
             {
                 Array.Resize(ref Inventory, Inventory.Length + 8);
             }
             else
             {
-                Array.Resize(ref Inventory, Inventory.Length + 4);
+                //Clamp: a leftover pre-phase-2.9 character (46 cells, wipe skipped or archive restored) steps 46..86 and must
+                //stop at 88, not 90, or the desktop's 80-cell bag grid (Inventory[8..87]) is indexed out of range.
+                Array.Resize(ref Inventory, Math.Min(Inventory.Length + 4, 88));
             }
 
             return Inventory.Length;

@@ -211,7 +211,7 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
   }
   /** Hero panels (info, menu, behaviour, buffs, summon), hero character (Ctrl+C), manage + create dialogs. */
   const heroChar = new HeroCharacterWindow(stage, hero, heroStats);
-  /** The hero's bag, belt (7 / 8), equipment and auto-pot (Ctrl+I); cells share the inventory pick. */
+  /** The hero's bag, belt (9 / 0), equipment and auto-pot (Ctrl+I); cells share the inventory pick. */
   const heroInventoryWindow = new HeroInventoryWindow(stage, hero, heroItems, inventoryWindow, () => performance.now());
   /** MapControl.OnMouseClick with a picked item (itemDrop.ts): hero bag item, bag item, picked HUD gold. */
   const itemDrop = new ItemDrop({ pick: itemPick, inventory, itemInfos, hero, heroItems, clearPick: () => inventoryWindow.clearPick() }, classicDropPrompts);

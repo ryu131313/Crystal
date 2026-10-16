@@ -4,8 +4,11 @@
 //     the percent labels, the HPItem / MPItem cells) behind HPLockBar / MPLockBar (Prguse 1428 / 1429) until
 //     S.UnlockHeroAutoPot. Ctrl+I toggles it (KeybindOptions.HeroInventory); Escape hides it (GameScene Closeall).
 //   HeroBeltDialog: Prguse 1921 (horizontal) / 1943 (vertical, Flip) with the half-transparent 1934 / 1946 backdrop
-//     (BeltPanel_BeforeDraw), key labels 7 / 8, two 32 x 32 cells on hero inventory slots 0-1, Rotate and Close; shown
-//     when the hero is summoned, like the desktop creates it Visible. Keys 7 / 8 use those cells (Grid[0/1].UseItem).
+//     (BeltPanel_BeforeDraw), key labels 9 / 0, two 32 x 32 cells on hero inventory slots 0-1, Rotate and Close; shown
+//     when the hero is summoned, like the desktop creates it Visible. Web change (phase 2.9): the desktop uses keys
+//     7 / 8 (Belt7 / Belt8); here those are the player's belt cells 7-8, and the web-only KeybindOptions HeroBelt1 /
+//     HeroBelt2 (9 / 0, handled by game.ts's gameplay keys) use these cells. The window sits HERO_BELT_SHIFT px right of
+//     the desktop spot so it clears the stretched 8-cell BeltDialog.
 // The hero's equipment cells sit on the hero CharacterDialog paperdoll (heroCharacterWindow.ts), like the desktop.
 // Cells share the inventory window's pick (grids "heroInv" / "heroEq" / "heroHP" / "heroMP"), so items move between the
 // user's bag and the hero's bag / equipment as MirItemCell allows (heroItems.ts sends the requests):
@@ -24,7 +27,7 @@ import type { Hero } from "../game/hero.ts";
 import type { HeroItems } from "../game/heroItems.ts";
 import { gameSignal } from "../game/scope.ts";
 import { SoundList } from "../game/audio.ts";
-import { KeybindOptions, keyLabel, matches, matchesAny } from "../game/keybinds.ts";
+import { KeybindOptions, keyLabel, matches } from "../game/keybinds.ts";
 import { MirWindow, MirImage, MirButton, MirLabel, Lib, closeButton, setPicture, libSize, SCREEN_HEIGHT, SCREEN_WIDTH } from "./mir/controls.ts";
 import { messageBox, amountBox } from "./messageBox.ts";
 import { placeCell, type Grid, type InventoryWindow } from "./inventoryWindow.ts";
@@ -40,6 +43,9 @@ const T = { // ClientTextKeys (English.json)
 
 type Pick = { grid: Grid; index: number } | null;
 
+/** How far right of the desktop spot (MainDialog.X + 475) the hero belt sits: the 8-cell belt is two 35 px cells wider. */
+const HERO_BELT_SHIFT = 70;
+
 /** HeroBeltDialog. */
 class HeroBeltWindow {
   readonly win: MirWindow;
@@ -52,13 +58,13 @@ class HeroBeltWindow {
 
   constructor(inv: InventoryWindow) {
     // HeroBeltDialog ctor: Location = (MainDialog.Location.X + 475, ScreenHeight - 150)
-    this.win = new MirWindow({ library: Lib.Prguse, index: 1921, movable: true, sort: true, location: [475, SCREEN_HEIGHT - 150] });
+    this.win = new MirWindow({ library: Lib.Prguse, index: 1921, movable: true, sort: true, location: [475 + HERO_BELT_SHIFT, SCREEN_HEIGHT - 150] });
     // BeltPanel_BeforeDraw: Prguse 1934 (1946 when flipped) at 50 % under the dialog picture
     this.backdrop = document.createElement("div");
     this.backdrop.className = "mir-pic";
     this.backdrop.style.opacity = "0.5";
     this.win.el.insertBefore(this.backdrop, this.win.el.firstChild);
-    for (let i = 0; i < 2; i++) this.keys.push(new MirLabel({ parent: this.win, size: [26, 14], location: [8 + i * 35, 2], text: String(i + 7) }));
+    for (let i = 0; i < 2; i++) this.keys.push(new MirLabel({ parent: this.win, size: [26, 14], location: [8 + i * 35, 2], text: String((i + 9) % 10) }));
     this.rotateButton = new MirButton({ parent: this.win, library: Lib.Prguse, index: 1926, hoverIndex: 1927, pressedIndex: 1928, location: [82, 3], sound: SoundList.ButtonA,
       hint: T.Rotate, onClick: () => this.flip() });
     this.closeButton = new MirButton({ parent: this.win, library: Lib.Prguse, index: 1923, hoverIndex: 1924, pressedIndex: 1925, location: [82, 19], sound: SoundList.ButtonA,
@@ -68,7 +74,7 @@ class HeroBeltWindow {
     // MainDialog is centred at the bottom (Prguse 1 on a 1024 screen)
     void libSize(Lib.Prguse, 1).then(([w]) => {
       this.mainX = Math.trunc(SCREEN_WIDTH / 2 - w / 2);
-      if (this.win.index === 1921) this.win.location = [this.mainX + 475, SCREEN_HEIGHT - 150];
+      if (this.win.index === 1921) this.win.location = [this.mainX + 475 + HERO_BELT_SHIFT, SCREEN_HEIGHT - 150];
     });
   }
 
@@ -88,7 +94,7 @@ class HeroBeltWindow {
       this.rotateButton.location = [19, 82];
     } else {
       this.win.index = 1921;
-      this.win.location = [this.mainX + 475, SCREEN_HEIGHT - 150];
+      this.win.location = [this.mainX + 475 + HERO_BELT_SHIFT, SCREEN_HEIGHT - 150];
       for (let x = 0; x < 2; x++) placeCell(this.cells[x]!, this.win, [x * 35 + 12, 3]);
       this.closeButton.setIndices(1923, 1924, 1925);
       this.closeButton.location = [82, 19];
@@ -177,12 +183,9 @@ export class HeroInventoryWindow {
     window.addEventListener("keydown", (e) => {
       const a = document.activeElement;
       if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement) return;
-      // KeybindOptions.HeroInventory (Ctrl+I); Belt7 / Belt8 (7 / 8, NumPad7 / NumPad8) use the hero belt (HeroBeltDialog.Grid[0/1].UseItem)
+      // KeybindOptions.HeroInventory (Ctrl+I). The hero belt keys (HeroBelt1 / HeroBelt2) are game.ts gameplay keys.
       if (matches(e, KeybindOptions.HeroInventory)) { e.preventDefault(); if (hero.info) this.toggle(); return; }
       if (matches(e, KeybindOptions.Closeall)) { this.toggle(false); return; } // HeroInventoryDialog?.Hide()
-      if (!hero.info) return;
-      if (matchesAny(e, KeybindOptions.Belt7, KeybindOptions.Belt7Alt)) items.use(0, now());
-      if (matchesAny(e, KeybindOptions.Belt8, KeybindOptions.Belt8Alt)) items.use(1, now());
     }, { signal });
     signal.addEventListener("abort", () => { this.win.dispose(); this.belt.win.dispose(); });
   }

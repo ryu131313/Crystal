@@ -23,6 +23,9 @@ export const KeybindOptions = {
   Ranking: 83, AddGroupMember: 84,
   HeroSkill1: 85, HeroSkill2: 86, HeroSkill3: 87, HeroSkill4: 88, HeroSkill5: 89, HeroSkill6: 90, HeroSkill7: 91, HeroSkill8: 92,
   HeroInventory: 93, HeroEquipment: 94, HeroSkills: 95, TargetSpellLockOn: 96, PetmodeFocusMasterTarget: 97,
+  // Web-only (phase 2.9, not in the desktop enum): the hero belt cells (hero Inventory[0..1]) on keys 9 / 0, because
+  // Belt7 / Belt8 are the player's belt cells 7-8 here (BeltIdx 8). Explicit unused values after the desktop's last.
+  HeroBelt1: 98, HeroBelt1Alt: 99, HeroBelt2: 100, HeroBelt2Alt: 101,
 } as const;
 export type KeybindOption = (typeof KeybindOptions)[keyof typeof KeybindOptions];
 
@@ -88,6 +91,10 @@ function defaults(): KeyBind[] {
     add("Belt", `Belt Slot ${i + 1}`, (O.Belt1 + i * 2) as KeybindOption, 2, 2, 2, 2, `D${i + 1}`);
     add("Belt", `Belt Slot ${i + 1} Alt`, (O.Belt1Alt + i * 2) as KeybindOption, 2, 2, 2, 2, `NumPad${i + 1}`);
   }
+  add("Belt", "Hero Belt Slot 1", O.HeroBelt1, 2, 2, 2, 2, "D9");
+  add("Belt", "Hero Belt Slot 1 Alt", O.HeroBelt1Alt, 2, 2, 2, 2, "NumPad9");
+  add("Belt", "Hero Belt Slot 2", O.HeroBelt2, 2, 2, 2, 2, "D0");
+  add("Belt", "Hero Belt Slot 2 Alt", O.HeroBelt2Alt, 2, 2, 2, 2, "NumPad0");
   add("General", "Logout", O.Logout, 1, 2, 2, 2, "X");
   add("General", "Exit", O.Exit, 1, 2, 2, 2, "Q");
   add("General", "Mount/Dismount", O.Mount, 2, 2, 2, 2, "M");

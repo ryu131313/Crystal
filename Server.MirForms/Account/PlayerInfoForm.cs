@@ -187,17 +187,17 @@ namespace Server
 
                 ListViewItem inventoryItemListItem = new ListViewItem($"{inventoryItem.UniqueID}");
 
-                if (i < 6)
+                if (i < 8)
                 {
                     inventoryItemListItem.SubItems.Add($"Belt | Slot: [{i + 1}]");
                 }
-                else if (i >= 6 && i < 46)
+                else if (i >= 8 && i < 48)
                 {
-                    inventoryItemListItem.SubItems.Add($"Inventory Bag I | Slot: [{i - 5}]");
+                    inventoryItemListItem.SubItems.Add($"Inventory Bag I | Slot: [{i - 7}]");
                 }
                 else
                 {
-                    inventoryItemListItem.SubItems.Add($"Inventory Bag II | Slot: [{i - 45}]");
+                    inventoryItemListItem.SubItems.Add($"Inventory Bag II | Slot: [{i - 47}]");
                 }
 
                 inventoryItemListItem.SubItems.Add($"{inventoryItem.FriendlyName}");
@@ -700,17 +700,17 @@ namespace Server
 
                 ListViewItem inventoryItemListItem = new ListViewItem($"{inventoryItem.UniqueID}");
 
-                if (i < 6)
+                if (i < 8)
                 {
                     inventoryItemListItem.SubItems.Add($"Belt | Slot: [{i + 1}]");
                 }
-                else if (i >= 6 && i < 46)
+                else if (i >= 8 && i < 48)
                 {
-                    inventoryItemListItem.SubItems.Add($"Inventory Bag I | Slot: [{i - 5}]");
+                    inventoryItemListItem.SubItems.Add($"Inventory Bag I | Slot: [{i - 7}]");
                 }
                 else
                 {
-                    inventoryItemListItem.SubItems.Add($"Inventory Bag II | Slot: [{i - 45}]");
+                    inventoryItemListItem.SubItems.Add($"Inventory Bag II | Slot: [{i - 47}]");
                 }
 
                 inventoryItemListItem.SubItems.Add($"{inventoryItem.FriendlyName}");

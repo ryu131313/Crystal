@@ -4593,7 +4593,7 @@ namespace Server.MirObjects
                         break;
                     case "ADDINVENTORY":
                         {
-                            int openLevel = (int)((Info.Inventory.Length - 46) / 4);
+                            int openLevel = (int)((Info.Inventory.Length - 48) / 4);
                             uint openGold = (uint)(1000000 + openLevel * 1000000);
                             if (Account.Gold >= openGold)
                             {

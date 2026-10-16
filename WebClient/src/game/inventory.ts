@@ -18,7 +18,13 @@ import { ClientPackets } from "../protocol/client.ts";
 import { ItemType, MirGridType, EquipmentSlot } from "../protocol/enums.generated.ts";
 import type { ItemInfos } from "./items.ts";
 
-export const BELT_IDX = 6; // UserObject.BeltIdx
+export const BELT_IDX = 8; // UserObject.BeltIdx (8 since phase 2.9 = HumanObject.BeltSize)
+/** The belt auto-fill bands (HumanObject.PotionBeltMinimum / PotionBeltMaximum / AmuletBeltMinimum / AmuletBeltMaximum):
+ *  potions / scrolls fill belt cells [0, POTION_BELT_MAX), amulets [AMULET_BELT_MIN, AMULET_BELT_MAX); cells 7-8
+ *  (indices 6-7) are filled only by hand. */
+export const POTION_BELT_MAX = 4;
+export const AMULET_BELT_MIN = 4;
+export const AMULET_BELT_MAX = 6;
 export const TRADE_SLOTS = 10; // UserObject.Trade
 export const GUILD_STORAGE_SLOTS = 112; // GuildDialog.StorageGrid (8 x 14) = GuildInfo.StoredItems
 export const STORAGE_GRID_SIZE = 80; // Globals.StorageGridSize: one StorageDialog page (the expanded page is slots 80..159)
@@ -372,20 +378,21 @@ export class Inventory {
   }
 
   /** GameScene.SplitItem: the split-off stack goes to a free slot WITHOUT stacking (potions / scrolls belt 0..3, amulets
-   *  belt 4..5, else the bag, else the belt). */
+   *  belt 4..5 (the auto-fill bands), else the bag, else the belt). */
   private placeSplit(item: UserItem): void {
     const info = this.info(item), t = info?.Type;
     const put = (from: number, to: number) => {
       for (let i = from; i < to; i++) if (!this.inventory[i]) { this.inventory[i] = item; return true; }
       return false;
     };
-    if (t === ItemType.Potion || t === ItemType.Scroll || (t === ItemType.Script && info?.Effect === 1)) { if (put(0, 4)) return; }
-    else if (t === ItemType.Amulet) { if (put(4, BELT_IDX)) return; }
+    if (t === ItemType.Potion || t === ItemType.Scroll || (t === ItemType.Script && info?.Effect === 1)) { if (put(0, POTION_BELT_MAX)) return; }
+    else if (t === ItemType.Amulet) { if (put(AMULET_BELT_MIN, AMULET_BELT_MAX)) return; }
     if (put(BELT_IDX, this.inventory.length)) return;
     put(0, BELT_IDX);
   }
 
-  /** GameScene.AddItem: stack first, then potions/scrolls to the belt (0..BeltIdx-3), amulets to belt 4..5, else the bag, else anywhere. */
+  /** GameScene.AddItem: stack first, then potions/scrolls to belt 0..3, amulets to belt 4..5 (the auto-fill bands; the
+   *  desktop writes BeltIdx - 2 / BeltIdx for a 6-cell belt), else the bag, else anywhere. */
   private addItem(item: UserItem): void {
     const info = this.info(item);
     if (info && info.StackSize > 1) {
@@ -401,8 +408,8 @@ export class Inventory {
       return false;
     };
     const t = info?.Type;
-    if (t === ItemType.Potion || t === ItemType.Scroll || (t === ItemType.Script && info?.Effect === 1)) { if (put(0, BELT_IDX - 2)) return; }
-    else if (t === ItemType.Amulet) { if (put(4, BELT_IDX)) return; }
+    if (t === ItemType.Potion || t === ItemType.Scroll || (t === ItemType.Script && info?.Effect === 1)) { if (put(0, POTION_BELT_MAX)) return; }
+    else if (t === ItemType.Amulet) { if (put(AMULET_BELT_MIN, AMULET_BELT_MAX)) return; }
     else if (put(BELT_IDX, this.inventory.length)) return;
     put(0, this.inventory.length);
   }

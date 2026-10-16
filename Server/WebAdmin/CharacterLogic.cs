@@ -35,10 +35,10 @@ namespace Server.WebAdmin
         public const string ContainerStorage = "storage";
 
         /// <summary>Crystal's belt layout (HumanObject.PotionBeltMinimum.. / BeltSize).</summary>
-        public const int PotionBeltMinimum = 0, PotionBeltMaximum = 4, AmuletBeltMinimum = 4, AmuletBeltMaximum = 6, BeltSize = 6;
+        public const int PotionBeltMinimum = 0, PotionBeltMaximum = 4, AmuletBeltMinimum = 4, AmuletBeltMaximum = 6, BeltSize = 8;
 
-        /// <summary>First slot of "Bag II" (CharacterInfo.Inventory starts at 46 slots: 6 belt + 40 bag).</summary>
-        public const int SecondBagStart = 46;
+        /// <summary>First slot of "Bag II" (CharacterInfo.Inventory starts at 48 slots: 8 belt + 40 bag).</summary>
+        public const int SecondBagStart = 48;
 
         /// <summary>AccountInfo.Storage base size; slots from here on are the expanded storage.</summary>
         public const int BaseStorageSize = 80;
@@ -199,7 +199,7 @@ namespace Server.WebAdmin
 
         // ------------------------------------------------------------------ slot names
 
-        /// <summary>PlayerInfoForm naming: Inventory[0-5] = Belt 1-6, [6-45] = Bag I, [46+] = Bag II.</summary>
+        /// <summary>PlayerInfoForm naming: Inventory[0-7] = Belt 1-8, [8-47] = Bag I, [48+] = Bag II.</summary>
         public static string InventorySlotName(int slot)
         {
             if (slot < 0) return "?";

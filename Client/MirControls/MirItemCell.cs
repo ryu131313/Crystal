@@ -831,7 +831,7 @@ namespace Client.MirControls
                 }
                 else
                 {
-                    itemCell = i < (GameScene.User.Inventory.Length - GameScene.User.BeltIdx) ? GameScene.Scene.InventoryDialog.Grid[i] : GameScene.Scene.BeltDialog.Grid[i - GameScene.User.Inventory.Length];
+                    itemCell = i < (GameScene.User.Inventory.Length - GameScene.User.BeltIdx) ? GameScene.Scene.InventoryDialog.Grid[i] : GameScene.Scene.BeltDialog.Grid[i - (GameScene.User.Inventory.Length - GameScene.User.BeltIdx)];
                 }
 
                 if (itemCell.Item != null) continue;
