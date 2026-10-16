@@ -5,14 +5,18 @@
 // server sends them as localised text: a trailing "n/m" is shown as the count and ticks the line when complete), and
 // "Ready: return to <NPC>" once Completed (FinishNPCIndex = the NPC's ObjectID: its name from the map objects or the
 // map's NPC list). Lines wider than the box scroll back and forth (measured once per render). The header folds the list
-// (a per-viewer convenience in localStorage 'crystal.ui.tracker'); a quest click opens the "quests" window. Hidden while
-// nothing is tracked. The mock's kill simulation and its own tracked flags are gone.
+// (a per-viewer convenience in localStorage 'crystal.ui.tracker'); a quest click opens the "quests" window on that quest
+// (its focusQuest). Hidden while nothing is tracked. The mock's kill simulation and its own tracked flags are gone.
 
 import type { QuestChange, QuestEntry } from "../../../game/quests.ts";
 import type { GameUiContext } from "../../gameUi.ts";
 import { h, injectCss, rafCoalesce, setText, asButton } from "../core/dom.ts";
 import { npcName } from "../core/format.ts";
 import type { UiRuntime } from "../core/runtime.ts";
+import type { UiWindow } from "../core/wm.ts";
+
+/** windows/quests.ts's focus hook, typed structurally (the HUD does not import the window modules). */
+type FocusingQuests = UiWindow & { focusQuest?: (questIndex: number) => void };
 
 const STORE = "crystal.ui.tracker";
 
@@ -124,7 +128,10 @@ export class QuestTracker {
         block.append(line);
       }
       block.title = "Open the quest log";
-      block.addEventListener("click", () => this.rt.toggleWindow("quests", true));
+      const quest = e.info.Index;
+      block.addEventListener("click", () => {
+        if (this.rt.toggleWindow("quests", true)) this.rt.peekWindow<FocusingQuests>("quests")?.focusQuest?.(quest);
+      });
       blocks.push(block);
     }
     this.body.replaceChildren(...blocks);

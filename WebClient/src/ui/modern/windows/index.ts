@@ -45,3 +45,17 @@ import "./friends.ts";
 import "./mail.ts";
 import "./mentor.ts";
 import "./relationship.ts";
+
+// Phase 3f: the hero, creatures, mount, fishing, game shop and quests windows (menu windows; every window of the plan's
+// phase 3 now exists). Their watch hooks run at UI start, so the prompts work while the window is closed or not yet
+// built: hero.ts opens on S.ManageHeroes / a new S.HeroCreateRequest (the NPC hero-manager page) and shows the
+// S.NewHero result; creatures.ts owns the new-creature naming popup (S.NewIntelligentCreature), the rename grant and
+// the pickup count; fishing.ts opens on a cast / bite while a rod is held; quests.ts records the NPCs met and shows the
+// shared-quest invite (S.ShareQuest) as a request toast. The HUD hero frame opens 'hero'; a quest tracker click opens
+// 'quests' on that quest (focusQuest).
+import "./hero.ts";
+import "./creatures.ts";
+import "./mount.ts";
+import "./fishing.ts";
+import "./gameShop.ts";
+import "./quests.ts";

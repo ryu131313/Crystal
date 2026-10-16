@@ -7,7 +7,8 @@
 // dependency order (drag controller + item cells before the HUD's belt, the tooltip), the bottom HUD (hud/hud.ts) and the
 // HUD parts (chat, minimap, extras, party frames, hero frame, quest tracker). Windows (phases 3b-3f) come from the
 // window catalog (windowRegistry.ts, filled by windows/index.ts) and are built on their first open. Server-opened
-// windows (storage, inspect: phase 3b; the NPC services: phase 3d) open from their catalog entry's `watch` hook, run here once per game; GameUi.handle
+// windows (storage, inspect: phase 3b; the NPC services: phase 3d; hero manage / create: phase 3f) and the start-time
+// prompts (social: 3e; new creature name, shared quest: 3f) open from their catalog entry's `watch` hook, run here once per game; GameUi.handle
 // feeds every packet to host.packets for the hooks whose packets have no model event (it never consumes).
 //
 // Keys: everything goes through game.ts's input router (src/game/input.ts), registered in bindInput:
