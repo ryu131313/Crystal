@@ -4,8 +4,10 @@
 // locks stay in the UI. game.ts feeds handle(); the UI follows `changed` (the list was replaced) and the events
 // `sendRequest` (an NPC asks for a parcel recipient), `sent`, `collected` and `cost`.
 // Web batch requests (phase 2.1, no desktop sender): C.CollectAllParcels and C.ReadMails (one S.ReceiveMail answers).
+// Sent folder (phase 2.6, web only): C.RequestSentMail / C.HideSentMail -> S.SentMail (`sentList`, event `sentChanged`).
+// A row shows only while the mail is still in the recipient's box and the sender has not hidden it.
 
-import type { ServerPacket, ClientMail } from "../protocol/server.ts";
+import type { ServerPacket, ClientMail, ClientSentMail } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
 import { ChatType } from "../protocol/enums.generated.ts";
 import type { Inventory } from "./inventory.ts";
@@ -16,6 +18,10 @@ import { Emitter } from "./emitter.ts";
 export const MAIL_PARCEL_CELLS = 5;
 /** PlayerObject.ReadMails cap: the server reads at most this many MailIDs from one C.ReadMails. */
 export const MAX_READ_MAILS = 100;
+/** PlayerObject.RequestSentMail's cooldown (the server drops faster requests silently). */
+export const SENT_MAIL_DELAY = 2000;
+/** PlayerObject.HideSentMail's cooldown (the server drops faster requests silently, with no reply). */
+export const HIDE_SENT_MAIL_DELAY = 500;
 
 /** A parcel: gold or items (MailListDialog / MailReadParcelDialog). */
 export const isParcel = (m: ClientMail): boolean => m.Gold > 0 || m.Items.length > 0;
@@ -23,6 +29,9 @@ export const isParcel = (m: ClientMail): boolean => m.Gold > 0 || m.Items.length
 export class MailBox {
   private _mail: ClientMail[] = [];
   private _newMail = false;
+  private _sent: ClientSentMail[] = [];
+  private sentTime = 0; // SENT_MAIL_DELAY gate for requestSent()
+  private hideTime = 0; // HIDE_SENT_MAIL_DELAY gate for hideSent()
   /** GameScene.ReceiveMail: the list was replaced (after `newMail`). */
   readonly changed = new Emitter<void>();
   /** GameScene.MailSendRequest: ask for the recipient, then compose a parcel (MailComposeParcelDialog.ComposeMail). */
@@ -33,12 +42,43 @@ export class MailBox {
   readonly collected = new Emitter<{ result: number }>();
   /** GameScene.MailCost: the postage of the parcel being composed. */
   readonly cost = new Emitter<{ cost: number }>();
+  /** S.SentMail: the sent folder was replaced (`sentList`). */
+  readonly sentChanged = new Emitter<void>();
 
   constructor(private readonly send: (f: Uint8Array) => void, private readonly chat: (text: string, type: number) => void,
-    private readonly inv: Inventory, private readonly requestItem: (index: number) => void) {}
+    private readonly inv: Inventory, private readonly requestItem: (index: number) => void,
+    private readonly now: () => number = () => performance.now()) {}
 
   /** UserObject.Mail (unlocked first, then newest first, like GameScene.ReceiveMail). */
   get list(): readonly ClientMail[] { return this._mail; }
+
+  /** The sent folder (S.SentMail: newest first, at most 50; empty until requestSent() is answered). */
+  get sentList(): readonly ClientSentMail[] { return this._sent; }
+
+  /** C.RequestSentMail (web): ask for the sent folder. One request per SENT_MAIL_DELAY; false = too soon, nothing sent.
+   *  Answer: `sentChanged`. */
+  requestSent(): boolean {
+    const t = this.now();
+    if (t < this.sentTime) return false;
+    this.sentTime = t + SENT_MAIL_DELAY;
+    this.send(ClientPackets.RequestSentMail());
+    return true;
+  }
+
+  /** C.HideSentMail (web): remove one mail this player sent from the sent folder (the recipient keeps it). The row goes
+   *  at once; the server answers with a fresh S.SentMail. One request per HIDE_SENT_MAIL_DELAY. False = not in the
+   *  folder or too soon, nothing sent. */
+  hideSent(mailId: bigint): boolean {
+    const t = this.now();
+    if (t < this.hideTime) return false;
+    const i = this._sent.findIndex((m) => m.MailID === mailId);
+    if (i < 0) return false;
+    this.hideTime = t + HIDE_SENT_MAIL_DELAY;
+    this._sent.splice(i, 1);
+    this.sentChanged.emit();
+    this.send(ClientPackets.HideSentMail({ MailID: mailId }));
+    return true;
+  }
 
   /** GameScene.NewMail: any unopened mail (MiniMapDialog blinks the NewMail icon). */
   get newMail(): boolean { return this._newMail; }
@@ -135,6 +175,7 @@ export class MailBox {
         return true;
       case "ParcelCollected": this.collected.emit({ result: p.Result }); return true;
       case "MailCost": this.cost.emit({ cost: p.Cost }); return true; // the gold sound is not played
+      case "SentMail": this._sent = p.Mails.slice(); this.sentChanged.emit(); return true; // web (phase 2.6)
       default: return false;
     }
   }

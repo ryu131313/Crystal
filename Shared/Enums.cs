@@ -1729,6 +1729,8 @@ public enum ServerPacketIds : short
     MentorDetails, // partner class, mentor date and end of term (phase 2.5); append-only
     MentorCandidates, // reply to C.FindMentor (phase 2.5); append-only
     PlayerProfile, // an inspected player's profile text (phase 2.5); append-only
+    MarketPriceHistory, // an item's last market sales, reply to C.MarketPriceHistory (phase 2.6); append-only
+    SentMail, // the player's sent mail still in the recipients' boxes, reply to C.RequestSentMail / C.HideSentMail (phase 2.6); append-only
 }
 
 public enum ClientPacketIds : short
@@ -1906,6 +1908,11 @@ public enum ClientPacketIds : short
     FindMentor, // phase 2.5; append-only
     GuildTerritoryAction, // phase 2.5; append-only
     SetProfile, // phase 2.5; append-only
+    GameshopGift, // phase 2.6; append-only
+    MarketSearchEx, // phase 2.6; append-only
+    MarketPriceHistory, // phase 2.6; append-only
+    RequestSentMail, // phase 2.6; append-only
+    HideSentMail, // phase 2.6; append-only
 }
 
 /// <summary>C.GuildTerritoryAction kinds (phase 2.5). Sent by byte value: explicit values, append only, never renumber.</summary>

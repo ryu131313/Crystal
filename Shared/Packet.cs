@@ -441,6 +441,16 @@ public abstract class Packet
                 return new C.GuildTerritoryAction();
             case (short)ClientPacketIds.SetProfile:
                 return new C.SetProfile();
+            case (short)ClientPacketIds.GameshopGift:
+                return new C.GameshopGift();
+            case (short)ClientPacketIds.MarketSearchEx:
+                return new C.MarketSearchEx();
+            case (short)ClientPacketIds.MarketPriceHistory:
+                return new C.MarketPriceHistory();
+            case (short)ClientPacketIds.RequestSentMail:
+                return new C.RequestSentMail();
+            case (short)ClientPacketIds.HideSentMail:
+                return new C.HideSentMail();
             default:
                 return null;
         }
@@ -502,6 +512,10 @@ public abstract class Packet
                 return new S.MentorCandidates();
             case (short)ServerPacketIds.PlayerProfile:
                 return new S.PlayerProfile();
+            case (short)ServerPacketIds.MarketPriceHistory:
+                return new S.MarketPriceHistory();
+            case (short)ServerPacketIds.SentMail:
+                return new S.SentMail();
             case (short)ServerPacketIds.Login:
                 return new S.Login();
             case (short)ServerPacketIds.LoginBanned:

@@ -975,6 +975,7 @@ namespace Server.WebAdmin.Routes
                     if (c == null) continue;
                     characters.Add(c.Name);
                     Envir.Main.CharacterList.Remove(c);
+                    Envir.Main.RemoveSentMailFor(c); // the senders' Sent folders drop mail to this character
                     Envir.Main.RemoveRank(c);
 
                     if (c.Heroes != null)

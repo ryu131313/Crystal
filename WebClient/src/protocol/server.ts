@@ -373,6 +373,11 @@ export interface ClientRankingDetail { PlayerId: bigint; GuildName: string; Onli
 export interface ClientGuildRanking { Name: string; Level: number; ExpPerTenThousand: number; Members: number; Leader: string }
 /** ClientMentorCandidate: an online player who could mentor the asker. >= 4 bytes. */
 export interface ClientMentorCandidate { Name: string; Class: number; Level: number }
+/** ClientMarketSale: one completed market sale. Date = DateTime.ToBinary. 12 bytes. */
+export interface ClientMarketSale { Price: number; Date: bigint }
+/** ClientSentMail: one sent-folder row. RecipientName <= 32 chars, Message <= 200 chars (list preview); DateSent = DateTime.ToBinary;
+ *  Opened / Collected = the recipient's mail flags. >= 28 bytes. */
+export interface ClientSentMail { MailID: bigint; RecipientName: string; Message: string; Gold: number; ItemCount: number; DateSent: bigint; Opened: boolean; Collected: boolean }
 
 /** ClientGuildLogEntry.Kind values (server Server.MirDatabase.GuildLogKind; not in Shared, so not generated). */
 export const GUILD_LOG_KIND = { Join: 0, Leave: 1, Kick: 2, RankChange: 3, Notice: 4, Buff: 5, War: 6, Territory: 7, Gold: 8 } as const;
@@ -384,6 +389,9 @@ export const GUILD_LOG_MAX_ENTRIES = 100;
 export const RANKINGS_DETAIL_MAX_ROWS = 100;
 export const GUILD_RANKINGS_PAGE_SIZE = 20;
 export const MENTOR_CANDIDATES_MAX_ROWS = 20;
+/** Phase 2.6 list caps: the C# readers throw above these. */
+export const MARKET_PRICE_HISTORY_MAX_SALES = 14;
+export const SENT_MAIL_MAX_ROWS = 50;
 
 /** readCount plus the C# reader's upper bound. */
 function readCappedCount(r: Reader, elementSize: number, max: number): number {
@@ -1114,6 +1122,27 @@ const decoders = {
   },
   /** S.PlayerProfile (right after S.PlayerInspect): Name = the inspected player; Text may be empty. */
   PlayerProfile: (r: Reader) => ({ Name: r.readString(), Text: r.readString() }),
+  // — Phase 2.6 —
+  /** S.MarketPriceHistory (reply to C.MarketPriceHistory): ItemIndex = ItemInfo.Index; at most 14 sales, oldest first. */
+  MarketPriceHistory: (r: Reader) => {
+    const ItemIndex = r.readI32();
+    const n = readCappedCount(r, 12, MARKET_PRICE_HISTORY_MAX_SALES);
+    const Sales: ClientMarketSale[] = [];
+    for (let i = 0; i < n; i++) Sales.push({ Price: r.readU32(), Date: r.readI64() });
+    return { ItemIndex, Sales };
+  },
+  /** S.SentMail (reply to C.RequestSentMail / C.HideSentMail): mail still in the recipient's box and not hidden, newest first, at most 50. */
+  SentMail: (r: Reader) => {
+    const n = readCappedCount(r, 28, SENT_MAIL_MAX_ROWS);
+    const Mails: ClientSentMail[] = [];
+    for (let i = 0; i < n; i++) {
+      Mails.push({
+        MailID: r.readU64(), RecipientName: r.readString(), Message: r.readString(), Gold: r.readU32(),
+        ItemCount: r.readI32(), DateSent: r.readI64(), Opened: r.readBool(), Collected: r.readBool(),
+      });
+    }
+    return { Mails };
+  },
 } satisfies Record<string, (r: Reader) => object>;
 
 type Decoders = typeof decoders;

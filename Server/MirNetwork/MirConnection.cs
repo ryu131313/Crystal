@@ -912,6 +912,21 @@ namespace Server.MirNetwork
                 case (short)ClientPacketIds.SetProfile:
                     SetProfile((C.SetProfile)p);
                     break;
+                case (short)ClientPacketIds.GameshopGift:
+                    GameshopGift((C.GameshopGift)p);
+                    break;
+                case (short)ClientPacketIds.MarketSearchEx:
+                    MarketSearchEx((C.MarketSearchEx)p);
+                    break;
+                case (short)ClientPacketIds.MarketPriceHistory:
+                    MarketPriceHistory((C.MarketPriceHistory)p);
+                    break;
+                case (short)ClientPacketIds.RequestSentMail:
+                    RequestSentMail();
+                    break;
+                case (short)ClientPacketIds.HideSentMail:
+                    HideSentMail((C.HideSentMail)p);
+                    break;
                 default:
                     MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.InvalidPacketReceived), p.Index));
                     break;
@@ -1871,6 +1886,7 @@ namespace Server.MirNetwork
             Player.MinShapes = p.MinShape;
             Player.MaxShapes = p.MaxShape;
             Player.MarketPanelType = p.MarketType;
+            Player.ClearMarketFilterEx(); // a plain search drops the C.MarketSearchEx filter, so it behaves as before phase 2.6
 
             Player.MarketSearch(p.Match, p.Type);
         }
@@ -2632,6 +2648,51 @@ namespace Server.MirNetwork
             if (Stage != GameStage.Game) return;
 
             Player.SetProfile(p.Text);
+        }
+
+        private void GameshopGift(C.GameshopGift p)
+        {
+            if (Stage != GameStage.Game) return;
+            if (p.Quantity < 1 || p.Quantity > 99) return; // C.GameshopBuy sends a byte; the gift's int is narrowed only after this check
+            if (string.IsNullOrWhiteSpace(p.Recipient) || p.Recipient.Length > Globals.MaxCharacterNameLength) return;
+
+            Player.GameshopGift(p.GIndex, (byte)p.Quantity, p.PType, p.Recipient);
+        }
+
+        private void MarketSearchEx(C.MarketSearchEx p)
+        {
+            if (Stage != GameStage.Game) return;
+            if (p.Sort > C.MarketSearchEx.SortEndingSoonest) return;
+
+            // same player fields as MarketSearch, plus the extended filter that GetMarket applies until the next C.MarketSearch
+            Player.UserMatch = p.Usermode;
+            Player.MinShapes = p.MinShape;
+            Player.MaxShapes = p.MaxShape;
+            Player.MarketPanelType = p.MarketType;
+            Player.SetMarketFilterEx(p.Sort, p.PriceMin, p.PriceMax, p.MinGrade);
+
+            Player.MarketSearch(p.Match, p.Type);
+        }
+
+        private void MarketPriceHistory(C.MarketPriceHistory p)
+        {
+            if (Stage != GameStage.Game) return;
+
+            Player.MarketPriceHistory(p.ItemIndex);
+        }
+
+        private void RequestSentMail()
+        {
+            if (Stage != GameStage.Game) return;
+
+            Player.RequestSentMail();
+        }
+
+        private void HideSentMail(C.HideSentMail p)
+        {
+            if (Stage != GameStage.Game) return;
+
+            Player.HideSentMail(p.MailID);
         }
     }
 

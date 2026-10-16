@@ -25,6 +25,8 @@ export function hasDealPrice(item: GameShopItem): boolean { return item.DealGold
 
 /** PlayerObject.GameshopBuy PType. */
 export const ShopPayType = { Credit: 0, Gold: 1 } as const;
+/** PlayerObject.GameshopGift: the server refuses a Quantity outside 1..99. */
+export const MAX_GIFT_QUANTITY = 99;
 
 export class Shop {
   /** GameScene.GameShopInfoList (arrival order; GameDataChanged removes / re-adds rows in place). */
@@ -48,6 +50,16 @@ export class Shop {
   /** GameShopCell.BuyProduct's Yes: C.GameshopBuy (pType: ShopPayType). */
   buy(gIndex: number, quantity: number, pType: number): void {
     this.send(ClientPackets.GameshopBuy({ GIndex: gIndex, Quantity: quantity, PType: pType }));
+  }
+
+  /** C.GameshopGift (web, phase 2.6): buy `quantity` of `gIndex` (pType: ShopPayType) for `recipient`, a mutual friend.
+   *  The server mails it with the buyer as sender and answers with chat lines only (sent / not a friend / mailbox full /
+   *  yourself / the GameshopBuy refusals). False = refused locally (quantity outside 1..99, no recipient), nothing sent. */
+  gift(gIndex: number, quantity: number, pType: number, recipient: string): boolean {
+    const name = recipient.trim();
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_GIFT_QUANTITY || name.length === 0) return false;
+    this.send(ClientPackets.GameshopGift({ GIndex: gIndex, Quantity: quantity, PType: pType, Recipient: name }));
+    return true;
   }
 
   /** Server packets; true = consumed (the classic chain returned on both). */

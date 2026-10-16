@@ -6,8 +6,8 @@
 // `changed` (redraw the rows), `sellChanged` (the sell cell) and `message` (the MirMessageBox of MarketFail /
 // MarketSuccess). The UI calls reset() when the dialog hides (TrustMerchantDialog.Hide).
 
-import type { ClientAuction, ServerPacket, UserItem } from "../protocol/server.ts";
-import { ClientPackets } from "../protocol/client.ts";
+import type { ClientAuction, ClientMarketSale, ServerPacket, UserItem } from "../protocol/server.ts";
+import { ClientPackets, MarketSearchSort } from "../protocol/client.ts";
 import { ChatType, ItemType, MarketCollectionMode, MarketPanelType } from "../protocol/enums.generated.ts";
 import type { Inventory } from "./inventory.ts";
 import { Emitter } from "./emitter.ts";
@@ -26,6 +26,21 @@ export const UINT_MAX = 4294967295;
 export const MARKET_PAGE_ROWS = 10;
 /** MarketTime after a buy / bid / get back / sell now / collect (CMain.Time + 3000). */
 const MARKET_DELAY = 3000;
+/** PlayerObject.MarketPriceHistory's cooldown (the server drops faster requests silently). */
+export const PRICE_HISTORY_DELAY = 1000;
+
+export { MarketSearchSort };
+
+/** C.MarketSearchEx (web, phase 2.6): C.MarketSearch's fields plus a server-side sort, price range and minimum grade.
+ *  Omitted fields: Match "", Type ItemType.Nothing, Usermode false, shapes 0..5000, the current panel, no sort, any price
+ *  (PriceMax 0 = no max), MinGrade 0 (ItemGrade.None). */
+export interface MarketSearchExParams {
+  match?: string; type?: number; usermode?: boolean; minShape?: number; maxShape?: number; marketType?: number;
+  /** MarketSearchSort. */
+  sort?: number; priceMin?: number; priceMax?: number; minGrade?: number;
+}
+
+const u32 = (v: number | undefined): number => Math.min(UINT_MAX, Math.max(0, Math.trunc(v ?? 0)));
 
 /** GameScene.MarketFail reasons (ClientTextKeys English text). */
 export const MARKET_FAIL_TEXT: Readonly<Record<number, string>> = {
@@ -89,6 +104,8 @@ export class Market {
   private _filterIndex = -1;        // SelectedIndex
   private _subFilterIndex = -1;     // SelectedSubIndex
   private _sellItem: UserItem | null = null; // SellItemSlot (tempCell locked)
+  private readonly _priceHistory = new Map<number, readonly ClientMarketSale[]>(); // S.MarketPriceHistory per ItemIndex
+  private priceHistoryTime = 0;     // PRICE_HISTORY_DELAY gate
 
   /** GameScene.NPCMarket: show the dialog (before the listings are applied; a fresh open picks the Market tab). */
   readonly opened = new Emitter<void>();
@@ -98,6 +115,8 @@ export class Market {
   readonly sellChanged = new Emitter<void>();
   /** GameScene.MarketFail / MarketSuccess: a MirMessageBox. */
   readonly message = new Emitter<{ text: string }>();
+  /** S.MarketPriceHistory: `sales` (oldest first, at most 14) for `itemIndex` arrived; also cached (priceHistory). */
+  readonly priceHistoryChanged = new Emitter<{ itemIndex: number; sales: readonly ClientMarketSale[] }>();
 
   constructor(private readonly deps: {
     send: (f: Uint8Array) => void; now: () => number; inventory: Inventory; chat: (text: string, type: number) => void;
@@ -172,6 +191,35 @@ export class Market {
     if (this.searchWait()) return false;
     this.searchTime = this.deps.now() + SEARCH_DELAY;
     this.deps.send(ClientPackets.MarketRefresh());
+    return true;
+  }
+
+  /** C.MarketSearchEx (web): MarketSearch with a server-side sort, price range and minimum grade, under the same SearchTime
+   *  throttle as search(). The reply is the usual S.NPCMarket / S.NPCMarketPage (listings + paging as for MarketSearch);
+   *  the server sorts, so keep priceFilter "normal" to show its order. False = throttled (chat line posted), nothing sent. */
+  searchEx(params: MarketSearchExParams = {}): boolean {
+    if (this.searchWait()) return false;
+    this.searchTime = this.deps.now() + SEARCH_DELAY;
+    const marketType = params.marketType ?? this._marketType;
+    this.deps.send(ClientPackets.MarketSearchEx({
+      Match: params.match ?? "", Type: params.type ?? ItemType.Nothing, Usermode: params.usermode ?? false,
+      MinShape: params.minShape ?? 0, MaxShape: params.maxShape ?? 5000, MarketType: marketType,
+      Sort: params.sort ?? MarketSearchSort.None, PriceMin: u32(params.priceMin), PriceMax: u32(params.priceMax),
+      MinGrade: Math.min(255, Math.max(0, Math.trunc(params.minGrade ?? 0))),
+    }));
+    return true;
+  }
+
+  /** The last S.MarketPriceHistory received for `itemIndex` (oldest first), or undefined = never asked / not answered. */
+  priceHistory(itemIndex: number): readonly ClientMarketSale[] | undefined { return this._priceHistory.get(itemIndex); }
+
+  /** C.MarketPriceHistory (web): ask for the last 14 sale prices of ItemInfo `itemIndex` (the market page must be open on
+   *  the server). One request per PRICE_HISTORY_DELAY; false = too soon, nothing sent. Answer: `priceHistoryChanged`. */
+  requestPriceHistory(itemIndex: number): boolean {
+    const t = this.deps.now();
+    if (t < this.priceHistoryTime) return false;
+    this.priceHistoryTime = t + PRICE_HISTORY_DELAY;
+    this.deps.send(ClientPackets.MarketPriceHistory({ ItemIndex: itemIndex }));
     return true;
   }
 
@@ -304,6 +352,11 @@ export class Market {
         // GameScene.MarketSuccess
         this.marketTime = 0;
         this.message.emit({ text: p.Message });
+        return true;
+      case "MarketPriceHistory":
+        // web (phase 2.6): cache and announce
+        this._priceHistory.set(p.ItemIndex, p.Sales);
+        this.priceHistoryChanged.emit({ itemIndex: p.ItemIndex, sales: p.Sales });
         return true;
       case "ConsignItem":
         // GameScene.ConsignItem (Inventory unlocked the cell): the sell slot empties

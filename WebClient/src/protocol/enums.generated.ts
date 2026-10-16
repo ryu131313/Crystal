@@ -298,6 +298,8 @@ export const ServerPacketIds = {
   MentorDetails: 293,
   MentorCandidates: 294,
   PlayerProfile: 295,
+  MarketPriceHistory: 296,
+  SentMail: 297,
 } as const;
 export type ServerPacketIds = (typeof ServerPacketIds)[keyof typeof ServerPacketIds];
 export const ServerPacketIdsName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(ServerPacketIds).map(([k, v]) => [v, k]));
@@ -469,6 +471,11 @@ export const ClientPacketIds = {
   FindMentor: 163,
   GuildTerritoryAction: 164,
   SetProfile: 165,
+  GameshopGift: 166,
+  MarketSearchEx: 167,
+  MarketPriceHistory: 168,
+  RequestSentMail: 169,
+  HideSentMail: 170,
 } as const;
 export type ClientPacketIds = (typeof ClientPacketIds)[keyof typeof ClientPacketIds];
 export const ClientPacketIdsName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(ClientPacketIds).map(([k, v]) => [v, k]));

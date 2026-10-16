@@ -942,6 +942,221 @@ namespace Server.MirObjects
 
         #endregion
 
+        #region Phase 2.6 detail packets (market search ex, price history, sent mail)
+
+        // C.MarketSearchEx filter, applied by GetMarket on top of Match() until the next C.MarketSearch clears it, so
+        // C.MarketRefresh / C.MarketPage and the re-search after a buy keep the player's extended filter and sort.
+        private bool _marketFilterEx;
+        private byte _marketSort;
+        private uint _marketPriceMin, _marketPriceMax;
+        private byte _marketMinGrade;
+
+        private long _marketPriceHistoryTime;  // Envir.Time before which C.MarketPriceHistory is ignored (1 s cooldown)
+        private long _sentMailTime;            // Envir.Time before which C.RequestSentMail is ignored (2 s cooldown)
+        private long _hideSentMailTime;        // Envir.Time before which C.HideSentMail is ignored (0.5 s; each reply is a full S.SentMail)
+
+        private static readonly Comparison<AuctionInfo> ComparePriceAscending = (a, b) =>
+        {
+            int result = MarketListPrice(a).CompareTo(MarketListPrice(b));
+            return result != 0 ? result : a.AuctionID.CompareTo(b.AuctionID);
+        };
+        private static readonly Comparison<AuctionInfo> ComparePriceDescending = (a, b) =>
+        {
+            int result = MarketListPrice(b).CompareTo(MarketListPrice(a));
+            return result != 0 ? result : a.AuctionID.CompareTo(b.AuctionID);
+        };
+        private static readonly Comparison<AuctionInfo> CompareNewest = (a, b) =>
+        {
+            int result = b.ConsignmentDate.CompareTo(a.ConsignmentDate);
+            return result != 0 ? result : b.AuctionID.CompareTo(a.AuctionID);
+        };
+        // every listing lasts Globals.ConsignmentLength days, so the oldest listing ends first
+        private static readonly Comparison<AuctionInfo> CompareEndingSoonest = (a, b) =>
+        {
+            int result = a.ConsignmentDate.CompareTo(b.ConsignmentDate);
+            return result != 0 ? result : a.AuctionID.CompareTo(b.AuctionID);
+        };
+
+        /// <summary>The price the market list shows (AuctionInfo.CreateClientAuction): the current bid for an auction, else the price.</summary>
+        private static uint MarketListPrice(AuctionInfo info)
+        {
+            return info.ItemType == MarketItemType.Auction ? info.CurrentBid : info.Price;
+        }
+
+        /// <summary>C.MarketSearchEx: the filter GetMarket applies from now on. Sort is validated by MirConnection (0..4).</summary>
+        public void SetMarketFilterEx(byte sort, uint priceMin, uint priceMax, byte minGrade)
+        {
+            _marketFilterEx = true;
+            _marketSort = sort;
+            _marketPriceMin = priceMin;
+            _marketPriceMax = priceMax;
+            _marketMinGrade = minGrade;
+        }
+
+        /// <summary>C.MarketSearch: back to the plain search.</summary>
+        public void ClearMarketFilterEx()
+        {
+            _marketFilterEx = false;
+            _marketSort = 0;
+            _marketPriceMin = 0;
+            _marketPriceMax = 0;
+            _marketMinGrade = 0;
+        }
+
+        private bool MatchEx(AuctionInfo info)
+        {
+            uint price = MarketListPrice(info);
+            if (price < _marketPriceMin) return false;
+            if (_marketPriceMax != 0 && price > _marketPriceMax) return false;
+
+            return (byte)info.Item.Info.Grade >= _marketMinGrade;
+        }
+
+        /// <summary>Sorts Search once per search (C.MarketSearchEx sort mode); the pages then read it in order.</summary>
+        private void SortMarketSearch()
+        {
+            switch (_marketSort)
+            {
+                case C.MarketSearchEx.SortPriceAscending:
+                    Search.Sort(ComparePriceAscending);
+                    break;
+                case C.MarketSearchEx.SortPriceDescending:
+                    Search.Sort(ComparePriceDescending);
+                    break;
+                case C.MarketSearchEx.SortNewest:
+                    Search.Sort(CompareNewest);
+                    break;
+                case C.MarketSearchEx.SortEndingSoonest:
+                    Search.Sort(CompareEndingSoonest);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// C.MarketPriceHistory: an item's last completed sales (Envir.MarketSales, oldest first). Needs the market page and its
+        /// NPC in range, as C.MarketSearch does; 1 s cooldown; unknown items are ignored. Silent on failure.
+        /// </summary>
+        public void MarketPriceHistory(int itemIndex)
+        {
+            if (Dead || Envir.Time < _marketPriceHistoryTime) return;
+
+            _marketPriceHistoryTime = Envir.Time + 1000;
+
+            if (NPCPage == null || !String.Equals(NPCPage.Key, NPCScript.MarketKey, StringComparison.CurrentCultureIgnoreCase)) return;
+
+            bool inRange = false;
+            for (int n = 0; n < CurrentMap.NPCs.Count; n++)
+            {
+                NPCObject ob = CurrentMap.NPCs[n];
+                if (ob.ObjectID != NPCObjectID) continue;
+
+                if (!Functions.InRange(CurrentLocation, ob.CurrentLocation, Globals.DataRange)) return;
+                inRange = true;
+                break;
+            }
+            if (!inRange) return;
+
+            if (Envir.GetItemInfo(itemIndex) == null) return;
+
+            S.MarketPriceHistory packet = new S.MarketPriceHistory { ItemIndex = itemIndex };
+
+            if (Envir.MarketSales.TryGetValue(itemIndex, out MarketSaleHistory history))
+            {
+                for (int i = 0; i < history.Count; i++)
+                {
+                    MarketSale sale = history[i];
+                    packet.Sales.Add(new ClientMarketSale { Price = sale.Price, Date = sale.Date.ToBinary() });
+                }
+            }
+
+            Enqueue(packet);
+        }
+
+        /// <summary>C.RequestSentMail: the Sent folder (2 s cooldown, silently ignored).</summary>
+        public void RequestSentMail()
+        {
+            if (Envir.Time < _sentMailTime) return;
+
+            _sentMailTime = Envir.Time + 2000;
+
+            SendSentMail();
+        }
+
+        /// <summary>
+        /// C.HideSentMail: hides one mail this character sent (found through Envir.SentMailIndex, so only the sender's own mail
+        /// still in a recipient's box qualifies) from the Sent folder; the recipient keeps it. Replies a fresh S.SentMail.
+        /// </summary>
+        public void HideSentMail(ulong mailID)
+        {
+            if (Envir.Time < _hideSentMailTime) return;
+
+            _hideSentMailTime = Envir.Time + 500;
+
+            if (!Envir.SentMailIndex.TryGetValue(Info.Index, out List<SentMailEntry> sent)) return;
+
+            for (int i = 0; i < sent.Count; i++)
+            {
+                MailInfo mail = sent[i].Mail;
+                if (mail.MailID != mailID) continue;
+                if (mail.SenderIndex != Info.Index || mail.SenderHidden) return;
+
+                mail.SenderHidden = true;
+                SendSentMail();
+                return;
+            }
+        }
+
+        /// <summary>
+        /// Builds S.SentMail from Envir.SentMailIndex: newest first, at most S.SentMail.MaxRows, without SenderHidden mail or
+        /// mail of a deleted recipient. An entry whose mail is no longer in the recipient's box is dropped from the index here
+        /// (safety net; every removal path already calls Envir.RemoveSentMail).
+        /// </summary>
+        private void SendSentMail()
+        {
+            S.SentMail packet = new S.SentMail();
+
+            if (Envir.SentMailIndex.TryGetValue(Info.Index, out List<SentMailEntry> sent))
+            {
+                for (int i = sent.Count - 1; i >= 0 && packet.Mails.Count < S.SentMail.MaxRows; i--)
+                {
+                    SentMailEntry entry = sent[i];
+                    MailInfo mail = entry.Mail;
+
+                    if (mail.SenderHidden || entry.Recipient.Deleted) continue;
+
+                    if (!IsInMailbox(entry.Recipient, mail))
+                    {
+                        sent.RemoveAt(i);
+                        continue;
+                    }
+
+                    packet.Mails.Add(new ClientSentMail
+                    {
+                        MailID = mail.MailID,
+                        RecipientName = entry.Recipient.Name,
+                        Message = mail.Message,
+                        Gold = mail.Gold,
+                        ItemCount = mail.Items.Count,
+                        DateSent = mail.DateSent.ToBinary(),
+                        Opened = mail.Opened,
+                        Collected = mail.Collected,
+                    });
+                }
+            }
+
+            Enqueue(packet);
+        }
+
+        private static bool IsInMailbox(CharacterInfo recipient, MailInfo mail)
+        {
+            for (int i = 0; i < recipient.Mail.Count; i++)
+                if (recipient.Mail[i] == mail) return true;
+
+            return false;
+        }
+
+        #endregion
+
         public void StopGame(byte reason)
         {
             if (Node == null) return;
@@ -3460,6 +3675,7 @@ namespace Server.MirObjects
                             Envir.SaveArchivedCharacter(data);
 
                             Envir.CharacterList.Remove(data);
+                            Envir.RemoveSentMailFor(data); // phase 2.6: the removed character leaves every Sent folder
                             account.Characters.Remove(data);
 
                             ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.PlayerHasBeenArchived), data.Name), ChatType.System);
@@ -9419,9 +9635,11 @@ namespace Server.MirObjects
 
                 while (current != null)
                 {
-                    if (Match(current.Value)) Search.Add(current.Value);
+                    if (Match(current.Value) && (!_marketFilterEx || MatchEx(current.Value))) Search.Add(current.Value);
                     current = current.Next;
                 }
+
+                if (_marketFilterEx) SortMarketSearch();
             }
 
             List<AuctionInfo> listings = new List<AuctionInfo>();
@@ -13048,6 +13266,7 @@ namespace Server.MirObjects
             if (mail == null) return;
 
             Info.Mail.Remove(mail);
+            Envir.RemoveSentMail(mail); // phase 2.6: the sender's Sent folder only lists mail still in this box
 
             GetMail();
         }
@@ -14866,6 +15085,66 @@ namespace Server.MirObjects
 
         public void GameshopBuy(int GIndex, byte Quantity, int PType)
         {
+            GameshopPurchase(GIndex, Quantity, PType, null);
+        }
+
+        /// <summary>
+        /// C.GameshopGift (phase 2.6): buys like C.GameshopBuy (same checks, price, stock; a per-player stock counts the buyer)
+        /// and mails the items to <paramref name="recipientName"/> with the buyer as the sender. The recipient must exist, not
+        /// be this character, be a mutual friend (each in the other's friend list, not blocked) and have room in the mailbox
+        /// (the SendMail limit). Every recipient check runs before anything is charged.
+        /// </summary>
+        public void GameshopGift(int GIndex, byte Quantity, byte PType, string recipientName)
+        {
+            if (Quantity < 1 || Quantity > 99) return;
+
+            CharacterInfo recipient = Envir.GetCharacterInfo(recipientName);
+
+            if (recipient == null || recipient.Deleted)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.CouldNotFindPlayer), recipientName), ChatType.System);
+                return;
+            }
+
+            if (recipient == Info)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GameshopGiftSelf), ChatType.System);
+                return;
+            }
+
+            if (!IsFriendOf(Info, recipient.Index) || !IsFriendOf(recipient, Info.Index))
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.GameshopGiftNotFriend), recipient.Name), ChatType.System);
+                return;
+            }
+
+            if (recipient.Mail.Count > 50) // the SendMail limit
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.GameshopGiftMailboxFull), recipient.Name), ChatType.System);
+                return;
+            }
+
+            GameshopPurchase(GIndex, Quantity, PType, recipient);
+        }
+
+        /// <summary>True when <paramref name="owner"/> lists character <paramref name="friendIndex"/> as a friend (not blocked).</summary>
+        private static bool IsFriendOf(CharacterInfo owner, int friendIndex)
+        {
+            for (int i = 0; i < owner.Friends.Count; i++)
+            {
+                FriendInfo friend = owner.Friends[i];
+                if (friend.Index == friendIndex) return !friend.Blocked;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// The Gameshop purchase shared by C.GameshopBuy and C.GameshopGift: validates, charges, counts stock and mails the items,
+        /// to the buyer (<paramref name="giftRecipient"/> null, sender "Gameshop") or as a gift (sender = the buyer).
+        /// </summary>
+        private void GameshopPurchase(int GIndex, byte Quantity, int PType, CharacterInfo giftRecipient)
+        {
             if (Quantity < 1 || Quantity > 99) return;
 
             List<GameShopItem> shopList = Envir.GameShopList;
@@ -15027,17 +15306,35 @@ namespace Server.MirObjects
                 }
             }
 
-            MailInfo mail = new MailInfo(Info.Index)
+            if (giftRecipient == null)
             {
-                MailID = ++Envir.NextMailID,
-                Sender = "Gameshop",
-                Message = GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.ThankYouPurchaseGameshop),
-                Items = mailItems,
-            };
-            mail.Send();
+                MailInfo mail = new MailInfo(Info.Index)
+                {
+                    MailID = ++Envir.NextMailID,
+                    Sender = "Gameshop",
+                    Message = GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.ThankYouPurchaseGameshop),
+                    Items = mailItems,
+                };
+                mail.Send();
 
-            MessageQueue.EnqueueDebugging(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.PlayerBuyingItemsSent), Info.Name, Product.Info.FriendlyName, Quantity));
-            ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.PurchasesSentMailbox), ChatType.Hint);
+                MessageQueue.EnqueueDebugging(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.PlayerBuyingItemsSent), Info.Name, Product.Info.FriendlyName, Quantity));
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.PurchasesSentMailbox), ChatType.Hint);
+            }
+            else
+            {
+                MailInfo mail = new MailInfo(giftRecipient.Index, true)
+                {
+                    MailID = ++Envir.NextMailID,
+                    Sender = Info.Name,
+                    SenderIndex = Info.Index,
+                    Message = GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.GameshopGiftMessage), Info.Name),
+                    Items = mailItems,
+                };
+                mail.Send();
+
+                MessageQueue.EnqueueDebugging(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.PlayerGiftingItemsSent), Info.Name, Quantity, Product.Info.FriendlyName, giftRecipient.Name));
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.GameshopGiftSent), Quantity, Product.Info.FriendlyName, giftRecipient.Name), ChatType.Hint);
+            }
         }
 
         public void GetGameShop()

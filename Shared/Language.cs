@@ -1907,7 +1907,13 @@ public enum ServerTextKeys
     MentorSearchCooldown,
     MentorSearchNotEligible,
     ProfileCooldown,
-    ProfileUpdated
+    ProfileUpdated,
+    GameshopGiftSent,
+    GameshopGiftNotFriend,
+    GameshopGiftMailboxFull,
+    GameshopGiftSelf,
+    GameshopGiftMessage,
+    PlayerGiftingItemsSent
 }
 
 public class TextMap
@@ -2709,6 +2715,12 @@ public static class GameLanguage
             { nameof(ServerTextKeys.MentorSearchNotEligible), "You cannot take a mentor right now." },
             { nameof(ServerTextKeys.ProfileCooldown), "You can change your profile again in {0} seconds." },
             { nameof(ServerTextKeys.ProfileUpdated), "Your profile has been updated." },
+            { nameof(ServerTextKeys.GameshopGiftSent), "Your gift of {0} x {1} has been sent to {2}." },
+            { nameof(ServerTextKeys.GameshopGiftNotFriend), "You can only send gifts to friends who have also added you ({0})." },
+            { nameof(ServerTextKeys.GameshopGiftMailboxFull), "{0}'s mailbox is full." },
+            { nameof(ServerTextKeys.GameshopGiftSelf), "You cannot send a gift to yourself." },
+            { nameof(ServerTextKeys.GameshopGiftMessage), "{0} sent you a gift from the Gameshop. Your item(s) are enclosed." },
+            { nameof(ServerTextKeys.PlayerGiftingItemsSent), "{0} sent {1} x {2} as a gift to {3} - Gift Sent!" },
 
         },
         Enum = new Dictionary<string, string>

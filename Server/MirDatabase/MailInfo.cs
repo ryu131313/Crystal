@@ -153,6 +153,8 @@ namespace Server.MirEnvir
             }
 
             DateSent = Envir.Now;
+
+            Envir.AddSentMail(RecipientInfo, this); // phase 2.6: the sender's Sent folder (player mail only: SenderIndex >= 0)
         }
 
         public ClientMail CreateClientMail()
@@ -170,6 +172,19 @@ namespace Server.MirEnvir
                 Collected = Collected,
                 DateSent = DateSent
             };
+        }
+    }
+
+    /// <summary>One Envir.SentMailIndex row (phase 2.6): a mail a player sent and the character whose box holds it.</summary>
+    public readonly struct SentMailEntry
+    {
+        public readonly CharacterInfo Recipient;
+        public readonly MailInfo Mail;
+
+        public SentMailEntry(CharacterInfo recipient, MailInfo mail)
+        {
+            Recipient = recipient;
+            Mail = mail;
         }
     }
 

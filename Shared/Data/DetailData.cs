@@ -275,3 +275,78 @@ public sealed class ClientMentorCandidate
         writer.Write(Level);
     }
 }
+
+/// <summary>One completed market sale (S.MarketPriceHistory, phase 2.6). Date = DateTime.ToBinary.</summary>
+public sealed class ClientMarketSale
+{
+    public uint Price;
+    public long Date;
+
+    public ClientMarketSale() { }
+
+    public ClientMarketSale(BinaryReader reader)
+    {
+        Price = reader.ReadUInt32();
+        Date = reader.ReadInt64();
+    }
+
+    public void Save(BinaryWriter writer)
+    {
+        writer.Write(Price);
+        writer.Write(Date);
+    }
+}
+
+/// <summary>
+/// One mail of the sent folder (S.SentMail, phase 2.6). DateSent = DateTime.ToBinary. ItemCount = number of attached items.
+/// Opened / Collected = the recipient's MailInfo flags. On write RecipientName is cut to MaxNameLength chars and Message
+/// to MaxMessageLength chars (list preview; the worst-case row stays under ~730 bytes).
+/// </summary>
+public sealed class ClientSentMail
+{
+    public ulong MailID;
+    public string RecipientName = string.Empty;
+    public string Message = string.Empty;
+    public uint Gold;
+    public int ItemCount;
+    public long DateSent;
+    public bool Opened;
+    public bool Collected;
+
+    public const int MaxNameLength = 32;
+    public const int MaxMessageLength = 200;
+
+    public ClientSentMail() { }
+
+    public ClientSentMail(BinaryReader reader)
+    {
+        MailID = reader.ReadUInt64();
+        RecipientName = reader.ReadString();
+        Message = reader.ReadString();
+        Gold = reader.ReadUInt32();
+        ItemCount = reader.ReadInt32();
+        DateSent = reader.ReadInt64();
+        Opened = reader.ReadBoolean();
+        Collected = reader.ReadBoolean();
+    }
+
+    public void Save(BinaryWriter writer)
+    {
+        writer.Write(MailID);
+        writer.Write(Cut(RecipientName, MaxNameLength));
+        writer.Write(Cut(Message, MaxMessageLength));
+        writer.Write(Gold);
+        writer.Write(ItemCount);
+        writer.Write(DateSent);
+        writer.Write(Opened);
+        writer.Write(Collected);
+    }
+
+    private static string Cut(string text, int max)
+    {
+        if (text == null) return string.Empty;
+        if (text.Length <= max) return text;
+        int length = char.IsHighSurrogate(text[max - 1]) ? max - 1 : max;
+        return text.Substring(0, length);
+    }
+}

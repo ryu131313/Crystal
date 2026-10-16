@@ -1045,6 +1045,7 @@ namespace Server.MirObjects
                     break;
                 case MarketKey:
                     player.UserMatch = false;
+                    player.ClearMarketFilterEx(); // a fresh NPC open drops any C.MarketSearchEx filter
                     player.GetMarket(string.Empty, ItemType.Nothing);
                     break;
                 case GuildCreateKey:

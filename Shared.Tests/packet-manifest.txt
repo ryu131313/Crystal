@@ -295,6 +295,8 @@ S	292	GuildRankings	GuildRankings	1	4C99EA09
 S	293	MentorDetails	MentorDetails	0	B81A37CF
 S	294	MentorCandidates	MentorCandidates	0	2C24C746
 S	295	PlayerProfile	PlayerProfile	1	724F7BC7
+S	296	MarketPriceHistory	MarketPriceHistory	1	3691F1B2
+S	297	SentMail	SentMail	0	BC3146B7
 C	0	ClientVersion	ClientVersion	1	BA76D321
 C	1	Disconnect	Disconnect	1	E3B0C442
 C	2	KeepAlive	KeepAlive	1	1AC00927
@@ -461,3 +463,8 @@ C	162	GetGuildRanking	GetGuildRanking	1	17EBA345
 C	163	FindMentor	FindMentor	1	E6EC1915
 C	164	GuildTerritoryAction	GuildTerritoryAction	1	131C535A
 C	165	SetProfile	SetProfile	1	E287A2AE
+C	166	GameshopGift	GameshopGift	1	7A0565D8
+C	167	MarketSearchEx	MarketSearchEx	1	582DB8AD
+C	168	MarketPriceHistory	MarketPriceHistory	1	732C5818
+C	169	RequestSentMail	RequestSentMail	1	E3B0C442
+C	170	HideSentMail	HideSentMail	1	F1E2ECCB

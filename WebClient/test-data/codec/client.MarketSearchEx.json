@@ -1,0 +1,18 @@
+{
+  "name": "MarketSearchEx",
+  "dir": "client",
+  "id": 167,
+  "hex": "2100A7000B52696E6720E68892E68C870701FFFF2C0102046400000000286BEE02",
+  "fields": {
+    "Match": "Ring 戒指",
+    "Type": 7,
+    "Usermode": true,
+    "MinShape": -1,
+    "MaxShape": 300,
+    "MarketType": 2,
+    "Sort": 4,
+    "PriceMin": 100,
+    "PriceMax": 4000000000,
+    "MinGrade": 2
+  }
+}

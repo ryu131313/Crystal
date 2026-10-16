@@ -2951,4 +2951,131 @@ namespace ClientPackets
             writer.Write(Text ?? string.Empty);
         }
     }
+
+    /// <summary>
+    /// Buys a game shop item as a gift for a friend (phase 2.6). Same validation and price as C.GameshopBuy (PType: the
+    /// GameshopBuy currency choice, 0 = credit, 1 = gold); the stock per player counts the buyer. Recipient = a character
+    /// name: must be a mutual friend (each in the other's friend list, not blocked), not yourself, mailbox not full.
+    /// The items are mailed to the recipient with the buyer as the sender.
+    /// </summary>
+    public sealed class GameshopGift : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.GameshopGift; } }
+
+        public int GIndex;
+        public int Quantity;
+        public byte PType;
+        public string Recipient = string.Empty;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            GIndex = reader.ReadInt32();
+            Quantity = reader.ReadInt32();
+            PType = reader.ReadByte();
+            Recipient = reader.ReadString();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(GIndex);
+            writer.Write(Quantity);
+            writer.Write(PType);
+            writer.Write(Recipient ?? string.Empty);
+        }
+    }
+
+    /// <summary>
+    /// C.MarketSearch plus a sort, a price range and a minimum grade (phase 2.6). The first six fields mean exactly what
+    /// they mean in C.MarketSearch. Sort: 0 none, 1 price ascending, 2 price descending, 3 newest, 4 ending soonest.
+    /// PriceMax 0 = no maximum. MinGrade = the lowest ItemGrade (as byte) shown. Reply: the usual S.NPCMarket / S.NPCMarketPage.
+    /// </summary>
+    public sealed class MarketSearchEx : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.MarketSearchEx; } }
+
+        public const byte SortNone = 0, SortPriceAscending = 1, SortPriceDescending = 2, SortNewest = 3, SortEndingSoonest = 4;
+
+        public string Match = string.Empty;
+        public ItemType Type = 0;
+        public bool Usermode = false;
+        public short MinShape = 0, MaxShape = 5000;
+        public MarketPanelType MarketType = MarketPanelType.Market;
+        public byte Sort;
+        public uint PriceMin;
+        public uint PriceMax;
+        public byte MinGrade;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Match = reader.ReadString();
+            Type = (ItemType)reader.ReadByte();
+            Usermode = reader.ReadBoolean();
+            MinShape = reader.ReadInt16();
+            MaxShape = reader.ReadInt16();
+            MarketType = (MarketPanelType)reader.ReadByte();
+            Sort = reader.ReadByte();
+            PriceMin = reader.ReadUInt32();
+            PriceMax = reader.ReadUInt32();
+            MinGrade = reader.ReadByte();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Match ?? string.Empty);
+            writer.Write((byte)Type);
+            writer.Write(Usermode);
+            writer.Write(MinShape);
+            writer.Write(MaxShape);
+            writer.Write((byte)MarketType);
+            writer.Write(Sort);
+            writer.Write(PriceMin);
+            writer.Write(PriceMax);
+            writer.Write(MinGrade);
+        }
+    }
+
+    /// <summary>Asks for an item's last market sales (phase 2.6). ItemIndex = ItemInfo.Index. Server: needs the market page, 1 s cooldown; reply S.MarketPriceHistory.</summary>
+    public sealed class MarketPriceHistory : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.MarketPriceHistory; } }
+
+        public int ItemIndex;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            ItemIndex = reader.ReadInt32();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(ItemIndex);
+        }
+    }
+
+    /// <summary>Asks for the sent mail folder (phase 2.6). Server: 2 s cooldown; reply S.SentMail.</summary>
+    public sealed class RequestSentMail : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.RequestSentMail; } }
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+        }
+    }
+
+    /// <summary>Hides one sent mail from the sender's sent folder (phase 2.6; the recipient keeps it). MailID = MailInfo.MailID of a mail this player sent. Reply: a fresh S.SentMail.</summary>
+    public sealed class HideSentMail : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.HideSentMail; } }
+
+        public ulong MailID;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            MailID = reader.ReadUInt64();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(MailID);
+        }
+    }
 }

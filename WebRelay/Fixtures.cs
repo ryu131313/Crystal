@@ -548,6 +548,23 @@ internal static class Fixtures
         };
         yield return new S.MentorCandidates { Candidates = { new ClientMentorCandidate { Name = "Mentor 师傅", Class = MirClass.Assassin, Level = 60 }, new ClientMentorCandidate { Name = "Sage", Class = MirClass.Wizard, Level = 49 } } };
         yield return new S.PlayerProfile { Name = "Ally 盟友", Text = "Looking for a guild — 你好!" };
+        yield return new S.MarketPriceHistory
+        {
+            ItemIndex = 70000,
+            Sales =
+            {
+                new ClientMarketSale { Price = 1_500, Date = new DateTime(2026, 10, 1, 12, 0, 0, DateTimeKind.Utc).ToBinary() },
+                new ClientMarketSale { Price = 4_000_000_000, Date = new DateTime(2026, 10, 15, 8, 30, 0, DateTimeKind.Utc).ToBinary() },
+            },
+        };
+        yield return new S.SentMail
+        {
+            Mails =
+            {
+                new ClientSentMail { MailID = 9_000_000_000_000UL, RecipientName = "Ally 盟友", Message = "A gift for you — 礼物", Gold = 3_000_000_000, ItemCount = 2, DateSent = new DateTime(2026, 10, 16, 9, 0, 0, DateTimeKind.Utc).ToBinary(), Opened = true, Collected = false },
+                new ClientSentMail { MailID = 1, RecipientName = "Sage", Message = "", Gold = 0, ItemCount = 0, DateSent = new DateTime(2026, 10, 2, 0, 0, 0, DateTimeKind.Utc).ToBinary(), Opened = false, Collected = true },
+            },
+        };
     }
 
     private static IEnumerable<Packet> ClientSamples()
@@ -729,6 +746,11 @@ internal static class Fixtures
         yield return new C.FindMentor { MinLevel = 40, MaxLevel = 65535 };
         yield return new C.GuildTerritoryAction { Kind = GuildTerritoryActionKind.ListForSale, TerritoryIndex = 70000, Price = 3_000_000_000 };
         yield return new C.SetProfile { Text = "Hello 你好" };
+        yield return new C.GameshopGift { GIndex = 70000, Quantity = 99, PType = 1, Recipient = "Ally 盟友" };
+        yield return new C.MarketSearchEx { Match = "Ring 戒指", Type = ItemType.Ring, Usermode = true, MinShape = -1, MaxShape = 300, MarketType = MarketPanelType.Auction, Sort = C.MarketSearchEx.SortEndingSoonest, PriceMin = 100, PriceMax = 4_000_000_000, MinGrade = (byte)ItemGrade.Rare };
+        yield return new C.MarketPriceHistory { ItemIndex = 70000 };
+        yield return new C.RequestSentMail();
+        yield return new C.HideSentMail { MailID = 9_000_000_000_000UL };
     }
 
     public static int Emit(string dir)

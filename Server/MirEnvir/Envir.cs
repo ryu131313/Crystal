@@ -161,6 +161,8 @@ namespace Server.MirEnvir
         public List<ConquestGuildInfo> ConquestList = new List<ConquestGuildInfo>();
         public Dictionary<int, int> GameshopLog = new Dictionary<int, int>();
         public Dictionary<int, MarketSaleHistory> MarketSales = new Dictionary<int, MarketSaleHistory>(); //v119: ItemIndex -> last sales
+        // phase 2.6, not saved: sender CharacterInfo.Index -> player mail still in a recipient's box, oldest first (Sent folder; game thread)
+        public Dictionary<int, List<SentMailEntry>> SentMailIndex = new Dictionary<int, List<SentMailEntry>>();
         public List<HeroInfo> HeroList = new List<HeroInfo>();
 
         public int GuildCount; //This shouldn't be needed?? -> remove in the future
@@ -3861,6 +3863,8 @@ namespace Server.MirEnvir
                         }
                     }
                 }
+
+                BuildSentMailIndex(); // phase 2.6: Sent folder index from the loaded mailboxes
             }
         }
 
@@ -4590,6 +4594,7 @@ namespace Server.MirEnvir
                     {
                         if (info.Mail[j].DateOpened > Now && info.Mail[j].Collected && info.Mail[j].Items.Count == 0 && info.Mail[j].Gold == 0)
                         {
+                            RemoveSentMail(info.Mail[j]);
                             info.Mail.Remove(info.Mail[j]);
                         }
                     }
@@ -6302,6 +6307,77 @@ namespace Server.MirEnvir
             }
 
             history.Add(price, Now);
+        }
+
+        private static readonly Comparison<SentMailEntry> CompareSentMailByDate = (a, b) =>
+        {
+            int result = a.Mail.DateSent.CompareTo(b.Mail.DateSent);
+            return result != 0 ? result : a.Mail.MailID.CompareTo(b.Mail.MailID);
+        };
+
+        /// <summary>
+        /// Rebuilds SentMailIndex from every mailbox (MailInfo.SenderIndex, v119; older mail has -1 and is skipped). Called at
+        /// the end of LoadAccounts, so a world start and a web admin restore both start from the loaded boxes.
+        /// </summary>
+        private void BuildSentMailIndex()
+        {
+            SentMailIndex.Clear();
+
+            for (var i = 0; i < CharacterList.Count; i++)
+            {
+                var recipient = CharacterList[i];
+
+                for (var j = 0; j < recipient.Mail.Count; j++)
+                    AddSentMail(recipient, recipient.Mail[j]);
+            }
+
+            foreach (var sent in SentMailIndex.Values)
+                sent.Sort(CompareSentMailByDate);
+        }
+
+        /// <summary>Lists a mail just put in <paramref name="recipient"/>'s box under its sender (MailInfo.Send; game thread).</summary>
+        public void AddSentMail(CharacterInfo recipient, MailInfo mail)
+        {
+            if (recipient == null || mail == null || mail.SenderIndex < 0) return;
+
+            if (!SentMailIndex.TryGetValue(mail.SenderIndex, out var sent))
+            {
+                sent = new List<SentMailEntry>();
+                SentMailIndex[mail.SenderIndex] = sent;
+            }
+
+            sent.Add(new SentMailEntry(recipient, mail));
+        }
+
+        /// <summary>Drops a mail that left its recipient's box from its sender's Sent folder (every mail removal path; game thread).</summary>
+        public void RemoveSentMail(MailInfo mail)
+        {
+            if (mail == null || mail.SenderIndex < 0) return;
+            if (!SentMailIndex.TryGetValue(mail.SenderIndex, out var sent)) return;
+
+            for (var i = sent.Count - 1; i >= 0; i--)
+            {
+                if (sent[i].Mail != mail) continue;
+
+                sent.RemoveAt(i);
+                break;
+            }
+
+            if (sent.Count == 0) SentMailIndex.Remove(mail.SenderIndex);
+        }
+
+        /// <summary>
+        /// Drops a character that leaves CharacterList for good (GM ARCHIVEPLAYER, web admin account delete) from the Sent
+        /// folders: the mail in its box leaves its senders' folders, and its own folder goes (game thread).
+        /// </summary>
+        public void RemoveSentMailFor(CharacterInfo character)
+        {
+            if (character == null) return;
+
+            for (var i = 0; i < character.Mail.Count; i++)
+                RemoveSentMail(character.Mail[i]);
+
+            SentMailIndex.Remove(character.Index);
         }
 
         public void ClearGameshopLog()

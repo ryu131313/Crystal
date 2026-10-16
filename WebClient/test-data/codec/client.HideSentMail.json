@@ -1,0 +1,9 @@
+{
+  "name": "HideSentMail",
+  "dir": "client",
+  "id": 170,
+  "hex": "0C00AA000090CD792F080000",
+  "fields": {
+    "MailID": 9000000000000
+  }
+}

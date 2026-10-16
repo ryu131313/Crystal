@@ -782,7 +782,13 @@
     "MentorSearchCooldown": "{0} 秒后才能再次寻找师父。",
     "MentorSearchNotEligible": "你目前无法拜师。",
     "ProfileCooldown": "{0} 秒后才能再次修改个人简介。",
-    "ProfileUpdated": "你的个人简介已更新。"
+    "ProfileUpdated": "你的个人简介已更新。",
+    "GameshopGiftSent": "你赠送的 {0} x {1} 已发送给 {2}。",
+    "GameshopGiftNotFriend": "只能向互为好友的玩家赠送礼物（{0}）。",
+    "GameshopGiftMailboxFull": "{0} 的邮箱已满。",
+    "GameshopGiftSelf": "不能给自己赠送礼物。",
+    "GameshopGiftMessage": "{0} 从游戏商城送给你一份礼物，物品已附上。",
+    "PlayerGiftingItemsSent": "{0} 将 {1} x {2} 作为礼物赠送给 {3} - 礼物已发送！"
   },
   "Enum": {}
 }

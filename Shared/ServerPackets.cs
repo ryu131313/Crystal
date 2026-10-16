@@ -7587,4 +7587,65 @@ namespace ServerPackets
             writer.Write(Text ?? string.Empty);
         }
     }
+
+    /// <summary>
+    /// An item's last completed market sales, oldest first (phase 2.6), reply to C.MarketPriceHistory.
+    /// ItemIndex = ItemInfo.Index; at most MaxSales rows (the newest are kept). Same data for every asker.
+    /// </summary>
+    public sealed class MarketPriceHistory : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.MarketPriceHistory; } }
+
+        public const int MaxSales = 14;
+
+        public int ItemIndex;
+        public List<ClientMarketSale> Sales = new List<ClientMarketSale>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            ItemIndex = reader.ReadInt32();
+            int count = reader.ReadInt32();
+            if (count < 0 || count > MaxSales) throw new InvalidDataException();
+            for (int i = 0; i < count; i++)
+                Sales.Add(new ClientMarketSale(reader));
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(ItemIndex);
+            int start = Sales.Count > MaxSales ? Sales.Count - MaxSales : 0;
+            writer.Write(Sales.Count - start);
+            for (int i = start; i < Sales.Count; i++)
+                Sales[i].Save(writer);
+        }
+    }
+
+    /// <summary>
+    /// The player's sent mail folder (phase 2.6), reply to C.RequestSentMail and C.HideSentMail: mail this player sent that
+    /// is still in the recipient's box and not hidden by the sender, newest first, at most MaxRows.
+    /// Worst case ~50 x 690 bytes (ClientSentMail caps the message) = ~35 KB, under the 65 535 byte limit.
+    /// </summary>
+    public sealed class SentMail : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.SentMail; } }
+        public override bool Observable => false;
+
+        public const int MaxRows = 50;
+
+        public List<ClientSentMail> Mails = new List<ClientSentMail>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            int count = reader.ReadInt32();
+            if (count < 0 || count > MaxRows) throw new InvalidDataException();
+            for (int i = 0; i < count; i++)
+                Mails.Add(new ClientSentMail(reader));
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            int count = Mails.Count > MaxRows ? MaxRows : Mails.Count;
+            writer.Write(count);
+            for (int i = 0; i < count; i++)
+                Mails[i].Save(writer);
+        }
+    }
 }

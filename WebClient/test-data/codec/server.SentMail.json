@@ -1,0 +1,30 @@
+{
+  "name": "SentMail",
+  "dir": "server",
+  "id": 297,
+  "hex": "68002901020000000090CD792F0800000B416C6C7920E79B9FE58F8B1941206769667420666F7220796F7520E2809420E7A4BCE789A9005ED0B20200000000A8D7DB632BDF480100010000000000000004536167650000000000000000000080271A1820DF480001",
+  "fields": {
+    "Mails": [
+      {
+        "MailID": 9000000000000,
+        "RecipientName": "Ally 盟友",
+        "Message": "A gift for you — 礼物",
+        "Gold": 3000000000,
+        "ItemCount": 2,
+        "DateSent": "5250963398427387904",
+        "Opened": true,
+        "Collected": false
+      },
+      {
+        "MailID": 1,
+        "RecipientName": "Sage",
+        "Message": "",
+        "Gold": 0,
+        "ItemCount": 0,
+        "DateSent": "5250950978427387904",
+        "Opened": false,
+        "Collected": true
+      }
+    ]
+  }
+}

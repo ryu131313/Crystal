@@ -323,9 +323,31 @@ export const ClientPackets = {
     frame(C.GuildTerritoryAction, (w) => { w.writeU8(p.Kind); w.writeI32(p.TerritoryIndex); w.writeU32(p.Price); }),
   /** Server strips control chars, trims, caps at 120 chars, ignores it while chat-banned; no word filter; 10 s cooldown. */
   SetProfile: (p: { Text: string }) => frame(C.SetProfile, (w) => w.writeString(p.Text)),
+  // — Phase 2.6 —
+  /** Gift a gameshop item: PType as GameshopBuy (0 credit, 1 gold); Quantity i32 (server checks 1..99); Recipient = a mutual friend's
+   *  character name (not yourself, mailbox not full). Delivered by mail with the buyer as sender; replies are chat lines. */
+  GameshopGift: (p: { GIndex: number; Quantity: number; PType: number; Recipient: string }) =>
+    frame(C.GameshopGift, (w) => { w.writeI32(p.GIndex); w.writeI32(p.Quantity); w.writeU8(p.PType); w.writeString(p.Recipient); }),
+  /** MarketSearch plus Sort (MarketSearchSort), PriceMin / PriceMax (u32, PriceMax 0 = no max) and MinGrade (ItemGrade byte).
+   *  Needs the market page open; reply S.NPCMarket / S.NPCMarketPage as for MarketSearch. */
+  MarketSearchEx: (p: { Match: string; Type: number; Usermode: boolean; MinShape: number; MaxShape: number; MarketType: number; Sort: number; PriceMin: number; PriceMax: number; MinGrade: number }) =>
+    frame(C.MarketSearchEx, (w) => {
+      w.writeString(p.Match); w.writeU8(p.Type); w.writeBool(p.Usermode); w.writeI16(p.MinShape); w.writeI16(p.MaxShape); w.writeU8(p.MarketType);
+      w.writeU8(p.Sort); w.writeU32(p.PriceMin); w.writeU32(p.PriceMax); w.writeU8(p.MinGrade);
+    }),
+  /** ItemIndex = ItemInfo.Index (i32). Needs the market page open; 1 s server cooldown. Reply S.MarketPriceHistory.
+   *  Accepts a bigint too: tools/codec-test.ts turns every client field named ItemIndex into a bigint (C.BuyItem's is a ulong). */
+  MarketPriceHistory: (p: { ItemIndex: number | bigint }) => frame(C.MarketPriceHistory, (w) => w.writeI32(Number(p.ItemIndex))),
+  /** 2 s server cooldown. Reply S.SentMail. */
+  RequestSentMail: () => frame(C.RequestSentMail),
+  /** Hides one mail this player sent from the sent folder (the recipient keeps it). Reply a fresh S.SentMail. */
+  HideSentMail: (p: { MailID: bigint }) => frame(C.HideSentMail, (w) => w.writeU64(p.MailID)),
 } as const;
 
 /** GuildTerritoryActionKind (Shared/Enums.cs, byte). Hand-copied: WebRelay/TsEmitter.cs does not emit that enum yet. */
 export const GuildTerritoryActionKinds = { Rent: 0, Extend: 1, ListForSale: 2, CancelSale: 3, Teleport: 4 } as const;
+
+/** C.MarketSearchEx.Sort values (byte constants on the C# class, not an enum). */
+export const MarketSearchSort = { None: 0, PriceAscending: 1, PriceDescending: 2, Newest: 3, EndingSoonest: 4 } as const;
 
 export type ClientPacketName = keyof typeof ClientPackets;

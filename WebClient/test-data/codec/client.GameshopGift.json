@@ -1,0 +1,12 @@
+{
+  "name": "GameshopGift",
+  "dir": "client",
+  "id": 166,
+  "hex": "1900A6007011010063000000010B416C6C7920E79B9FE58F8B",
+  "fields": {
+    "GIndex": 70000,
+    "Quantity": 99,
+    "PType": 1,
+    "Recipient": "Ally 盟友"
+  }
+}

@@ -782,7 +782,13 @@
     "MentorSearchCooldown": "You can search for a mentor again in {0} seconds.",
     "MentorSearchNotEligible": "You cannot take a mentor right now.",
     "ProfileCooldown": "You can change your profile again in {0} seconds.",
-    "ProfileUpdated": "Your profile has been updated."
+    "ProfileUpdated": "Your profile has been updated.",
+    "GameshopGiftSent": "Your gift of {0} x {1} has been sent to {2}.",
+    "GameshopGiftNotFriend": "You can only send gifts to friends who have also added you ({0}).",
+    "GameshopGiftMailboxFull": "{0}'s mailbox is full.",
+    "GameshopGiftSelf": "You cannot send a gift to yourself.",
+    "GameshopGiftMessage": "{0} sent you a gift from the Gameshop. Your item(s) are enclosed.",
+    "PlayerGiftingItemsSent": "{0} sent {1} x {2} as a gift to {3} - Gift Sent!"
   },
   "Enum": {}
 }

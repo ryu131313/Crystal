@@ -1,0 +1,9 @@
+{
+  "name": "MarketPriceHistory",
+  "dir": "client",
+  "id": 168,
+  "hex": "0800A80070110100",
+  "fields": {
+    "ItemIndex": 70000
+  }
+}
