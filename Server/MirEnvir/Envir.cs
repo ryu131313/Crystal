@@ -6390,6 +6390,9 @@ namespace Server.MirEnvir
                 LoverName = loverName,
                 AllowObserve = player.AllowObserve && Settings.AllowObserve
             });
+
+            // Phase 2.5: always sent (an empty Text clears the inspect window's profile from an earlier inspect).
+            con.Enqueue(new S.PlayerProfile { Name = player.Name, Text = player.ProfileText ?? string.Empty });
         }
 
         public void InspectHero(MirConnection con, int id)
@@ -6474,6 +6477,8 @@ namespace Server.MirEnvir
                     p.MyRank = (byte)con.Player.Class == (RankType - 1) ? con.Player.Info.Rank[1] : 0;
             }
 
+            S.RankingsDetail detail = new S.RankingsDetail { RankType = RankType };
+
             int c = 0;
             for (int i = RankIndex; i < listings.Count; i++)
             {
@@ -6482,12 +6487,109 @@ namespace Server.MirEnvir
                 if (!CheckListing(con, listings[i]))
                     p.ListingDetails.Add(listings[i]);
                 p.Listings.Add(listings[i].PlayerId);
+                detail.Rows.Add(RankingDetailRow(listings[i]));
                 c++;
 
                 if (c > 19 || c >= p.Count) break;
             }
 
             con.Enqueue(p);
+            con.Enqueue(detail);
+        }
+
+        /// <summary>S.RankingsDetail row for one ranking listing: guild, online and EXP progress from the live CharacterInfo.</summary>
+        private ClientRankingDetail RankingDetailRow(RankCharacterInfo listing)
+        {
+            var row = new ClientRankingDetail { PlayerId = listing.PlayerId };
+
+            if (listing.info is CharacterInfo info)
+            {
+                row.Online = info.Player != null;
+                row.ExpPerTenThousand = ExpPerTenThousand(info.Experience, info.Level > 0 && info.Level < Settings.ExperienceList.Count ? Settings.ExperienceList[info.Level - 1] : 0);
+
+                if (info.GuildIndex != -1)
+                {
+                    GuildObject guild = GetGuild(info.GuildIndex);
+                    if (guild != null) row.GuildName = guild.Name;
+                }
+            }
+
+            return row;
+        }
+
+        /// <summary>EXP progress in 1/10000ths (0..10000); 0 when there is no next level (max 0).</summary>
+        public static ushort ExpPerTenThousand(long experience, long maxExperience)
+        {
+            if (maxExperience <= 0 || experience <= 0) return 0;
+            if (experience >= maxExperience) return 10000;
+            return (ushort)(experience * 10000.0 / maxExperience);
+        }
+
+        private const long GuildRankingCacheMs = 5 * Settings.Minute;
+        private List<ClientGuildRanking> _guildRankingCache;
+        private long _guildRankingCacheTime;    // Envir.Time after which the guild board is rebuilt on the next request
+
+        /// <summary>
+        /// C.GetGuildRanking: one page (S.GuildRankings.PageSize rows) of the guild board, guilds by level then EXP (the newbie
+        /// guild left out). The board is rebuilt lazily on a request at most every 5 minutes (no per-tick work). Page clamped.
+        /// </summary>
+        public void GetGuildRanking(MirConnection con, int page)
+        {
+            if (_guildRankingCache == null || Time >= _guildRankingCacheTime)
+            {
+                _guildRankingCache = BuildGuildRanking();
+                _guildRankingCacheTime = Time + GuildRankingCacheMs;
+            }
+
+            List<ClientGuildRanking> board = _guildRankingCache;
+            int pageSize = S.GuildRankings.PageSize;
+            int lastPage = board.Count == 0 ? 0 : (board.Count - 1) / pageSize;
+            if (page < 0) page = 0;
+            if (page > lastPage) page = lastPage;
+
+            var p = new S.GuildRankings { Page = page, Total = board.Count };
+            int end = Math.Min(board.Count, (page + 1) * pageSize);
+            for (int i = page * pageSize; i < end; i++)
+                p.Guilds.Add(board[i]);
+
+            con.Enqueue(p);
+        }
+
+        private List<ClientGuildRanking> BuildGuildRanking()
+        {
+            var sorted = new List<GuildObject>(Guilds.Count);
+            for (int i = 0; i < Guilds.Count; i++)
+            {
+                GuildObject guild = Guilds[i];
+                if (guild == null || guild.Info == null || guild.Name == Settings.NewbieGuild) continue;
+                sorted.Add(guild);
+            }
+
+            sorted.Sort((a, b) =>
+            {
+                int byLevel = b.Info.Level.CompareTo(a.Info.Level);
+                return byLevel != 0 ? byLevel : b.Info.Experience.CompareTo(a.Info.Experience);
+            });
+
+            var board = new List<ClientGuildRanking>(sorted.Count);
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                GuildInfo info = sorted[i].Info;
+                string leader = string.Empty;
+                if (info.Ranks.Count > 0 && info.Ranks[0].Members.Count > 0)
+                    leader = info.Ranks[0].Members[0].Name;
+
+                board.Add(new ClientGuildRanking
+                {
+                    Name = info.Name,
+                    Level = info.Level,
+                    ExpPerTenThousand = ExpPerTenThousand(info.Experience, info.MaxExperience),
+                    Members = info.Membercount,
+                    Leader = leader
+                });
+            }
+
+            return board;
         }
 
         private bool CheckListing(MirConnection con, RankCharacterInfo listing)

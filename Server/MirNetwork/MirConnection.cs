@@ -894,6 +894,24 @@ namespace Server.MirNetwork
                 case (short)ClientPacketIds.RequestMapDetails:
                     RequestMapDetails((C.RequestMapDetails)p);
                     break;
+                case (short)ClientPacketIds.RequestGuildMemberDetails:
+                    RequestGuildMemberDetails();
+                    break;
+                case (short)ClientPacketIds.RequestGuildLog:
+                    RequestGuildLog();
+                    break;
+                case (short)ClientPacketIds.GetGuildRanking:
+                    GetGuildRanking((C.GetGuildRanking)p);
+                    break;
+                case (short)ClientPacketIds.FindMentor:
+                    FindMentor((C.FindMentor)p);
+                    break;
+                case (short)ClientPacketIds.GuildTerritoryAction:
+                    GuildTerritoryAction((C.GuildTerritoryAction)p);
+                    break;
+                case (short)ClientPacketIds.SetProfile:
+                    SetProfile((C.SetProfile)p);
+                    break;
                 default:
                     MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.InvalidPacketReceived), p.Index));
                     break;
@@ -2571,6 +2589,49 @@ namespace Server.MirNetwork
             if (Stage != GameStage.Game) return;
 
             Player.RequestMapDetails(p.MapIndex);
+        }
+
+        private void RequestGuildMemberDetails()
+        {
+            if (Stage != GameStage.Game) return;
+
+            Player.RequestGuildMemberDetails();
+        }
+
+        private void RequestGuildLog()
+        {
+            if (Stage != GameStage.Game) return;
+
+            Player.RequestGuildLog();
+        }
+
+        private void GetGuildRanking(C.GetGuildRanking p)
+        {
+            if (Stage != GameStage.Game && Stage != GameStage.Observer) return;
+
+            Envir.GetGuildRanking(this, p.Page);
+        }
+
+        private void FindMentor(C.FindMentor p)
+        {
+            if (Stage != GameStage.Game) return;
+
+            Player.FindMentor(p.MinLevel, p.MaxLevel);
+        }
+
+        private void GuildTerritoryAction(C.GuildTerritoryAction p)
+        {
+            if (Stage != GameStage.Game) return;
+            if (p.Kind > GuildTerritoryActionKind.Teleport) return;
+
+            Player.GuildTerritoryAction(p.Kind, p.TerritoryIndex, p.Price);
+        }
+
+        private void SetProfile(C.SetProfile p)
+        {
+            if (Stage != GameStage.Game) return;
+
+            Player.SetProfile(p.Text);
         }
     }
 

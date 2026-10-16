@@ -188,7 +188,38 @@ namespace Server.MirObjects
             if (online && !New)
             {
                 SendGuildStatus(member);
+                SendGuildWarList(member);
             }
+        }
+
+        /// <summary>S.GuildWarList (this guild's wars with time left) to one member. skip = a war being ended (still listed in Envir.GuildsAtWar).</summary>
+        public void SendGuildWarList(PlayerObject member, GuildAtWar skip = null)
+        {
+            if (member == null) return;
+            member.Enqueue(GuildWarListPacket(skip));
+        }
+
+        /// <summary>S.GuildWarList to every online member (war start/end).</summary>
+        public void SendGuildWarListToAll(GuildAtWar skip = null)
+        {
+            SendServerPacket(GuildWarListPacket(skip));
+        }
+
+        private ServerPackets.GuildWarList GuildWarListPacket(GuildAtWar skip)
+        {
+            var p = new ServerPackets.GuildWarList();
+            for (int i = 0; i < Envir.GuildsAtWar.Count && p.Wars.Count < ServerPackets.GuildWarList.MaxWars; i++)
+            {
+                GuildAtWar war = Envir.GuildsAtWar[i];
+                if (war == skip) continue;
+
+                GuildObject other = war.GuildA == this ? war.GuildB : war.GuildB == this ? war.GuildA : null;
+                if (other == null) continue;
+
+                p.Wars.Add(new ClientGuildWar { GuildName = other.Name, MillisecondsLeft = war.TimeRemaining });
+            }
+
+            return p;
         }
 
         public void SendGuildStatus(PlayerObject member)
@@ -289,6 +320,7 @@ namespace Server.MirObjects
                 Ranks[rankIndex]
             };
             NeedSave = true;
+            Info.AddLog(GuildLogKind.RankChange, GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildLogRankChanged, self.Info.Name, Member.Name, Ranks[rankIndex].Name));
 
             if (HasGT)
             {
@@ -477,6 +509,10 @@ namespace Server.MirObjects
 
         AllOk:
             MemberDeleted(membername, (PlayerObject)Member.Player, Member.Name == Kicker.Info.Name);
+            if (Member.Name == Kicker.Info.Name)
+                Info.AddLog(GuildLogKind.Leave, GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildLogLeft, Member.Name));
+            else
+                Info.AddLog(GuildLogKind.Kick, GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildLogKicked, Member.Name, Kicker.Info.Name));
 
             if (Member.Player != null)
             {
@@ -523,6 +559,7 @@ namespace Server.MirObjects
                     if (Member.Name != name) continue;
 
                     MemberDeleted(Member.Name, (PlayerObject)Member.Player, true);
+                    Info.AddLog(GuildLogKind.Leave, GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildLogLeft, Member.Name));
                     if (Member.Player != null)
                     {
                         PlayerObject LeavingMember = (PlayerObject)Member.Player;
@@ -721,6 +758,11 @@ namespace Server.MirObjects
             Envir.GuildsAtWar.Add(new GuildAtWar(this, enemyGuild));
             UpdatePlayersColours();
             enemyGuild.UpdatePlayersColours();
+
+            Info.AddLog(GuildLogKind.War, GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildLogWarStarted, enemyGuild.Name));
+            enemyGuild.Info.AddLog(GuildLogKind.War, GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildLogWarStarted, Name));
+            SendGuildWarListToAll();
+            enemyGuild.SendGuildWarListToAll();
             return true;
         }
 
@@ -1054,6 +1096,12 @@ namespace Server.MirObjects
             GuildB.SendMessage(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.WarEndedWithGuild), GuildA.Name), ChatType.Guild);
             GuildA.UpdatePlayersColours();
             GuildB.UpdatePlayersColours();
+
+            // Envir removes this war from GuildsAtWar after EndWar returns, so the pushed lists skip it.
+            GuildA.Info.AddLog(GuildLogKind.War, GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildLogWarEnded, GuildB.Name));
+            GuildB.Info.AddLog(GuildLogKind.War, GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildLogWarEnded, GuildA.Name));
+            GuildA.SendGuildWarListToAll(this);
+            GuildB.SendGuildWarListToAll(this);
         }
     }
 

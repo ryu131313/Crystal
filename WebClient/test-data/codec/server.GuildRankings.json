@@ -1,0 +1,26 @@
+{
+  "name": "GuildRankings",
+  "dir": "server",
+  "id": 292,
+  "hex": "3D002401010000001700000002000000085765624775696C640C00D711960000000D4C656164657220E4BC9AE995BF0454696E79000000000100000000",
+  "fields": {
+    "Page": 1,
+    "Total": 23,
+    "Guilds": [
+      {
+        "Name": "WebGuild",
+        "Level": 12,
+        "ExpPerTenThousand": 4567,
+        "Members": 150,
+        "Leader": "Leader 会长"
+      },
+      {
+        "Name": "Tiny",
+        "Level": 0,
+        "ExpPerTenThousand": 0,
+        "Members": 1,
+        "Leader": ""
+      }
+    ]
+  }
+}

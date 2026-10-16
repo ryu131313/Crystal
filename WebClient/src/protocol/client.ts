@@ -308,6 +308,24 @@ export const ClientPackets = {
   HeroSpellToggle: (p: { Spell: number; AutoCast: boolean }) => frame(C.HeroSpellToggle, (w) => { w.writeU8(p.Spell); w.writeBool(p.AutoCast); }),
   /** MapIndex = MapInfo.Index: the current map or one with a BigMap. Needs ServerRules.MapDetailsEnabled; 1 s server cooldown. Reply S.MapDetails. */
   RequestMapDetails: (p: { MapIndex: number }) => frame(C.RequestMapDetails, (w) => w.writeI32(p.MapIndex)),
+  // — Phase 2.5 —
+  /** Needs a guild; 5 s server cooldown (ignored silently inside it). Reply S.GuildMemberDetails (maybe several parts). */
+  RequestGuildMemberDetails: () => frame(C.RequestGuildMemberDetails),
+  /** Needs a guild; 5 s server cooldown (ignored silently inside it). Reply S.GuildLog. */
+  RequestGuildLog: () => frame(C.RequestGuildLog),
+  /** Page is 0-based; the server clamps it. Reply S.GuildRankings. */
+  GetGuildRanking: (p: { Page: number }) => frame(C.GetGuildRanking, (w) => w.writeI32(p.Page)),
+  /** Level range [MinLevel, MaxLevel] (u16); 3 s server cooldown. Reply S.MentorCandidates (or a chat line if not eligible / cooling down). */
+  FindMentor: (p: { MinLevel: number; MaxLevel: number }) => frame(C.FindMentor, (w) => { w.writeU16(p.MinLevel); w.writeU16(p.MaxLevel); }),
+  /** Kind = GuildTerritoryActionKinds value; TerritoryIndex as in S.GuildTerritoryPage; Price (u32) is used by ListForSale only.
+   *  Same checks as the NPC BuyGT / ExtendGT / GTSale / GTCancelSale / TeleportGT commands; replies are chat lines (Territories.action re-requests its page). */
+  GuildTerritoryAction: (p: { Kind: number; TerritoryIndex: number; Price: number }) =>
+    frame(C.GuildTerritoryAction, (w) => { w.writeU8(p.Kind); w.writeI32(p.TerritoryIndex); w.writeU32(p.Price); }),
+  /** Server strips control chars, trims, caps at 120 chars, ignores it while chat-banned; no word filter; 10 s cooldown. */
+  SetProfile: (p: { Text: string }) => frame(C.SetProfile, (w) => w.writeString(p.Text)),
 } as const;
+
+/** GuildTerritoryActionKind (Shared/Enums.cs, byte). Hand-copied: WebRelay/TsEmitter.cs does not emit that enum yet. */
+export const GuildTerritoryActionKinds = { Rent: 0, Extend: 1, ListForSale: 2, CancelSale: 3, Teleport: 4 } as const;
 
 export type ClientPacketName = keyof typeof ClientPackets;

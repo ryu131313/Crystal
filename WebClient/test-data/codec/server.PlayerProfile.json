@@ -1,0 +1,10 @@
+{
+  "name": "PlayerProfile",
+  "dir": "server",
+  "id": 295,
+  "hex": "300027010B416C6C7920E79B9FE58F8B1F4C6F6F6B696E6720666F722061206775696C6420E2809420E4BDA0E5A5BD21",
+  "fields": {
+    "Name": "Ally 盟友",
+    "Text": "Looking for a guild — 你好!"
+  }
+}

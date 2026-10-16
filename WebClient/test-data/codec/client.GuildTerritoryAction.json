@@ -1,0 +1,11 @@
+{
+  "name": "GuildTerritoryAction",
+  "dir": "client",
+  "id": 164,
+  "hex": "0D00A4000270110100005ED0B2",
+  "fields": {
+    "Kind": 2,
+    "TerritoryIndex": 70000,
+    "Price": 3000000000
+  }
+}

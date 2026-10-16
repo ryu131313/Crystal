@@ -360,6 +360,38 @@ export interface ClientMapSafeZone { Location: WirePoint; Size: number; StartPoi
 /** ClientSelectDetail (Shared/Data/DetailData.cs): select-screen extras per character. PlayTime in seconds. */
 export interface ClientSelectDetail { Index: number; GuildName: string; MapTitle: string; PlayTime: bigint }
 
+// — Phase 2.5 rows (Shared/Data/DetailData.cs). Dates are DateTime.ToBinary (bigint); Class = MirClass. —
+/** ClientGuildMemberDetail: RankIndex = index into the guild's ranks (S.GuildMemberChange / GuildRank order). >= 17 bytes. */
+export interface ClientGuildMemberDetail { Name: string; Class: number; Level: number; LastLogin: bigint; Online: boolean; RankIndex: number }
+/** ClientGuildWar: MillisecondsLeft >= 0 at send time. >= 9 bytes. */
+export interface ClientGuildWar { GuildName: string; MillisecondsLeft: bigint }
+/** ClientGuildLogEntry: Kind = server GuildLogKind (GUILD_LOG_KIND); Text <= 128 chars, already localised by the server. >= 10 bytes. */
+export interface ClientGuildLogEntry { Time: bigint; Kind: number; Text: string }
+/** ClientRankingDetail: matched to an S.Rankings row by PlayerId. ExpPerTenThousand 0..10000. >= 12 bytes. */
+export interface ClientRankingDetail { PlayerId: bigint; GuildName: string; Online: boolean; ExpPerTenThousand: number }
+/** ClientGuildRanking: one guild-board row. ExpPerTenThousand 0..10000. >= 10 bytes. */
+export interface ClientGuildRanking { Name: string; Level: number; ExpPerTenThousand: number; Members: number; Leader: string }
+/** ClientMentorCandidate: an online player who could mentor the asker. >= 4 bytes. */
+export interface ClientMentorCandidate { Name: string; Class: number; Level: number }
+
+/** ClientGuildLogEntry.Kind values (server Server.MirDatabase.GuildLogKind; not in Shared, so not generated). */
+export const GUILD_LOG_KIND = { Join: 0, Leave: 1, Kick: 2, RankChange: 3, Notice: 4, Buff: 5, War: 6, Territory: 7, Gold: 8 } as const;
+
+/** Phase 2.5 list caps: the C# readers throw above these. */
+export const GUILD_MEMBER_DETAILS_MAX_ROWS_PER_PART = 800;
+export const GUILD_WAR_LIST_MAX_WARS = 200;
+export const GUILD_LOG_MAX_ENTRIES = 100;
+export const RANKINGS_DETAIL_MAX_ROWS = 100;
+export const GUILD_RANKINGS_PAGE_SIZE = 20;
+export const MENTOR_CANDIDATES_MAX_ROWS = 20;
+
+/** readCount plus the C# reader's upper bound. */
+function readCappedCount(r: Reader, elementSize: number, max: number): number {
+  const n = readCount(r, elementSize);
+  if (n > max) throw new Error(`count ${n} exceeds ${max}`);
+  return n;
+}
+
 /** S.GroupMemberStatus.MaxBuffs: the C# reader throws above this. */
 export const GROUP_MEMBER_STATUS_MAX_BUFFS = 20;
 
@@ -1032,6 +1064,56 @@ const decoders = {
     for (let i = 0; i < n; i++) Characters.push({ Index: r.readI32(), GuildName: r.readString(), MapTitle: r.readString(), PlayTime: r.readI64() });
     return { AccountGold, Characters };
   },
+  // — Phase 2.5 detail packets —
+  /** S.GuildMemberDetails (reply to C.RequestGuildMemberDetails). Part 0 replaces the member list, parts 1 .. PartCount - 1 append. */
+  GuildMemberDetails: (r: Reader) => {
+    const Part = r.readU8(), PartCount = r.readU8();
+    const n = readCappedCount(r, 17, GUILD_MEMBER_DETAILS_MAX_ROWS_PER_PART);
+    const Members: ClientGuildMemberDetail[] = [];
+    for (let i = 0; i < n; i++) Members.push({ Name: r.readString(), Class: r.readU8(), Level: r.readU16(), LastLogin: r.readI64(), Online: r.readBool(), RankIndex: r.readI32() });
+    return { Part, PartCount, Members };
+  },
+  /** S.GuildWarList (guild status at login / join, and on war start / end): the FULL list; empty = no wars. */
+  GuildWarList: (r: Reader) => {
+    const n = readCappedCount(r, 9, GUILD_WAR_LIST_MAX_WARS);
+    const Wars: ClientGuildWar[] = [];
+    for (let i = 0; i < n; i++) Wars.push({ GuildName: r.readString(), MillisecondsLeft: r.readI64() });
+    return { Wars };
+  },
+  /** S.GuildLog (reply to C.RequestGuildLog): oldest first, at most the newest 100. */
+  GuildLog: (r: Reader) => {
+    const n = readCappedCount(r, 10, GUILD_LOG_MAX_ENTRIES);
+    const Entries: ClientGuildLogEntry[] = [];
+    for (let i = 0; i < n; i++) Entries.push({ Time: r.readI64(), Kind: r.readU8(), Text: r.readString() });
+    return { Entries };
+  },
+  /** S.RankingsDetail (right after S.Rankings): extras for that page's rows, RankType as in C.GetRanking / S.Rankings. */
+  RankingsDetail: (r: Reader) => {
+    const RankType = r.readU8();
+    const n = readCappedCount(r, 12, RANKINGS_DETAIL_MAX_ROWS);
+    const Rows: ClientRankingDetail[] = [];
+    for (let i = 0; i < n; i++) Rows.push({ PlayerId: r.readI64(), GuildName: r.readString(), Online: r.readBool(), ExpPerTenThousand: r.readU16() });
+    return { RankType, Rows };
+  },
+  /** S.GuildRankings (reply to C.GetGuildRanking): Page 0-based (server-clamped), Total = ranked guilds; rank of row i = Page * 20 + i + 1. */
+  GuildRankings: (r: Reader) => {
+    const Page = r.readI32(), Total = r.readI32();
+    const n = readCappedCount(r, 10, GUILD_RANKINGS_PAGE_SIZE);
+    const Guilds: ClientGuildRanking[] = [];
+    for (let i = 0; i < n; i++) Guilds.push({ Name: r.readString(), Level: r.readU16(), ExpPerTenThousand: r.readU16(), Members: r.readI32(), Leader: r.readString() });
+    return { Page, Total, Guilds };
+  },
+  /** S.MentorDetails (right after S.MentorUpdate when mentored): PartnerClass = MirClass; MentorDate / EndsAt = DateTime.ToBinary. */
+  MentorDetails: (r: Reader) => ({ PartnerClass: r.readU8(), MentorDate: r.readI64(), EndsAt: r.readI64() }),
+  /** S.MentorCandidates (reply to C.FindMentor): at most 20 online players. */
+  MentorCandidates: (r: Reader) => {
+    const n = readCappedCount(r, 4, MENTOR_CANDIDATES_MAX_ROWS);
+    const Candidates: ClientMentorCandidate[] = [];
+    for (let i = 0; i < n; i++) Candidates.push({ Name: r.readString(), Class: r.readU8(), Level: r.readU16() });
+    return { Candidates };
+  },
+  /** S.PlayerProfile (right after S.PlayerInspect): Name = the inspected player; Text may be empty. */
+  PlayerProfile: (r: Reader) => ({ Name: r.readString(), Text: r.readString() }),
 } satisfies Record<string, (r: Reader) => object>;
 
 type Decoders = typeof decoders;

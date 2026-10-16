@@ -489,6 +489,459 @@ namespace Server.MirObjects
 
         #endregion
 
+        #region Phase 2.5 detail packets (guild, mentor, territory, profile)
+
+        private long _guildMemberDetailsTime;  // Envir.Time before which C.RequestGuildMemberDetails is ignored (5 s cooldown)
+        private long _guildLogTime;            // Envir.Time before which C.RequestGuildLog is ignored (5 s cooldown)
+        private long _findMentorTime;          // Envir.Time before which C.FindMentor answers with MentorSearchCooldown (3 s)
+        private long _profileTime;             // Envir.Time before which C.SetProfile answers with ProfileCooldown (10 s)
+
+        /// <summary>
+        /// C.RequestGuildMemberDetails: needs a guild, 5 s cooldown (silently ignored). One pass over CharacterList collects the
+        /// guild's characters (offline class/level), then the rows go out in parts of at most S.GuildMemberDetails.MaxRowsPerPart
+        /// (worst case 800 rows x 62 bytes + 6 = 49 606 bytes of body per part).
+        /// </summary>
+        public void RequestGuildMemberDetails()
+        {
+            if (MyGuild == null || MyGuildRank == null) return;
+            if (Envir.Time < _guildMemberDetailsTime) return;
+            _guildMemberDetailsTime = Envir.Time + 5000;
+
+            GuildObject guild = MyGuild;
+            var characters = new Dictionary<int, CharacterInfo>(guild.Info.Membercount > 0 ? guild.Info.Membercount : 4);
+            for (int i = 0; i < Envir.CharacterList.Count; i++)
+            {
+                CharacterInfo character = Envir.CharacterList[i];
+                if (character.GuildIndex != guild.Guildindex) continue;
+                characters[character.Index] = character;
+            }
+
+            var rows = new List<ClientGuildMemberDetail>();
+            for (int r = 0; r < guild.Ranks.Count; r++)
+            {
+                List<GuildMember> members = guild.Ranks[r].Members;
+                for (int m = 0; m < members.Count; m++)
+                {
+                    GuildMember member = members[m];
+                    PlayerObject online = member.Player as PlayerObject;
+                    CharacterInfo character = online != null ? online.Info : null;
+                    if (character == null) characters.TryGetValue(member.Id, out character);
+
+                    rows.Add(new ClientGuildMemberDetail
+                    {
+                        Name = member.Name,
+                        Class = character != null ? character.Class : MirClass.Warrior,
+                        Level = character != null ? character.Level : (ushort)0,
+                        LastLogin = (online != null ? character.LastLoginDate : member.LastLogin).ToBinary(),
+                        Online = online != null,
+                        RankIndex = r
+                    });
+                }
+            }
+
+            int perPart = S.GuildMemberDetails.MaxRowsPerPart;
+            int partCount = Math.Clamp((rows.Count + perPart - 1) / perPart, 1, byte.MaxValue);
+            for (int part = 0; part < partCount; part++)
+            {
+                var p = new S.GuildMemberDetails { Part = (byte)part, PartCount = (byte)partCount };
+                int start = part * perPart;
+                int end = Math.Min(rows.Count, start + perPart);
+                for (int i = start; i < end; i++) p.Members.Add(rows[i]);
+                Enqueue(p);
+            }
+        }
+
+        /// <summary>C.RequestGuildLog: needs a guild, 5 s cooldown (silently ignored); the guild's log, oldest first.</summary>
+        public void RequestGuildLog()
+        {
+            if (MyGuild == null || MyGuildRank == null) return;
+            if (Envir.Time < _guildLogTime) return;
+            _guildLogTime = Envir.Time + 5000;
+
+            List<GuildLogEntry> log = MyGuild.Info.Log;
+            int start = log.Count > S.GuildLog.MaxEntries ? log.Count - S.GuildLog.MaxEntries : 0;
+            var p = new S.GuildLog();
+            for (int i = start; i < log.Count; i++)
+            {
+                GuildLogEntry entry = log[i];
+                p.Entries.Add(new ClientGuildLogEntry { Time = entry.Time.ToBinary(), Kind = entry.Kind, Text = entry.Text });
+            }
+
+            Enqueue(p);
+        }
+
+        /// <summary>S.MentorDetails right after S.MentorUpdate while the player has a mentor or mentee (partner class, start, end).</summary>
+        private void SendMentorDetails(CharacterInfo partner)
+        {
+            if (partner == null) return;
+
+            Enqueue(new S.MentorDetails
+            {
+                PartnerClass = partner.Class,
+                MentorDate = Info.MentorDate.ToBinary(),
+                EndsAt = Info.MentorDate.AddDays(Settings.MentorLength).ToBinary()
+            });
+        }
+
+        /// <summary>
+        /// C.FindMentor: up to S.MentorCandidates.MaxRows online players who would pass the AddMentor/MentorReply checks for
+        /// this player as mentee (AllowMentor, no partner, no mentorship cooldown, same class, level gap), within
+        /// [minLevel, maxLevel] (swapped when reversed). The asker must be able to take a mentor. 3 s cooldown.
+        /// </summary>
+        public void FindMentor(ushort minLevel, ushort maxLevel)
+        {
+            if (Envir.Time < _findMentorTime)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.MentorSearchCooldown, (_findMentorTime - Envir.Time + 999) / 1000), ChatType.System);
+                return;
+            }
+            _findMentorTime = Envir.Time + 3000;
+
+            if (Info.Mentor != 0 || Info.MentorDate > Envir.Now)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.MentorSearchNotEligible), ChatType.System);
+                return;
+            }
+
+            if (minLevel > maxLevel)
+            {
+                ushort swap = minLevel;
+                minLevel = maxLevel;
+                maxLevel = swap;
+            }
+
+            int lowest = Info.Level + Settings.MentorLevelGap;
+            var p = new S.MentorCandidates();
+            for (int i = 0; i < Envir.Players.Count && p.Candidates.Count < S.MentorCandidates.MaxRows; i++)
+            {
+                PlayerObject player = Envir.Players[i];
+                if (player == this || player.Info == null) continue;
+                if (!player.AllowMentor) continue;
+                if (player.Info.Mentor != 0 || player.Info.MentorDate > Envir.Now) continue;
+                if (player.Info.Class != Info.Class) continue;
+                if (player.Level < lowest) continue;
+                if (player.Level < minLevel || player.Level > maxLevel) continue;
+
+                p.Candidates.Add(new ClientMentorCandidate { Name = player.Name, Class = player.Class, Level = player.Level });
+            }
+
+            Enqueue(p);
+        }
+
+        /// <summary>
+        /// C.SetProfile: 10 s cooldown; ignored while chat-banned (as chat is); control characters dropped, then trimmed and cut to
+        /// CharacterInfo.ProfileTextMaxLength. The server has no chat word filter (chat sends text unfiltered), so none applies here.
+        /// </summary>
+        public void SetProfile(string text)
+        {
+            if (Envir.Time < _profileTime)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.ProfileCooldown, (_profileTime - Envir.Time + 999) / 1000), ChatType.System);
+                return;
+            }
+
+            if (Info.ChatBanned && Info.ChatBanExpiryDate > Envir.Now) return;
+
+            _profileTime = Envir.Time + 10000;
+
+            text ??= string.Empty;
+            if (text.Length > Globals.MaxChatLength) text = text.Substring(0, Globals.MaxChatLength);
+
+            var builder = new System.Text.StringBuilder(text.Length);
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (char.IsControl(c)) continue;
+                builder.Append(c);
+            }
+
+            text = builder.ToString().Trim();
+            if (text.Length > CharacterInfo.ProfileTextMaxLength) text = text.Substring(0, CharacterInfo.ProfileTextMaxLength).TrimEnd();
+
+            Info.ProfileText = text;
+            ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.ProfileUpdated), ChatType.System);
+        }
+
+        /// <summary>
+        /// C.GuildTerritoryAction (the territory window), through the same GuildTerritory* methods as the NPC script commands.
+        /// Rent, Extend and Teleport also need the [@GUILDTERRITORY] NPC page in range (the script commands are only reachable at
+        /// an NPC; same gate as PurchaseGuildTerritory); ListForSale and CancelSale need a territory map (MapInfo.GT) plus the
+        /// script's own "inside your territory" check. Rent: TerritoryIndex &lt; 0 = the first free territory (as BuyGT), else that
+        /// territory when it is free. Other kinds act on the guild's own territory (index unused). Price above int.MaxValue fails
+        /// like GTSale's int.TryParse. Replies are chat lines only: S.GuildTerritoryPage has no page number, so the client
+        /// re-requests the page it shows (C.GuildTerritoryPage) after an action.
+        /// </summary>
+        public void GuildTerritoryAction(GuildTerritoryActionKind kind, int territoryIndex, uint price)
+        {
+            if (Dead) return;
+            if (MyGuild == null || MyGuildRank == null) return;
+
+            switch (kind)
+            {
+                case GuildTerritoryActionKind.Rent:
+                    {
+                        if (!IsAtNpcPage(NPCScript.GuildTerritoryKey)) return;
+
+                        Server.Library.MirDatabase.GTMap target = null;
+                        if (territoryIndex >= 0)
+                        {
+                            for (int i = 0; i < Envir.GTMapList.Count; i++)
+                            {
+                                if (Envir.GTMapList[i].Index != territoryIndex) continue;
+                                target = Envir.GTMapList[i];
+                                break;
+                            }
+                            if (target == null) return;
+                        }
+
+                        GuildTerritoryRent(target);
+                    }
+                    return;
+                case GuildTerritoryActionKind.Extend:
+                    if (!IsAtNpcPage(NPCScript.GuildTerritoryKey)) return;
+                    GuildTerritoryExtend();
+                    return;
+                case GuildTerritoryActionKind.ListForSale:
+                    // MapInfo.GTIndex defaults to 0 on every map, so the script's location check alone would pass anywhere
+                    // for the owner of territory 0; the NPC hosting GTSale stands on the territory, the packet must too.
+                    if (!CurrentMap.Info.GT)
+                    {
+                        ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.LeaderInitiateSale, MyGuild.Name), ChatType.System);
+                        return;
+                    }
+                    GuildTerritoryListForSale(price > int.MaxValue ? null : (int?)price);
+                    return;
+                case GuildTerritoryActionKind.CancelSale:
+                    if (!CurrentMap.Info.GT)
+                    {
+                        ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.OnlyLeaderMayCancelSale, MyGuild.Name), ChatType.System);
+                        return;
+                    }
+                    GuildTerritoryCancelSale();
+                    return;
+                case GuildTerritoryActionKind.Teleport:
+                    if (!IsAtNpcPage(NPCScript.GuildTerritoryKey)) return;
+                    GuildTerritoryTeleport();
+                    return;
+                default:
+                    return;
+            }
+        }
+
+        /// <summary>
+        /// NPC BuyGT / C.GuildTerritoryAction Rent: rents a free territory for Settings.BuyGTGold from the guild bank (leader only).
+        /// target null = the first territory owned by "None" (the NPC command). False after the refusal's chat line.
+        /// </summary>
+        public bool GuildTerritoryRent(Server.Library.MirDatabase.GTMap target = null)
+        {
+            if (MyGuild == null || MyGuildRank == null) return false;
+            if (MyGuildRank != MyGuild.Ranks[0])
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.YouNeedGuildLeader), ChatType.System);
+                return false;
+            }
+
+            if (MyGuild.Gold < Settings.BuyGTGold)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildFundsInsufficient), ChatType.System);
+                return false;
+            }
+
+            if (MyGuild.HasGT)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.YouAlreadyOwnGuildTerritory), ChatType.System);
+                return false;
+            }
+
+            Server.Library.MirDatabase.GTMap GTmap = null;
+            if (target != null)
+            {
+                if (target.Owner == "None") GTmap = target;
+            }
+            else
+            {
+                foreach (var gt in Envir.GTMapList)
+                {
+                    if (gt.Owner == "None")
+                    {
+                        GTmap = gt;
+                        break;
+                    }
+                }
+            }
+
+            if (GTmap == null)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.NoGuildTerritoryAvailable), ChatType.System);
+                return false;
+            }
+
+            MyGuild.Gold -= (uint)Settings.BuyGTGold;
+            MyGuild.SendServerPacket(new S.GuildStorageGoldChange() { Type = 2, Amount = (uint)Settings.BuyGTGold });
+            ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.YouRentedGuildTerritory), ChatType.System);
+            MyGuild.GTIndex = GTmap.Index;
+            MyGuild.GTRent = DateTime.Now.AddDays(Settings.GTDays);
+            MyGuild.GTKey = Envir.Random.Next(100, int.MaxValue - 100);
+            MyGuild.GTPrice = 0;
+            GTmap.Owner = MyGuild.Name;
+            GTmap.Leader = MyGuild.Ranks[0].Members[0].Name;
+            if (MyGuild.Ranks[0].Members.Count > 1)
+                GTmap.Leader = MyGuild.Ranks[0].Members[1].Name;
+            GTmap.Price = 0;
+            GTmap.Key = MyGuild.GTKey;
+
+            MyGuild.Info.AddLog(GuildLogKind.Territory, GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildLogTerritoryBought, Name, GTmap.Name));
+            return true;
+        }
+
+        /// <summary>NPC TeleportGT / C.GuildTerritoryAction Teleport: to the first safe zone of the guild's territory. False after a refusal.</summary>
+        public bool GuildTerritoryTeleport()
+        {
+            if (MyGuild == null)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.YouNeedGuild), ChatType.System);
+                return false;
+            }
+
+            if (!MyGuild.HasGT)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.YouDontOwnGuildTerritory), ChatType.System);
+                return false;
+            }
+
+            Server.Library.MirDatabase.GTMap GTmap = null;
+            foreach (var gt in Envir.GTMapList)
+            {
+                if (gt.Index == MyGuild.GTIndex)
+                {
+                    GTmap = gt;
+                    break;
+                }
+            }
+
+            if (GTmap == null)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.NoGTFoundContactGM), ChatType.System);
+                return false;
+            }
+
+            if (!(GTmap.Maps.Count > 0))
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.NoGTMapsContactGM), ChatType.System);
+                return false;
+            }
+
+            if (MyGuild.GTBegin > Envir.Now)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.RecentSalePending), ChatType.System);
+                return false;
+            }
+
+            var map = GTmap.Maps[0];
+
+            if (map == null || map.Info.SafeZones == null || map.Info.SafeZones.Count == 0)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.NoSafezoneContactGM), ChatType.System);
+                return false;
+            }
+
+            Teleport(map, map.Info.SafeZones[0].Location);
+            return true;
+        }
+
+        /// <summary>NPC ExtendGT / C.GuildTerritoryAction Extend: Settings.GTDays more for Settings.ExtendGT guild gold (leader only).</summary>
+        public bool GuildTerritoryExtend()
+        {
+            if (MyGuild == null || MyGuildRank == null) return false;
+            if (MyGuildRank != MyGuild.Ranks[0])
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.YouNeedGuildLeader), ChatType.System);
+                return false;
+            }
+
+            if (MyGuild.Gold < Settings.ExtendGT)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.InsufficientFunds), ChatType.System);
+                return false;
+            }
+
+            Server.Library.MirDatabase.GTMap GTmap = null;
+            foreach (var gt in Envir.GTMapList)
+            {
+                if (gt.Owner == MyGuild.Name)
+                {
+                    GTmap = gt;
+                    break;
+                }
+            }
+
+            if (GTmap == null)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.YouDontOwnGT), ChatType.System);
+                return false;
+            }
+
+            MyGuild.Gold -= (uint)Settings.ExtendGT;
+            MyGuild.SendServerPacket(new S.GuildStorageGoldChange() { Type = 2, Amount = (uint)Settings.ExtendGT });
+
+            MyGuild.GTRent = MyGuild.GTRent.AddDays(Settings.GTDays);
+            GTmap.Price = 10000000;
+            return true;
+        }
+
+        /// <summary>
+        /// NPC GTSale / C.GuildTerritoryAction ListForSale: leader standing in the guild's territory, price at least 2,000,000.
+        /// salePrice null = not a valid int (the NPC parameter failed int.TryParse): silent refusal after the rank/location check,
+        /// as before. Like the NPC command it reads MyGuildRank without a null check (C.GuildTerritoryAction checks it first).
+        /// </summary>
+        public bool GuildTerritoryListForSale(int? salePrice)
+        {
+            if (MyGuild == null)
+                return false;
+
+            if (MyGuildRank.Index != 0 || CurrentMap.Info.GTIndex != MyGuild.GTIndex)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.LeaderInitiateSale), MyGuild.Name), ChatType.System);
+                return false;
+            }
+
+            if (salePrice == null)
+                return false;
+
+            if (salePrice.Value < 2000000)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.MinimumSalePriceMustBe2000000), ChatType.System);
+                return false;
+            }
+
+            if (!MyGuild.GTForSale(this, salePrice.Value))
+                return false;
+
+            ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.TerritoryListedForSale), ChatType.System);
+            return true;
+        }
+
+        /// <summary>NPC GTCancelSale / C.GuildTerritoryAction CancelSale: leader standing in the guild's territory.</summary>
+        public bool GuildTerritoryCancelSale()
+        {
+            if (MyGuild == null)
+                return false;
+
+            if (MyGuildRank.Index != 0 || CurrentMap.Info.GTIndex != MyGuild.GTIndex)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.OnlyLeaderMayCancelSale), MyGuild.Name), ChatType.System);
+                return false;
+            }
+
+            if (!MyGuild.EndGTSale(this))
+                return false;
+
+            ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.TerritorySaleCancelled), ChatType.System);
+            return true;
+        }
+
+        #endregion
+
         public void StopGame(byte reason)
         {
             if (Node == null) return;
@@ -10549,6 +11002,7 @@ namespace Server.MirObjects
                 return;
             }
             MyGuild.NewNotice(notice);
+            MyGuild.Info.AddLog(GuildLogKind.Notice, GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildLogNoticeChanged, Name));
         }
         public void GuildInvite(bool accept)
         {
@@ -10576,6 +11030,8 @@ namespace Server.MirObjects
             //tell us we now have a guild
             BroadcastInfo();
             MyGuild.SendGuildStatus(this);
+            MyGuild.SendGuildWarList(this);
+            MyGuild.Info.AddLog(GuildLogKind.Join, GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildLogJoined, Name));
             PendingGuildInvite = null;
             EnableGuildInvite = false;
             GuildCanRequestItems = true;
@@ -10666,6 +11122,7 @@ namespace Server.MirObjects
                 Enqueue(new S.LoseGold { Gold = amount });
                 MyGuild.SendServerPacket(new S.GuildStorageGoldChange() { Type = 0, Name = Info.Name, Amount = amount });
                 MyGuild.NeedSave = true;
+                if (amount > 0) MyGuild.Info.AddLog(GuildLogKind.Gold, GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildLogGoldDeposited, Info.Name, amount));
             }
             else
             {
@@ -10691,6 +11148,7 @@ namespace Server.MirObjects
                 GainGold(amount);
                 MyGuild.SendServerPacket(new S.GuildStorageGoldChange() { Type = 1, Name = Info.Name, Amount = amount });
                 MyGuild.NeedSave = true;
+                if (amount > 0) MyGuild.Info.AddLog(GuildLogKind.Gold, GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildLogGoldWithdrawn, Info.Name, amount));
             }
         }
         public void GuildStorageItemChange(byte type, int from, int to)
@@ -10973,6 +11431,7 @@ namespace Server.MirObjects
                     }
                     if (MyGuild.NewBuff(id))
                     {
+                        MyGuild.Info.AddLog(GuildLogKind.Buff, GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildLogBuffBought, Name, BuffInfo.Name));
                         bool hasPointCost = BuffInfo.PointsRequirement > 0;
                         if (requiresGold && hasPointCost)
                         {
@@ -11006,6 +11465,8 @@ namespace Server.MirObjects
                     }
                     if ((MyGuild.Gold < Buff.Info.ActivationCost) || (Buff.Active)) return;
                     MyGuild.ActivateBuff(id);
+                    if (Buff.Active)
+                        MyGuild.Info.AddLog(GuildLogKind.Buff, GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildLogBuffActivated, Name, Buff.Info.Name));
                     break;
             }
         }
@@ -11099,6 +11560,7 @@ namespace Server.MirObjects
                     Message = GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.TerritorySold),
                     Type = ChatType.System
                 });
+                guild.Info.AddLog(GuildLogKind.Territory, GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildLogTerritorySold, gt.Name, MyGuild.Name));
             }
 
             MyGuild.GTIndex = gt.Index;
@@ -11114,6 +11576,7 @@ namespace Server.MirObjects
             gt.Key = MyGuild.GTKey;
             gt.Days = (Envir.Now - MyGuild.GTRent).Days;
             gt.Begin = (MyGuild.GTBegin - Envir.Now).Seconds;
+            MyGuild.Info.AddLog(GuildLogKind.Territory, GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildLogTerritoryBought, Name, gt.Name));
         }
         #endregion
 
@@ -14338,6 +14801,7 @@ namespace Server.MirObjects
                 PlayerObject player = Envir.GetPlayer(mentor.Name);
 
                 Enqueue(new S.MentorUpdate { Name = mentor.Name, Level = mentor.Level, Online = player != null, MenteeEXP = Info.MentorExp });
+                SendMentorDetails(mentor);
 
                 if (player != null && CheckOnline)
                 {
@@ -14369,6 +14833,7 @@ namespace Server.MirObjects
             if (player != null)
             {
                 player.Enqueue(new S.MentorUpdate { Name = Info.Name, Level = Info.Level, Online = false, MenteeEXP = mentor.MentorExp });
+                player.SendMentorDetails(Info);
                 player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.PlayerHasGoneOffline), Info.Name), ChatType.System);
             }
         }

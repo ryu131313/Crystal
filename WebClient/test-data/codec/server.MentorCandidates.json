@@ -1,0 +1,20 @@
+{
+  "name": "MentorCandidates",
+  "dir": "server",
+  "id": 294,
+  "hex": "21002601020000000D4D656E746F7220E5B888E58285033C000453616765013100",
+  "fields": {
+    "Candidates": [
+      {
+        "Name": "Mentor 师傅",
+        "Class": 3,
+        "Level": 60
+      },
+      {
+        "Name": "Sage",
+        "Class": 1,
+        "Level": 49
+      }
+    ]
+  }
+}

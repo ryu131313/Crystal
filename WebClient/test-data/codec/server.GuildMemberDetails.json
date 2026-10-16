@@ -1,0 +1,28 @@
+{
+  "name": "GuildMemberDetails",
+  "dir": "server",
+  "id": 288,
+  "hex": "400020010002020000000D4C656164657220E4BC9AE995BF00410000DCB90C682BDF480100000000075265637275697404010000000000000000000003000000",
+  "fields": {
+    "Part": 0,
+    "PartCount": 2,
+    "Members": [
+      {
+        "Name": "Leader 会长",
+        "Class": 0,
+        "Level": 65,
+        "LastLogin": "5250963416427387904",
+        "Online": true,
+        "RankIndex": 0
+      },
+      {
+        "Name": "Recruit",
+        "Class": 4,
+        "Level": 1,
+        "LastLogin": 0,
+        "Online": false,
+        "RankIndex": 3
+      }
+    ]
+  }
+}

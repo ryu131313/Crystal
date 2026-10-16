@@ -765,7 +765,24 @@
     "IntelligentCreaturesCannotBeSummonedOnMap": "Intelligent creatures cannot be summoned on this map.",
     "CannotSummonHeroOnMap": "You cannot summon your Hero on this map.",
     "CannotFollowIntoMapWaitHere": "{0} cannot follow you into this map and will wait here.",
-    "HasReturnedToYourSide": "{0} has returned to your side."
+    "HasReturnedToYourSide": "{0} has returned to your side.",
+    "GuildLogJoined": "{0} joined the guild.",
+    "GuildLogLeft": "{0} left the guild.",
+    "GuildLogKicked": "{0} was removed from the guild by {1}.",
+    "GuildLogRankChanged": "{0} moved {1} to the rank {2}.",
+    "GuildLogNoticeChanged": "{0} changed the guild notice.",
+    "GuildLogBuffBought": "{0} bought the guild buff {1}.",
+    "GuildLogBuffActivated": "{0} activated the guild buff {1}.",
+    "GuildLogWarStarted": "The war with {0} has begun.",
+    "GuildLogWarEnded": "The war with {0} has ended.",
+    "GuildLogTerritoryBought": "{0} acquired the territory {1}.",
+    "GuildLogTerritorySold": "The territory {0} was sold to {1}.",
+    "GuildLogGoldDeposited": "{0} deposited {1} gold.",
+    "GuildLogGoldWithdrawn": "{0} withdrew {1} gold.",
+    "MentorSearchCooldown": "You can search for a mentor again in {0} seconds.",
+    "MentorSearchNotEligible": "You cannot take a mentor right now.",
+    "ProfileCooldown": "You can change your profile again in {0} seconds.",
+    "ProfileUpdated": "Your profile has been updated."
   },
   "Enum": {}
 }

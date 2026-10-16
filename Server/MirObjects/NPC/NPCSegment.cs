@@ -3100,145 +3100,15 @@ namespace Server.MirObjects
                         break;
 
                     case ActionType.BuyGT:
-                        if (player.MyGuild == null || player.MyGuildRank == null) return;
-                        if (player.MyGuildRank != player.MyGuild.Ranks[0])
-                        {
-                            player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.YouNeedGuildLeader), ChatType.System);
-                            return;
-                        }
-
-                        if (player.MyGuild.Gold < Settings.BuyGTGold)
-                        {
-                            player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildFundsInsufficient), ChatType.System);
-                            return;
-                        }
-
-                        if (player.MyGuild.HasGT)
-                        {
-                            player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.YouAlreadyOwnGuildTerritory), ChatType.System);
-                            return;
-                        }
-
-                        GTMap GTmap = null;
-                        foreach (var gt in Envir.GTMapList)
-                        {
-                            if (gt.Owner == "None")
-                            {
-                                GTmap = gt;
-                                break;
-                            }
-                        }
-
-                        if (GTmap == null)
-                        {
-                            player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.NoGuildTerritoryAvailable), ChatType.System);
-                            return;
-                        }
-
-                        player.MyGuild.Gold -= (uint)Settings.BuyGTGold;
-                        player.MyGuild.SendServerPacket(new S.GuildStorageGoldChange() { Type = 2, Amount = (uint)Settings.BuyGTGold });
-                        player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.YouRentedGuildTerritory), ChatType.System);
-                        player.MyGuild.GTIndex = GTmap.Index;
-                        player.MyGuild.GTRent = DateTime.Now.AddDays(Settings.GTDays);
-                        player.MyGuild.GTKey = Envir.Random.Next(100, int.MaxValue - 100);
-                        player.MyGuild.GTPrice = 0;
-                        GTmap.Owner = player.MyGuild.Name;
-                        GTmap.Leader = player.MyGuild.Ranks[0].Members[0].Name;
-                        if (player.MyGuild.Ranks[0].Members.Count > 1)
-                            GTmap.Leader = player.MyGuild.Ranks[0].Members[1].Name;
-                        GTmap.Price = 0;
-                        GTmap.Key = player.MyGuild.GTKey;
-
+                        if (!player.GuildTerritoryRent()) return;
                         break;
 
                     case ActionType.TeleportGT:
-                        if (player.MyGuild == null)
-                        {
-                            player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.YouNeedGuild), ChatType.System);
-                            return;
-                        }
-
-                        if (!player.MyGuild.HasGT)
-                        {
-                            player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.YouDontOwnGuildTerritory), ChatType.System);
-                            return;
-                        }
-
-                        GTmap = null;
-                        foreach (var gt in Envir.GTMapList)
-                        {
-                            if (gt.Index == player.MyGuild.GTIndex)
-                            {
-                                GTmap = gt;
-                                break;
-                            }
-                        }
-
-                        if (GTmap == null)
-                        {
-                            player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.NoGTFoundContactGM), ChatType.System);
-                            return;
-                        }
-
-                        if (!(GTmap.Maps.Count > 0))
-                        {
-                            player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.NoGTMapsContactGM), ChatType.System);
-                            return;
-                        }
-
-                        if (player.MyGuild.GTBegin > Envir.Now)
-                        {
-                            player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.RecentSalePending), ChatType.System);
-                            return;
-                        }
-
-                        var map = GTmap.Maps[0];
-
-                        if (map == null || map.Info.SafeZones == null || map.Info.SafeZones.Count == 0)
-                        {
-                            player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.NoSafezoneContactGM), ChatType.System);
-                            return;
-                        }
-
-                        player.Teleport(map, map.Info.SafeZones[0].Location);
-
+                        if (!player.GuildTerritoryTeleport()) return;
                         break;
 
                     case ActionType.ExtendGT:
-                        if (player.MyGuild == null || player.MyGuildRank == null) return;
-                        if (player.MyGuildRank != player.MyGuild.Ranks[0])
-                        {
-                            player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.YouNeedGuildLeader), ChatType.System);
-                            return;
-                        }
-
-                        if (player.MyGuild.Gold < Settings.ExtendGT)
-                        {
-                            player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.InsufficientFunds), ChatType.System);
-                            return;
-                        }
-
-                        GTmap = null;
-                        foreach (var gt in Envir.GTMapList)
-                        {
-                            if (gt.Owner == player.MyGuild.Name)
-                            {
-                                GTmap = gt;
-                                break;
-                            }
-                        }
-
-                        if (GTmap == null)
-                        {
-                            player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.YouDontOwnGT), ChatType.System);
-                            return;
-                        }
-
-                        player.MyGuild.Gold -= (uint)Settings.ExtendGT;
-                        player.MyGuild.SendServerPacket(new S.GuildStorageGoldChange() { Type = 2, Amount = (uint)Settings.ExtendGT });
-
-                        player.MyGuild.GTRent = player.MyGuild.GTRent.AddDays(Settings.GTDays);
-                        GTmap.Price = 10000000;
+                        if (!player.GuildTerritoryExtend()) return;
                         break;
 
                     case ActionType.GiveGold:
@@ -4513,45 +4383,13 @@ namespace Server.MirObjects
                         break;
 
                     case ActionType.GTSale:
-                        if (player.MyGuild == null)
+                        if (!player.GuildTerritoryListForSale(int.TryParse(param[0], out int saleprice) ? saleprice : null))
                             return;
-
-                        if (player.MyGuildRank.Index != 0 || player.CurrentMap.Info.GTIndex != player.MyGuild.GTIndex)
-                        {
-                            player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.LeaderInitiateSale), player.MyGuild.Name), ChatType.System);
-                            return;
-                        }
-
-                        if (!int.TryParse(param[0], out int saleprice))
-                            return;
-
-
-                        if (saleprice < 2000000)
-                        {
-                            player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.MinimumSalePriceMustBe2000000), ChatType.System);
-                            return;
-                        }
-
-                        if (!player.MyGuild.GTForSale(player, saleprice))
-                            return;
-
-                        player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.TerritoryListedForSale), ChatType.System);
                         break;
 
                     case ActionType.GTCancelSale:
-                        if (player.MyGuild == null)
+                        if (!player.GuildTerritoryCancelSale())
                             return;
-
-                        if (player.MyGuildRank.Index != 0 || player.CurrentMap.Info.GTIndex != player.MyGuild.GTIndex)
-                        {
-                            player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.OnlyLeaderMayCancelSale), player.MyGuild.Name), ChatType.System);
-                            return;
-                        }
-
-                        if (!player.MyGuild.EndGTSale(player))
-                            return;
-
-                        player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.TerritorySaleCancelled), ChatType.System);
                         break;
 
                     case ActionType.RollDie:

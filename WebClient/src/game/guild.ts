@@ -7,7 +7,13 @@
 // through constructor callbacks. The UI follows `view` (which part of GuildDialog to redraw, in the desktop's order),
 // `changed` (last, after every guild packet) and answers the prompts `invite`, `nameRequest` and `warRequest`.
 
-import type { ServerPacket, GuildRank, GuildBuff, GuildBuffInfo } from "../protocol/server.ts";
+//
+// Phase 2.5 web-only extras (no desktop counterpart; the classic window ignores them): S.GuildMemberDetails (class,
+// level, last login, online, rank per member; C.RequestGuildMemberDetails, 5 s throttle), S.GuildWarList (the guild's
+// wars, counted down locally from MillisecondsLeft) and S.GuildLog (the activity log; C.RequestGuildLog, 5 s throttle).
+// They report through their own emitters, never `changed`.
+
+import type { ServerPacket, GuildRank, GuildBuff, GuildBuffInfo, ClientGuildMemberDetail, ClientGuildLogEntry } from "../protocol/server.ts";
 import { ChatType } from "../protocol/enums.generated.ts";
 import { ClientPackets } from "../protocol/client.ts";
 import { Emitter } from "./emitter.ts";
@@ -29,6 +35,16 @@ export type GuildView =
   | { kind: "members" }
   /** GuildDialog.RankChangeRecieved: UpdateMembers + UpdateRanks. */
   | { kind: "rank" };
+
+/** The server's cooldown on C.RequestGuildMemberDetails / C.RequestGuildLog (a request inside it is ignored silently). */
+export const GUILD_DETAILS_THROTTLE = 5000;
+
+/** One of the guild's wars (S.GuildWarList), with its end on the page clock. */
+export interface GuildWar {
+  guildName: string;
+  /** performance.now() time the war ends (receipt time + MillisecondsLeft). */
+  endsAt: number;
+}
 
 export interface GuildDeps {
   send(f: Uint8Array): void;
@@ -68,6 +84,13 @@ export class GuildState {
   private lastNoticeRequest = 0;
   private lastMemberRequest = 0;
   private retry: ReturnType<typeof setTimeout> | 0 = 0;
+  private _memberDetails: ClientGuildMemberDetail[] = [];
+  /** Parts of the S.GuildMemberDetails reply still to come (0 = the list is complete). */
+  private memberDetailsPending = 0;
+  private lastMemberDetailsRequest = -Infinity;
+  private _wars: GuildWar[] = [];
+  private _log: ClientGuildLogEntry[] = [];
+  private lastLogRequest = -Infinity;
 
   /** The GuildDialog parts to redraw (during handle(), before `changed`). */
   readonly view = new Emitter<GuildView>();
@@ -79,6 +102,12 @@ export class GuildState {
   readonly nameRequest = new Emitter<void>();
   /** GameScene.GuildRequestWar: ask for the guild to go to war with (MirInputBox); answer with returnWar(). */
   readonly warRequest = new Emitter<void>();
+  /** S.GuildMemberDetails: a part was applied (`complete` = the last part arrived). */
+  readonly memberDetailsChanged = new Emitter<{ complete: boolean }>();
+  /** S.GuildWarList applied (or the wars were cleared on leaving the guild). */
+  readonly warsChanged = new Emitter<void>();
+  /** S.GuildLog applied (or the log was cleared on leaving the guild). */
+  readonly logChanged = new Emitter<void>();
 
   constructor(private readonly d: GuildDeps) {
     d.signal?.addEventListener("abort", () => { if (this.retry) clearTimeout(this.retry); this.retry = 0; });
@@ -105,6 +134,39 @@ export class GuildState {
   get enabledBuffs(): readonly GuildBuff[] { return this._enabledBuffs; }
   /** GuildDialog.Notice lines. */
   get notice(): readonly string[] { return this._notice; }
+
+  /** S.GuildMemberDetails rows (web): every member with class, level, LastLogin (DateTime.ToBinary; dateTimeBinaryToMs),
+   *  Online and RankIndex (index into `ranks`). Empty until requestMemberDetails() is answered. */
+  get memberDetails(): readonly ClientGuildMemberDetail[] { return this._memberDetails; }
+  /** False while a multi-part S.GuildMemberDetails reply is still arriving. */
+  get memberDetailsComplete(): boolean { return this.memberDetailsPending === 0; }
+  /** S.GuildWarList: the guild's current wars (the server sends the whole list at login / join and on war start / end). */
+  get wars(): readonly GuildWar[] { return this._wars; }
+  /** S.GuildLog entries, oldest first (Time = DateTime.ToBinary; Kind = GUILD_LOG_KIND; Text already localised). */
+  get log(): readonly ClientGuildLogEntry[] { return this._log; }
+
+  /** Milliseconds left in `war` now (0 = over; the server sends a new list when it ends). */
+  warTimeLeft(war: GuildWar): number {
+    return Math.max(0, war.endsAt - this.d.now());
+  }
+
+  /** C.RequestGuildMemberDetails (web). False = not in a guild, or inside the 5 s throttle (nothing sent). */
+  requestMemberDetails(): boolean {
+    const t = this.d.now();
+    if (!this._name || t - this.lastMemberDetailsRequest < GUILD_DETAILS_THROTTLE) return false;
+    this.lastMemberDetailsRequest = t;
+    this.d.send(ClientPackets.RequestGuildMemberDetails());
+    return true;
+  }
+
+  /** C.RequestGuildLog (web). False = not in a guild, or inside the 5 s throttle (nothing sent). */
+  requestLog(): boolean {
+    const t = this.d.now();
+    if (!this._name || t - this.lastLogRequest < GUILD_DETAILS_THROTTLE) return false;
+    this.lastLogRequest = t;
+    this.d.send(ClientPackets.RequestGuildLog());
+    return true;
+  }
 
   /** The user's rank has the option (GuildRankOptions). */
   can(option: number): boolean {
@@ -151,6 +213,15 @@ export class GuildState {
   /** Server packets. Never consumes (the classic chain ignored the guild window's return and went on). */
   handle(p: ServerPacket): boolean {
     switch (p.type) {
+      // Web-only extras: their own emitters, not `changed` (the classic window does not read them)
+      case "GuildMemberDetails": this.memberDetails_(p); return false;
+      case "GuildWarList": {
+        const t = this.d.now();
+        this._wars = p.Wars.map((w) => ({ guildName: w.GuildName, endsAt: t + Number(w.MillisecondsLeft > 0n ? w.MillisecondsLeft : 0n) }));
+        this.warsChanged.emit();
+        return false;
+      }
+      case "GuildLog": this._log = p.Entries; this.logChanged.emit(); return false;
       case "GuildStatus": this.status(p); break;
       case "GuildInvite": this.invite.emit({ name: p.Name }); break;
       case "GuildNameRequest": this.nameRequest.emit(); break;
@@ -183,6 +254,7 @@ export class GuildState {
   /** GameScene.GuildStatus (+ GuildDialog.StatusChanged / GuildChange). */
   private status(p: Extract<ServerPacket, { type: "GuildStatus" }>): void {
     if (!this._name && p.GuildName) { this.noticeChanged = true; this.membersChanged = true; }
+    const leftOld = this._name !== "" && this._name !== p.GuildName;
     // GuildChange: reset the guild buffs and drop the Guild buff
     if (this._name !== p.GuildName) { this._enabledBuffs = []; this.d.setGuildBuff(null); }
     this._sparePoints = p.SparePoints;
@@ -190,8 +262,32 @@ export class GuildState {
     this._maxExperience = p.MaxExperience; this._gold = p.Gold; this._memberCount = p.MemberCount; this._maxMembers = p.MaxMembers;
     this._myOptions = p.MyOptions; this._myRankId = p.MyRankId;
     if (!p.GuildName) { this._ranks = []; this._notice = []; }
+    // Left the guild or moved to another: the web extras belong to the old one (joining from none keeps a war list that
+    // may already have arrived)
+    if (leftOld) this.clearExtras();
     this.d.setUserGuild(p.GuildName, p.GuildRankName);
     this.view.emit({ kind: "status", left: !p.GuildName });
+  }
+
+  /** Drops the member details, wars and log (guild changed or left). */
+  private clearExtras(): void {
+    this._memberDetails = []; this.memberDetailsPending = 0; this.lastMemberDetailsRequest = -Infinity;
+    this._log = []; this.lastLogRequest = -Infinity;
+    const hadWars = this._wars.length > 0;
+    this._wars = [];
+    this.memberDetailsChanged.emit({ complete: true });
+    this.logChanged.emit();
+    if (hadWars) this.warsChanged.emit();
+  }
+
+  /** S.GuildMemberDetails: part 0 replaces the list, later parts append. */
+  private memberDetails_(p: Extract<ServerPacket, { type: "GuildMemberDetails" }>): void {
+    if (p.Part === 0) this._memberDetails = p.Members.slice();
+    else if (this.memberDetailsPending > 0) for (let i = 0; i < p.Members.length; i++) this._memberDetails.push(p.Members[i]!);
+    else return; // a stray later part (its part 0 was dropped by a guild change)
+    const count = Math.max(1, p.PartCount);
+    this.memberDetailsPending = p.Part + 1 >= count ? 0 : count - p.Part - 1;
+    this.memberDetailsChanged.emit({ complete: this.memberDetailsPending === 0 });
   }
 
   /** GuildDialog.RefreshMemberList's Ranks[i].Index = i. */

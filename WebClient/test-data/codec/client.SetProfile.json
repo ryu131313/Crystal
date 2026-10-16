@@ -1,0 +1,9 @@
+{
+  "name": "SetProfile",
+  "dir": "client",
+  "id": 165,
+  "hex": "1100A5000C48656C6C6F20E4BDA0E5A5BD",
+  "fields": {
+    "Text": "Hello 你好"
+  }
+}

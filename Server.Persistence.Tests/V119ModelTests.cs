@@ -79,6 +79,18 @@ public class V119ModelTests
     }
 
     [Fact]
+    public void Guild_log_cap_and_kinds_match_the_wire_contract()
+    {
+        // S.GuildLog (phase 2.5, 2026-10-16) sends the whole stored log in one packet and the web client decodes the kind bytes.
+        Assert.Equal(GuildInfo.MaxLogEntries, ServerPackets.GuildLog.MaxEntries);
+        Assert.Equal(new byte[] { 0, 1, 2, 3, 4, 5, 6, 7, 8 }, new[]
+        {
+            GuildLogKind.Join, GuildLogKind.Leave, GuildLogKind.Kick, GuildLogKind.RankChange, GuildLogKind.Notice,
+            GuildLogKind.Buff, GuildLogKind.War, GuildLogKind.Territory, GuildLogKind.Gold,
+        });
+    }
+
+    [Fact]
     public void Market_sale_history_keeps_the_last_14_oldest_first_and_round_trips()
     {
         var start = new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc);

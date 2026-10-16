@@ -1,0 +1,10 @@
+{
+  "name": "FindMentor",
+  "dir": "client",
+  "id": 163,
+  "hex": "0800A3002800FFFF",
+  "fields": {
+    "MinLevel": 40,
+    "MaxLevel": 65535
+  }
+}

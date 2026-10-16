@@ -1,0 +1,18 @@
+{
+  "name": "GuildWarList",
+  "dir": "server",
+  "id": 289,
+  "hex": "2D002101020000000DE6958CE4BABA20526976616C7300DD6D000000000006456E64696E670000000000000000",
+  "fields": {
+    "Wars": [
+      {
+        "GuildName": "敌人 Rivals",
+        "MillisecondsLeft": 7200000
+      },
+      {
+        "GuildName": "Ending",
+        "MillisecondsLeft": 0
+      }
+    ]
+  }
+}

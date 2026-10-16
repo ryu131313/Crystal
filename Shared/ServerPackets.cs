@@ -7362,4 +7362,229 @@ namespace ServerPackets
                 Characters[i].Save(writer);
         }
     }
+
+    /// <summary>
+    /// The guild's members with class, level, last login, online and rank (phase 2.5), reply to C.RequestGuildMemberDetails.
+    /// Big guilds are split: Part 0 replaces the client's list, later parts (1 .. PartCount - 1) append. At most
+    /// MaxRowsPerPart rows per part (worst case 800 x 62 bytes, about 50 KB, under the 65 535-byte frame).
+    /// </summary>
+    public sealed class GuildMemberDetails : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.GuildMemberDetails; } }
+        public override bool Observable => false;
+
+        public const int MaxRowsPerPart = 800;
+
+        public byte Part, PartCount = 1;
+        public List<ClientGuildMemberDetail> Members = new List<ClientGuildMemberDetail>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Part = reader.ReadByte();
+            PartCount = reader.ReadByte();
+            int count = reader.ReadInt32();
+            if (count < 0 || count > MaxRowsPerPart) throw new InvalidDataException();
+            for (int i = 0; i < count; i++)
+                Members.Add(new ClientGuildMemberDetail(reader));
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Part);
+            writer.Write(PartCount);
+            int count = Members.Count > MaxRowsPerPart ? MaxRowsPerPart : Members.Count;
+            writer.Write(count);
+            for (int i = 0; i < count; i++)
+                Members[i].Save(writer);
+        }
+    }
+
+    /// <summary>The guild's current wars with time left (phase 2.5). Full list each time (an empty list = no wars); at most MaxWars.</summary>
+    public sealed class GuildWarList : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.GuildWarList; } }
+        public override bool Observable => false;
+
+        public const int MaxWars = 200;
+
+        public List<ClientGuildWar> Wars = new List<ClientGuildWar>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            int count = reader.ReadInt32();
+            if (count < 0 || count > MaxWars) throw new InvalidDataException();
+            for (int i = 0; i < count; i++)
+                Wars.Add(new ClientGuildWar(reader));
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            int count = Wars.Count > MaxWars ? MaxWars : Wars.Count;
+            writer.Write(count);
+            for (int i = 0; i < count; i++)
+                Wars[i].Save(writer);
+        }
+    }
+
+    /// <summary>The guild's activity log, oldest first (phase 2.5), reply to C.RequestGuildLog. At most MaxEntries (the newest are kept).</summary>
+    public sealed class GuildLog : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.GuildLog; } }
+        public override bool Observable => false;
+
+        public const int MaxEntries = 100;
+
+        public List<ClientGuildLogEntry> Entries = new List<ClientGuildLogEntry>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            int count = reader.ReadInt32();
+            if (count < 0 || count > MaxEntries) throw new InvalidDataException();
+            for (int i = 0; i < count; i++)
+                Entries.Add(new ClientGuildLogEntry(reader));
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            int start = Entries.Count > MaxEntries ? Entries.Count - MaxEntries : 0;
+            writer.Write(Entries.Count - start);
+            for (int i = start; i < Entries.Count; i++)
+                Entries[i].Save(writer);
+        }
+    }
+
+    /// <summary>
+    /// Guild, online and EXP progress of the rows of the S.Rankings page just sent (phase 2.5), matched by PlayerId.
+    /// RankType = the C.GetRanking / S.Rankings RankType. At most MaxRows.
+    /// </summary>
+    public sealed class RankingsDetail : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.RankingsDetail; } }
+
+        public const int MaxRows = 100;
+
+        public byte RankType;
+        public List<ClientRankingDetail> Rows = new List<ClientRankingDetail>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            RankType = reader.ReadByte();
+            int count = reader.ReadInt32();
+            if (count < 0 || count > MaxRows) throw new InvalidDataException();
+            for (int i = 0; i < count; i++)
+                Rows.Add(new ClientRankingDetail(reader));
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(RankType);
+            int count = Rows.Count > MaxRows ? MaxRows : Rows.Count;
+            writer.Write(count);
+            for (int i = 0; i < count; i++)
+                Rows[i].Save(writer);
+        }
+    }
+
+    /// <summary>
+    /// One page of the guild board (phase 2.5), reply to C.GetGuildRanking: guilds by level then EXP. Page = the page sent
+    /// (0-based, clamped by the server), Total = number of ranked guilds. Rank of row i = Page * PageSize + i + 1.
+    /// </summary>
+    public sealed class GuildRankings : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.GuildRankings; } }
+
+        public const int PageSize = 20;
+
+        public int Page;
+        public int Total;
+        public List<ClientGuildRanking> Guilds = new List<ClientGuildRanking>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Page = reader.ReadInt32();
+            Total = reader.ReadInt32();
+            int count = reader.ReadInt32();
+            if (count < 0 || count > PageSize) throw new InvalidDataException();
+            for (int i = 0; i < count; i++)
+                Guilds.Add(new ClientGuildRanking(reader));
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Page);
+            writer.Write(Total);
+            int count = Guilds.Count > PageSize ? PageSize : Guilds.Count;
+            writer.Write(count);
+            for (int i = 0; i < count; i++)
+                Guilds[i].Save(writer);
+        }
+    }
+
+    /// <summary>
+    /// Mentor term details (phase 2.5), sent right after S.MentorUpdate when the player has a mentor or mentee.
+    /// MentorDate / EndsAt = DateTime.ToBinary (EndsAt = MentorDate + Settings.MentorLength days).
+    /// </summary>
+    public sealed class MentorDetails : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.MentorDetails; } }
+        public override bool Observable => false;
+
+        public MirClass PartnerClass;
+        public long MentorDate;
+        public long EndsAt;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            PartnerClass = (MirClass)reader.ReadByte();
+            MentorDate = reader.ReadInt64();
+            EndsAt = reader.ReadInt64();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write((byte)PartnerClass);
+            writer.Write(MentorDate);
+            writer.Write(EndsAt);
+        }
+    }
+
+    /// <summary>Online players who could mentor the asker (phase 2.5), reply to C.FindMentor. At most MaxRows.</summary>
+    public sealed class MentorCandidates : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.MentorCandidates; } }
+        public override bool Observable => false;
+
+        public const int MaxRows = 20;
+
+        public List<ClientMentorCandidate> Candidates = new List<ClientMentorCandidate>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            int count = reader.ReadInt32();
+            if (count < 0 || count > MaxRows) throw new InvalidDataException();
+            for (int i = 0; i < count; i++)
+                Candidates.Add(new ClientMentorCandidate(reader));
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            int count = Candidates.Count > MaxRows ? MaxRows : Candidates.Count;
+            writer.Write(count);
+            for (int i = 0; i < count; i++)
+                Candidates[i].Save(writer);
+        }
+    }
+
+    /// <summary>An inspected player's profile text (phase 2.5), sent right after S.PlayerInspect. Text may be empty.</summary>
+    public sealed class PlayerProfile : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.PlayerProfile; } }
+
+        public string Name = string.Empty;
+        public string Text = string.Empty;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Name = reader.ReadString();
+            Text = reader.ReadString();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Name ?? string.Empty);
+            writer.Write(Text ?? string.Empty);
+        }
+    }
 }

@@ -3,6 +3,11 @@
 // GameScene.Dispose resets it) for MapControl.OnMouseClick (Ctrl + right-click on another player / hero) and
 // RankingRow.Inspect, GameScene.PlayerInspect, and the dialog's player buttons (Group / Friend / Trade / Observe).
 // game.ts feeds handle(); the UI opens its inspect window on `received`.
+//
+// Phase 2.5 (web-only): S.PlayerProfile follows S.PlayerInspect for a player (the server sends it even when the text is
+// empty); `profileText` holds it for the inspected player and `profile` fires when it arrives. setProfile() sends
+// C.SetProfile for the user's own text (the server trims, strips control characters, caps at 120 characters, applies a
+// 10 s cooldown and answers with a chat line).
 
 import type { ServerPacket, UserItem } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
@@ -17,6 +22,11 @@ const T = { // ClientTextKeys (English.json)
   GroupHasMaxMembers: "Your group already has the maximum number of members.", YouNotGroupLeader: "You are not the leader of your group.",
   PlayerDisabledObservation: "That player has disabled observation.",
 };
+
+/** CharacterInfo.ProfileTextMaxLength (the server cuts longer text). */
+export const PROFILE_MAX_LENGTH = 120;
+/** The server's C.SetProfile cooldown. */
+export const PROFILE_THROTTLE = 10000;
 
 export interface InspectDeps {
   send(f: Uint8Array): void;
@@ -47,6 +57,11 @@ export class Inspect {
   private _isHero = false;
   private _inspectId = 0;
   private inspectTime = 0;
+  private _profileText = "";
+  private _hasProfile = false;
+  private lastProfileSet = -Infinity;
+  /** S.PlayerProfile for the inspected player applied (`profileText`). */
+  readonly profile = new Emitter<void>();
 
   constructor(private readonly deps: InspectDeps) {}
 
@@ -78,6 +93,21 @@ export class Inspect {
     return true;
   }
 
+  /** The inspected player's profile text (S.PlayerProfile; "" = none or not received). */
+  get profileText(): string { return this._profileText; }
+  /** S.PlayerProfile arrived for the inspected player (false for heroes and older servers). */
+  get hasProfile(): boolean { return this._hasProfile; }
+
+  /** C.SetProfile (web): the user's own profile text. False = inside the 10 s throttle (nothing sent); the text is trimmed
+   *  and cut to 120 characters here too (the server does the same and answers with a chat line). */
+  setProfile(text: string): boolean {
+    const t = this.deps.now();
+    if (t - this.lastProfileSet < PROFILE_THROTTLE) return false;
+    this.lastProfileSet = t;
+    this.deps.send(ClientPackets.SetProfile({ Text: text.trim().slice(0, PROFILE_MAX_LENGTH) }));
+    return true;
+  }
+
   /** InspectDialog.GroupButton.Click (the desktop still sends after the not-leader line; the server refuses). */
   addToGroup(): void {
     const list = this.deps.group.list;
@@ -104,6 +134,14 @@ export class Inspect {
 
   /** Server packets; true = consumed (the classic chain returned on S.PlayerInspect). */
   handle(p: ServerPacket): boolean {
+    if (p.type === "PlayerProfile") {
+      // Only the profile of the player just inspected (S.PlayerInspect came first)
+      if (p.Name !== this._name) return true;
+      this._profileText = p.Text;
+      this._hasProfile = true;
+      this.profile.emit();
+      return true;
+    }
     if (p.type !== "PlayerInspect") return false;
     // GameScene.PlayerInspect
     this._items = p.Equipment;
@@ -117,6 +155,7 @@ export class Inspect {
     this._loverName = p.LoverName;
     this._allowObserve = p.AllowObserve;
     this._isHero = p.IsHero;
+    this._profileText = ""; this._hasProfile = false; // S.PlayerProfile follows for a player
     // InspectDialog.RefreshInferface: GameScene.Bind each item (asks for missing ItemInfo)
     for (const item of this._items) if (item) this.deps.requestItem(item.ItemIndex);
     this.received.emit();

@@ -99,16 +99,16 @@ tests) · **d** = cosmetic or client-side settings (`localStorage` / `Mir2Config
 |---|---|---|---|
 | Banner: level, EXP, fund, buff points, member counts, my rank/options | a | `S.GuildStatus` | — |
 | Notice board + edit | a | `S.GuildNoticeChange`, `C.EditGuildNotice` | — |
-| Members table with class, level, last online | **b** | `S.GuildMemberChange` (`GuildRank` → `GuildMember`: Name, Id, LastLogin, Online). `GuildRank.Save`/`GuildMember` are **also the `.mgd` DB layout** | New `S.GuildMemberDetails` (Name, Class, Level, LastLogin, Online) on request (`C.RequestGuildMemberDetails`); do **not** extend `GuildMember` (DB change) |
+| Members table with class, level, last online | **b** | `S.GuildMemberChange` (`GuildRank` → `GuildMember`: Name, Id, LastLogin, Online). `GuildRank.Save`/`GuildMember` are **also the `.mgd` DB layout** | New `S.GuildMemberDetails` (Name, Class, Level, LastLogin, Online) on request (`C.RequestGuildMemberDetails`); do **not** extend `GuildMember` (DB change) **Done 2026-10-16 (phase 2.5)** |
 | Promote / demote / kick, rank option toggles | a | `C.EditGuildMember`, `GuildRankOptions` | — |
 | Buffs obtain / activate with countdown | a | `S.GuildBuffList`, `C.GuildBuffUpdate` | — |
 | Storage grid, fund deposit / withdraw | a | `S.GuildStorageList`/`ItemChange`/`GoldChange`, `C.GuildStorage*` | — |
-| Diplomacy: wars with timers | **b** | Wars only show as name colours; `S.GuildRequestWar` is the NPC-script prompt | `S.GuildWarList` (guild name, ms left) |
+| Diplomacy: wars with timers | **b** | Wars only show as name colours; `S.GuildRequestWar` is the NPC-script prompt | `S.GuildWarList` (guild name, ms left) **Done 2026-10-16 (phase 2.5)** |
 | Diplomacy: alliances | — | Crystal has none (only the unused `CanAlterAlliance` bit) | New system — out of scope |
-| Activity log | c | Not stored | Capped list on `GuildInfo` (`.mgd`, gate on the guild file's version) + `S.GuildLog`; or in-memory since start (b) |
+| Activity log | c | Not stored | Capped list on `GuildInfo` (`.mgd`, gate on the guild file's version) + `S.GuildLog`; or in-memory since start (b) **Done 2026-10-16 (phase 2.5)** (stored, c) |
 | Territory list, lease days, price, owner | a | `C.GuildTerritoryPage`/`S.GuildTerritoryPage` (`ClientGTMap`) | — |
 | Buy a for-sale estate | **b** | `C.PurchaseGuildTerritory` has a server handler (`MirConnection.cs` ~L1819) but **no `Shared/Packet.cs` factory case** (Known defect: the server drops it and the rest of the buffer) | ~~Add the factory case~~ **Done 2026-10-16 (phase 2.1)**; TS encoder added, web window Purchase button wired; handler hardened (alive, `[@GUILDTERRITORY]` page + range, no payout/`EndGT` for owner `None`, gold clamp, `NeedSave`) |
-| Rent / extend / list for sale / cancel / teleport from the window | b | Today only NPC script commands (`BuyGT`, `ExtendGT`, `GTSale`, `GTCancelSale`, `TeleportGT`) | `C.GuildTerritoryAction(Kind, Index, Price)` reusing the NPC-command code paths (same checks: leader, gold, standing in it) — or keep these on NPC pages |
+| Rent / extend / list for sale / cancel / teleport from the window | b | Today only NPC script commands (`BuyGT`, `ExtendGT`, `GTSale`, `GTCancelSale`, `TeleportGT`) | `C.GuildTerritoryAction(Kind, Index, Price)` reusing the NPC-command code paths (same checks: leader, gold, standing in it) — or keep these on NPC pages **Done 2026-10-16 (phase 2.5)**: shared `PlayerObject.GuildTerritory*` bodies |
 | Floor blueprint / amenities | b | Not sent | Optional: part of `S.MapDetails` |
 
 ### Group (hudGroup.ts)
@@ -128,8 +128,8 @@ tests) · **d** = cosmetic or client-side settings (`localStorage` / `Mir2Config
 | Location | — | — | **Dropped (user 2026-10-16)** |
 | Status message, Favourites, Recent tab | — | — | **Dropped (user 2026-10-16)** |
 | Mentor: names, levels, online, banked EXP, allow, add, cancel | a | `S.MentorUpdate`, `C.AddMentor`/`MentorReply`/`AllowMentor`/`CancelMentor` | — |
-| Mentor term ring (days left), graduation | b | `CharacterInfo.MentorDate` exists, not sent | Add date to a new `S.MentorDetails` (or extend `S.MentorUpdate`) |
-| Mentor "find board" | b | — | `C.FindMentor(minLevel, maxLevel)` → `S.MentorCandidates` (online players with AllowMentor) |
+| Mentor term ring (days left), graduation | b | `CharacterInfo.MentorDate` exists, not sent | Add date to a new `S.MentorDetails` (or extend `S.MentorUpdate`) **Done 2026-10-16 (phase 2.5)** |
+| Mentor "find board" | b | — | `C.FindMentor(minLevel, maxLevel)` → `S.MentorCandidates` (online players with AllowMentor) **Done 2026-10-16 (phase 2.5)** |
 | Marriage: lover, map, married days, allow, request, divorce, recall | a | `S.LoverUpdate`, `C.MarriageRequest`/`Reply`/`ChangeMarriage`/`DivorceRequest`/`Reply`, `@recalllover`, `S.NPCReplaceWedRing` | — |
 | Memories timeline, love letters | d/c | — | Mock flavour; drop or derive from mail |
 
@@ -193,10 +193,10 @@ tests) · **d** = cosmetic or client-side settings (`localStorage` / `Mir2Config
 |---|---|---|---|
 | Inspect: name, guild, rank, lover, paperdoll, equipment | a | `C.Inspect`, `S.PlayerInspect` | — |
 | Stats / Compare tabs, gear score | a/d | computed from the sent `UserItem`s; score is a client formula | — |
-| Profile tab | c | — | `CharacterInfo.ProfileText` (+ `S.PlayerInspect` would change → prefer `S.PlayerProfile`) |
+| Profile tab | c | — | `CharacterInfo.ProfileText` (+ `S.PlayerInspect` would change → prefer `S.PlayerProfile`) **Done 2026-10-16 (phase 2.5)**: `C.SetProfile` + `S.PlayerProfile` |
 | Ranking boards, my rank, online-only | a | `C.GetRanking(RankType, RankIndex, OnlineOnly)`, `S.Rankings` | — |
-| Guild tag, online dot, EXP bar per row | b | `RankCharacterInfo` sends PlayerId, Name, level, Class only | New `S.RankingsDetail` (or extend `RankCharacterInfo` wire — it is not a DB model) |
-| Guilds board | b | — | new rank type built from `GuildList` (level, EXP, members) |
+| Guild tag, online dot, EXP bar per row | b | `RankCharacterInfo` sends PlayerId, Name, level, Class only | New `S.RankingsDetail` (or extend `RankCharacterInfo` wire — it is not a DB model) **Done 2026-10-16 (phase 2.5)** |
+| Guilds board | b | — | new rank type built from `GuildList` (level, EXP, members) **Done 2026-10-16 (phase 2.5)** as separate `C.GetGuildRanking` / `S.GuildRankings` (RankType meaning unchanged) |
 | Movement since yesterday, sparkline, best rank | b/c | — | In-memory daily snapshot (b, lost on restart) or persisted (c). Recommend b |
 | Item tooltip: stats, grade, bind, set, story, compare | a | `S.NewItemInfo` (full `ItemInfo`) + `UserItem` | Set bonuses are hard-coded in `HumanObject`; client needs a copy (d, drift risk) |
 
@@ -227,27 +227,30 @@ Prefer **new** packets over changing existing ones: existing packets are already
 | ~~`ServerRules`~~ **Done 2026-10-16 (phase 2.2)**, id 281: sent after `S.LoginSuccess` and after `S.StartGame`; fields as built (no min sale / GemRate: `GemStatIndependent` instead; adds `AllowCreateAssassin/Archer`, `MapDetailsEnabled`, `FriendRequestsEnabled` (const false until 2.7), `MaxFriends`); new `[Game] MapDetailsEnabled` (true) / `MaxFriends` (100) settings | S→C | Refine (cost, time, base chance, stat reduce, increase, crit chance/increase), Awakening (success rate, hit rate, ChanceMax[], weapon/helmet/armour values), Mentor (level gap, length, damage/EXP boosts, % to mentor), Marriage (min level, cooldown, ring cost, EXP bonus, AllowLoverRecall), Mail (cost per 1k gold, insurance %, free with stamp), GT (BuyGTGold, ExtendGT, GTDays, min sale), GemRate | yes (no secrets) | no |
 | ~~`PoisonStatus`~~ **Done 2026-10-16 (phase 2.4)**, id 282: player only, on change (`PoisonStatusDirty` / list count), flushed in `PlayerObject.Process`; `PoisonType` u16, int ms left (≥ 0), int value; delayed explosion = `PoisonType.DelayedExplosion` (64) | S→C | count; per entry: `PoisonType`, ms left, value | yes | no (as built) |
 | ~~`GroupMemberStatus`~~ **Done 2026-10-16 (phase 2.4)**, id 283: `GroupStatusDirty` (HP/MP, level, buff add/expire, join), ≤ 1/s per member; full exchange on join; buffs capped at 20 (reader throws above) | S→C | Name, Class, Level, HP %, MP %, buff count + `BuffType[]` | yes | no |
-| `GuildMemberDetails` | S→C | count; Name, Class, Level, LastLogin, Online, RankIndex | no | no |
-| `GuildWarList` | S→C | count; guild name, ms left | no | no |
-| `GuildLog` (if c) | S→C | count; time, kind, text | no | no |
-| `RankingsDetail` | S→C | RankType, rows: PlayerId, guild name, online, EXP % | yes | no |
+| ~~`GuildMemberDetails`~~ **Done 2026-10-16 (phase 2.5)**, id 288: `byte Part, PartCount` first (≤ 800 rows per part, part 0 replaces, later parts append; worst part ≈ 49.6 KB); offline class/level from `CharacterInfo`; `LastLogin` = `LastLoginDate` online, else `GuildMember.LastLogin`; needs guild + rank, silent 5 s cooldown | S→C | count; Name, Class, Level, LastLogin, Online, RankIndex | no | no |
+| ~~`GuildWarList`~~ **Done 2026-10-16 (phase 2.5)**, id 289: full list (≤ 200, empty = no wars), pushed at login (`GuildObject.PlayerLogged`), on join, on `GoToWar` and `GuildAtWar.EndWar` (both guilds); ms left has minute granularity (`TimeRemaining`) | S→C | count; guild name, ms left | no | no |
+| ~~`GuildLog`~~ **Done 2026-10-16 (phase 2.5)**, id 290: reply to `C.RequestGuildLog` (id 161; guild + rank, silent 5 s cooldown); ≤ 100 entries oldest first, text cut to 128 chars on the wire; `Kind` = `GuildLogKind` byte (0 Join … 8 Gold). Events logged (texts localised when they happen, `ServerTextKeys.GuildLog*`): join, leave, kick, rank change, notice change, buff bought / activated, war started / ended, territory bought (NPC `BuyGT` + `PurchaseGuildTerritory`) / sold, gold deposit / withdraw. Not logged: disband, item-granted buffs, web admin guild edits | S→C | count; time, kind, text | no | no |
+| ~~`RankingsDetail`~~ **Done 2026-10-16 (phase 2.5)**, id 291: sent right after `S.Rankings` in `Envir.GetRanking` for the same rows (≤ 100); EXP as `ushort ExpPerTenThousand` | S→C | RankType, rows: PlayerId, guild name, online, EXP % | yes | no |
+| ~~`GuildRankings`~~ **Done 2026-10-16 (phase 2.5)**, id 292: reply to `C.GetGuildRanking { int Page }` (id 162, page clamped, Game or Observer); level then EXP desc, newbie guild excluded, leader = first member of `Ranks[0]`; page size 20; cache rebuilt on request at most every 5 min (`Envir.BuildGuildRanking`) | S→C | Page, Total, rows: Name, Level, EXP ‱, Members, Leader | yes | no |
 | ~~`MapDetails`~~ **Done 2026-10-16 (phase 2.4)**, id 285: `Compressed`, plus `Part` / `PartCount` (part 0 replaces, later parts append; ≤ 3000 respawns / 500 safe zones per part); safe zones carry `StartPoint`; `CheckMonsterInfo` before send; cached per `MapInfo` in `Envir.MapDetailsCache` (dropped after every LiveDb apply), 1 s cooldown | S→C | MapIndex, respawns (monster index, x, y, spread, count), safe zones (x, y, size); split / `Compressed` | yes | no |
-| `MentorDetails` | S→C | partner class, MentorDate, ends at | no | no |
-| `MentorCandidates` | S→C | count; Name, Class, Level | no | no |
+| ~~`MentorDetails`~~ **Done 2026-10-16 (phase 2.5)**, id 293: after `S.MentorUpdate` in `GetMentor` while `Info.Mentor != 0` and in `LogoutMentor` (to the online partner); `EndsAt` = `MentorDate + MentorLength` days | S→C | partner class, MentorDate, ends at | no | no |
+| ~~`MentorCandidates`~~ **Done 2026-10-16 (phase 2.5)**, id 294: ≤ 20; online, `AllowMentor`, no partner / cooldown, same class, level ≥ asker + `MentorLevelGap`, inside [Min, Max] (swapped if reversed); the asker needs no mentor and no cooldown (`MentorSearchNotEligible`) | S→C | count; Name, Class, Level | no | no |
+| ~~`PlayerProfile`~~ **Done 2026-10-16 (phase 2.5)**, id 295: always sent right after `S.PlayerInspect` (empty text clears a stale profile) | S→C | Name, Text | yes | no |
 | `FriendRequest` | S→C | Name, Class, Level (who is asking) | no | no |
 | `FriendRequestResult` (optional; chat lines also work) | S→C | Name, result (accepted / declined / expired / offline / list full) | no | no |
 | ~~`SelectDetails`~~ **Done 2026-10-16 (phase 2.4)**, id 287: `uint AccountGold` first; sent after `S.LoginSuccess`, `S.LogOutSuccess` (both paths) and `S.NewCharacterSuccess`; play time in seconds | S→C | per character: Index, guild, map title, play time | no | no |
 | ~~`LoginFailed`~~ **Done 2026-10-16 (phase 2.4)**, id 286: sent right after `S.Login` (Result 3 no account, 4 wrong password), never instead; `AccountTriesLeft` / `ConnectionTriesLeft` (-1 = n/a), `LockedUntil` = `DateTime.ToBinary` (0 = not locked; set when the connection limit closes the socket) | S→C | Result, TriesLeft, LockedUntil | no | no |
 | `MarketPriceHistory` (c) | S→C | ItemIndex, last N (price, date) | yes | no |
 | `SentMail` (c) | S→C | count; ClientMail-like rows | no | no |
-| `RequestGuildMemberDetails` | C→S | — | | |
-| `FindMentor` | C→S | min level, max level | | |
+| ~~`RequestGuildMemberDetails`~~ **Done 2026-10-16 (phase 2.5)**, id 160 (`RequestGuildLog` 161, `GetGuildRanking` 162: see the S→C rows) | C→S | — | | |
+| ~~`FindMentor`~~ **Done 2026-10-16 (phase 2.5)**, id 163: 3 s cooldown with a chat line (`MentorSearchCooldown`) | C→S | min level, max level | | |
 | ~~`RequestMapDetails`~~ **Done 2026-10-16 (phase 2.4)**, id 159: `[Game] MapDetailsEnabled`, own map or `BigMap > 0`, 1 s cooldown (armed on rejected requests too) | C→S | MapIndex (validate: own map or a map with BigMap) | | |
 | `MarketSearchEx` | C→S | as `MarketSearch` + sort, price min/max, grade | | |
 | `MarketPriceHistory` (c) | C→S | ItemIndex | | |
 | `GameshopGift` | C→S | GIndex, Quantity, PType, Recipient | | |
 | ~~`HeroSpellToggle`~~ **Done 2026-10-16 (phase 2.4)**, id 158: `Spell`, `bool AutoCast`; spawned hero that knows the spell; replies `S.HeroAutoCast` (id 284, full disabled list, `Observable => false`), also sent after `S.HeroInformation` | C→S | Spell, `SpellToggleState` | | |
-| `GuildTerritoryAction` | C→S | Kind (Rent / Extend / ListForSale / CancelSale / Teleport), Index, Price | | |
+| ~~`GuildTerritoryAction`~~ **Done 2026-10-16 (phase 2.5)**, id 164: `GuildTerritoryActionKind` byte (Rent 0, Extend 1, ListForSale 2, CancelSale 3, Teleport 4; server drops other values), `int TerritoryIndex` (Rent: < 0 = first free, as the NPC), `uint Price` (> `int.MaxValue` fails like the script's `TryParse`). The NPC commands `BuyGT` / `ExtendGT` / `TeleportGT` / `GTSale` / `GTCancelSale` now call the same `PlayerObject.GuildTerritory*` methods (checks unchanged). The packet also needs alive + guild + rank, and Rent / Extend / Teleport need the `[@GUILDTERRITORY]` NPC page in range, ListForSale / CancelSale a territory map (`MapInfo.GT`); replies are chat lines (the web client re-requests its page) | C→S | Kind (Rent / Extend / ListForSale / CancelSale / Teleport), Index, Price | | |
+| ~~`SetProfile`~~ **Done 2026-10-16 (phase 2.5)**, id 165: cut to `MaxChatLength`, control chars removed, trimmed, capped at 120, ignored while chat-banned, 10 s cooldown (`ProfileCooldown`), acked with `ProfileUpdated`. No server word filter exists (chat filtering is client-side), so none is applied | C→S | Text | | |
 | `FriendRequestReply` | C→S | Name, Accept | | |
 | (changed) `ClientFriend` in `S.FriendUpdate` | S→C | + Class, Level, Gender, GuildName, LastSeen (no `FriendDetails` packet needed) | | |
 | ~~`SellItems` / `RepairItems`~~ **Done 2026-10-16 (phase 2.1)**, ids 153 / 154 | C→S | list of (UniqueID, Count) / Special + list of UniqueID; per-item checks and replies of the existing handlers | | |
@@ -270,9 +273,9 @@ login; now properties over `CharacterInfo`) and `AllowFriendRequests` (default t
 | Field | Model / file | Used by | Notes |
 |---|---|---|---|
 | `PlayTime` (long, seconds) | `CharacterInfo` (`Server.MirADB`) | Select details | **done**: folded in at `StopGame` and before each periodic accounts save (`PlayerObject.FoldPlayTime`) |
-| `ProfileText` (string, capped ~120) | `CharacterInfo` | Friends status, Inspect profile | **done** (data): `CharacterInfo.ProfileTextMaxLength` = 120; the write path (filter + cap) comes with its packet |
+| `ProfileText` (string, capped ~120) | `CharacterInfo` | Friends status, Inspect profile | **done** (data): `CharacterInfo.ProfileTextMaxLength` = 120; write path `C.SetProfile` done 2026-10-16 (phase 2.5) |
 | `SenderIndex` + `SenderHidden` | `MailInfo` (in the recipient's `CharacterInfo`) | Mail "Sent" folder | **done** (data): -1 = system/NPC/pre-119 mail; set on player letters and parcels. Sent index + packets: phase 2.6 |
-| Guild activity log (capped list) | `GuildInfo` (`Guilds\*.mgd`, ctor already takes `version`) | Guild Log tab | **done** (data): `GuildInfo.Log` (cap 100), `AddLog(GuildLogKind.X, text)` sets `NeedSave`; events: phase 2.5 |
+| Guild activity log (capped list) | `GuildInfo` (`Guilds\*.mgd`, ctor already takes `version`) | Guild Log tab | **done** (data): `GuildInfo.Log` (cap 100), `AddLog(GuildLogKind.X, text)` sets `NeedSave`; events: **done 2026-10-16 (phase 2.5)** (list in the `GuildLog` packet row) |
 | Market sales log (capped per ItemIndex) | new list saved beside `Auctions` in `SaveAccounts` | Price history | **done**: `Envir.MarketSales` (last 14 per ItemIndex, after the respawn block), `RecordMarketSale` on consignment buy / auction win; packets: phase 2.6 |
 | `DealPrice` | `GameShopItem` (`Server.MirDB`, **and** its packet ctor / `Save(writer, packet)`) | Shop deal badge | **done**: `DealGoldPrice` + `DealCreditPrice` (uint, 0 = none), DB + wire (`S.GameShopInfo`, `S.GameDataChanged`; TS + Fixtures); LiveDb read-through; MirDbExport columns |
 | Hero auto-cast per spell | `UserMagic` | Hero skills tab | **done** (data): `UserMagic.AutoCast` (default true, players and heroes); hero AI use: **done 2026-10-16 (phase 2.4)**: `HeroObject.CanUseMagic` also requires `AutoCast` (still also `Key > 0`) |
@@ -397,7 +400,7 @@ Tests: `Server.Persistence.Tests` (synthetic characters built with 46 cells, so 
 2. **Done 2026-10-16 (phase 2.1)** **Safety before bulk buttons:** `SellItems`, `RepairItems`, `CollectAllParcels`, `ReadMails`, `SortStorage` /
    `StackStorage`; fix the `C.PurchaseGuildTerritory` factory case.
 3. **Done 2026-10-16 (phase 2.2)** **`S.ServerRules`** (id 281; new `[Game] MapDetailsEnabled` / `MaxFriends` settings, in the web admin catalogue) (unblocks refine / awakening / mentor / marriage / mail / territory panels).
-4. **Class b detail packets**, one small commit each (**done 2026-10-16, phase 2.4:** `PoisonStatus`, `GroupMemberStatus`, `SelectDetails`, `LoginFailed`, `HeroSpellToggle`, `MapDetails`): `PoisonStatus`, `GroupMemberStatus`, `GuildMemberDetails` +
+4. **Class b detail packets**, one small commit each (**done 2026-10-16, phase 2.4:** `PoisonStatus`, `GroupMemberStatus`, `SelectDetails`, `LoginFailed`, `HeroSpellToggle`, `MapDetails`; **phase 2.5:** `GuildMemberDetails`, `GuildWarList`, `GuildLog`, `RankingsDetail`, guild board, `MentorDetails`, `FindMentor`, `GuildTerritoryAction`, profiles): `PoisonStatus`, `GroupMemberStatus`, `GuildMemberDetails` +
    `GuildWarList`, `RankingsDetail`, `SelectDetails`, `LoginFailed`, `HeroSpellToggle`, `MentorDetails` /
    `FindMentor`, `GameshopGift`, `GuildTerritoryAction`, `MarketSearchEx`, `MapDetails` (behind a setting),
    friend requests + `ClientFriend` details (see "Friends: requests and details").

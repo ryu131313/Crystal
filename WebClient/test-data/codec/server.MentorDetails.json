@@ -1,0 +1,11 @@
+{
+  "name": "MentorDetails",
+  "dir": "server",
+  "id": 293,
+  "hex": "150025010200C0BDEF4E1FDF480000A218CF24DF48",
+  "fields": {
+    "PartnerClass": 2,
+    "MentorDate": "5250950114427387904",
+    "EndsAt": "5250956162427387904"
+  }
+}

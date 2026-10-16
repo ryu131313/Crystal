@@ -53,7 +53,7 @@ import { GuildState } from "./guild.ts";
 import { MailBox } from "./mail.ts";
 import { Friends } from "./friends.ts";
 import { Relationship, Mentor } from "./relationship.ts";
-import { Rankings, rankingDetails } from "./rankings.ts";
+import { Rankings, rankingDetails, rankingExtras } from "./rankings.ts";
 import { serverRules, rulesFor } from "./serverRules.ts";
 import { PoisonTimers } from "./poisons.ts";
 import { Inspect } from "./inspect.ts";
@@ -272,7 +272,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     requestItem: (i) => gameInfo.requestItem(i), group, me: () => user?.name ?? "",
   });
   /** RankingDialog lists (the details cache is per connection, like the desktop's static dictionary). */
-  const rankings = new Rankings((f) => session.send(f), rankingDetails(session));
+  const rankings = new Rankings((f) => session.send(f), rankingDetails(session), rankingExtras(session));
   /** GameScene.GameShopInfoList. */
   const shop = new Shop((f) => session.send(f));
   /** GuildTerritoryDialog list. */

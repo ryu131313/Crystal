@@ -2844,4 +2844,111 @@ namespace ClientPackets
             writer.Write(MapIndex);
         }
     }
+
+    /// <summary>Asks for the guild's member details (phase 2.5). Server: needs a guild, 5 s cooldown; reply S.GuildMemberDetails.</summary>
+    public sealed class RequestGuildMemberDetails : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.RequestGuildMemberDetails; } }
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+        }
+    }
+
+    /// <summary>Asks for the guild's activity log (phase 2.5). Server: needs a guild, 5 s cooldown; reply S.GuildLog.</summary>
+    public sealed class RequestGuildLog : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.RequestGuildLog; } }
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+        }
+    }
+
+    /// <summary>Asks for one page of the guild board (phase 2.5). Page is 0-based (the server clamps it); reply S.GuildRankings.</summary>
+    public sealed class GetGuildRanking : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.GetGuildRanking; } }
+
+        public int Page;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Page = reader.ReadInt32();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Page);
+        }
+    }
+
+    /// <summary>Looks for online mentors with a level in [MinLevel, MaxLevel] (phase 2.5). Server: 3 s cooldown; reply S.MentorCandidates.</summary>
+    public sealed class FindMentor : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.FindMentor; } }
+
+        public ushort MinLevel;
+        public ushort MaxLevel;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            MinLevel = reader.ReadUInt16();
+            MaxLevel = reader.ReadUInt16();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(MinLevel);
+            writer.Write(MaxLevel);
+        }
+    }
+
+    /// <summary>
+    /// A guild territory action from the territory window (phase 2.5), with the same checks as the NPC script commands
+    /// (Rent = BuyGT, Extend = ExtendGT, ListForSale = GTSale (Price), CancelSale = GTCancelSale, Teleport = TeleportGT).
+    /// Index = the territory index as in S.GuildTerritoryPage; Price is used by ListForSale only.
+    /// </summary>
+    public sealed class GuildTerritoryAction : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.GuildTerritoryAction; } }
+
+        public GuildTerritoryActionKind Kind;
+        public int TerritoryIndex;
+        public uint Price;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Kind = (GuildTerritoryActionKind)reader.ReadByte();
+            TerritoryIndex = reader.ReadInt32();
+            Price = reader.ReadUInt32();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write((byte)Kind);
+            writer.Write(TerritoryIndex);
+            writer.Write(Price);
+        }
+    }
+
+    /// <summary>Sets the player's profile text (phase 2.5). Server: trimmed, control characters stripped, capped at CharacterInfo.ProfileTextMaxLength (120), ignored while chat-banned, 10 s cooldown. No word filter (the server has none for chat either).</summary>
+    public sealed class SetProfile : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.SetProfile; } }
+
+        public string Text = string.Empty;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Text = reader.ReadString();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Text ?? string.Empty);
+        }
+    }
 }

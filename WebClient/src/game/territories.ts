@@ -2,13 +2,20 @@
 // GuildTerritoryDialog .cs) with GameScene.GuildTerritoryPage and the page buttons' C.GuildTerritoryPage. Opened by the
 // server (an NPC script calls GetGuildTerritories(0)), so the UI shows its window on `received`.
 // purchase() sends C.PurchaseGuildTerritory (GuildTerritoryDialog.BuyButton; the server decodes it since phase 2.1).
+// action() sends C.GuildTerritoryAction (web, phase 2.5): rent / extend / list for sale / cancel the sale / teleport, with
+// the same server checks as the NPC BuyGT / ExtendGT / GTSale / GTCancelSale / TeleportGT commands; replies are chat
+// lines, and action() re-requests the shown page (S.GuildTerritoryPage carries no page number).
 
 import type { ClientGTMap, ServerPacket } from "../protocol/server.ts";
-import { ClientPackets } from "../protocol/client.ts";
+import { ClientPackets, GuildTerritoryActionKinds } from "../protocol/client.ts";
 import { Emitter } from "./emitter.ts";
 
 /** GuildTerritoryDialog rows per page (the server's page size). */
 export const TERRITORY_ROWS = 7;
+
+/** C.GuildTerritoryAction kinds (GuildTerritoryActionKind: Rent 0, Extend 1, ListForSale 2, CancelSale 3, Teleport 4). */
+export const TerritoryAction = GuildTerritoryActionKinds;
+export type TerritoryActionKind = (typeof GuildTerritoryActionKinds)[keyof typeof GuildTerritoryActionKinds];
 
 export class Territories {
   /** GameScene.GuildTerritoryPage applied (list and length set; the page is unchanged). */
@@ -59,6 +66,21 @@ export class Territories {
   purchase(owner: string): void {
     if (owner === "") return;
     this.send(ClientPackets.PurchaseGuildTerritory({ Owner: owner }));
+  }
+
+  /** C.GuildTerritoryAction (web). `index` = ClientGTMap.index from S.GuildTerritoryPage, used by Rent only (< 0 = the
+   *  first free territory, as BuyGT); the other kinds act on the guild's own territory. `price` (gold, u32) is used by
+   *  ListForSale only (the server refuses above int.MaxValue, as GTSale). Rent / Extend / Teleport need the territory NPC
+   *  page open on the server; ListForSale / CancelSale need the player on the guild's territory. Except for Teleport, a
+   *  C.GuildTerritoryPage for the current page follows (handled after the action, so it shows the result). False = an
+   *  invalid kind / index / price (nothing sent). */
+  action(kind: TerritoryActionKind, index: number, price = 0): boolean {
+    if (!Number.isInteger(kind) || kind < TerritoryAction.Rent || kind > TerritoryAction.Teleport) return false;
+    if (!Number.isInteger(index) || index < -0x80000000 || index > 0x7fffffff) return false;
+    if (!Number.isInteger(price) || price < 0 || price > 0xffffffff) return false;
+    this.send(ClientPackets.GuildTerritoryAction({ Kind: kind, TerritoryIndex: index, Price: kind === TerritoryAction.ListForSale ? price : 0 }));
+    if (kind !== TerritoryAction.Teleport) this.send(ClientPackets.GuildTerritoryPage({ Page: this._page }));
+    return true;
   }
 
   /** Server packets; true = consumed (the classic chain returned on it). */

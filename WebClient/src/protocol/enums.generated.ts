@@ -290,6 +290,14 @@ export const ServerPacketIds = {
   MapDetails: 285,
   LoginFailed: 286,
   SelectDetails: 287,
+  GuildMemberDetails: 288,
+  GuildWarList: 289,
+  GuildLog: 290,
+  RankingsDetail: 291,
+  GuildRankings: 292,
+  MentorDetails: 293,
+  MentorCandidates: 294,
+  PlayerProfile: 295,
 } as const;
 export type ServerPacketIds = (typeof ServerPacketIds)[keyof typeof ServerPacketIds];
 export const ServerPacketIdsName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(ServerPacketIds).map(([k, v]) => [v, k]));
@@ -455,6 +463,12 @@ export const ClientPacketIds = {
   SortItems: 157,
   HeroSpellToggle: 158,
   RequestMapDetails: 159,
+  RequestGuildMemberDetails: 160,
+  RequestGuildLog: 161,
+  GetGuildRanking: 162,
+  FindMentor: 163,
+  GuildTerritoryAction: 164,
+  SetProfile: 165,
 } as const;
 export type ClientPacketIds = (typeof ClientPacketIds)[keyof typeof ClientPacketIds];
 export const ClientPacketIdsName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(ClientPacketIds).map(([k, v]) => [v, k]));

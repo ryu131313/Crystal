@@ -765,7 +765,24 @@
     "IntelligentCreaturesCannotBeSummonedOnMap": "此地图无法召唤仆从。",
     "CannotSummonHeroOnMap": "你无法在此地图中召唤你的英雄。",
     "CannotFollowIntoMapWaitHere": "{0} 无法跟随你进入此地图，将在这里等待。",
-    "HasReturnedToYourSide": "{0} 已回到你身边。"
+    "HasReturnedToYourSide": "{0} 已回到你身边。",
+    "GuildLogJoined": "{0} 加入了行会。",
+    "GuildLogLeft": "{0} 离开了行会。",
+    "GuildLogKicked": "{0} 被 {1} 移出了行会。",
+    "GuildLogRankChanged": "{0} 将 {1} 的职位调整为 {2}。",
+    "GuildLogNoticeChanged": "{0} 修改了行会公告。",
+    "GuildLogBuffBought": "{0} 购买了行会增益 {1}。",
+    "GuildLogBuffActivated": "{0} 激活了行会增益 {1}。",
+    "GuildLogWarStarted": "与 {0} 的行会战开始了。",
+    "GuildLogWarEnded": "与 {0} 的行会战结束了。",
+    "GuildLogTerritoryBought": "{0} 获得了领地 {1}。",
+    "GuildLogTerritorySold": "领地 {0} 已出售给 {1}。",
+    "GuildLogGoldDeposited": "{0} 存入了 {1} 金币。",
+    "GuildLogGoldWithdrawn": "{0} 取出了 {1} 金币。",
+    "MentorSearchCooldown": "{0} 秒后才能再次寻找师父。",
+    "MentorSearchNotEligible": "你目前无法拜师。",
+    "ProfileCooldown": "{0} 秒后才能再次修改个人简介。",
+    "ProfileUpdated": "你的个人简介已更新。"
   },
   "Enum": {}
 }

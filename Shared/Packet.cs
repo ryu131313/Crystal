@@ -429,6 +429,18 @@ public abstract class Packet
                 return new C.HeroSpellToggle();
             case (short)ClientPacketIds.RequestMapDetails:
                 return new C.RequestMapDetails();
+            case (short)ClientPacketIds.RequestGuildMemberDetails:
+                return new C.RequestGuildMemberDetails();
+            case (short)ClientPacketIds.RequestGuildLog:
+                return new C.RequestGuildLog();
+            case (short)ClientPacketIds.GetGuildRanking:
+                return new C.GetGuildRanking();
+            case (short)ClientPacketIds.FindMentor:
+                return new C.FindMentor();
+            case (short)ClientPacketIds.GuildTerritoryAction:
+                return new C.GuildTerritoryAction();
+            case (short)ClientPacketIds.SetProfile:
+                return new C.SetProfile();
             default:
                 return null;
         }
@@ -474,6 +486,22 @@ public abstract class Packet
                 return new S.LoginFailed();
             case (short)ServerPacketIds.SelectDetails:
                 return new S.SelectDetails();
+            case (short)ServerPacketIds.GuildMemberDetails:
+                return new S.GuildMemberDetails();
+            case (short)ServerPacketIds.GuildWarList:
+                return new S.GuildWarList();
+            case (short)ServerPacketIds.GuildLog:
+                return new S.GuildLog();
+            case (short)ServerPacketIds.RankingsDetail:
+                return new S.RankingsDetail();
+            case (short)ServerPacketIds.GuildRankings:
+                return new S.GuildRankings();
+            case (short)ServerPacketIds.MentorDetails:
+                return new S.MentorDetails();
+            case (short)ServerPacketIds.MentorCandidates:
+                return new S.MentorCandidates();
+            case (short)ServerPacketIds.PlayerProfile:
+                return new S.PlayerProfile();
             case (short)ServerPacketIds.Login:
                 return new S.Login();
             case (short)ServerPacketIds.LoginBanned:

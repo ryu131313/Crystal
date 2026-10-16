@@ -504,6 +504,50 @@ internal static class Fixtures
                 new ClientSelectDetail { Index = 8, GuildName = "", MapTitle = "", PlayTime = 0 },
             },
         };
+        yield return new S.GuildMemberDetails
+        {
+            Part = 0, PartCount = 2,
+            Members =
+            {
+                new ClientGuildMemberDetail { Name = "Leader 会长", Class = MirClass.Warrior, Level = 65, LastLogin = new DateTime(2026, 10, 16, 9, 30, 0, DateTimeKind.Utc).ToBinary(), Online = true, RankIndex = 0 },
+                new ClientGuildMemberDetail { Name = "Recruit", Class = MirClass.Archer, Level = 1, LastLogin = 0, Online = false, RankIndex = 3 },
+            },
+        };
+        yield return new S.GuildWarList { Wars = { new ClientGuildWar { GuildName = "敌人 Rivals", MillisecondsLeft = 7_200_000 }, new ClientGuildWar { GuildName = "Ending", MillisecondsLeft = 0 } } };
+        yield return new S.GuildLog
+        {
+            Entries =
+            {
+                new ClientGuildLogEntry { Time = new DateTime(2026, 10, 15, 20, 0, 0, DateTimeKind.Utc).ToBinary(), Kind = 0, Text = "Recruit joined the guild." },
+                new ClientGuildLogEntry { Time = new DateTime(2026, 10, 16, 8, 0, 0, DateTimeKind.Utc).ToBinary(), Kind = 8, Text = "会长 deposited 1000000 gold." },
+            },
+        };
+        yield return new S.RankingsDetail
+        {
+            RankType = 2,
+            Rows =
+            {
+                new ClientRankingDetail { PlayerId = 9_000_000_001L, GuildName = "WebGuild", Online = true, ExpPerTenThousand = 10000 },
+                new ClientRankingDetail { PlayerId = 42, GuildName = "", Online = false, ExpPerTenThousand = 0 },
+            },
+        };
+        yield return new S.GuildRankings
+        {
+            Page = 1, Total = 23,
+            Guilds =
+            {
+                new ClientGuildRanking { Name = "WebGuild", Level = 12, ExpPerTenThousand = 4567, Members = 150, Leader = "Leader 会长" },
+                new ClientGuildRanking { Name = "Tiny", Level = 0, ExpPerTenThousand = 0, Members = 1, Leader = "" },
+            },
+        };
+        yield return new S.MentorDetails
+        {
+            PartnerClass = MirClass.Taoist,
+            MentorDate = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc).ToBinary(),
+            EndsAt = new DateTime(2026, 10, 8, 0, 0, 0, DateTimeKind.Utc).ToBinary(),
+        };
+        yield return new S.MentorCandidates { Candidates = { new ClientMentorCandidate { Name = "Mentor 师傅", Class = MirClass.Assassin, Level = 60 }, new ClientMentorCandidate { Name = "Sage", Class = MirClass.Wizard, Level = 49 } } };
+        yield return new S.PlayerProfile { Name = "Ally 盟友", Text = "Looking for a guild — 你好!" };
     }
 
     private static IEnumerable<Packet> ClientSamples()
@@ -679,6 +723,12 @@ internal static class Fixtures
         yield return new C.SortItems { Grid = MirGridType.Storage, Mode = 1 };
         yield return new C.HeroSpellToggle { Spell = Spell.SoulFireBall, AutoCast = false };
         yield return new C.RequestMapDetails { MapIndex = 70000 };
+        yield return new C.RequestGuildMemberDetails();
+        yield return new C.RequestGuildLog();
+        yield return new C.GetGuildRanking { Page = 3 };
+        yield return new C.FindMentor { MinLevel = 40, MaxLevel = 65535 };
+        yield return new C.GuildTerritoryAction { Kind = GuildTerritoryActionKind.ListForSale, TerritoryIndex = 70000, Price = 3_000_000_000 };
+        yield return new C.SetProfile { Text = "Hello 你好" };
     }
 
     public static int Emit(string dir)

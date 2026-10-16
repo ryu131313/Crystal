@@ -1,0 +1,23 @@
+{
+  "name": "RankingsDetail",
+  "dir": "server",
+  "id": 291,
+  "hex": "290023010202000000011A711802000000085765624775696C640110272A0000000000000000000000",
+  "fields": {
+    "RankType": 2,
+    "Rows": [
+      {
+        "PlayerId": 9000000001,
+        "GuildName": "WebGuild",
+        "Online": true,
+        "ExpPerTenThousand": 10000
+      },
+      {
+        "PlayerId": 42,
+        "GuildName": "",
+        "Online": false,
+        "ExpPerTenThousand": 0
+      }
+    ]
+  }
+}

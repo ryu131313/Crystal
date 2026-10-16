@@ -1721,6 +1721,14 @@ public enum ServerPacketIds : short
     MapDetails, // a map's respawns and safe zones, compressed, may be split in parts (phase 2.4); append-only
     LoginFailed, // tries left / lock time, sent right after S.Login on a failed login (phase 2.4); append-only
     SelectDetails, // per character guild, map title, play time + account gold on the select screen (phase 2.4); append-only
+    GuildMemberDetails, // guild members' class, level, last login, online, rank (phase 2.5); append-only
+    GuildWarList, // the guild's wars with time left (phase 2.5); append-only
+    GuildLog, // the guild's activity log (phase 2.5); append-only
+    RankingsDetail, // guild, online and EXP progress of the rows of an S.Rankings page (phase 2.5); append-only
+    GuildRankings, // a page of the guild board (phase 2.5); append-only
+    MentorDetails, // partner class, mentor date and end of term (phase 2.5); append-only
+    MentorCandidates, // reply to C.FindMentor (phase 2.5); append-only
+    PlayerProfile, // an inspected player's profile text (phase 2.5); append-only
 }
 
 public enum ClientPacketIds : short
@@ -1892,6 +1900,22 @@ public enum ClientPacketIds : short
     SortItems,
     HeroSpellToggle, // phase 2.4; append-only
     RequestMapDetails, // phase 2.4; append-only
+    RequestGuildMemberDetails, // phase 2.5; append-only
+    RequestGuildLog, // phase 2.5; append-only
+    GetGuildRanking, // phase 2.5; append-only
+    FindMentor, // phase 2.5; append-only
+    GuildTerritoryAction, // phase 2.5; append-only
+    SetProfile, // phase 2.5; append-only
+}
+
+/// <summary>C.GuildTerritoryAction kinds (phase 2.5). Sent by byte value: explicit values, append only, never renumber.</summary>
+public enum GuildTerritoryActionKind : byte
+{
+    Rent = 0,
+    Extend = 1,
+    ListForSale = 2,
+    CancelSale = 3,
+    Teleport = 4,
 }
 
 public enum ConquestType : byte

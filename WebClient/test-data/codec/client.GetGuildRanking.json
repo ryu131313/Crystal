@@ -1,0 +1,9 @@
+{
+  "name": "GetGuildRanking",
+  "dir": "client",
+  "id": 162,
+  "hex": "0800A20003000000",
+  "fields": {
+    "Page": 3
+  }
+}
