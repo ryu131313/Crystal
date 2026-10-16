@@ -1,0 +1,10 @@
+{
+  "name": "FriendRequestResult",
+  "dir": "server",
+  "id": 299,
+  "hex": "0A002B01045361676505",
+  "fields": {
+    "Name": "Sage",
+    "Result": 5
+  }
+}

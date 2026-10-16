@@ -3078,4 +3078,24 @@ namespace ClientPackets
             writer.Write(MailID);
         }
     }
+
+    /// <summary>Answers an S.FriendRequest (phase 2.7). Name = the requester. Accept adds both sides; the requester gets S.FriendRequestResult.</summary>
+    public sealed class FriendRequestReply : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.FriendRequestReply; } }
+
+        public string Name = string.Empty;
+        public bool Accept;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Name = reader.ReadString();
+            Accept = reader.ReadBoolean();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Name ?? string.Empty);
+            writer.Write(Accept);
+        }
+    }
 }

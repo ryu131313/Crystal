@@ -1317,6 +1317,11 @@ namespace Server.MirObjects
             Info.LastIP = Connection.IPAddress;
             Info.LastLogoutDate = Envir.Now;
 
+            // Friend requests are online-only; friends who list us see us offline (Node is null after Despawn).
+            PendingFriendRequests.Clear();
+            _friendLevelNotifyPending = false;
+            NotifyFriendsChanged();
+
             Report.Disconnected(logReason);
             Connection.WorldMapSetupSent = false;
 
@@ -1385,6 +1390,12 @@ namespace Server.MirObjects
                 SendPoisonStatus();
             if (GroupMembers != null && GroupStatusDirty && Envir.Time >= _nextGroupStatusTime)
                 SendGroupMemberStatus();
+
+            // Phase 2.7 friends: O(1) checks per tick, a walk only while requests are pending (1/s) or a level push is due.
+            if (PendingFriendRequests.Count > 0 && Envir.Time >= _nextFriendRequestCheck)
+                CheckFriendRequestExpiry();
+            if (_friendLevelNotifyPending && Envir.Time >= _nextFriendLevelNotify)
+                FriendLevelChanged();
 
             if (Settings.RestedPeriod > 0 && Envir.Time > RestedTime)
             {
@@ -1861,6 +1872,8 @@ namespace Server.MirObjects
             }
             Report.Levelled(Level);
 
+            FriendLevelChanged();
+
             if (IsGM) return;
             Envir.CheckRankUpdate(Info);
         }
@@ -2104,6 +2117,7 @@ namespace Server.MirObjects
 
             GetMail();
             GetFriends();
+            NotifyFriendsChanged();
             GetRelationship();
 
             if (Info.Mentor != 0 && Info.MentorDate.AddDays(Settings.MentorLength) < Envir.Now)
@@ -11079,6 +11093,7 @@ namespace Server.MirObjects
             //tell us we now have a guild
             BroadcastInfo();
             MyGuild.SendGuildStatus(this);
+            NotifyFriendsChanged();
 
             return true;
         }
@@ -11257,6 +11272,7 @@ namespace Server.MirObjects
             RefreshStats();
             if (MyGuild.BuffList.Count > 0)
                 Enqueue(new S.GuildBuffList() { ActiveBuffs = MyGuild.BuffList });
+            NotifyFriendsChanged();
         }
         public void RequestGuildInfo(byte Type)
         {
@@ -13782,8 +13798,33 @@ namespace Server.MirObjects
         #endregion
 
         #region Friends
+        // Phase 2.7: friend requests are online-only and live in memory on the TARGET (never saved). Accepting adds both
+        // sides, removing a non-blocked friend removes both sides, blocking stays one-sided and instant.
+        private sealed class PendingFriendRequest
+        {
+            public CharacterInfo Requester;
+            public long ExpiryTime; // Envir.Time
+            // The target had blocked the requester: kept and expired like a real request (so the duplicate, too-many and
+            // expired answers are the same and a block stays private) but never shown to the target and never acceptable.
+            public bool Silent;
+        }
+
+        private const int MaxPendingFriendRequests = 10;
+        private const long FriendRequestLifetime = 60 * 1000;
+        private const long FriendRequestCooldown = 5 * 1000;
+        private const long FriendLevelNotifyDelay = 10 * 1000;
+        private const long FriendRequestCheckDelay = 1000;
+
+        private readonly List<PendingFriendRequest> PendingFriendRequests = new List<PendingFriendRequest>(MaxPendingFriendRequests);
+        private long _nextFriendRequestCheck;   // Envir.Time of the next expiry walk (only while requests are pending)
+        private long _friendRequestTime;        // Envir.Time before which C.AddFriend (request) answers with FriendRequestCooldown
+        private long _nextFriendLevelNotify;    // Envir.Time before which a level change does not push friend lists (10 s)
+        private bool _friendLevelNotifyPending; // a level change happened during the throttle window
+
         public void AddFriend(string name, bool blocked = false)
         {
+            if (string.IsNullOrEmpty(name)) return;
+
             CharacterInfo info = Envir.GetCharacterInfo(name);
 
             if (info == null)
@@ -13792,28 +13833,251 @@ namespace Server.MirObjects
                 return;
             }
 
-            if (Name == name)
+            if (info == Info)
             {
                 ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.CannotAddYourself), ChatType.System);
                 return;
             }
 
-            if (Info.Friends.Any(e => e.Index == info.Index))
+            if (blocked)
+            {
+                BlockPlayer(info);
+                return;
+            }
+
+            if (FindFriendEntry(Info, info.Index) != null)
             {
                 ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.PlayerAlreadyAdded), ChatType.System);
                 return;
             }
 
-            FriendInfo friend = new FriendInfo(info, blocked);
+            // They already asked us: adding them back is an accept.
+            int pending = FindPendingFriendRequest(info.Name);
+            if (pending >= 0 && !PendingFriendRequests[pending].Silent)
+            {
+                PendingFriendRequest request = PendingFriendRequests[pending];
+                PendingFriendRequests.RemoveAt(pending);
 
-            Info.Friends.Add(friend);
+                if (Envir.Time < request.ExpiryTime)
+                {
+                    AcceptFriendRequest(request.Requester);
+                    return;
+                }
+
+                NotifyFriendRequestExpired(request.Requester);
+            }
+
+            PlayerObject target = info.Player;
+
+            if (target == null || target.Node == null)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.PlayerIsNotOnline, info.Name), ChatType.System);
+                Enqueue(new S.FriendRequestResult { Name = info.Name, Result = S.FriendRequestResult.Offline });
+                return;
+            }
+
+            if (Info.Friends.Count >= Settings.MaxFriends)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendListFull, Settings.MaxFriends), ChatType.System);
+                return;
+            }
+
+            if (Envir.Time < _friendRequestTime)
+            {
+                long seconds = (_friendRequestTime - Envir.Time + 999) / 1000;
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendRequestCooldown, seconds), ChatType.System);
+                return;
+            }
+
+            if (target.FindPendingFriendRequest(Info.Name) >= 0)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendRequestAlreadySent, info.Name), ChatType.System);
+                return;
+            }
+
+            // Checked before the block check, so a block never answers differently from a refusal anyone else would get.
+            if (!info.AllowFriendRequests)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendRequestNotAccepting, info.Name), ChatType.System);
+                Enqueue(new S.FriendRequestResult { Name = info.Name, Result = S.FriendRequestResult.NotAccepting });
+                return;
+            }
+
+            if (info.Friends.Count >= Settings.MaxFriends)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendListFullOther, info.Name), ChatType.System);
+                Enqueue(new S.FriendRequestResult { Name = info.Name, Result = S.FriendRequestResult.ListFull });
+                return;
+            }
+
+            if (target.PendingFriendRequests.Count >= MaxPendingFriendRequests)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendRequestTooMany, info.Name), ChatType.System);
+                return;
+            }
+
+            _friendRequestTime = Envir.Time + FriendRequestCooldown;
+
+            // Blocked by the target: stored as a silent request (never shown to them, never acceptable) and answered exactly
+            // as a sent request, so repeats and the expiry look the same and blocks stay private.
+            FriendInfo theirEntry = FindFriendEntry(info, Info.Index);
+            bool silent = theirEntry != null && theirEntry.Blocked;
+
+            if (target.PendingFriendRequests.Count == 0)
+                target._nextFriendRequestCheck = Envir.Time + FriendRequestCheckDelay;
+
+            target.PendingFriendRequests.Add(new PendingFriendRequest { Requester = Info, ExpiryTime = Envir.Time + FriendRequestLifetime, Silent = silent });
+
+            if (!silent)
+            {
+                target.Enqueue(new S.FriendRequest { Name = Info.Name, Class = Info.Class, Level = Info.Level });
+                target.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendRequestReceived, Info.Name), ChatType.System);
+            }
+
+            ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendRequestSent, info.Name), ChatType.System);
+        }
+
+        public void FriendRequestReply(string name, bool accept)
+        {
+            if (string.IsNullOrEmpty(name)) return;
+
+            int pending = FindPendingFriendRequest(name);
+
+            if (pending < 0 || PendingFriendRequests[pending].Silent)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendRequestNotFound, name), ChatType.System);
+                return;
+            }
+
+            PendingFriendRequest request = PendingFriendRequests[pending];
+            PendingFriendRequests.RemoveAt(pending);
+
+            if (Envir.Time >= request.ExpiryTime)
+            {
+                NotifyFriendRequestExpired(request.Requester);
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendRequestNotFound, request.Requester.Name), ChatType.System);
+                return;
+            }
+
+            if (!accept)
+            {
+                PlayerObject requester = request.Requester.Player;
+                if (requester != null && requester.Node != null)
+                {
+                    requester.Enqueue(new S.FriendRequestResult { Name = Info.Name, Result = S.FriendRequestResult.Declined });
+                    requester.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendRequestDeclined, Info.Name), ChatType.System);
+                }
+                return;
+            }
+
+            AcceptFriendRequest(request.Requester);
+        }
+
+        // This player accepts a request from requesterInfo: both sides gain a (non-blocked) entry.
+        private void AcceptFriendRequest(CharacterInfo requesterInfo)
+        {
+            PlayerObject requester = requesterInfo.Player;
+
+            if (requester == null || requester.Node == null)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.PlayerIsNotOnline, requesterInfo.Name), ChatType.System);
+                return;
+            }
+
+            FriendInfo mine = FindFriendEntry(Info, requesterInfo.Index);
+            FriendInfo theirs = FindFriendEntry(requesterInfo, Info.Index);
+
+            // A block on either side (made after the request) ends it quietly for the requester.
+            if ((mine != null && mine.Blocked) || (theirs != null && theirs.Blocked))
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendRequestNotFound, requesterInfo.Name), ChatType.System);
+                return;
+            }
+
+            if (mine == null && Info.Friends.Count >= Settings.MaxFriends)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendListFull, Settings.MaxFriends), ChatType.System);
+                requester.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendListFullOther, Info.Name), ChatType.System);
+                requester.Enqueue(new S.FriendRequestResult { Name = Info.Name, Result = S.FriendRequestResult.ListFull });
+                return;
+            }
+
+            if (theirs == null && requesterInfo.Friends.Count >= Settings.MaxFriends)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendListFullOther, requesterInfo.Name), ChatType.System);
+                requester.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendListFull, Settings.MaxFriends), ChatType.System);
+                requester.Enqueue(new S.FriendRequestResult { Name = Info.Name, Result = S.FriendRequestResult.ListFull });
+                return;
+            }
+
+            if (mine == null) Info.Friends.Add(new FriendInfo(requesterInfo, false));
+            if (theirs == null) requesterInfo.Friends.Add(new FriendInfo(Info, false));
+
+            // A crossed request the other way is now moot.
+            int crossed = requester.FindPendingFriendRequest(Info.Name);
+            if (crossed >= 0) requester.PendingFriendRequests.RemoveAt(crossed);
+
+            GetFriends();
+            requester.GetFriends();
+
+            ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendAdded, requesterInfo.Name), ChatType.System);
+            requester.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendAdded, Info.Name), ChatType.System);
+            requester.Enqueue(new S.FriendRequestResult { Name = Info.Name, Result = S.FriendRequestResult.Accepted });
+        }
+
+        // One-sided and instant. Blocking someone also takes this player off their list and cancels pending requests.
+        private void BlockPlayer(CharacterInfo info)
+        {
+            FriendInfo mine = FindFriendEntry(Info, info.Index);
+
+            if (mine != null && mine.Blocked)
+            {
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.PlayerAlreadyAdded), ChatType.System);
+                return;
+            }
+
+            if (mine == null)
+            {
+                if (Info.Friends.Count >= Settings.MaxFriends)
+                {
+                    ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendListFull, Settings.MaxFriends), ChatType.System);
+                    return;
+                }
+
+                Info.Friends.Add(new FriendInfo(info, true));
+            }
+            else
+            {
+                mine.Blocked = true; // an existing friend becomes a blocked entry
+            }
+
+            // Their request to us goes silent rather than vanishing, so it still expires (and answers) like any other.
+            int pending = FindPendingFriendRequest(info.Name);
+            if (pending >= 0) PendingFriendRequests[pending].Silent = true;
+
+            PlayerObject other = info.Player;
+            bool otherOnline = other != null && other.Node != null;
+
+            if (otherOnline)
+            {
+                pending = other.FindPendingFriendRequest(Info.Name);
+                if (pending >= 0) other.PendingFriendRequests.RemoveAt(pending);
+            }
+
+            // Only a normal entry is removed: their own block of us stays.
+            FriendInfo theirs = FindFriendEntry(info, Info.Index);
+            if (theirs != null && !theirs.Blocked)
+            {
+                info.Friends.Remove(theirs);
+                if (otherOnline) other.GetFriends();
+            }
 
             GetFriends();
         }
 
         public void RemoveFriend(int index)
         {
-            FriendInfo friend = Info.Friends.FirstOrDefault(e => e.Index == index);
+            FriendInfo friend = FindFriendEntry(Info, index);
 
             if (friend == null)
             {
@@ -13822,7 +14086,110 @@ namespace Server.MirObjects
 
             Info.Friends.Remove(friend);
 
+            CharacterInfo info = friend.Info;
+
+            if (!friend.Blocked && info != null)
+            {
+                FriendInfo theirs = FindFriendEntry(info, Info.Index);
+
+                if (theirs != null && !theirs.Blocked)
+                {
+                    info.Friends.Remove(theirs);
+
+                    PlayerObject other = info.Player;
+                    if (other != null && other.Node != null)
+                    {
+                        other.GetFriends();
+                        other.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendRemovedYou, Info.Name), ChatType.System);
+                    }
+                }
+
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendRemoved, info.Name), ChatType.System);
+            }
+
             GetFriends();
+        }
+
+        private static FriendInfo FindFriendEntry(CharacterInfo owner, int index)
+        {
+            for (int i = 0; i < owner.Friends.Count; i++)
+            {
+                if (owner.Friends[i].Index == index) return owner.Friends[i];
+            }
+
+            return null;
+        }
+
+        private int FindPendingFriendRequest(string requesterName)
+        {
+            for (int i = 0; i < PendingFriendRequests.Count; i++)
+            {
+                if (string.Equals(PendingFriendRequests[i].Requester.Name, requesterName, StringComparison.OrdinalIgnoreCase)) return i;
+            }
+
+            return -1;
+        }
+
+        private void NotifyFriendRequestExpired(CharacterInfo requesterInfo)
+        {
+            PlayerObject requester = requesterInfo.Player;
+            if (requester == null || requester.Node == null) return;
+
+            requester.Enqueue(new S.FriendRequestResult { Name = Info.Name, Result = S.FriendRequestResult.Expired });
+            requester.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FriendRequestExpired, Info.Name), ChatType.System);
+        }
+
+        // Called from Process only while requests are pending, at most once per second. No allocation.
+        private void CheckFriendRequestExpiry()
+        {
+            _nextFriendRequestCheck = Envir.Time + FriendRequestCheckDelay;
+
+            for (int i = PendingFriendRequests.Count - 1; i >= 0; i--)
+            {
+                PendingFriendRequest request = PendingFriendRequests[i];
+                if (Envir.Time < request.ExpiryTime) continue;
+
+                PendingFriendRequests.RemoveAt(i);
+                NotifyFriendRequestExpired(request.Requester);
+            }
+        }
+
+        // Pushes a fresh S.FriendUpdate to every online player who is on this player's non-blocked list and lists this
+        // player back (non-blocked). Events only (login, logout, level, guild), never per tick.
+        public void NotifyFriendsChanged()
+        {
+            if (Info == null) return;
+
+            for (int i = 0; i < Info.Friends.Count; i++)
+            {
+                FriendInfo friend = Info.Friends[i];
+                if (friend.Blocked) continue;
+
+                CharacterInfo info = friend.Info;
+                if (info == null) continue;
+
+                PlayerObject other = info.Player;
+                if (other == null || other.Node == null || other == this) continue;
+
+                FriendInfo theirs = FindFriendEntry(info, Info.Index);
+                if (theirs == null || theirs.Blocked) continue;
+
+                other.GetFriends();
+            }
+        }
+
+        private void FriendLevelChanged()
+        {
+            if (Envir.Time >= _nextFriendLevelNotify)
+            {
+                _nextFriendLevelNotify = Envir.Time + FriendLevelNotifyDelay;
+                _friendLevelNotifyPending = false;
+                NotifyFriendsChanged();
+            }
+            else
+            {
+                _friendLevelNotifyPending = true; // sent from Process when the window ends
+            }
         }
 
         public void AddMemo(int index, string memo)
@@ -13853,7 +14220,14 @@ namespace Server.MirObjects
                 }
             }
 
-            Enqueue(new S.FriendUpdate { Friends = friends });
+            int count = friends.Count;
+            S.FriendUpdate packet = new S.FriendUpdate { Friends = friends };
+
+            // The frame has a 2-byte length: a list too large for it (big MaxFriends, long memos) is shortened, never wrapped.
+            if (!packet.FitFrame())
+                MessageQueue.Enqueue($"{Name}: S.FriendUpdate too large, memos dropped, {packet.Friends.Count} of {count} rows sent.");
+
+            Enqueue(packet);
         }
 
         #endregion

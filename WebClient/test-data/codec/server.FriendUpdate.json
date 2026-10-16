@@ -2,7 +2,7 @@
   "name": "FriendUpdate",
   "dir": "server",
   "id": 245,
-  "hex": "3300F500020000000300000007576562416C6C790D747261646520706172746E6572000109000000075370616D6D6572000100",
+  "hex": "6200F5001F8B080000000000000A6362606060666060600F4F4D72CCC9A9E42D294A4C495528482C2AC94B2D626064FAFF9F91C7BD34332745E169EB9A277B663140012748537041626E2E481903333B48B0CF3C9A43FBBE0700305A4CDF55000000",
   "fields": {
     "Friends": [
       {
@@ -10,14 +10,24 @@
         "Name": "WebAlly",
         "Memo": "trade partner",
         "Blocked": false,
-        "Online": true
+        "Online": true,
+        "Class": 2,
+        "Level": 65535,
+        "Gender": 1,
+        "GuildName": "Guild 公会",
+        "LastSeen": 0
       },
       {
         "Index": 9,
         "Name": "Spammer",
         "Memo": "",
         "Blocked": true,
-        "Online": false
+        "Online": false,
+        "Class": 3,
+        "Level": 7,
+        "Gender": 0,
+        "GuildName": "",
+        "LastSeen": "5250963005427387904"
       }
     ]
   }

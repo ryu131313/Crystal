@@ -597,6 +597,7 @@ namespace Server.MirObjects
                 formerMember.RefreshStats();
                 formerMember.Enqueue(new ServerPackets.GuildStatus() { GuildName = "", GuildRankName = "", MyOptions = (GuildRankOptions)0 });
                 formerMember.BroadcastInfo();
+                formerMember.NotifyFriendsChanged();
             }
         }
 

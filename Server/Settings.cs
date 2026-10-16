@@ -182,8 +182,8 @@ namespace Server
         public static bool MapDetailsEnabled = true;
         public static int MaxFriends = 100;
 
-        //Friend requests are not implemented yet: constant false until phase 2.7 turns them on
-        public const bool FriendRequestsEnabled = false;
+        //Friend requests (phase 2.7): C.AddFriend sends an online-only request answered with C.FriendRequestReply
+        public const bool FriendRequestsEnabled = true;
 
         public static int RestedPeriod = 60,
                           RestedBuffLength = 10,

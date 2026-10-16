@@ -927,6 +927,9 @@ namespace Server.MirNetwork
                 case (short)ClientPacketIds.HideSentMail:
                     HideSentMail((C.HideSentMail)p);
                     break;
+                case (short)ClientPacketIds.FriendRequestReply:
+                    FriendRequestReply((C.FriendRequestReply)p);
+                    break;
                 default:
                     MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.InvalidPacketReceived), p.Index));
                     break;
@@ -2693,6 +2696,13 @@ namespace Server.MirNetwork
             if (Stage != GameStage.Game) return;
 
             Player.HideSentMail(p.MailID);
+        }
+
+        private void FriendRequestReply(C.FriendRequestReply p)
+        {
+            if (Stage != GameStage.Game) return;
+
+            Player.FriendRequestReply(p.Name, p.Accept);
         }
     }
 

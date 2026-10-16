@@ -319,8 +319,12 @@ export interface ClientQuestInfo {
 export interface ClientMail {
   MailID: bigint; SenderName: string; Message: string; Opened: boolean; Locked: boolean; CanReply: boolean; Collected: boolean; DateSent: bigint; Gold: number; Items: UserItem[];
 }
-/** ClientFriend(reader). */
-export interface ClientFriend { Index: number; Name: string; Memo: string; Blocked: boolean; Online: boolean }
+/** ClientFriend(reader). Class = MirClass, Gender = MirGender, GuildName "" when guildless,
+ *  LastSeen = the friend's last logout as DateTime.ToBinary (0n while online). */
+export interface ClientFriend {
+  Index: number; Name: string; Memo: string; Blocked: boolean; Online: boolean;
+  Class: number; Level: number; Gender: number; GuildName: string; LastSeen: bigint;
+}
 /** RankCharacterInfo(reader) (Shared/Data/SharedData.cs). */
 export interface RankCharacterInfo { PlayerId: bigint; Name: string; level: number; Class: number }
 
@@ -721,7 +725,12 @@ const decoders = {
   FriendUpdate: (r: Reader) => {
     const n = readCount(r, 1);
     const Friends: ClientFriend[] = [];
-    for (let i = 0; i < n; i++) Friends.push({ Index: r.readI32(), Name: r.readString(), Memo: r.readString(), Blocked: r.readBool(), Online: r.readBool() });
+    for (let i = 0; i < n; i++) {
+      Friends.push({
+        Index: r.readI32(), Name: r.readString(), Memo: r.readString(), Blocked: r.readBool(), Online: r.readBool(),
+        Class: r.readU8(), Level: r.readU16(), Gender: r.readU8(), GuildName: r.readString(), LastSeen: r.readI64(),
+      });
+    }
     return { Friends };
   },
   MarriageRequest: (r: Reader) => ({ Name: r.readString() }),
@@ -1143,7 +1152,15 @@ const decoders = {
     }
     return { Mails };
   },
+  /** S.FriendRequest (private): an online player asks to be this player's friend; Class = MirClass.
+   *  Answer with C.FriendRequestReply { Name, Accept }. Requests expire after 60 s (server memory only). */
+  FriendRequest: (r: Reader) => ({ Name: r.readString(), Class: r.readU8(), Level: r.readU16() }),
+  /** S.FriendRequestResult (private): the outcome of this player's request to Name; Result = FriendRequestResults. */
+  FriendRequestResult: (r: Reader) => ({ Name: r.readString(), Result: r.readU8() }),
 } satisfies Record<string, (r: Reader) => object>;
+
+/** S.FriendRequestResult.Result codes (byte constants on the C# class, not an enum). */
+export const FriendRequestResults = { Accepted: 0, Declined: 1, Expired: 2, Offline: 3, ListFull: 4, NotAccepting: 5 } as const;
 
 type Decoders = typeof decoders;
 export type ServerPacketName = keyof Decoders;
@@ -1167,7 +1184,7 @@ for (const name of Object.keys(decoders) as ServerPacketName[]) {
 
 /** Decode one frame; null for an id this port does not handle yet. Throws on a malformed ported packet. */
 /** Ported packets whose C# `Compressed` is true: the payload is gzip (Functions.CompressBytes). */
-const COMPRESSED = new Set<number>([S.NPCGoods, S.MapDetails]);
+const COMPRESSED = new Set<number>([S.NPCGoods, S.MapDetails, S.FriendUpdate]);
 
 /** True when the frame's payload must be inflated first (use decodeServerPacketAsync). */
 export function isCompressedFrame(frame: Uint8Array): boolean {

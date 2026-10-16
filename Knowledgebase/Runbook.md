@@ -48,6 +48,7 @@ Protected paths (never overwritten or deleted by the script):
 
 - **Back up before the first v119 run:** off-box copy of `Server.MirDB`, `Server.MirADB` and `Guilds\` with the world stopped (the deploy script's snapshot plus a second copy). The first v119 save rewrites them as v119; any pre-119 `Server.exe` then refuses `Server.MirDB`/`Server.MirADB` (`LoadDB`/`LoadAccounts` reject a newer version), so a rollback needs the backup.
 - Shared changed (`GameShopItem` deal prices, `S.GameShopInfo` / `S.GameDataChanged` layout): deploy server, desktop client and web client from the **same commit**. An old client misreads the shop.
+- 2026-10-16 (phase 2.7, friends): `ClientFriend` grew five fields, so `S.FriendUpdate` changed layout (no DB change, still v119). Deploy server, desktop client and web client (relay + `WebClient`) from the **same commit**; an older client misreads the friend list (garbled entries, or a decode error: the desktop client can crash on its socket thread). Friend requests live in server memory only: a restart drops pending ones.
 - After rollback to a pre-119 build you lose: play time, profiles, persisted social toggles, mail sender data, spell AutoCast flags, guild logs, market sales history and deal prices recorded since the deploy.
 
 ## 4. Restore drill (do once, then after any backup-format change)

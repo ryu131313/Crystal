@@ -1731,6 +1731,8 @@ public enum ServerPacketIds : short
     PlayerProfile, // an inspected player's profile text (phase 2.5); append-only
     MarketPriceHistory, // an item's last market sales, reply to C.MarketPriceHistory (phase 2.6); append-only
     SentMail, // the player's sent mail still in the recipients' boxes, reply to C.RequestSentMail / C.HideSentMail (phase 2.6); append-only
+    FriendRequest, // someone online asks to be your friend; reply C.FriendRequestReply (phase 2.7); append-only
+    FriendRequestResult, // outcome of a friend request this player sent: accepted / declined / expired / ... (phase 2.7); append-only
 }
 
 public enum ClientPacketIds : short
@@ -1913,6 +1915,7 @@ public enum ClientPacketIds : short
     MarketPriceHistory, // phase 2.6; append-only
     RequestSentMail, // phase 2.6; append-only
     HideSentMail, // phase 2.6; append-only
+    FriendRequestReply, // phase 2.7; append-only
 }
 
 /// <summary>C.GuildTerritoryAction kinds (phase 2.5). Sent by byte value: explicit values, append only, never renumber.</summary>

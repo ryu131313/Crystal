@@ -1,0 +1,11 @@
+{
+  "name": "FriendRequest",
+  "dir": "server",
+  "id": 298,
+  "hex": "13002A010B416C6C7920E79B9FE58F8B04FFFF",
+  "fields": {
+    "Name": "Ally 盟友",
+    "Class": 4,
+    "Level": 65535
+  }
+}

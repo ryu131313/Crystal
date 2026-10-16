@@ -788,7 +788,21 @@
     "GameshopGiftMailboxFull": "{0}'s mailbox is full.",
     "GameshopGiftSelf": "You cannot send a gift to yourself.",
     "GameshopGiftMessage": "{0} sent you a gift from the Gameshop. Your item(s) are enclosed.",
-    "PlayerGiftingItemsSent": "{0} sent {1} x {2} as a gift to {3} - Gift Sent!"
+    "PlayerGiftingItemsSent": "{0} sent {1} x {2} as a gift to {3} - Gift Sent!",
+    "FriendRequestSent": "Your friend request has been sent to {0}.",
+    "FriendRequestReceived": "{0} wants to be your friend.",
+    "FriendRequestDeclined": "{0} declined your friend request.",
+    "FriendRequestExpired": "Your friend request to {0} has expired.",
+    "FriendRequestNotAccepting": "{0} is not accepting friend requests.",
+    "FriendRequestAlreadySent": "You have already sent {0} a friend request.",
+    "FriendRequestCooldown": "You can send another friend request in {0} seconds.",
+    "FriendRequestTooMany": "{0} has too many pending friend requests. Try again later.",
+    "FriendRequestNotFound": "There is no friend request from {0}.",
+    "FriendListFull": "Your friend list is full ({0}).",
+    "FriendListFullOther": "{0}'s friend list is full.",
+    "FriendAdded": "You are now friends with {0}.",
+    "FriendRemovedYou": "{0} removed you from their friends.",
+    "FriendRemoved": "You removed {0} from your friends."
   },
   "Enum": {}
 }

@@ -451,6 +451,8 @@ public abstract class Packet
                 return new C.RequestSentMail();
             case (short)ClientPacketIds.HideSentMail:
                 return new C.HideSentMail();
+            case (short)ClientPacketIds.FriendRequestReply:
+                return new C.FriendRequestReply();
             default:
                 return null;
         }
@@ -516,6 +518,10 @@ public abstract class Packet
                 return new S.MarketPriceHistory();
             case (short)ServerPacketIds.SentMail:
                 return new S.SentMail();
+            case (short)ServerPacketIds.FriendRequest:
+                return new S.FriendRequest();
+            case (short)ServerPacketIds.FriendRequestResult:
+                return new S.FriendRequestResult();
             case (short)ServerPacketIds.Login:
                 return new S.Login();
             case (short)ServerPacketIds.LoginBanned:

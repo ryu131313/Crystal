@@ -788,7 +788,21 @@
     "GameshopGiftMailboxFull": "{0} 的邮箱已满。",
     "GameshopGiftSelf": "不能给自己赠送礼物。",
     "GameshopGiftMessage": "{0} 从游戏商城送给你一份礼物，物品已附上。",
-    "PlayerGiftingItemsSent": "{0} 将 {1} x {2} 作为礼物赠送给 {3} - 礼物已发送！"
+    "PlayerGiftingItemsSent": "{0} 将 {1} x {2} 作为礼物赠送给 {3} - 礼物已发送！",
+    "FriendRequestSent": "好友申请已发送给 {0}。",
+    "FriendRequestReceived": "{0} 想加你为好友。",
+    "FriendRequestDeclined": "{0} 拒绝了你的好友申请。",
+    "FriendRequestExpired": "你发给 {0} 的好友申请已过期。",
+    "FriendRequestNotAccepting": "{0} 目前不接受好友申请。",
+    "FriendRequestAlreadySent": "你已经向 {0} 发送过好友申请。",
+    "FriendRequestCooldown": "{0} 秒后才能再次发送好友申请。",
+    "FriendRequestTooMany": "{0} 待处理的好友申请过多，请稍后再试。",
+    "FriendRequestNotFound": "没有来自 {0} 的好友申请。",
+    "FriendListFull": "你的好友列表已满（{0}）。",
+    "FriendListFullOther": "{0} 的好友列表已满。",
+    "FriendAdded": "你和 {0} 已成为好友。",
+    "FriendRemovedYou": "{0} 将你从好友列表中移除了。",
+    "FriendRemoved": "你已将 {0} 从好友列表中移除。"
   },
   "Enum": {}
 }

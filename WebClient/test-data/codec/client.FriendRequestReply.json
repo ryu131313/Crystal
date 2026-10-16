@@ -1,0 +1,10 @@
+{
+  "name": "FriendRequestReply",
+  "dir": "client",
+  "id": 171,
+  "hex": "1100AB000B416C6C7920E79B9FE58F8B01",
+  "fields": {
+    "Name": "Ally 盟友",
+    "Accept": true
+  }
+}

@@ -6166,7 +6166,53 @@ namespace ServerPackets
             get { return (short)ServerPacketIds.FriendUpdate; }
         }
 
+        // Phase 2.7: gzip payload. The default list (100 rows of 200-char CJK memos) stays far under 65,535 bytes;
+        // FitFrame() bounds larger configured lists (MaxFriends up to 1000).
+        public override bool Compressed => true;
+
+        public const int MaxFrameLength = ushort.MaxValue;
+
         public List<ClientFriend> Friends = new List<ClientFriend>();
+
+        /// <summary>The whole frame's length (header included), as GetPacketBytes builds it.</summary>
+        public int FrameLength()
+        {
+            return ((byte[])GetPacketBytes()).Length;
+        }
+
+        /// <summary>
+        /// Keeps the frame within MaxFrameLength (the 2-byte length header). Event-only, never per tick: the common case is
+        /// one serialisation. Otherwise memos are cleared from the end of the list, then rows are dropped from the end.
+        /// Returns false when the list had to be shortened (memos or rows).
+        /// </summary>
+        public bool FitFrame()
+        {
+            // Fast path: a payload this small cannot exceed the frame once gzipped (stored blocks add < 100 bytes).
+            using (MemoryStream ms = new MemoryStream())
+            {
+                using (BinaryWriter writer = new BinaryWriter(ms, System.Text.Encoding.UTF8, true)) WritePacket(writer);
+                if (ms.Length <= MaxFrameLength - 1024) return true;
+            }
+
+            if (FrameLength() <= MaxFrameLength) return true;
+
+            // Memos from the end in eighths (at most 8 more serialisations); the rows are built fresh for this packet.
+            int chunk = Math.Max(1, (Friends.Count + 7) / 8);
+            for (int end = Friends.Count; end > 0; end -= chunk)
+            {
+                for (int i = Math.Max(0, end - chunk); i < end; i++) Friends[i].Memo = "";
+
+                if (FrameLength() <= MaxFrameLength) return false;
+            }
+
+            while (Friends.Count > 0 && FrameLength() > MaxFrameLength)
+            {
+                int remove = Math.Max(1, Friends.Count / 10);
+                Friends.RemoveRange(Friends.Count - remove, remove);
+            }
+
+            return false;
+        }
 
         protected override void ReadPacket(BinaryReader reader)
         {
@@ -7646,6 +7692,59 @@ namespace ServerPackets
             writer.Write(count);
             for (int i = 0; i < count; i++)
                 Mails[i].Save(writer);
+        }
+    }
+
+    /// <summary>
+    /// Someone online asks to be this player's friend (phase 2.7). Online-only: the request lives in server memory on the
+    /// target for 60 s (or until logout). Answer with C.FriendRequestReply { Name, Accept }.
+    /// </summary>
+    public sealed class FriendRequest : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.FriendRequest; } }
+        public override bool Observable => false;
+
+        public string Name = string.Empty;
+        public MirClass Class;
+        public ushort Level;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Name = reader.ReadString();
+            Class = (MirClass)reader.ReadByte();
+            Level = reader.ReadUInt16();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Name ?? string.Empty);
+            writer.Write((byte)Class);
+            writer.Write(Level);
+        }
+    }
+
+    /// <summary>
+    /// The outcome of a friend request this player sent (phase 2.7). Name = the player the request went to.
+    /// Result: Accepted 0, Declined 1, Expired 2, Offline 3, ListFull 4, NotAccepting 5.
+    /// </summary>
+    public sealed class FriendRequestResult : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.FriendRequestResult; } }
+        public override bool Observable => false;
+
+        public const byte Accepted = 0, Declined = 1, Expired = 2, Offline = 3, ListFull = 4, NotAccepting = 5;
+
+        public string Name = string.Empty;
+        public byte Result;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Name = reader.ReadString();
+            Result = reader.ReadByte();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Name ?? string.Empty);
+            writer.Write(Result);
         }
     }
 }

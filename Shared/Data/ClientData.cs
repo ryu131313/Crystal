@@ -128,6 +128,14 @@ public class ClientFriend
 
     public bool Online;
 
+    // Phase 2.7 details (wire-only, never saved): the friend's class, level, gender, guild name ("" when guildless)
+    // and last logout as DateTime.ToBinary() (0 while the friend is online).
+    public MirClass Class;
+    public ushort Level;
+    public MirGender Gender;
+    public string GuildName = "";
+    public long LastSeen;
+
     public ClientFriend() { }
 
     public ClientFriend(BinaryReader reader)
@@ -138,6 +146,12 @@ public class ClientFriend
         Blocked = reader.ReadBoolean();
 
         Online = reader.ReadBoolean();
+
+        Class = (MirClass)reader.ReadByte();
+        Level = reader.ReadUInt16();
+        Gender = (MirGender)reader.ReadByte();
+        GuildName = reader.ReadString();
+        LastSeen = reader.ReadInt64();
     }
 
     public void Save(BinaryWriter writer)
@@ -148,6 +162,12 @@ public class ClientFriend
         writer.Write(Blocked);
 
         writer.Write(Online);
+
+        writer.Write((byte)Class);
+        writer.Write(Level);
+        writer.Write((byte)Gender);
+        writer.Write(GuildName ?? "");
+        writer.Write(LastSeen);
     }
 }
 

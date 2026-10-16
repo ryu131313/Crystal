@@ -152,6 +152,8 @@ export const ClientPackets = {
     for (let i = 0; i < 5; i++) w.writeU64(BigInt(p.ItemsIdx[i] ?? 0n));
     w.writeBool(p.Stamped);
   }),
+  /** Blocked = false sends a friend request (target online; S.FriendRequest to them); Blocked = true blocks at once (one-sided).
+   *  RemoveFriend of a non-blocked friend removes both sides. */
   AddFriend: (p: { Name: string; Blocked: boolean }) => frame(C.AddFriend, (w) => { w.writeString(p.Name); w.writeBool(p.Blocked); }),
   RemoveFriend: (p: { CharacterIndex: number }) => frame(C.RemoveFriend, (w) => w.writeI32(p.CharacterIndex)),
   RefreshFriends: () => frame(C.RefreshFriends),
@@ -342,6 +344,10 @@ export const ClientPackets = {
   RequestSentMail: () => frame(C.RequestSentMail),
   /** Hides one mail this player sent from the sent folder (the recipient keeps it). Reply a fresh S.SentMail. */
   HideSentMail: (p: { MailID: bigint }) => frame(C.HideSentMail, (w) => w.writeU64(p.MailID)),
+  /** Answers an S.FriendRequest from Name. Accept adds both sides (fresh S.FriendUpdate to each); decline sends the
+   *  requester S.FriendRequestResult. The request must still be pending (60 s). */
+  FriendRequestReply: (p: { Name: string; Accept: boolean }) =>
+    frame(C.FriendRequestReply, (w) => { w.writeString(p.Name); w.writeBool(p.Accept); }),
 } as const;
 
 /** GuildTerritoryActionKind (Shared/Enums.cs, byte). Hand-copied: WebRelay/TsEmitter.cs does not emit that enum yet. */

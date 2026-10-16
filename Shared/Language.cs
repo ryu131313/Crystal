@@ -1913,7 +1913,21 @@ public enum ServerTextKeys
     GameshopGiftMailboxFull,
     GameshopGiftSelf,
     GameshopGiftMessage,
-    PlayerGiftingItemsSent
+    PlayerGiftingItemsSent,
+    FriendRequestSent,
+    FriendRequestReceived,
+    FriendRequestDeclined,
+    FriendRequestExpired,
+    FriendRequestNotAccepting,
+    FriendRequestAlreadySent,
+    FriendRequestCooldown,
+    FriendRequestTooMany,
+    FriendRequestNotFound,
+    FriendListFull,
+    FriendListFullOther,
+    FriendAdded,
+    FriendRemovedYou,
+    FriendRemoved
 }
 
 public class TextMap
@@ -2721,6 +2735,20 @@ public static class GameLanguage
             { nameof(ServerTextKeys.GameshopGiftSelf), "You cannot send a gift to yourself." },
             { nameof(ServerTextKeys.GameshopGiftMessage), "{0} sent you a gift from the Gameshop. Your item(s) are enclosed." },
             { nameof(ServerTextKeys.PlayerGiftingItemsSent), "{0} sent {1} x {2} as a gift to {3} - Gift Sent!" },
+            { nameof(ServerTextKeys.FriendRequestSent), "Your friend request has been sent to {0}." },
+            { nameof(ServerTextKeys.FriendRequestReceived), "{0} wants to be your friend." },
+            { nameof(ServerTextKeys.FriendRequestDeclined), "{0} declined your friend request." },
+            { nameof(ServerTextKeys.FriendRequestExpired), "Your friend request to {0} has expired." },
+            { nameof(ServerTextKeys.FriendRequestNotAccepting), "{0} is not accepting friend requests." },
+            { nameof(ServerTextKeys.FriendRequestAlreadySent), "You have already sent {0} a friend request." },
+            { nameof(ServerTextKeys.FriendRequestCooldown), "You can send another friend request in {0} seconds." },
+            { nameof(ServerTextKeys.FriendRequestTooMany), "{0} has too many pending friend requests. Try again later." },
+            { nameof(ServerTextKeys.FriendRequestNotFound), "There is no friend request from {0}." },
+            { nameof(ServerTextKeys.FriendListFull), "Your friend list is full ({0})." },
+            { nameof(ServerTextKeys.FriendListFullOther), "{0}'s friend list is full." },
+            { nameof(ServerTextKeys.FriendAdded), "You are now friends with {0}." },
+            { nameof(ServerTextKeys.FriendRemovedYou), "{0} removed you from their friends." },
+            { nameof(ServerTextKeys.FriendRemoved), "You removed {0} from your friends." },
 
         },
         Enum = new Dictionary<string, string>

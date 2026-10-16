@@ -300,6 +300,8 @@ export const ServerPacketIds = {
   PlayerProfile: 295,
   MarketPriceHistory: 296,
   SentMail: 297,
+  FriendRequest: 298,
+  FriendRequestResult: 299,
 } as const;
 export type ServerPacketIds = (typeof ServerPacketIds)[keyof typeof ServerPacketIds];
 export const ServerPacketIdsName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(ServerPacketIds).map(([k, v]) => [v, k]));
@@ -476,6 +478,7 @@ export const ClientPacketIds = {
   MarketPriceHistory: 168,
   RequestSentMail: 169,
   HideSentMail: 170,
+  FriendRequestReply: 171,
 } as const;
 export type ClientPacketIds = (typeof ClientPacketIds)[keyof typeof ClientPacketIds];
 export const ClientPacketIdsName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(ClientPacketIds).map(([k, v]) => [v, k]));

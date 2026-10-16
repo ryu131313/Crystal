@@ -9,7 +9,7 @@
 
 import type { ServerPacket } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
-import { ChatType, MirGridType, Stat, StatName } from "../protocol/enums.generated.ts";
+import { ChatType, MirClassName, MirGridType, Stat, StatName } from "../protocol/enums.generated.ts";
 import { KeybindOptions, keyLabel, matches, type KeybindOption } from "../game/keybinds.ts";
 import { itemFriendlyName } from "../game/gameInfo.ts";
 import { ItemDrop } from "../game/itemDrop.ts";
@@ -243,6 +243,41 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
   market.mailTo = (name, msg) => mail.composeLetter(name, msg);
   mail.onHelp = () => helpWindow.toggle(true);
   const friends = new FriendWindow(stage, friendList, (t, ty) => chat(t, ty), (name) => mail.composeLetter(name), prefillChat);
+  /** S.FriendRequest: a yes/no box per requester (Yes = accept, No = decline), closed when the 60 s request runs out,
+   *  is settled elsewhere or the requester asks again. Results need no echo: the server sends a chat line with every S.FriendRequestResult. */
+  const friendPrompts = new Map<string, { close: () => void; timer: ReturnType<typeof setTimeout> }>();
+  const closeFriendPrompt = (key: string) => {
+    const open = friendPrompts.get(key);
+    if (!open) return;
+    friendPrompts.delete(key);
+    clearTimeout(open.timer);
+    open.close();
+  };
+  const offFriendRequest = friendList.request.on((r) => {
+    const key = r.name.toLowerCase();
+    closeFriendPrompt(key);
+    const cls = (MirClassName[r.cls] ?? "").toLowerCase();
+    const answer = (accept: boolean) => () => {
+      const open = friendPrompts.get(key);
+      if (open) { clearTimeout(open.timer); friendPrompts.delete(key); }
+      friendList.reply(r.name, accept);
+    };
+    const close = messageBox(stage, `${r.name} (${cls ? `${cls}, ` : ""}level ${r.level}) wants to add you as a friend.`, [
+      { label: "Yes", primary: true, onClick: answer(true) }, { label: "No", onClick: answer(false) }]);
+    const timer = setTimeout(() => closeFriendPrompt(key), Math.max(0, r.expires - performance.now()));
+    friendPrompts.set(key, { close, timer });
+  });
+  // a request settled elsewhere (crossed accept, a list update, expiry) closes its box
+  const offFriendRequests = friendList.requestsChanged.on(() => {
+    if (friendPrompts.size === 0) return;
+    const live = new Set(friendList.requests.map((r) => r.name.toLowerCase()));
+    for (const key of [...friendPrompts.keys()]) if (!live.has(key)) closeFriendPrompt(key);
+  });
+  ctx.signal.addEventListener("abort", () => {
+    offFriendRequest();
+    offFriendRequests();
+    for (const key of [...friendPrompts.keys()]) closeFriendPrompt(key);
+  });
   relationship.composeMail = (n) => mail.composeLetter(n);
   /** Section 5: game shop (Y / Shop button) and the guild territory list (opened by the server). */
   const gameShop = new GameShopWindow(stage, shopState, inventoryWindow, (t, ty) => chat(t, ty),

@@ -786,13 +786,33 @@ namespace Server.MirDatabase
 
         public ClientFriend CreateClientFriend()
         {
+            CharacterInfo info = Info;
+            bool online = info.Player != null && info.Player.Node != null;
+            // Online: the live guild, no lookup. Offline: GuildIndex can be stale (a member kicked while offline keeps it
+            // until the next login), so the membership is confirmed before the name is shown.
+            GuildObject guild;
+            if (online)
+            {
+                guild = info.Player.MyGuild;
+            }
+            else
+            {
+                guild = info.GuildIndex != -1 ? Envir.GetGuild(info.GuildIndex) : null;
+                if (guild != null && guild.FindRank(info.Name) == null) guild = null;
+            }
+
             return new ClientFriend()
             {
                 Index = Index,
-                Name = Info.Name,
+                Name = info.Name,
                 Blocked = Blocked,
                 Memo = Memo,
-                Online = Info.Player != null && Info.Player.Node != null
+                Online = online,
+                Class = info.Class,
+                Level = info.Level,
+                Gender = info.Gender,
+                GuildName = guild != null ? guild.Name ?? "" : "",
+                LastSeen = online ? 0 : info.LastLogoutDate.ToBinary()
             };
         }
     }

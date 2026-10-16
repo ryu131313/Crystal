@@ -285,7 +285,7 @@ internal static class Fixtures
         yield return new S.MailSent { Result = -1 };
         yield return new S.ParcelCollected { Result = -2 };
         yield return new S.MailCost { Cost = 3_000_000_000 };
-        yield return new S.FriendUpdate { Friends = { new ClientFriend { Index = 3, Name = "WebAlly", Memo = "trade partner", Blocked = false, Online = true }, new ClientFriend { Index = 9, Name = "Spammer", Memo = "", Blocked = true, Online = false } } };
+        yield return new S.FriendUpdate { Friends = { new ClientFriend { Index = 3, Name = "WebAlly", Memo = "trade partner", Blocked = false, Online = true, Class = MirClass.Taoist, Level = 65535, Gender = MirGender.Female, GuildName = "Guild 公会", LastSeen = 0 }, new ClientFriend { Index = 9, Name = "Spammer", Memo = "", Blocked = true, Online = false, Class = MirClass.Assassin, Level = 7, Gender = MirGender.Male, GuildName = "", LastSeen = new DateTime(2026, 10, 15, 22, 5, 0, DateTimeKind.Utc).ToBinary() } } };
         yield return new S.MarriageRequest { Name = "WebAlly" };
         yield return new S.DivorceRequest { Name = "WebAlly" };
         yield return new S.LoverUpdate { Name = "WebAlly", Date = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc), MapName = "Bichon", MarriedDays = 283 };
@@ -565,6 +565,8 @@ internal static class Fixtures
                 new ClientSentMail { MailID = 1, RecipientName = "Sage", Message = "", Gold = 0, ItemCount = 0, DateSent = new DateTime(2026, 10, 2, 0, 0, 0, DateTimeKind.Utc).ToBinary(), Opened = false, Collected = true },
             },
         };
+        yield return new S.FriendRequest { Name = "Ally 盟友", Class = MirClass.Archer, Level = 65535 };
+        yield return new S.FriendRequestResult { Name = "Sage", Result = S.FriendRequestResult.NotAccepting };
     }
 
     private static IEnumerable<Packet> ClientSamples()
@@ -751,6 +753,7 @@ internal static class Fixtures
         yield return new C.MarketPriceHistory { ItemIndex = 70000 };
         yield return new C.RequestSentMail();
         yield return new C.HideSentMail { MailID = 9_000_000_000_000UL };
+        yield return new C.FriendRequestReply { Name = "Ally 盟友", Accept = true };
     }
 
     public static int Emit(string dir)

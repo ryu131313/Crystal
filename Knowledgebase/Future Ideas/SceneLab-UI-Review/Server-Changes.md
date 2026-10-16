@@ -123,8 +123,8 @@ tests) · **d** = cosmetic or client-side settings (`localStorage` / `Mir2Config
 | Feature | Class | Existing | Add |
 |---|---|---|---|
 | Friends list, memo, block, online, whisper/group/inspect | a | `S.FriendUpdate` (`ClientFriend`: Index, Name, Memo, Blocked, Online), `C.AddFriend`/`RemoveFriend`/`AddMemo`/`RefreshFriends` | — |
-| Requests tab (accept / decline) (**wanted, user 2026-10-16**) | b | Crystal adds friends one-sidedly | See "Friends: requests and details" below |
-| Class badge, level, guild, last seen (**wanted**) | b | Not in `ClientFriend`, but all on `CharacterInfo` | Extend `ClientFriend` (wire-only model): see below |
+| Requests tab (accept / decline) (**wanted, user 2026-10-16**) | b | Crystal adds friends one-sidedly | **Server done 2026-10-16 (phase 2.7)**: see "Friends: requests and details" below |
+| Class badge, level, guild, last seen (**wanted**) | b | Not in `ClientFriend`, but all on `CharacterInfo` | **Done 2026-10-16 (phase 2.7)**: `ClientFriend` extended (wire-only): see below |
 | Location | — | — | **Dropped (user 2026-10-16)** |
 | Status message, Favourites, Recent tab | — | — | **Dropped (user 2026-10-16)** |
 | Mentor: names, levels, online, banked EXP, allow, add, cancel | a | `S.MentorUpdate`, `C.AddMentor`/`MentorReply`/`AllowMentor`/`CancelMentor` | — |
@@ -236,8 +236,8 @@ Prefer **new** packets over changing existing ones: existing packets are already
 | ~~`MentorDetails`~~ **Done 2026-10-16 (phase 2.5)**, id 293: after `S.MentorUpdate` in `GetMentor` while `Info.Mentor != 0` and in `LogoutMentor` (to the online partner); `EndsAt` = `MentorDate + MentorLength` days | S→C | partner class, MentorDate, ends at | no | no |
 | ~~`MentorCandidates`~~ **Done 2026-10-16 (phase 2.5)**, id 294: ≤ 20; online, `AllowMentor`, no partner / cooldown, same class, level ≥ asker + `MentorLevelGap`, inside [Min, Max] (swapped if reversed); the asker needs no mentor and no cooldown (`MentorSearchNotEligible`) | S→C | count; Name, Class, Level | no | no |
 | ~~`PlayerProfile`~~ **Done 2026-10-16 (phase 2.5)**, id 295: always sent right after `S.PlayerInspect` (empty text clears a stale profile) | S→C | Name, Text | yes | no |
-| `FriendRequest` | S→C | Name, Class, Level (who is asking) | no | no |
-| `FriendRequestResult` (optional; chat lines also work) | S→C | Name, result (accepted / declined / expired / offline / list full) | no | no |
+| ~~`FriendRequest`~~ **Done 2026-10-16 (phase 2.7)**, id 298: to the target only, with a `FriendRequestReceived` chat line | S→C | Name, Class, Level (who is asking) | no | no |
+| ~~`FriendRequestResult`~~ **Done 2026-10-16 (phase 2.7)**, id 299: `byte Result` (class constants Accepted 0, Declined 1, Expired 2, Offline 3, ListFull 4, NotAccepting 5 (added)); to the requester, always with a chat line | S→C | Name, result (accepted / declined / expired / offline / list full) | no | no |
 | ~~`SelectDetails`~~ **Done 2026-10-16 (phase 2.4)**, id 287: `uint AccountGold` first; sent after `S.LoginSuccess`, `S.LogOutSuccess` (both paths) and `S.NewCharacterSuccess`; play time in seconds | S→C | per character: Index, guild, map title, play time | no | no |
 | ~~`LoginFailed`~~ **Done 2026-10-16 (phase 2.4)**, id 286: sent right after `S.Login` (Result 3 no account, 4 wrong password), never instead; `AccountTriesLeft` / `ConnectionTriesLeft` (-1 = n/a), `LockedUntil` = `DateTime.ToBinary` (0 = not locked; set when the connection limit closes the socket) | S→C | Result, TriesLeft, LockedUntil | no | no |
 | ~~`MarketPriceHistory`~~ **Done 2026-10-16 (phase 2.6)**, id 296: `Envir.MarketSales`, ≤ 14 rows (`MaxSales`; writer keeps the newest, reader throws above), oldest first, `Date` = `DateTime.ToBinary`; unknown item history = empty list | S→C | ItemIndex, last N (price, date) | yes | no |
@@ -251,8 +251,8 @@ Prefer **new** packets over changing existing ones: existing packets are already
 | ~~`HeroSpellToggle`~~ **Done 2026-10-16 (phase 2.4)**, id 158: `Spell`, `bool AutoCast`; spawned hero that knows the spell; replies `S.HeroAutoCast` (id 284, full disabled list, `Observable => false`), also sent after `S.HeroInformation` | C→S | Spell, `SpellToggleState` | | |
 | ~~`GuildTerritoryAction`~~ **Done 2026-10-16 (phase 2.5)**, id 164: `GuildTerritoryActionKind` byte (Rent 0, Extend 1, ListForSale 2, CancelSale 3, Teleport 4; server drops other values), `int TerritoryIndex` (Rent: < 0 = first free, as the NPC), `uint Price` (> `int.MaxValue` fails like the script's `TryParse`). The NPC commands `BuyGT` / `ExtendGT` / `TeleportGT` / `GTSale` / `GTCancelSale` now call the same `PlayerObject.GuildTerritory*` methods (checks unchanged). The packet also needs alive + guild + rank, and Rent / Extend / Teleport need the `[@GUILDTERRITORY]` NPC page in range, ListForSale / CancelSale a territory map (`MapInfo.GT`); replies are chat lines (the web client re-requests its page) | C→S | Kind (Rent / Extend / ListForSale / CancelSale / Teleport), Index, Price | | |
 | ~~`SetProfile`~~ **Done 2026-10-16 (phase 2.5)**, id 165: cut to `MaxChatLength`, control chars removed, trimmed, capped at 120, ignored while chat-banned, 10 s cooldown (`ProfileCooldown`), acked with `ProfileUpdated`. No server word filter exists (chat filtering is client-side), so none is applied | C→S | Text | | |
-| `FriendRequestReply` | C→S | Name, Accept | | |
-| (changed) `ClientFriend` in `S.FriendUpdate` | S→C | + Class, Level, Gender, GuildName, LastSeen (no `FriendDetails` packet needed) | | |
+| ~~`FriendRequestReply`~~ **Done 2026-10-16 (phase 2.7)**, id 171 | C→S | Name, Accept | | |
+| ~~(changed) `ClientFriend` in `S.FriendUpdate`~~ **Done 2026-10-16 (phase 2.7)**: `LastSeen` = `LastLogoutDate.ToBinary()` (0 online) | S→C | + Class, Level, Gender, GuildName, LastSeen (no `FriendDetails` packet needed) | | |
 | ~~`SellItems` / `RepairItems`~~ **Done 2026-10-16 (phase 2.1)**, ids 153 / 154 | C→S | list of (UniqueID, Count) / Special + list of UniqueID; per-item checks and replies of the existing handlers | | |
 | ~~`CollectAllParcels` / `ReadMails`~~ **Done 2026-10-16 (phase 2.1)**, ids 155 / 156 | C→S | — / list of MailID | | |
 | ~~`SortStorage` / `StackStorage`~~ → `SortItems` **Done 2026-10-16 (phase 2.1)**, id 157 | C→S | Grid (`MirGridType` byte: Inventory / Storage), Mode byte | | |
@@ -284,6 +284,8 @@ Not recommended: storage "stored by" (per-`UserItem` field), fishing journal / g
 (keep local), relationship memories.
 
 ## Friends: requests and details (user request 2026-10-16)
+
+**Done 2026-10-16 (phase 2.7), server + protocol + web codec** (details: `Knowledgebase/Server/server.md` §2.5 "Friends"). As planned: online-only requests (60 s, cap 10 per target, cleared at logout), accept = both sides, remove = both sides, block instant and one-sided (also drops you from their list), `NotifyFriendsChanged()` at login / logout / level up (10 s throttle) / guild create, join, leave, kick; `Settings.FriendRequestsEnabled` = true. **Deviations:** `FriendRequestResult` is sent (with a chat line) and gained `NotAccepting` (5); `AllowFriendRequests` is honoured but **no packet sets it yet**; blocking an existing friend now converts the entry to a block (was `PlayerAlreadyAdded`); adding someone who has a live request to you = accept (the desktop's only way to accept); `LastSeen` is `DateTime.ToBinary()`; level-down refresh not covered. **Not done:** desktop Yes/No box and `FriendDialog` columns (user: web only); web Requests tab / UI. **Open risk:** `S.FriendUpdate` has no row cap and can exceed 65 535 bytes with long memos.
 
 The user wants accept / decline requests plus class, level and guild on every friend (everything the mock shows
 except location, status message, favourites and recent activity). **Feasible and small; no saved-format change.**
