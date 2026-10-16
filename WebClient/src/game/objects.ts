@@ -84,6 +84,8 @@ export class MapObj {
   /** This object is GameScene.User (no SkipFrames catch-up). */
   isUser = false;
   hidden = false;
+  /** PlayerObject.Level (S.ObjectPlayer.Level; the user's from UserInformation.Level): not set yet. */
+  level = 0;
   /** MapObject.Light: ObjectPlayer/ObjectMonster.Light, NPCs 10, the user from equipment (min 3). */
   light = 0;
   /** Monster: Monster enum (body library: `monsterLibPath`, e.g. Data\Monster\NNN.Lib, Data\Pet\NN.Lib for creatures >= 10000);

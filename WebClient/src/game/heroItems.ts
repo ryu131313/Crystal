@@ -83,7 +83,7 @@ export class HeroItems {
 
   private lock(...items: (UserItem | null | undefined)[]): void {
     for (const i of items) if (i) this.inv.locked.add(String(i.UniqueID));
-    this.inv.onChange();
+    this.inv.changed();
     this.hero.changed();
   }
 
@@ -271,7 +271,7 @@ export class HeroItems {
       }
       default: return false;
     }
-    this.inv.onChange();
+    this.inv.changed();
     this.hero.changed();
     return true;
   }

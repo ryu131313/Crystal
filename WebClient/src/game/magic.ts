@@ -78,7 +78,8 @@ export class Magic {
   heroId = 0;
   /** GameScene.HeroSpellTime. */
   private heroSpellTime = 0;
-  onChange: () => void = () => {};
+  private readonly listeners = new Set<() => void>();
+  private readonly castListeners = new Set<() => void>();
   private readonly heroListeners = new Set<() => void>();
   private readonly host: MagicHost;
 
@@ -93,6 +94,28 @@ export class Magic {
   /** Hero.GetMagic. */
   getHero(spell: number): UserMagic | undefined {
     return this.heroMagics.find((m) => m.Spell === spell);
+  }
+
+  /** Subscribe to changes of the user's magic list (list, level, experience, key, delay, cast time, toggles). Returns the unsubscribe. */
+  subscribe(fn: () => void): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  changed(): void {
+    for (const fn of this.listeners) fn();
+  }
+
+  /** Subscribe to spell casts (every C.Magic the user sends, for the user or the hero; MapControl.UseMagic sets
+   *  GameScene.LogTime before `actor == User`): the combat log-out lock. */
+  onCast(fn: () => void): () => void {
+    this.castListeners.add(fn);
+    return () => this.castListeners.delete(fn);
+  }
+
+  /** Fires the onCast listeners; call it after sending C.Magic for the user or the hero. */
+  casted(): void {
+    for (const fn of this.castListeners) fn();
   }
 
   /** Subscribe to changes of the hero's magic list (list, level, experience, key, delay, cast time). */
@@ -132,7 +155,7 @@ export class Magic {
       case "SpellToggle": this.toggled(this, "", p.Spell, p.CanUse); break;
       default: return;
     }
-    this.onChange();
+    this.changed();
   }
 
   /** The hero side of GameScene.HeroInformation (UserHeroObject.Load) / UpdateHeroSpawnState / NewMagic (p.Hero) /
@@ -351,6 +374,7 @@ export class Magic {
       return;
     }
     this.host.send(ClientPackets.Magic({ ObjectID: this.heroId, Spell: s, Direction: dir, TargetID: target?.id ?? 0, Location: location, SpellTargetLock: false }));
+    this.casted(); // MapControl.UseMagic: GameScene.LogTime is set before the actor == User branch, so hero casts lock log-out too
   }
 
   /** AssignKeyPanel with Actor = Hero (keys 17-24): one key per spell, sent as C.MagicKey (the server picks the hero for keys > 16). */
@@ -415,6 +439,7 @@ export class Magic {
   /** PlayerObject.SetAction for the user's Spell action: send C.Magic, set SpellTime. Returns the NextAction delay. */
   sendCast(user: MapObj, spell: number, targetId: number, location: WirePoint, direction: number): number {
     this.host.send(ClientPackets.Magic({ ObjectID: user.id, Spell: spell, Direction: direction, TargetID: targetId, Location: location, SpellTargetLock: false }));
+    this.casted();
     const now = this.host.now();
     if (spell === Spell.FlashDash) { this.spellTime = now + 250; return 0; }
     this.spellTime = now + (spell === Spell.FlameField ? 2500 : 1800);

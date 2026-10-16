@@ -16,7 +16,6 @@
 
 import type { ItemRentalInformation, ServerPacket, UserItem } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
-import { ChatType } from "../protocol/enums.generated.ts";
 import { dateFromBinary, type ItemChanges } from "../game/itemChanges.ts";
 import type { Inventory } from "../game/inventory.ts";
 import { gameSignal } from "../game/scope.ts";
@@ -87,7 +86,7 @@ export class RentalWindow {
   private readonly guestRent: { win: MirWindow; name: MirLabel; price: MirLabel; lock: MirButton };
 
   constructor(stage: HTMLElement, inv: Inventory, invWindow: InventoryWindow, changes: ItemChanges, send: (f: Uint8Array) => void,
-    chat: (text: string, type: number) => void, me: () => string, requestItem: (index: number) => void, now: () => number) {
+    _chat: (text: string, type: number) => void, me: () => string, requestItem: (index: number) => void, now: () => number) {
     this.stage = stage;
     this.inv = inv;
     this.invWindow = invWindow;
@@ -96,7 +95,6 @@ export class RentalWindow {
     this.me = me;
     this.requestItem = requestItem;
     this.now = now;
-    changes.refuse = (text) => chat(text, ChatType.System);
     const cancel = () => this.send(ClientPackets.CancelItemRental());
 
     // ItemRentalDialog ctor

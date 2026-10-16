@@ -5,7 +5,8 @@
 // J or the HUD Mount button toggles the window (KeybindOptions.MountWindow), refused with NoMount without a mount type;
 // Escape (Closeall) hides it. Slot cells are InventoryWindow.boundCell("mount", i) (shared pick / lock state): right-click
 // a mount item in the bag to fit it (MirItemCell.UseSlotItem), right-click a slot to take it off (MirItemCell.RemoveItem).
-// Model: src/game/itemChanges.ts. The Help button calls `onHelp` (game.ts sets it to the HelpDialog "Mounts" page).
+// Model: src/game/itemChanges.ts (game.ts sets its userState). The Help button calls `onHelp` (classicUi.ts sets it to the
+// HelpDialog "Mounts" page). The M ride key is a gameplay key of the game's key router (classicUi.ts bindInput).
 
 import type { ServerPacket } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
@@ -66,7 +67,6 @@ export class MountWindow {
     this.user = user;
     this.requestItem = requestItem;
     this.now = now;
-    changes.userState = () => { const u = user(); return { ridingMount: !!u?.ridingMount, fishing: !!u?.fishing }; };
 
     // MountDialog ctor
     this.win = new MirWindow({ library: Lib.Prguse, index: 167, movable: true, sort: true, location: [10, 30], onShow: () => this.render(), onHide: () => this.render() });
@@ -91,7 +91,9 @@ export class MountWindow {
       const a = document.activeElement;
       if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement) return;
       if (matches(e, KeybindOptions.MountWindow)) this.toggle();
-      else if (matches(e, KeybindOptions.Mount) && this.canRide()) this.ride();
+      // ride: the game's key router (classicUi.ts bindInput, which re-checks canRide); a Mount key that cannot ride
+      // falls through to Closeall, like the old chain
+      else if (matches(e, KeybindOptions.Mount) && this.canRide()) { /* router rides */ }
       else if (matches(e, KeybindOptions.Closeall)) this.toggle(false);
     }, { signal });
   }

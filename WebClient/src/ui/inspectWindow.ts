@@ -54,7 +54,7 @@ export class InspectWindow {
   isHero = false;
   /** InspectDialog.InspectID. */
   inspectId = 0;
-  /** GameScene.AllowObserve (the user's own flag); null until the server says (UserInformation's flag is not decoded). */
+  /** GameScene.AllowObserve (the user's own flag): S.UserInformation / S.AllowObserve (classicUi.ts); null before. */
   userAllowObserve: boolean | null = null;
   /** MailButton: MailComposeLetterDialog.ComposeMail(Name) (game.ts: `= (n) => mail.composeLetter(n)`). */
   composeMail: ((name: string) => void) | null = null;
@@ -177,7 +177,7 @@ export class InspectWindow {
     return false;
   }
 
-  /** GameScene.UserInformation sets AllowObserve too; game.ts may call this if it decodes that flag. */
+  /** GameScene.UserInformation's AllowObserve (classicUi.ts notify "allowObserve"). */
   setUserAllowObserve(allow: boolean): void {
     this.userAllowObserve = allow;
   }

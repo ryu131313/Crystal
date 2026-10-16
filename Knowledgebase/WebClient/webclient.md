@@ -102,7 +102,9 @@ Shared is referenced for the enums and the generators only; relayed packets are 
 | `src/ui/heroPanels.ts`, `src/ui/heroInventoryWindow.ts`, `src/ui/heroCharacterWindow.ts`, `src/ui/heroMagicWindow.ts`, `src/ui/heroManageWindow.ts` | HeroInfoPanel / HeroMenuPanel / HeroBehaviourPanel / hero buffs / Summon button (bottom right); hero bag + belt (7 / 8) + equipment + auto-pot (Ctrl+I, cells share the inventory pick); hero stats (Ctrl+C, `refreshStats` with the hero as wearer); hero skills + key assignment (Ctrl+S; Shift+F1-F8 cast via `C.Magic { ObjectID = hero }`, magic.ts `useHeroSpell`); HeroManageDialog + NewHeroDialog | port (desktop look) |
 | `src/game/creatures.ts`, `src/ui/creatureWindow.ts` | Intelligent creatures: UserObject.IntelligentCreatures / CreatureSummoned / PearlCount from UserInformation + the creature packets (`SetItemFilter` ported exactly); IntelligentCreatureDialog (E): list, picture, fullness, expiry, pearls, blackstones, summon / dismiss / release (name check), rename, pickup mode, options (filters, grade); the non-blocking name prompt (`inputBox` in messageBox.ts); X / Alt+A send `C.IntelligentCreaturePickup` at the mouse cell | port (desktop look) |
 | `src/ui/gameShopWindow.ts`, `src/ui/guildTerritoryWindow.ts` | GameShopDialog (Y / Shop button: tabs, class / category filters, search, paging, gold or credit buy) and the shop list; GuildTerritoryDialog (server-opened list + paging; purchase disabled) | port (desktop look) |
-| `src/game/game.ts` | Packet handling, frame loop, input (walk/run/turn/attack), HUD, chat. Debug: `window.crystalGame.step()` / `.mouse(x, y, buttons)` | new |
+| `src/ui/gameUi.ts`, `src/ui/classicUi.ts` | GameUi seam: the interface both UIs implement; game.ts builds one per `uiStyle()` (settings.ts `UiStyle`, "Default" = `DEFAULT_UI_STYLE`). `createClassicUi` builds and wires the classic desktop-look windows | new |
+| `src/game/input.ts` | Keyboard router: one keydown listener, layered handlers (all via `matches(e, KeybindOptions.X)`) | new |
+| `src/game/game.ts` | Packet handling, frame loop, input (walk/run/turn/attack); HUD and windows through the GameUi seam (`ui.frame` / `ui.handle`), chat output via `ui.chat`. Debug: `window.crystalGame.step()` / `.mouse(x, y, buttons)` | new |
 | `src/game/session.ts` | WebSocket, `C.ClientVersion` on `S.Connected`, `C.KeepAlive` when idle 4 s | new |
 | `src/ui/screens.ts`, `loginScene.ts`, `selectScene.ts`, `newCharacterDialog.ts`, `accountCommon.ts` | LoginScene (+ InputKey / NewAccount / ChangePassword dialogs), SelectScene (animated ChrSel previews), NewCharacterDialog (also reused by the NewHero dialog); `screens.ts` keeps `el` and the `Screens` API | port (desktop look) |
 | `src/ui/mir/controls.ts` | The desktop control layer: `MirControl` / `MirImage` / `MirButton` / `MirCheckBox` / `MirLabel` / `MirTextBox` / `MirWindow` as absolutely positioned DOM on the stage, `.Lib` pictures as cached object URLs (`libPicture`, `setPicture`), hints, `closeButton`, `dragY` (scroll bars), `SCREEN_WIDTH` / `SCREEN_HEIGHT` (live), `setUiRoot` / `setUiSound` | port of `Client/MirControls` |
@@ -191,10 +193,24 @@ Survey: 116 of 280 `ServerPacketIds` and 48 of 153 `ClientPacketIds` ported; eve
 
 
 ### 3.5 UI
+- Scope: these rules bind the classic UI (`src/ui/*.ts` outside `src/ui/modern/`). The new UI follows §3.6 (user decision 2026-10-16: the scene-lab UI becomes the default web UI, classic stays behind Options).
 - **ALWAYS** build windows with `src/ui/mir/controls.ts` from the desktop dialog: same Library / Index / HoverIndex / PressedIndex / Location / Size / Hint / Sound / font and colour, the draw-time index swaps ported. No plain DOM panels, no native scrollbars (port the desktop scroll buttons / bars), no `confirm()` / `prompt()` / `alert()` (use `messageBox.ts`).
 - **ALWAYS** place item cells with the inventoryWindow.ts cell API (`boundCell` + `placeCell`) so pick / move / tooltip stay shared.
 - **NEVER** hard-code 1024 / 768: read `SCREEN_WIDTH` / `SCREEN_HEIGHT` (live bindings) where the desktop uses `Settings.ScreenWidth` / `ScreenHeight`.
-- Windows dispose on `gameSignal()` abort; a top-level window is a `MirWindow` (Movable / Sort / Modal like the desktop). Cross-window hooks (help pages, mail composers, the quest-items tab) are settable fields wired in game.ts.
+- Windows dispose on `gameSignal()` abort; a top-level window is a `MirWindow` (Movable / Sort / Modal like the desktop). Cross-window hooks (help pages, mail composers, the quest-items tab) are settable fields wired in classicUi.ts (`createClassicUi`).
+
+### 3.6 Modern UI (`src/ui/modern/`)
+- Files live in `src/ui/modern/**` and **NEVER** import `play/`; a file copied from a scene-lab mock names its source mock in a header line.
+- One input router (`src/game/input.ts`): **NEVER** add another window key listener; bindings via `KeybindOptions` / `matches()`.
+- **NEVER** `innerHTML` with data: build with `h()` / `textContent` (constant SVG is fine).
+- Shared helpers only: no local `svg` / `fmt` / class-name tables; classes come from `MirClass`.
+- Popups, **NEVER** `confirm()` / `prompt()` / `alert()`.
+- Items keyed by grid + index / `UniqueID`; `ItemInfo` by `ItemIndex`.
+- The server is authoritative: lock the cell until the answer, no optimistic moves, gold only read from `Inventory`.
+- NPC-gated actions only from server-opened pages, else "Speak to ...". Features Crystal has no system for are hidden.
+- Timers run only while shown; listeners / timers live in the UI scope and stop on dispose.
+- Every window works at a 1024 px layer.
+- **ALWAYS** apply the `Knowledgebase/Future Ideas/SceneLab-UI-Review/Performance.md` patterns from the start.
 
 ---
 

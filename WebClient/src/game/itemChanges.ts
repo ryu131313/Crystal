@@ -81,7 +81,7 @@ export class ItemChanges {
   }
 
   private changed(): void {
-    this.inv.onChange();
+    this.inv.changed();
   }
 
   private lock(...items: UserItem[]): void {

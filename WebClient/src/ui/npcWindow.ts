@@ -626,7 +626,7 @@ export class NpcDropDialog {
   }
 
   private clearTarget(): void {
-    if (this.target !== null) { this.setLock(this.target, false); this.target = null; this.inv.onChange(); }
+    if (this.target !== null) { this.setLock(this.target, false); this.target = null; this.inv.changed(); }
   }
 
   private friendly(item: UserItem): string {
@@ -652,14 +652,14 @@ export class NpcDropDialog {
       const ok = type === PanelType.Disassemble ? !!info && info.Grade !== ItemGrade.None && info.Type !== ItemType.Awakening
         : type === PanelType.Downgrade ? awakeLevel(item) !== 0
         : addedCount(item) > 0 || (!!info && item.Slots.length > info.Slots); // UserItem.IsAdded
-      if (ok) { this.target = item.UniqueID; this.setLock(item.UniqueID, true); this.inv.onChange(); }
+      if (ok) { this.target = item.UniqueID; this.setLock(item.UniqueID, true); this.inv.changed(); }
       this.render();
       return;
     }
     if (type !== PanelType.Sell && type !== PanelType.Consign && info && info.Durability === 0) { this.render(); return; }
     this.target = item.UniqueID;
     this.setLock(item.UniqueID, true);
-    this.inv.onChange();
+    this.inv.changed();
     if (this.hold) this.confirm();
     else this.render();
   }

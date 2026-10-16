@@ -243,7 +243,7 @@ export class InventoryWindow {
 
     this.belt = new BeltWindow(this);
 
-    inv.onChange = () => this.render();
+    inv.subscribe(() => this.render());
     const signal = gameSignal();
     window.addEventListener("keydown", (e) => {
       const a = document.activeElement;

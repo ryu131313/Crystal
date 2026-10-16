@@ -192,7 +192,7 @@ export class MagicBar {
     this.send = send;
     registerUserWindow("magic", this);
     this.bars = [new SkillBar(magic, 0), new SkillBar(magic, 1)];
-    magic.onChange = () => this.render();
+    magic.subscribe(() => this.render());
     const signal = gameSignal();
     window.addEventListener("keydown", (e) => {
       const a = document.activeElement;

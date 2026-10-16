@@ -221,8 +221,8 @@ export class CreatureWindow {
       // KeybindSettings defaults: Creature = E, CreaturePickup = X without Alt, CreatureAutoPickup = Alt+A without Ctrl
       // (Ctrl+A is the pet mode).
       if (matches(e, KeybindOptions.Creature) && !e.repeat) this.toggle();
-      else if (matches(e, KeybindOptions.CreaturePickup)) this.pickup(true);
-      else if (matches(e, KeybindOptions.CreatureAutoPickup)) { e.preventDefault(); this.pickup(false); }
+      // CreaturePickup / CreatureAutoPickup: the game's key router (classicUi.ts bindInput), keeping this chain's order
+      else if (matches(e, KeybindOptions.CreaturePickup) || matches(e, KeybindOptions.CreatureAutoPickup)) { /* router */ }
       else if (matches(e, KeybindOptions.Closeall)) this.hide();
     }, { signal });
   }
@@ -260,7 +260,7 @@ export class CreatureWindow {
   }
 
   /** GameScene KeybindOptions.CreaturePickup (mouse) / CreatureAutoPickup (semi-auto): MapControl.MapLocation, 200 ms throttle. */
-  private pickup(mouseMode: boolean): void {
+  pickup(mouseMode: boolean): void {
     const t = this.now();
     if (t <= this.pickupTime) return;
     const cell = this.mouseCell();

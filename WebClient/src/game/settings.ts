@@ -5,6 +5,13 @@
 /** Settings.Lighting (LightingMode): Classic = MapControl.DrawLights, Enhanced = MapControl.Lighting.cs. */
 export type LightingMode = "Classic" | "Enhanced";
 
+/** Web-only: which game UI game.ts builds (src/ui/gameUi.ts). "Default" follows DEFAULT_UI_STYLE; resolve with uiStyle(). */
+export type UiStyle = "Default" | "Modern" | "Classic";
+
+/** What "Default" means: flips to Modern in phase 5 of the UI port. A saved explicit choice always wins; "Default" exists
+ *  because setSetting saves the whole object, so a 2-value field would pin every early user to Classic. */
+export const DEFAULT_UI_STYLE: "Modern" | "Classic" = "Classic";
+
 export interface GameSettings {
   // Settings [Game]
   SkillMode: boolean; SkillBar: boolean; Effect: boolean; LevelEffect: boolean; DropView: boolean; NameView: boolean; HPView: boolean;
@@ -25,6 +32,8 @@ export interface GameSettings {
   FilterMentorChat: boolean; FilterGroupChat: boolean; FilterGuildChat: boolean;
   // [Graphics] Lighting (web: both modes run on WebGL2)
   Lighting: LightingMode;
+  /** Web-only: the game UI (scene-lab "Modern" or the desktop-look "Classic"); read through uiStyle(). */
+  UiStyle: UiStyle;
 }
 
 /** Client/Settings.cs defaults. */
@@ -37,6 +46,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   FilterNormalChat: false, FilterWhisperChat: false, FilterShoutChat: false, FilterSystemChat: false, FilterLoverChat: false,
   FilterMentorChat: false, FilterGroupChat: false, FilterGuildChat: false,
   Lighting: "Enhanced", // web default; draws Classic where the GPU has no half-float targets (SceneLights.useEnhanced)
+  UiStyle: "Default",
 };
 
 const STORAGE_KEY = "crystal.settings";
@@ -51,6 +61,7 @@ function load(): GameSettings {
         if (typeof saved[k] === typeof s[k]) (s as Record<string, unknown>)[k] = saved[k];
       }
       if (s.Lighting !== "Classic" && s.Lighting !== "Enhanced") s.Lighting = DEFAULT_SETTINGS.Lighting;
+      if (s.UiStyle !== "Default" && s.UiStyle !== "Modern" && s.UiStyle !== "Classic") s.UiStyle = DEFAULT_SETTINGS.UiStyle;
     }
   } catch { /* private window / blocked storage: defaults */ }
   return s;
@@ -66,6 +77,11 @@ export function setSetting<K extends keyof GameSettings>(key: K, value: GameSett
   (gameSettings as GameSettings)[key] = value;
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(gameSettings)); } catch { /* not persisted */ }
   for (const fn of listeners) fn(key);
+}
+
+/** The game UI to build: the saved choice, or DEFAULT_UI_STYLE while it is "Default". */
+export function uiStyle(): "Modern" | "Classic" {
+  return gameSettings.UiStyle === "Default" ? DEFAULT_UI_STYLE : gameSettings.UiStyle;
 }
 
 /** Returns an unsubscribe function. */

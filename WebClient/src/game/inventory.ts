@@ -42,7 +42,7 @@ export class Inventory {
   refine: (UserItem | null)[] = new Array<UserItem | null>(REFINE_SLOTS).fill(null);
   /** UniqueIDs (as strings) whose cells are locked waiting for a server answer. */
   readonly locked = new Set<string>();
-  onChange: () => void = () => {};
+  private readonly listeners = new Set<() => void>();
   /** MirItemCell.CanWearItem before C.EquipItem: a refusal line ("" = silent), or null to allow. Set by the game once stats exist. */
   canWear: (item: UserItem, slot: number) => string | null = () => null;
   /** Prints a client-side refusal (system chat line). */
@@ -56,6 +56,17 @@ export class Inventory {
   constructor(infos: ItemInfos, send: (frame: Uint8Array) => void) {
     this.infos = infos;
     this.send = send;
+  }
+
+  /** Subscribe to inventory changes (bag, equipment, gold, trade, storage, locks). Returns the unsubscribe. */
+  subscribe(fn: () => void): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  /** Fires every subscriber (the desktop refreshes its grids on the next draw). */
+  changed(): void {
+    for (const fn of this.listeners) fn();
   }
 
   info(item: UserItem) {
@@ -287,7 +298,7 @@ export class Inventory {
       case "LoseCredit": this.credit -= p.Credit; break;
       default: return false;
     }
-    this.onChange();
+    this.changed();
     return true;
   }
 
@@ -511,7 +522,7 @@ export class Inventory {
 
   private lock(...items: UserItem[]): void {
     for (const i of items) this.locked.add(String(i.UniqueID));
-    this.onChange();
+    this.changed();
   }
 
   /** Inventory slot -> inventory slot (MirItemCell.MoveItem within one grid; merges onto a matching stack). */
@@ -593,14 +604,14 @@ export class Inventory {
     if (!(amount > 0) || amount > this.gold) return;
     this.tradeGold += amount;
     this.send(ClientPackets.TradeGold({ Amount: amount }));
-    this.onChange();
+    this.changed();
   }
 
   /** TradeDialog.ConfirmButton: toggle the lock and tell the server. */
   toggleTradeLock(): void {
     this.tradeLocked = !this.tradeLocked;
     this.send(ClientPackets.TradeConfirm({ Locked: this.tradeLocked }));
-    this.onChange();
+    this.changed();
   }
 
   private canStack(a: UserItem, b: UserItem): boolean {
@@ -723,7 +734,7 @@ export class Inventory {
   /** MirItemCell.Locked set / cleared from outside (TrustMerchantDialog.tempCell). */
   setLocked(item: UserItem, on: boolean): void {
     if (on) this.lock(item);
-    else { this.unlock(item.UniqueID); this.onChange(); }
+    else { this.unlock(item.UniqueID); this.changed(); }
   }
 
   /** C.DropItem (GameScene drop: MirAmountBox for stacks; `count` defaults to the whole stack). */

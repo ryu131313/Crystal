@@ -333,7 +333,7 @@ export class NpcServices {
         if (this.findInv(p.UniqueID) < 0) break;
         this.setLock(p.UniqueID, p.Locked);
         if (!p.Locked) this.awakeLocks.delete(String(p.UniqueID));
-        this.inv.onChange();
+        this.inv.changed();
         break;
       case "Awakening": this.awakening(p.result, p.removeID); break;
     }
@@ -452,7 +452,7 @@ export class NpcServices {
       this.unlockAwake(item);
       this.awakeItems[slot] = null;
       if (slot === 0) this.itemCellClick();
-      this.inv.onChange();
+      this.inv.changed();
       return;
     }
     this.o.invWindow.clearPick();
@@ -484,7 +484,7 @@ export class NpcServices {
         break;
       default: return; // 1, 2 show the needed materials
     }
-    this.inv.onChange();
+    this.inv.changed();
   }
 
   private unlockAwake(item: UserItem): void {
@@ -524,7 +524,7 @@ export class NpcServices {
     // The desktop unlocks every locked inventory cell; this port only clears the locks the awakening cells set.
     for (const id of this.awakeLocks) this.inv.locked.delete(id);
     this.awakeLocks.clear();
-    this.inv.onChange();
+    this.inv.changed();
     const text: Record<number, string> = {
       [-4]: "You have not supplied enough materials.", [-3]: "Not enough gold.",
       [-2]: "Awakening already at maximum level.", [-1]: "Cannot awaken this item.",
@@ -572,7 +572,7 @@ export class NpcServices {
     for (const { id } of this.selected.values()) this.setLock(id, false);
     const had = this.selected.size > 0;
     this.selected.clear();
-    if (had) this.inv.onChange();
+    if (had) this.inv.changed();
   }
 
   private get recipe(): ClientRecipeInfo | undefined {
@@ -617,7 +617,7 @@ export class NpcServices {
     this.o.invWindow.clearPick();
     this.selected.set(i, { slot: from, id: item.UniqueID });
     this.setLock(item.UniqueID, true);
-    this.inv.onChange();
+    this.inv.changed();
   }
 
   /** CraftDialog.AutoFill. */
@@ -646,7 +646,7 @@ export class NpcServices {
         break;
       }
     });
-    this.inv.onChange();
+    this.inv.changed();
   }
 
   /** CraftDialog.HasCraftItems. */
@@ -701,7 +701,7 @@ export class NpcServices {
         changed = true;
       }
     }
-    if (changed) this.inv.onChange(); else this.render();
+    if (changed) this.inv.changed(); else this.render();
   }
 
   /** CraftDialog.RefreshCraftCells + the cells' DrawControl (shadow items DimGray over Prguse 1121, "have/need" counts). */

@@ -29,8 +29,6 @@ export class SocketWindow {
     this.invWindow = invWindow;
     this.changes = changes;
     this.requestItem = requestItem;
-    invWindow.changes = changes;
-    inv.useSlotItem = (index) => changes.useSlotItem(index);
     // SocketDialog ctor
     this.win = new MirWindow({ library: Lib.Prguse3, index: 20, movable: true, sort: true, location: [0, 0], onHide: () => { if (this.changes.socketId !== null) this.changes.closeSockets(); } });
     this.win.el.addEventListener("contextmenu", (e) => e.preventDefault());
