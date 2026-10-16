@@ -8,14 +8,15 @@
 // bar (Prguse 1342) + label, progress bar (Prguse 1349), the animated FishButton (Title 170, 10 frames, over the
 // disabled Title 149; C.FishingCast CastOut = false, shown while a fish bites), AutoCastButton (Title 180) + AutoCastBox
 // (Prguse 1343 / 1344; needs a Reel in the rod; C.FishingChangeAutocast) and the "Esc exit" tick (Prguse 1346 / 1347,
-// Title 45). Casting out (GameScene.CanFish + C.FishingCast CastOut = true on a map click) lives in game.ts checkInput.
+// Title 45). The state (bars, FoundFish, auto cast, Esc exit) is the Fishing model (src/game/fishing.ts); both windows
+// follow its `updated` event. Casting out (GameScene.CanFish + C.FishingCast CastOut = true on a map click) lives in
+// game.ts checkInput.
 // Not ported: the FishingWait splash effects (PlayerObject.ProcessFrames); the FishButton follows S.FishingUpdate's
 // FoundFish instead of the FishingWait frame.
 
-import type { ServerPacket, UserItem } from "../protocol/server.ts";
-import { ClientPackets } from "../protocol/client.ts";
-import { EquipmentSlot, FishingSlot } from "../protocol/enums.generated.ts";
+import { FishingSlot } from "../protocol/enums.generated.ts";
 import type { Inventory } from "../game/inventory.ts";
+import { fishingRod, type Fishing } from "../game/fishing.ts";
 import { itemFriendlyName } from "../game/gameInfo.ts";
 import { gameSignal } from "../game/scope.ts";
 import { SoundList } from "../game/audio.ts";
@@ -26,17 +27,8 @@ import { placeCell, type InventoryWindow } from "./inventoryWindow.ts";
 import { messageBox } from "./messageBox.ts";
 import { el } from "./screens.ts";
 
-const FISHING_ROD_SHAPES = [49, 50]; // Globals.FishingRodShapes
-
 /** FishingDialog.Grid locations by FishingSlot. */
 const GRID_LOCATIONS: readonly (readonly [number, number])[] = [[17, 203], [17, 241], [57, 241], [97, 241], [137, 241]];
-
-/** UserObject.HasFishingRod (User.Weapon in FishingRodShapes): the equipped weapon, or null. */
-function fishingRod(inv: Inventory): UserItem | null {
-  const rod = inv.equipment[EquipmentSlot.Weapon] ?? null;
-  const info = rod ? inv.info(rod) : undefined;
-  return rod && info && FISHING_ROD_SHAPES.includes(info.Shape) ? rod : null;
-}
 
 export class FishingWindow {
   private readonly stage: HTMLElement;
@@ -46,8 +38,8 @@ export class FishingWindow {
   private readonly titleLabel: MirLabel;
   private readonly fishingRod: MirImage;
 
-  constructor(stage: HTMLElement, inv: Inventory, invWindow: InventoryWindow, _send: (frame: Uint8Array) => void,
-    requestItem: (index: number) => void, _now: () => number) {
+  constructor(stage: HTMLElement, inv: Inventory, invWindow: InventoryWindow, fishing: Fishing,
+    requestItem: (index: number) => void) {
     this.stage = stage;
     this.inv = inv;
     this.requestItem = requestItem;
@@ -64,7 +56,9 @@ export class FishingWindow {
     const prevRender = invWindow.onRender;
     invWindow.onRender = () => { prevRender(); this.render(); };
     const signal = gameSignal();
-    signal.addEventListener("abort", () => this.win.dispose());
+    // PlayerObject.FishingUpdate (the user's part): the dialog hides once the rod is gone
+    const offUpdated = fishing.updated.on(() => { if (!fishingRod(this.inv)) this.toggle(false); });
+    signal.addEventListener("abort", () => { offUpdated(); this.win.dispose(); });
     window.addEventListener("keydown", (e) => {
       const a = document.activeElement;
       if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement) return;
@@ -86,13 +80,6 @@ export class FishingWindow {
     if (show) this.win.show(); else this.win.hide();
   }
 
-  /** PlayerObject.FishingUpdate (the user's part): the dialog hides once the rod is gone. */
-  handle(p: ServerPacket, userId: number): boolean {
-    if (p.type !== "FishingUpdate" || p.ObjectID !== userId) return false;
-    if (!fishingRod(this.inv)) this.toggle(false);
-    return true;
-  }
-
   /** FishingDialog_BeforeDraw (title) + FishingRod_BeforeDraw (rod picture). */
   render(): void {
     if (!this.win.visible) return;
@@ -111,17 +98,8 @@ export class FishingWindow {
 }
 
 export class FishingStatusWindow {
-  /** FishingStatusDialog.ChancePercent / ProgressPercent (S.FishingUpdate). */
-  chancePercent = 0;
-  progressPercent = 0;
-  /** PlayerObject.FoundFish: the FishButton shows only while a fish bites. */
-  private foundFish = false;
-  private canAutoCast = false;
-  private autoCast = false;
-  /** bEscExit: Escape reels in and closes. */
-  private escExit = false;
-  private readonly inv: Inventory;
-  private readonly send: (frame: Uint8Array) => void;
+  /** ChancePercent / ProgressPercent, FoundFish, auto cast and Esc exit (src/game/fishing.ts). */
+  private readonly fishing: Fishing;
   private readonly win: MirWindow;
   private readonly chanceBar: MirImage;
   private readonly chanceLabel: MirLabel;
@@ -131,9 +109,8 @@ export class FishingStatusWindow {
   private readonly autoCastBox: MirImage;
   private readonly escTick: MirImage;
 
-  constructor(_stage: HTMLElement, inv: Inventory, invWindow: InventoryWindow, send: (frame: Uint8Array) => void) {
-    this.inv = inv;
-    this.send = send;
+  constructor(_stage: HTMLElement, invWindow: InventoryWindow, fishing: Fishing) {
+    this.fishing = fishing;
     const prevRender = invWindow.onRender;
     invWindow.onRender = () => { prevRender(); this.render(); }; // BeforeDraw re-checks the reel slot
 
@@ -151,18 +128,19 @@ export class FishingStatusWindow {
     const pressed = new MirImage({ parent: this.fishButton, library: Lib.Title, index: 142, location: [0, 0], notControl: true, visible: false });
     this.fishButton.el.addEventListener("pointerdown", (e) => { if (e.button === 0) pressed.visible = true; });
     for (const t of ["pointerup", "pointerleave"] as const) this.fishButton.el.addEventListener(t, () => { pressed.visible = false; });
-    this.fishButton.onClick(() => { uiSound(SoundList.ButtonA); this.send(ClientPackets.FishingCast({ CastOut: false })); });
+    this.fishButton.onClick(() => { uiSound(SoundList.ButtonA); fishing.reelIn(); });
     this.autoCastButton = new MirButton({ parent: this.win, library: Lib.Title, index: 180, hoverIndex: 181, pressedIndex: 182, location: [110, 95], sound: SoundList.ButtonA,
       onClick: () => this.toggleAutoCast() });
     this.autoCastBox = new MirImage({ parent: this.win, library: Lib.Prguse, index: 1343, location: [172, 95] });
     new MirButton({ parent: this.win, library: Lib.Prguse, index: 1346, hoverIndex: 1346, pressedIndex: 1346, location: [135, 41], sound: SoundList.ButtonA,
-      onClick: () => { this.escExit = !this.escExit; this.escTick.visible = this.escExit; } }); // ESCExitButton
+      onClick: () => { fishing.toggleEscExit(); this.escTick.visible = fishing.escExit; } }); // ESCExitButton
     this.escTick = new MirImage({ parent: this.win, library: Lib.Prguse, index: 1347, location: [135, 41], notControl: true, visible: false });
     new MirImage({ parent: this.win, library: Lib.Title, index: 45, location: [150, 40], notControl: true }); // ESCExit
 
     const signal = gameSignal();
-    signal.addEventListener("abort", () => this.win.dispose());
-    window.addEventListener("keydown", (e) => { if (matches(e, KeybindOptions.Closeall) && this.escExit) this.cancel(); }, { signal });
+    const offUpdated = fishing.updated.on(() => this.update());
+    signal.addEventListener("abort", () => { offUpdated(); this.win.dispose(); });
+    window.addEventListener("keydown", (e) => { if (matches(e, KeybindOptions.Closeall) && fishing.escExit) this.cancel(); }, { signal });
   }
 
   /** A NotControl bar: the picture clipped to the control's width. */
@@ -176,45 +154,32 @@ export class FishingStatusWindow {
     return this.win.visible;
   }
 
-  /** GameScene.FishingUpdate (the user's part): bars, label, FoundFish, Show while fishing else Hide. */
-  handle(p: ServerPacket, userId: number): boolean {
-    if (p.type !== "FishingUpdate" || p.ObjectID !== userId) return false;
-    this.progressPercent = p.ProgressPercent;
-    this.chancePercent = p.ChancePercent;
-    this.chanceLabel.text = `${this.chancePercent}%`;
-    this.foundFish = p.FoundFish;
-    if (p.Fishing) this.win.show(); else this.win.hide();
+  /** GameScene.FishingUpdate (the user's part, after the model update): label, Show while fishing else Hide, bars. */
+  private update(): void {
+    const f = this.fishing;
+    this.chanceLabel.text = `${f.chancePercent}%`;
+    if (f.fishing) this.win.show(); else this.win.hide();
     this.render();
-    return true;
   }
 
   /** FishingStatusDialog.Cancel (close button, Esc with "Esc exit"): reel in when open, then hide. */
   cancel(): void {
-    if (this.win.visible) this.send(ClientPackets.FishingCast({ CastOut: false }));
+    if (this.win.visible) this.fishing.reelIn();
     this.win.hide();
   }
 
   /** AutoCastButton.Click: only with a reel in the rod. */
   private toggleAutoCast(): void {
     this.refreshAutoCast();
-    if (!this.canAutoCast) return;
-    this.autoCast = !this.autoCast;
-    this.autoCastBox.index = this.autoCast ? 1344 : 1343;
-    this.send(ClientPackets.FishingChangeAutocast({ AutoCast: this.autoCast }));
+    if (this.fishing.toggleAutoCast()) this.autoCastBox.index = this.fishing.autoCast ? 1344 : 1343;
   }
 
-  /** FishingStatusDialog_BeforeDraw: auto cast needs a rod with a Reel; losing it turns auto cast off on the server. */
+  /** FishingStatusDialog_BeforeDraw: the model's auto cast check; the controls follow it while a rod is held. */
   private refreshAutoCast(): void {
-    const rod = this.inv.equipment[EquipmentSlot.Weapon] ?? null;
-    const info = rod ? this.inv.info(rod) : undefined;
-    if (rod && info && FISHING_ROD_SHAPES.includes(info.Shape)) {
-      this.canAutoCast = rod.Slots.length >= 5 && !!rod.Slots[FishingSlot.Reel];
-      this.autoCastBox.visible = this.canAutoCast;
-      this.autoCastButton.visible = this.canAutoCast;
-    }
-    if (this.autoCast && !this.canAutoCast) {
-      this.autoCast = false;
-      this.send(ClientPackets.FishingChangeAutocast({ AutoCast: false }));
+    const f = this.fishing;
+    if (f.refreshAutoCast()) {
+      this.autoCastBox.visible = f.canAutoCast;
+      this.autoCastButton.visible = f.canAutoCast;
     }
   }
 
@@ -222,9 +187,10 @@ export class FishingStatusWindow {
   render(): void {
     if (!this.win.visible) return;
     this.refreshAutoCast();
+    const f = this.fishing;
     const width = (pct: number) => Math.max(0, Math.min(216, Math.trunc(2.16 * pct)));
-    this.chanceBar.size = [width(this.chancePercent), 12];
-    this.progressBar.size = [width(this.progressPercent), 8];
-    this.fishButton.visible = this.foundFish;
+    this.chanceBar.size = [width(f.chancePercent), 12];
+    this.progressBar.size = [width(f.progressPercent), 8];
+    this.fishButton.visible = f.foundFish;
   }
 }

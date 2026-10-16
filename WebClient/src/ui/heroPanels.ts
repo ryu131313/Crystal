@@ -13,6 +13,7 @@
 import { ClientPackets } from "../protocol/client.ts";
 import { HeroBehaviour, HeroBehaviourName } from "../protocol/enums.generated.ts";
 import type { Hero } from "../game/hero.ts";
+import type { HeroStats } from "../game/heroStats.ts";
 import { SoundList } from "../game/audio.ts";
 import { KeybindOptions } from "../game/keybinds.ts";
 import { gameSignal } from "../game/scope.ts";
@@ -72,8 +73,8 @@ export class HeroInfoPanel {
   private readonly mpItem: AutoPotPreview;
   private nextAvatarChange = 0;
 
-  /** `maxHp` / `maxMp`: Hero.Stats[Stat.HP] / [Stat.MP] (HeroCharacterWindow.maxHp / maxMp). */
-  constructor(parent: MirControl, private readonly hero: Hero, private readonly maxHp: () => number, private readonly maxMp: () => number,
+  /** `heroStats`: Hero.Stats[Stat.HP] / [Stat.MP] (src/game/heroStats.ts maxHp / maxMp). */
+  constructor(parent: MirControl, private readonly hero: Hero, private readonly heroStats: HeroStats,
     private readonly itemImage: (itemIndex: number) => number | undefined) {
     this.root = new MirImage({ parent, library: Lib.Prguse, index: 14, location: [95, 48], visible: false });
     this.avatar = new MirImage({ parent: this.root, library: Lib.Prguse, index: 1400, location: [14, 19] });
@@ -105,7 +106,7 @@ export class HeroInfoPanel {
     this.danger.index = index + 350;
     this.levelLabel.text = String(h.level);
     this.nameLabel.text = h.name;
-    const maxHp = this.maxHp(), maxMp = this.maxMp();
+    const maxHp = this.heroStats.maxHp(), maxMp = this.heroStats.maxMp();
     // PercentHealth / PercentMana = (byte)(HP / (float)Stats[HP] * 100)
     const pHealth = maxHp > 0 ? Math.min(255, Math.floor((h.hp / maxHp) * 100)) : 0;
     const pMana = maxMp > 0 ? Math.min(255, Math.floor((h.mp / maxMp) * 100)) : 0;
@@ -193,8 +194,8 @@ export interface HeroPanelsOptions {
   main: MirControl;
   mainLocation: readonly [number, number];
   screen: readonly [number, number];
-  maxHp: () => number;
-  maxMp: () => number;
+  /** The hero's stats (Hero.Stats[Stat.HP] / [Stat.MP] for the info panel). */
+  heroStats: HeroStats;
   /** ItemInfo.Image of an item index (the auto-pot previews). */
   itemImage: (itemIndex: number) => number | undefined;
 }
@@ -212,7 +213,7 @@ export class HeroPanels {
   readonly menuButton: MirButton;
 
   constructor(stage: HTMLElement, private readonly hero: Hero, send: Send, open: HeroWindowOpeners, o: HeroPanelsOptions) {
-    this.info = new HeroInfoPanel(o.main, hero, o.maxHp, o.maxMp, o.itemImage);
+    this.info = new HeroInfoPanel(o.main, hero, o.heroStats, o.itemImage);
     this.menu = new HeroMenuPanel(o.screen, open);
     this.behaviour = new HeroBehaviourPanel([o.mainLocation[0] + 165, o.mainLocation[1] + 37], hero, send);
     this.buffs = new BuffBar(stage, { y: 80, expandedKey: "ExpandedHeroBuffWindow", screenWidth: o.screen[0] });

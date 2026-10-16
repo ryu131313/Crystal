@@ -2,19 +2,19 @@
 // IntelligentCreatureDialog (Title 468), its CreatureButtons (Prguse2[Icon] + the 535 selection frame + the hover name
 // label), IntelligentCreatureOptionsDialog (Title 469, nine Prguse 2086 / 2087 check boxes, Save / Cancel) and
 // IntelligentCreatureOptionsGradeDialog (Prguse 237, Prev / Next), plus the dialog side of
-// GameScene.NewIntelligentCreature / UpdateIntelligentCreatureList / IntelligentCreatureEnableRename. The model is
-// src/game/creatures.ts. E (KeybindOptions.Creature) or the HUD Creatures button toggles it, Escape (Closeall) hides it;
-// X (CreaturePickup) and Alt+A (CreatureAutoPickup) send C.IntelligentCreaturePickup for the cell under the mouse
-// (200 ms throttle). Showing the window asks the server for live updates (C.RequestIntelligentCreatureUpdates true),
+// GameScene.NewIntelligentCreature / UpdateIntelligentCreatureList / IntelligentCreatureEnableRename (on the model's
+// `changed` event). The model is src/game/creatures.ts (fed by game.ts). E (KeybindOptions.Creature) or the HUD
+// Creatures button toggles it, Escape (Closeall) hides it; X (CreaturePickup) and Alt+A (CreatureAutoPickup) send
+// C.IntelligentCreaturePickup for the cell under the mouse (200 ms throttle). Showing the window asks the server for live updates (C.RequestIntelligentCreatureUpdates true),
 // hiding stops them. The CreatureImage is a MirAnimated (Prguse2 CreatureButton.SetCreatureFrames: the default loop, the
 // extra loop once SwitchAnimTime has passed). Not ported: the food-buff label (invisible on the desktop too); the
 // HelpPetButton is drawn but has no click handler, like the desktop.
 
-import type { ServerPacket, ClientIntelligentCreature, IntelligentCreatureItemFilter } from "../protocol/server.ts";
+import type { ClientIntelligentCreature, IntelligentCreatureItemFilter } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
 import { ChatType, IntelligentCreaturePickupMode, ItemGrade } from "../protocol/enums.generated.ts";
 import {
-  BLACKSTONE_PRODUCE_TIME, CREATURE_NAME, Creatures, creatureFrames, defaultItemFilter, itemFilterFlags, setItemFilter,
+  BLACKSTONE_PRODUCE_TIME, CREATURE_NAME, Creatures, type CreatureChange, creatureFrames, defaultItemFilter, itemFilterFlags, setItemFilter,
 } from "../game/creatures.ts";
 import { dateFromBinary, printTimeSpan } from "../game/itemChanges.ts";
 import { gameSignal } from "../game/scope.ts";
@@ -208,7 +208,9 @@ export class CreatureWindow {
 
 
     const signal = gameSignal();
+    const offChanged = creatures.changed.on((change) => this.onChange(change));
     signal.addEventListener("abort", () => {
+      offChanged();
       this.stopTimer();
       this.creatureImage?.dispose();
       this.win.dispose();
@@ -269,14 +271,12 @@ export class CreatureWindow {
     this.send(ClientPackets.IntelligentCreaturePickup({ MouseMode: mouseMode, Location: { X: cell.X, Y: cell.Y } }));
   }
 
-  /** Server packets: the model update (creatures.ts) plus the dialog half of the GameScene handlers. */
-  handle(p: ServerPacket): boolean {
-    const change = this.creatures.handle(p);
-    if (!change) return false;
+  /** The dialog half of the GameScene handlers, after the model update (creatures.ts `changed`). */
+  private onChange(change: CreatureChange): void {
     switch (change.kind) {
       case "load":
         if (this.visible) this.refresh();
-        return false; // UserInformation: others read it too
+        break;
       case "replaced": // GameScene.UpdateIntelligentCreatureList: count changed
         for (const b of this.buttons) this.clearButton(b);
         this.hide();
@@ -298,7 +298,6 @@ export class CreatureWindow {
         if (this.visible) this.refresh();
         break;
     }
-    return true;
   }
 
   /** IntelligentCreatureDialog.Show. */

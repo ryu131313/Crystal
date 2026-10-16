@@ -24,6 +24,7 @@ import type { MapCells } from "../map/mapReader.ts";
 import { libAsync } from "../game/libraries.ts";
 import type { MapObj } from "../game/objects.ts";
 import type { GameInfo } from "../game/gameInfo.ts";
+import type { CurrentMap } from "../game/currentMap.ts";
 import { MirWindow, MirImage, MirButton, MirControl, MirLabel, MirTextBox, Lib, libPicture } from "./mir/controls.ts";
 import { messageBox } from "./messageBox.ts";
 import { dragY } from "./mir/controls.ts";
@@ -81,6 +82,8 @@ export class BigMap {
   private readonly send: (f: Uint8Array) => void;
   private readonly gold: () => number;
   private readonly stage: HTMLElement;
+  /** The user's map (MapControl.Index, MapInformation.BigMap). */
+  private readonly currentMap: CurrentMap;
 
   // BigMapDialog controls
   private readonly win: MirWindow;
@@ -128,13 +131,14 @@ export class BigMap {
 
   /** Set by the game: a click on the map asks to walk to a cell. */
   onWalk: (cell: WirePoint) => void = () => {};
-  /** MapInformation.BigMap of the user's map (set by the game). */
-  bigMapIndex = 0;
-  /** MapControl.Index of the user's map (from S.MapInformation / S.MapChanged in handle()). */
-  mapIndex = -1;
+  /** MapInformation.BigMap of the user's map (CurrentMap). */
+  get bigMapIndex(): number { return this.currentMap.bigMapIndex; }
+  /** MapControl.Index of the user's map (CurrentMap; S.MapInformation / S.MapChanged). */
+  get mapIndex(): number { return this.currentMap.index; }
 
-  constructor(stage: HTMLElement, info: GameInfo, send: (f: Uint8Array) => void, gold: () => number) {
+  constructor(stage: HTMLElement, info: GameInfo, send: (f: Uint8Array) => void, gold: () => number, currentMap: CurrentMap) {
     this.stage = stage;
+    this.currentMap = currentMap;
     this.info = info;
     this.send = send;
     this.gold = gold;
@@ -240,10 +244,10 @@ export class BigMap {
     this.setTargetMap(this.mapIndex); // TargetMyLocation
   }
 
-  /** S.MapInformation / S.MapChanged (MapControl.Index) and S.SearchMapResult. */
+  /** S.MapInformation / S.MapChanged (a redraw; MapControl.Index is in CurrentMap) and S.SearchMapResult. */
   handle(p: ServerPacket): void {
     switch (p.type) {
-      case "MapInformation": case "MapChanged": this.mapIndex = p.MapIndex; this.nextDraw = 0; break;
+      case "MapInformation": case "MapChanged": this.nextDraw = 0; break;
       case "SearchMapResult": // GameScene.SearchMapResult
         if (p.MapIndex === -1 && p.NPCIndex === 0) {
           messageBox(this.stage, "Nothing Found.", [{ label: "OK", onClick: () => this.searchTextBox.focus() }]);

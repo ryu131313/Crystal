@@ -12,13 +12,14 @@
 //   user bag -> hero bag (C.TransferHeroItem / merge), hero bag -> user bag (C.TakeBackHeroItem / merge), hero bag <->
 //   hero bag (C.MoveItem / merge, Ctrl = combine), hero bag -> hero equipment (C.EquipItem), hero equipment -> hero bag
 //   (C.RemoveItem), hero bag potion -> auto-pot cell (C.SetAutoPotItem); right-click uses / equips / unequips; a click on
-//   a filled auto-pot cell clears it; a picked hero bag item + map click drops it (game.ts calls mapDrop()).
+//   a filled auto-pot cell clears it; a picked hero bag item + map click drops it (src/game/itemDrop.ts dropHeroItem,
+//   called through ItemDrop.mapClick by the classic UI's map click).
 // The windows exist while the game scene does; below Summoned (hero.info = null) they hide, like the desktop disposes them.
 // Not ported: the item upgrade grid effect (DisplayItemGridEffect), Shift+right-click chat links and the user's
 // RidingMount check in CanRemoveItem for hero cells.
 
 import type { UserItem } from "../protocol/server.ts";
-import { MirGridType, Stat, BindMode } from "../protocol/enums.generated.ts";
+import { MirGridType, Stat } from "../protocol/enums.generated.ts";
 import type { Hero } from "../game/hero.ts";
 import type { HeroItems } from "../game/heroItems.ts";
 import { gameSignal } from "../game/scope.ts";
@@ -33,9 +34,6 @@ const BAG_CELLS = 8 * 5; // HeroInventoryDialog.Grid
 const T = { // ClientTextKeys (English.json)
   EnterValue: "Enter a value",
   YouWantCombineItems: "Do you want to try and combine these items?",
-  YouCannotDrop: (name: string) => `You cannot drop ${name}`,
-  DropTip: (name: string) => `Are you sure you want to drop ${name}?`,
-  DropAmount: "Drop Amount:",
   Rotate: "Rotate",
   CloseKey: (key: string) => `Close (${key})`,
 };
@@ -243,27 +241,6 @@ export class HeroInventoryWindow {
     else if (pick.grid === "heroInv" && autoGrid >= 0) it.setAutoPotItem(autoGrid, pick.index);
     else if (pick.grid === "heroInv" && grid === "inv") it.takeBack(pick.index, index);
     return null; // every other pair has no MirItemCell case
-  }
-
-  /** GameScene map click while a hero belt / bag cell is picked: the YouCannotDrop box for DontDrop, the DropTip Yes/No
-   *  for a single item or MirAmountBox (DropAmount) for a stack, then C.DropItem with HeroInventory = true. Returns true
-   *  when it used the click. */
-  mapDrop(): boolean {
-    const pick = this.invWindow.heroPick;
-    if (!pick) return false;
-    this.invWindow.clearPick();
-    if (pick.grid !== "heroInv") return true; // equipment / auto-pot picks: GameScene clears SelectedCell
-    const item = this.hero.info?.inventory[pick.index];
-    const info = item && this.items.itemInfo(item);
-    if (!item) return true;
-    const name = info?.Name ?? "this item";
-    if (info && (info.Bind & BindMode.DontDrop)) { messageBox(document.body, T.YouCannotDrop(name)); return true; }
-    if (item.Count === 1) {
-      messageBox(document.body, T.DropTip(name), [{ label: "Yes", onClick: () => this.items.drop(pick.index, 1) }, { label: "No" }]);
-      return true;
-    }
-    amountBox(T.DropAmount, info?.Image ?? -1, item.Count, (n) => { if (n > 0) this.items.drop(pick.index, n); });
-    return true;
   }
 
   /** HeroInventoryDialog.HPButton / MPButton: MirAmountBox (EnterValue, Items 116, max 99) -> C.SetAutoPotValue. */

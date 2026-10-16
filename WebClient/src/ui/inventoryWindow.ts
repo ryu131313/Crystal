@@ -6,7 +6,9 @@
 // Behaviour follows MirItemCell: left-click picks an item (GameScene.SelectedCell; the item then follows the mouse,
 // GameScene.DrawControl), left-click on another cell moves / equips / unequips / merges it, right-click uses / equips /
 // unequips (UseItem / RemoveItem), Shift+left splits a stack (MirAmountBox), Shift+right links it in chat, Ctrl+right
-// opens the sockets, Ctrl+left onto another bag item combines; a picked bag item + a map click drops it (game.ts).
+// opens the sockets, Ctrl+left onto another bag item combines; a picked bag item + a map click drops it (the UI's
+// mapMouseDown, src/game/itemDrop.ts). The pick itself (GameScene.SelectedCell / PickedUpGold) lives in the DOM-free
+// src/game/itemPick.ts model; this window draws it and reads / writes it through `picks`.
 // Hovering a cell shows the item label (GameScene.CreateItemLabel, itemLabel.ts).
 //
 // ── Cell API (for every window that shows item cells) ──────────────────────────────────────────────────────────────
@@ -34,20 +36,26 @@ import { gameSignal } from "../game/scope.ts";
 import { SoundList } from "../game/audio.ts";
 import { KeybindOptions, matches, matchesAny } from "../game/keybinds.ts";
 import { MirWindow, MirImage, MirButton, MirLabel, MirControl, Lib, closeButton, setPicture, libPicture, libPictureNow, getUiRoot, uiSound, SCREEN_WIDTH, SCREEN_HEIGHT } from "./mir/controls.ts";
+import { ItemPick, HERO_GRIDS, type Grid, type PickedCell } from "../game/itemPick.ts";
+import { askDropGold, type DropPrompts } from "../game/itemDrop.ts";
 import { messageBox, amountBox } from "./messageBox.ts";
 import { showItemLabel, moveItemLabel, hideItemLabel, itemLabelText, type ItemLabelContext } from "./itemLabel.ts";
 import { BeltWindow } from "./beltWindow.ts";
 import { userWindows, registerUserWindow, gameUser, gameItemInfos } from "./userRefs.ts";
 
-/** "inv" = the user's belt + bag (UserObject.Inventory), "eq" = equipment; "trade" = the user's TradeDialog grid
- *  (tradeCell()); "guild" = GuildDialog.StorageGrid (storageCell()); "refine" = RefineDialog.Grid (refineCell());
- *  "npcStorage" = StorageDialog.Grid (npcStorageCell()); "socket" = SocketDialog.Grid (socketCell()); "renting" =
- *  ItemRentingDialog.ItemCell (rentingCell()); "mount" / "fishing" = MountDialog.Grid / FishingDialog.Grid
- *  (slotItemCell(); right-click only, like the desktop); "heroInv" / "heroEq" / "heroHP" / "heroMP" = the hero's belt +
- *  bag, equipment and auto-pot cells (heroCell(); the clicks go to heroClick, set by HeroInventoryWindow). */
-export type Grid = "inv" | "eq" | "trade" | "guild" | "refine" | "npcStorage" | "socket" | "renting" | "mount" | "fishing" | "heroInv" | "heroEq" | "heroHP" | "heroMP";
-type Pick = { grid: Grid; index: number } | null;
-const HERO_GRIDS: ReadonlySet<Grid> = new Set<Grid>(["heroInv", "heroEq", "heroHP", "heroMP"]);
+/** The item grids (src/game/itemPick.ts) and the cells that show them: "inv" / "eq" (the bag, belt and paperdoll),
+ *  "trade" (tradeCell()), "guild" (storageCell()), "refine" (refineCell()), "npcStorage" (npcStorageCell()), "socket" (socketCell()), "renting"
+ *  (rentingCell()), "mount" / "fishing" (slotItemCell(); right-click only, like the desktop), "heroInv" / "heroEq" /
+ *  "heroHP" / "heroMP" (heroCell(); the clicks go to heroClick, set by HeroInventoryWindow). */
+export type { Grid };
+type Pick = PickedCell | null;
+
+/** The classic prompts for the shared drop rules (src/game/itemDrop.ts): MirMessageBox / MirAmountBox. */
+export const classicDropPrompts: DropPrompts = {
+  confirm: (text, yes) => { messageBox(getUiRoot(), text, [{ label: "Yes", onClick: yes }, { label: "No" }]); },
+  amount: (title, image, max, ok) => { amountBox(title, image, max, ok); },
+  refuse: (text) => { messageBox(getUiRoot(), text, [{ label: "OK" }]); },
+};
 
 /** MirItemCell.Size. */
 export const CELL_SIZE: readonly [number, number] = [36, 32];
@@ -131,7 +139,10 @@ export class InventoryWindow {
   readonly root: HTMLElement;
   private readonly inv: Inventory;
   private readonly now: () => number;
-  private pick: Pick = null;
+  /** GameScene.SelectedCell + the bag's PickedUpGold (src/game/itemPick.ts), shared with every cell user. */
+  readonly picks: ItemPick;
+  private get pick(): Pick { return this.picks.cell; }
+  private set pick(v: Pick) { this.picks.set(v); }
   /** While an NPC sell/repair panel is open, a left-click on an inventory item goes to it instead (NPCDropDialog). */
   itemClickHook: ((index: number) => boolean) | null = null;
   /** Shift+right-click on an inventory item: link it in the chat box (MirItemCell -> ChatDialog.LinkedItems). */
@@ -175,16 +186,18 @@ export class InventoryWindow {
   private page: 1 | 2 = 1;
   private readonly bound: CellView[] = [];
   private readonly floating: HTMLDivElement;
-  private goldPicked = false;
+  private get goldPicked(): boolean { return this.picks.gold; }
+  private set goldPicked(v: boolean) { this.picks.setGold(v); }
   private hoverView: CellView | null = null;
   private lastMouse: [number, number] = [-1000, -1000];
   private lastClient: [number, number] = [0, 0];
   private weightKey = "";
   readonly belt: BeltWindow;
 
-  constructor(stage: HTMLElement, inv: Inventory, now: () => number) {
+  constructor(stage: HTMLElement, inv: Inventory, now: () => number, picks: ItemPick = new ItemPick()) {
     this.inv = inv;
     this.now = now;
+    this.picks = picks;
     this.send = (f) => (inv as unknown as { send(f: Uint8Array): void }).send(f);
     registerUserWindow("inventory", this);
 
@@ -217,7 +230,7 @@ export class InventoryWindow {
     this.goldLabel.onClick(() => {
       // GoldLabel.Click (Sound = SoundList.Gold)
       uiSound(SoundList.Gold);
-      if (this.pick === null) this.goldPicked = !this.goldPicked && this.inv.gold > 0;
+      this.picks.toggleGold(this.inv.gold); // if (SelectedCell == null) PickedUpGold = !PickedUpGold && Gold > 0
       this.drawFloating();
     });
     // Grid: 8 x 10 cells for slots 6..85; rows 5-9 (the second bag) sit on rows 0-4
@@ -267,7 +280,7 @@ export class InventoryWindow {
       e.preventDefault();
       this.goldPicked = false;
       this.drawFloating();
-      amountBox("Drop Amount:", 116, this.inv.gold, (n) => { if (n > 0) this.inv.dropGold(n); });
+      askDropGold(this.inv, classicDropPrompts);
     }, { capture: true, signal });
     signal.addEventListener("abort", () => { this.win.dispose(); this.floating.remove(); hideItemLabel(); });
     this.refreshPage();
@@ -280,12 +293,12 @@ export class InventoryWindow {
 
   /** The picked inventory slot, if any (the game drops it on a map click). */
   get pickedInventorySlot(): number {
-    return this.pick?.grid === "inv" ? this.pick.index : -1;
+    return this.picks.inventorySlot;
   }
 
-  /** The picked hero cell, if any (a map click with a hero bag item drops it: HeroInventoryWindow.mapDrop). */
-  get heroPick(): { grid: Grid; index: number } | null {
-    return this.pick && HERO_GRIDS.has(this.pick.grid) ? this.pick : null;
+  /** The picked hero cell, if any (a map click with a hero bag item drops it: itemDrop.ts dropHeroItem). */
+  get heroPick(): PickedCell | null {
+    return this.picks.heroCell;
   }
 
   clearPick(): void {

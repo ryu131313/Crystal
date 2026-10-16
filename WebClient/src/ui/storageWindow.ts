@@ -10,10 +10,13 @@
 // Deliberate differences: a forced first-time setup whose confirmation does not match closes that box before asking
 // again (the desktop leaves it open behind the new one); the InventoryDialog is not moved beside the storage
 // (InventoryWindow has no location API); the expiry date reads "Expires On <date>" with a space.
+// The account flags (HasExpandedStorage, the password flags, the expiry) live in the Account model (src/game/account.ts);
+// the window reads them and keeps the prompts and the open / close with the NPC.
 
 import type { ServerPacket } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
 import { ChatType } from "../protocol/enums.generated.ts";
+import type { Account } from "../game/account.ts";
 import { STORAGE_GRID_SIZE } from "../game/inventory.ts";
 import { placeCell, type InventoryWindow } from "./inventoryWindow.ts";
 import { messageBox } from "./messageBox.ts";
@@ -81,12 +84,8 @@ function passwordBox(text: string, onSubmit: (value: string) => boolean, onCance
 
 export class StorageWindow {
   /** UserObject.HasExpandedStorage / ExpandedStorageExpiryTime / HasStoragePassword / RequireStoragePassword /
-   *  StoragePasswordLastSet (UserInformation, then the storage packets). */
-  hasExpandedStorage = false;
-  expandedStorageExpiryTime = 0n;
-  hasStoragePassword = false;
-  requireStoragePassword = false;
-  storagePasswordLastSet = 0n;
+   *  StoragePasswordLastSet (UserInformation, then the storage packets): the Account model. */
+  private readonly account: Account;
   private storageUnlocked = false;        // StorageDialog._storageUnlocked
   private pendingOpenAfterPasswordSet = false;
   private forcingPasswordSetup = false;
@@ -108,7 +107,8 @@ export class StorageWindow {
   private readonly boxes = new Set<() => void>();
 
   constructor(stage: HTMLElement, invWindow: InventoryWindow, send: (f: Uint8Array) => void,
-    chat: (text: string, type: number) => void, npc: StorageNpc) {
+    chat: (text: string, type: number) => void, npc: StorageNpc, account: Account) {
+    this.account = account;
     this.stage = stage;
     this.invWindow = invWindow;
     this.send = send;
@@ -146,15 +146,16 @@ export class StorageWindow {
     return this.win.visible;
   }
 
+  // the Account flags the window reads
+  private get hasExpandedStorage(): boolean { return this.account.hasExpandedStorage; }
+  private get expandedStorageExpiryTime(): bigint { return this.account.expandedStorageExpiryTime; }
+  private get hasStoragePassword(): boolean { return this.account.hasStoragePassword; }
+  private get requireStoragePassword(): boolean { return this.account.requireStoragePassword; }
+  private get storagePasswordLastSet(): bigint { return this.account.storagePasswordLastSet; }
+
+  /** The storage packets (the Account model has already taken their flags). */
   handle(p: ServerPacket): void {
     switch (p.type) {
-      case "UserInformation":
-        this.hasExpandedStorage = p.HasExpandedStorage;
-        this.hasStoragePassword = p.HasStoragePassword;
-        this.requireStoragePassword = p.RequireStoragePassword;
-        this.storagePasswordLastSet = p.StoragePasswordLastSet;
-        this.expandedStorageExpiryTime = p.ExpandedStorageExpiryTime;
-        break;
       // GameScene.NPCStorage: only while the NPC dialog is open
       case "NPCStorage": if (this.npc.visible) this.show(); break;
       // GameScene.NPCResponse hides StorageDialog (a new page from any NPC)
@@ -162,9 +163,7 @@ export class StorageWindow {
       case "StorageUnlockResult": this.handleStorageUnlockResult(p); break;
       case "StoragePasswordResult": this.handleStoragePasswordResult(p); break;
       case "ResizeStorage":
-        // GameScene.ResizeStorage (Inventory resizes the array): StorageDialog.RefreshStorage2
-        this.hasExpandedStorage = p.HasExpandedStorage;
-        this.expandedStorageExpiryTime = p.ExpiryTime;
+        // GameScene.ResizeStorage (Inventory resizes the array, Account takes the flags): StorageDialog.RefreshStorage2
         this.refreshStorage(2);
         break;
     }
@@ -202,7 +201,7 @@ export class StorageWindow {
 
   /** StorageDialog.HandleStorageUnlockResult. */
   private handleStorageUnlockResult(p: Extract<ServerPacket, { type: "StorageUnlockResult" }>): void {
-    this.hasStoragePassword = p.HasPassword;
+    // HasStoragePassword = p.HasPassword: Account
     switch (p.Result) {
       case 0: case 4: this.storageUnlocked = true; this.show(); return;
       case 1: this.system(T.StoragePasswordNotAcceptable); return;
@@ -213,9 +212,8 @@ export class StorageWindow {
 
   /** StorageDialog.HandleStoragePasswordResult. */
   private handleStoragePasswordResult(p: Extract<ServerPacket, { type: "StoragePasswordResult" }>): void {
-    const hadPassword = this.hasStoragePassword;
-    this.hasStoragePassword = p.HasPassword;
-    this.storagePasswordLastSet = p.LastSetTime;
+    // HasStoragePassword / StoragePasswordLastSet = the packet's: Account (which keeps the value before it)
+    const hadPassword = this.account.hadStoragePassword;
     switch (p.Result) {
       case 0: this.system(T.StoragePasswordUnavailable); return;
       case 1: case 3: this.system(T.StoragePasswordNotAcceptable); return;

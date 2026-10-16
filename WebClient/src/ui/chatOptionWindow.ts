@@ -2,13 +2,13 @@
 // 466 / 467 per tab, Title 462-465 tab buttons, Prguse 2070-2087 filter buttons, Title 470-475 transparency buttons),
 // opened by the chat bar's settings button (ChatControlBar.SettingsButton; no key) (chatDialog.ts). Filter tab: All +
 // one toggle per chat group (Settings.FilterXChat = hide); Chat tab: transparency (Settings.TransparentChat).
-// `chatVisible` ports ChatDialog.Update.
+// `chatVisible` (src/game/chatLog.ts, re-exported here) ports ChatDialog.Update.
 // Note: the desktop Show*Chat values are never read for display (the chat bar tabs only pick the message prefix, see
 // CHAT_TAB_PREFIX), and Update has no case for Relationship / Mentor, so the Lover / Mentor filters hide nothing there;
 // both quirks are kept.
 
 import { KeybindOptions, matches } from "../game/keybinds.ts";
-import { ChatType } from "../protocol/enums.generated.ts";
+import { chatVisible } from "../game/chatLog.ts";
 import { gameSettings, setSetting, onSettingChange, type GameSettings } from "../game/settings.ts";
 import { gameSignal } from "../game/scope.ts";
 import { SoundList } from "../game/audio.ts";
@@ -23,29 +23,9 @@ const FILTERS: [FilterKey, number, [number, number]][] = [
   ["FilterLoverChat", 2076, [135, 69]], ["FilterMentorChat", 2078, [135, 92]], ["FilterGroupChat", 2080, [135, 115]], ["FilterGuildChat", 2082, [135, 138]],
 ];
 
-/** ChatDialog.Update: whether a line of this ChatType shows under the current FilterXChat settings. */
-export function chatVisible(type: number): boolean {
-  switch (type) {
-    case ChatType.Normal:
-    case ChatType.LineMessage:
-      return !gameSettings.FilterNormalChat;
-    case ChatType.WhisperIn:
-    case ChatType.WhisperOut:
-      return !gameSettings.FilterWhisperChat;
-    case ChatType.Shout:
-    case ChatType.Shout2:
-    case ChatType.Shout3:
-      return !gameSettings.FilterShoutChat;
-    case ChatType.System:
-    case ChatType.System2:
-      return !gameSettings.FilterSystemChat;
-    case ChatType.Group:
-      return !gameSettings.FilterGroupChat;
-    case ChatType.Guild:
-      return !gameSettings.FilterGuildChat;
-  }
-  return true;
-}
+/** ChatDialog.Update's filter check and the chat bar tab prefixes now live in the chat model (src/game/chatLog.ts);
+ *  re-exported here for the existing importers. */
+export { chatVisible, CHAT_TAB_PREFIX } from "../game/chatLog.ts";
 
 /** ChatDialog.Update over the whole history: hides / shows every child line that carries `data-chat-type`. */
 export function refilterChat(log: HTMLElement): void {
@@ -54,11 +34,6 @@ export function refilterChat(log: HTMLElement): void {
     if (t !== undefined) line.hidden = !chatVisible(Number(t));
   }
 }
-
-/** ChatControlBar.ToggleChatFilter: the prefix each chat bar tab puts in front of the typed message. */
-export const CHAT_TAB_PREFIX: Readonly<Record<"All" | "Shout" | "Whisper" | "Group" | "Guild" | "Lover" | "Mentor", string>> = {
-  All: "", Shout: "!", Whisper: "/", Group: "!!", Guild: "!~", Lover: ":)", Mentor: "!#",
-};
 
 export class ChatOptionWindow {
   private readonly win: MirWindow;

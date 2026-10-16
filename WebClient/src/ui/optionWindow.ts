@@ -5,11 +5,11 @@
 // changes elsewhere (chat commands @LEVELEFFECT / @TARGETDEAD / @LIGHT, ChatOptionDialog transparency, BuffDialog,
 // Mir2Config.ini), drawn with the same Prguse2 On / Off buttons, so they stay reachable without an ini file.
 // Values go through settings.ts setSetting (localStorage); volumes go to SoundManager (audio.ts persists them).
-// Allow observe sends `C.Chat "@ALLOWOBSERVE"` like OptionDialog.ToggleObserve; the state comes from
-// UserInformation.AllowObserve (setAllowObserve) and S.AllowObserve (handle).
+// Allow observe sends `C.Chat "@ALLOWOBSERVE"` like OptionDialog.ToggleObserve; the state (UserInformation.AllowObserve,
+// S.AllowObserve) is in the Account model (src/game/account.ts).
 
 import { KeybindOptions, matches } from "../game/keybinds.ts";
-import type { ServerPacket } from "../protocol/server.ts";
+import type { Account } from "../game/account.ts";
 import { ClientPackets } from "../protocol/client.ts";
 import { ChatType } from "../protocol/enums.generated.ts";
 import { SoundList, type SoundManager } from "../game/audio.ts";
@@ -31,8 +31,6 @@ interface Pair {
 interface MoreRow { label: string; hint?: string; get: () => boolean; set: (v: boolean) => void }
 
 export class OptionWindow {
-  /** GameScene.AllowObserve. */
-  allowObserve = false;
   private readonly win: MirWindow;
   private readonly pairs: Pair[] = [];
   private readonly bars: (() => void)[] = [];
@@ -40,11 +38,14 @@ export class OptionWindow {
   private readonly send: (f: Uint8Array) => void;
   private readonly chat: (text: string, type: number) => void;
   private readonly sound: Pick<SoundManager, "volume" | "musicVolume">;
+  private readonly account: Account;
 
-  constructor(_stage: HTMLElement, send: (f: Uint8Array) => void, chat: (text: string, type: number) => void, sound: Pick<SoundManager, "volume" | "musicVolume">) {
+  constructor(_stage: HTMLElement, send: (f: Uint8Array) => void, chat: (text: string, type: number) => void, sound: Pick<SoundManager, "volume" | "musicVolume">,
+    account: Account) {
     this.send = send;
     this.chat = chat;
     this.sound = sound;
+    this.account = account;
     const hint = (text: string) => this.chat(text, ChatType.Hint);
 
     // OptionDialog ctor
@@ -116,7 +117,8 @@ export class OptionWindow {
 
     const signal = gameSignal();
     const off = onSettingChange(() => this.refresh());
-    signal.addEventListener("abort", () => { off(); win.dispose(); });
+    const offAccount = account.changed.on(() => this.refresh()); // UserInformation / S.AllowObserve
+    signal.addEventListener("abort", () => { off(); offAccount(); win.dispose(); });
     window.addEventListener("keydown", (e) => {
       const a = document.activeElement;
       if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement || a instanceof HTMLSelectElement) return;
@@ -134,17 +136,9 @@ export class OptionWindow {
     if (show) this.win.show(); else this.win.hide();
   }
 
-  /** UserInformation.AllowObserve (GameScene.UserInformation). */
-  setAllowObserve(allow: boolean): void {
-    this.allowObserve = allow;
-    this.refresh();
-  }
-
-  /** S.AllowObserve; returns true when handled. */
-  handle(p: ServerPacket): boolean {
-    if (p.type !== "AllowObserve") return false;
-    this.setAllowObserve(p.Allow);
-    return true;
+  /** GameScene.AllowObserve (Account). */
+  get allowObserve(): boolean {
+    return this.account.allowObserve;
   }
 
   private boolRow(key: BoolKey): Pick<MoreRow, "get" | "set"> {

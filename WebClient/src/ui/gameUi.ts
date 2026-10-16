@@ -4,12 +4,14 @@
 // The desktop has one UI only; the seam is web-only. Everything here is live: getters over startGame's locals, so a UI
 // reads the current value every time and never keeps a copy.
 //
-// Packets: game.ts runs the models first (hero, inventory, item changes, hero items, magic, quests), then
-// GameUi.handle (the UI-only leftovers: packets whose state still lives in a classic window; phases 1b / 1c move them
-// into src/game models, so handle() shrinks to prompts and window opening), then GameInfo and the big switch.
+// Packets: game.ts runs the models first (hero, inventory, item changes, hero items, magic, quests, then the phase 1b
+// models: rental, chat log, current map, account, creatures, HUD state, group, trade), then GameUi.handle (the UI-only
+// leftovers: packets whose state still lives in a classic window; phase 1c moves more of them into src/game models, so
+// handle() shrinks to prompts and window opening), then GameInfo and the big switch. Models announce changes and
+// prompts through Emitter fields (src/game/emitter.ts); a UI subscribes and unsubscribes on `signal` abort.
 
 import type { Session } from "../game/session.ts";
-import type { ServerPacket, PacketOf, BaseStats, UserItem, GameShopItem } from "../protocol/server.ts";
+import type { ServerPacket, BaseStats, GameShopItem } from "../protocol/server.ts";
 import type { WirePoint } from "../protocol/binaryCodec.ts";
 import type { MapCells } from "../map/mapReader.ts";
 import type { MapObj } from "../game/objects.ts";
@@ -24,6 +26,17 @@ import type { ItemChanges } from "../game/itemChanges.ts";
 import type { Magic } from "../game/magic.ts";
 import type { Quests } from "../game/quests.ts";
 import type { Creatures } from "../game/creatures.ts";
+import type { ChatLog } from "../game/chatLog.ts";
+import type { HudState } from "../game/hudState.ts";
+import type { Account } from "../game/account.ts";
+import type { CurrentMap } from "../game/currentMap.ts";
+import type { ItemPick } from "../game/itemPick.ts";
+import type { HeroStats } from "../game/heroStats.ts";
+import type { MountState } from "../game/mountState.ts";
+import type { Fishing } from "../game/fishing.ts";
+import type { GroupState } from "../game/group.ts";
+import type { Trade } from "../game/trade.ts";
+import type { Rental } from "../game/rental.ts";
 import type { UserStats } from "../game/stats.ts";
 import type { UserBuff } from "../game/buffs.ts";
 import type { InputRouter } from "../game/input.ts";
@@ -67,10 +80,30 @@ export interface GameModels {
   readonly itemChanges: ItemChanges;
   readonly magic: Magic;
   readonly quests: Quests;
-  /** Fed by the classic CreatureWindow until phase 1b (creatures fed by game.ts). */
+  /** UserObject.IntelligentCreatures (fed by game.ts; `changed` for the dialog). */
   readonly creatures: Creatures;
-  /** GameScene.ChatItemList (S.NewChatItem: incoming chat links), keyed by UniqueID. */
-  readonly chatItems: ReadonlyMap<string, UserItem>;
+  /** ChatDialog.History / LastPM / LinkedItems + MirScene.ChatItemList (src/game/chatLog.ts); every chat line goes through it. */
+  readonly chatLog: ChatLog;
+  /** Output lines, notice, timers, compass, chat notice, roll (src/game/hudState.ts); a UI calls process(now) per frame. */
+  readonly hudState: HudState;
+  /** GameScene.AllowObserve + the UserObject storage flags (src/game/account.ts). */
+  readonly account: Account;
+  /** MapControl Index / FileName / Title / MiniMap / BigMap + the map lights (src/game/currentMap.ts). */
+  readonly currentMap: CurrentMap;
+  /** GameScene.SelectedCell / PickedUpGold (src/game/itemPick.ts). */
+  readonly itemPick: ItemPick;
+  /** UserHeroObject.Stats (src/game/heroStats.ts). */
+  readonly heroStats: HeroStats;
+  /** PlayerObject.MountTime + MountDialog.CanRide / Ride (src/game/mountState.ts). */
+  readonly mount: MountState;
+  /** FishingStatusDialog state (src/game/fishing.ts). */
+  readonly fishing: Fishing;
+  /** GroupDialog roster + the GameScene group handlers (src/game/group.ts). */
+  readonly group: GroupState;
+  /** GuestTradeDialog + the GameScene trade handlers (src/game/trade.ts). */
+  readonly trade: Trade;
+  /** The rental guest side + rented-items list (src/game/rental.ts). */
+  readonly rental: Rental;
 }
 
 /** The world as the UI may read it (MapControl). */
@@ -125,15 +158,7 @@ export interface GameUiContext {
 export type UiEvent =
   /** S.NewItemInfo: an ItemInfo arrived (item cells redraw). */
   | { kind: "itemInfo" }
-  /** GameScene.UserInformation / S.AllowObserve: the user's AllowObserve flag. */
-  | { kind: "allowObserve"; allow: boolean }
-  /** GameScene.MountUpdate after the object update (the user's MountDialog). */
-  | { kind: "mountUpdate"; packet: PacketOf<"MountUpdate"> }
-  /** GameScene.FishingUpdate after the object update (FishingDialog / FishingStatusDialog), with a user. */
-  | { kind: "fishingUpdate"; packet: PacketOf<"FishingUpdate"> }
-  /** The hero's stats may have changed (hero items, GameDataChanged): until heroStats.ts (phase 1b). */
-  | { kind: "heroStats" }
-  /** GameScene.GameDataChanged after its last chunk: the refresh (hero stats, an open shop when shop items changed). */
+  /** GameScene.GameDataChanged after its last chunk: the refresh (an open shop when shop items changed). */
   | { kind: "gameDataApplied"; shopChanged: boolean };
 
 /** UI commands game.ts starts from keys or map clicks. */
@@ -166,10 +191,6 @@ export interface GameUi {
   notify(e: UiEvent): void;
   /** Per-frame UI work at one point of step(). */
   frame(t: number, at: FramePoint): void;
-  /** ChatDialog.ReceiveChat. */
-  chat(text: string, type: number): void;
-  /** GameScene.OutputMessage (the HUD's output lines). */
-  output(text: string): void;
   /** A Yes / No prompt (MirMessageBox YesNo); returns its close. */
   confirm(text: string, yes: () => void, opts?: { primary?: boolean; no?: () => void }): () => void;
   /** A count prompt (MirAmountBox); returns its close. */
@@ -186,8 +207,6 @@ export interface GameUi {
   /** A left / right mouse-down on the map, after Ctrl + right inspect: a picked item / gold dropped on the map. True = consumed. */
   mapMouseDown(e: MouseEvent): boolean;
   command(c: UiCommand): void;
-  /** Leftover until group.ts (phase 1b): the name is in the user's group (hover outline). */
-  inGroup(name: string): boolean;
   /** Leftover until shop.ts (phase 1c): GameScene.GameShopInfoList for GameDataChanged. */
   shopItems(): GameShopItem[];
   /** Registers the UI's router handlers (called once by game.ts where its own key handling is registered). */

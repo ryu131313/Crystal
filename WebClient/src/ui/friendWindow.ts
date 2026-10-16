@@ -72,6 +72,8 @@ export class FriendWindow {
   private readonly send: (f: Uint8Array) => void;
   private readonly chat: (text: string, type: number) => void;
   private readonly composeMail: (name: string) => void;
+  /** ChatDialog.ChatTextBox prefill (GameUi.prefillChat). */
+  private readonly prefillChat: (text: string) => void;
   private readonly win: MirWindow;
   private readonly friendLabel: MirImage;
   private readonly blacklistLabel: MirImage;
@@ -88,11 +90,13 @@ export class FriendWindow {
   private readonly memoText: MirTextBox;
   private memoFriend: ClientFriend | null = null;
 
-  constructor(stage: HTMLElement, send: (f: Uint8Array) => void, chat: (text: string, type: number) => void, composeMail: (name: string) => void) {
+  constructor(stage: HTMLElement, send: (f: Uint8Array) => void, chat: (text: string, type: number) => void, composeMail: (name: string) => void,
+    prefillChat: (text: string) => void) {
     this.stage = stage;
     this.send = send;
     this.chat = chat;
     this.composeMail = composeMail;
+    this.prefillChat = prefillChat;
 
     // FriendDialog ctor
     this.win = new MirWindow({ library: Lib.Title, index: 199, movable: true, sort: true, location: "center" });
@@ -239,11 +243,7 @@ export class FriendWindow {
     const f = this.selected;
     if (!f) return;
     if (!f.Online) { this.chat("Player is not online", ChatType.System); return; }
-    const input = document.getElementById("chat-input") as HTMLInputElement | null;
-    if (!input) return;
-    input.value = `/${f.Name} `;
-    input.focus();
-    input.setSelectionRange(input.value.length, input.value.length);
+    this.prefillChat(`/${f.Name} `);
   }
 
   /** GameScene.CreateMemoLabel: (50,50,50) 70 % box, gray border, the memo over lines at (4, 4). */

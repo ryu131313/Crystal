@@ -3,7 +3,7 @@
 // EquipSlotItem, ItemSlotSizeChanged), ItemSealChanged, CombineItem (Ctrl + place onto an inventory item),
 // ItemUpgraded, and the user's side of an item rental (ItemRentingDialog.RentalItem / RentalPeriod,
 // User.RentalGoldAmount / RentalGoldLocked / RentalItemLocked: DepositRentalItem, RetrieveRentalItem, ItemRentalLock,
-// CancelItemRental, ConfirmItemRental). The rental dialogs' guest side lives in src/ui/rentalWindow.ts.
+// CancelItemRental, ConfirmItemRental). The rental guest side is rental.ts.
 // Locks share Inventory.locked (keyed by UniqueID); an empty socket cell waiting for an answer is in pendingSlots.
 // Not ported: the Storage grid (EquipSlotItem / RemoveSlotItem from or to NPC storage) and hero inventories.
 
@@ -219,7 +219,7 @@ export class ItemChanges {
         break;
       }
       case "DepositRentalItem": {
-        // GameScene.DepositRentalItem (the InputRentalPeroid prompt is opened by RentalWindow)
+        // GameScene.DepositRentalItem (the InputRentalPeroid prompt: rental.ts askPeriod)
         const item = this.inv.inventory[p.From];
         if (!item) return false;
         this.unlock(item.UniqueID);

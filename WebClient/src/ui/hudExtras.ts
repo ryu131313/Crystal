@@ -8,23 +8,22 @@
 //   ChatNoticeDialog   the Announcement banner (Prguse 1361 at 70 % + 1360, yellow 10pt), 10 s
 //   S.OpenBrowser      the desktop opens the default browser; here the link opens in a new tab (http / https only)
 //   S.NPCRequestInput  MirInputBox -> C.NPCConfirmInput
+// The packets, the output lines, timers, compass target, chat notice and roll live in the HudState model
+// (src/game/hudState.ts); HudExtras is the classic view over it (update() runs the model's per-frame process()).
 
-import type { ServerPacket } from "../protocol/server.ts";
 import type { WirePoint } from "../protocol/binaryCodec.ts";
-import { ClientPackets } from "../protocol/client.ts";
 import { OutputMessageType } from "../protocol/enums.generated.ts";
 import { SoundList } from "../game/audio.ts";
 import { gameSignal } from "../game/scope.ts";
+import type { HudState, TimerView, RollState } from "../game/hudState.ts";
 import { MirWindow, MirImage, MirLabel, MirButton, MirControl, closeButton, Lib, getUiRoot } from "./mir/controls.ts";
 import { inputBox } from "./messageBox.ts";
 
 export interface HudWorld {
   stage: HTMLElement;
-  send: (f: Uint8Array) => void;
+  /** The HUD model (packets, outputs, timers, compass, chat notice, roll). */
+  state: HudState;
   now: () => number;
-  play: (sound: number) => void;
-  /** RollDialog.ReturnResult: CallNPC "[page]" on the last NPC (GameScene.NPCID), gated by NPCTime. */
-  callNpcPage: (page: string) => void;
   screen?: readonly [number, number];
 }
 
@@ -124,18 +123,12 @@ class NoticeDialog {
   }
 }
 
-interface Timer { key: string; type: number; relative: number; refresh: boolean }
-
-/** TimerDialog: digits at (0|22|44|58|80, 70) + the egg timer at (23, 0), (ScreenWidth - 120, ScreenHeight - 230). */
+/** TimerDialog: digits at (0|22|44|58|80, 70) + the egg timer at (23, 0), (ScreenWidth - 120, ScreenHeight - 230); the
+ *  timers and TimerDialog.Process are in HudState (its `timer` view). */
 class TimerDialog {
   private readonly root: MirControl;
   private readonly egg: MirImage;
   private readonly digits: MirImage[];
-  private readonly timers: Timer[] = [];
-  private current: Timer | null = null;
-  private started = false;
-  private counter = 0;
-  private time = 0;
   private eggBase = 960;
   private eggFrame = 0;
   private nextEgg = 0;
@@ -147,47 +140,15 @@ class TimerDialog {
     gameSignal().addEventListener("abort", () => this.root.dispose());
   }
 
-  add(key: string, seconds: number, type: number, now: number): void {
-    const relative = seconds + Math.floor(now / 1000);
-    const t = this.timers.find((x) => x.key === key);
-    if (t) { t.relative = relative; t.type = type; t.refresh = true; return; }
-    this.timers.push({ key, type, relative, refresh: true });
-  }
-
-  expire(key: string): void {
-    const t = this.timers.find((x) => x.key === key);
-    if (!t) return;
-    t.relative = 0;
-    if (t === this.current) this.counter = 0;
-  }
-
-  /** TimerDialog.Process. */
-  process(now: number): void {
-    const best = this.timers.reduce<Timer | null>((a, b) => (!a || b.relative < a.relative ? b : a), null);
-    if (best && (best !== this.current || best.refresh)) {
-      this.current = best;
-      best.refresh = false;
-      this.started = true;
-      this.time = now + 1000;
-      this.counter = best.relative - Math.floor(now / 1000);
-      this.updateGraphic();
-    }
-    // MirAnimatedControl: 6 frames, 333 ms, looping while a timer runs
+  /** MirAnimatedControl: 6 frames, 333 ms, looping while a timer runs (TimerDialog.Process). */
+  animate(now: number): void {
     if (this.egg.visible && now >= this.nextEgg) { this.nextEgg = now + 333; this.eggFrame = (this.eggFrame + 1) % 6; this.egg.index = this.eggBase + this.eggFrame; }
-    if (!this.current || !this.started || now < this.time) return;
-    this.counter--;
-    this.time = now + 1000;
-    if (this.counter < 0) {
-      this.root.visible = false;
-      this.started = false;
-      this.timers.splice(this.timers.indexOf(this.current), 1);
-      return;
-    }
-    this.updateGraphic();
   }
 
-  private updateGraphic(): void {
-    const c = Math.max(0, this.counter);
+  /** TimerDialog.UpdateGraphic, or hidden once the current timer ran out (null). */
+  render(view: TimerView | null): void {
+    if (!view) { this.root.visible = false; return; }
+    const c = Math.max(0, view.counter);
     const h = Math.floor(c / 3600) % 24, m = Math.floor((c % 3600) / 60), s = c % 60;
     const [a, b] = h > 0 ? [h, m] : [m, s];
     this.digits[0]!.index = 900 + Math.floor(a / 10);
@@ -195,7 +156,7 @@ class TimerDialog {
     this.digits[3]!.index = 900 + Math.floor(b / 10);
     this.digits[4]!.index = 900 + (b % 10);
     this.root.visible = true;
-    const type = this.current?.type ?? 0;
+    const type = view.type;
     this.egg.visible = type === 1 || type === 2;
     this.eggBase = type === 2 ? 440 : 960;
   }
@@ -204,24 +165,23 @@ class TimerDialog {
 export class HudExtras {
   private readonly w: HudWorld;
   private readonly outputLines: MirLabel[] = [];
-  private outputs: { message: string; expire: number; type: number }[] = [];
   private readonly notice: NoticeDialog;
   private readonly timer: TimerDialog;
   private readonly compass: MirControl;
   private readonly compassImage: MirImage;
-  private compassTarget: WirePoint | null = null;
   private readonly chatNotice: MirImage;
   private readonly chatNoticeLayout: MirImage;
   private readonly chatNoticeText: [MirLabel, MirLabel];
-  private chatNoticeUntil = 0;
   private readonly rollRoot: MirControl;
   private readonly rollImage: MirImage;
-  private roll: { type: number; page: string; result: number; rolling: boolean; rolled: boolean; frame: number; next: number } | null = null;
+  /** The HudState roll the dialog was set up for (RollDialog.Setup ran for it). */
+  private shownRoll: RollState | null = null;
 
   constructor(w: HudWorld) {
     this.w = w;
     const [SW, SH] = w.screen ?? [1024, 768];
     const root = w.stage;
+    const state = w.state;
     // GameScene.OutputLines (drawn by the scene, under the dialogs)
     for (let i = 0; i < 10; i++) {
       const l = new MirLabel({ parent: root, autoSize: true, font: "10pt Arial", foreColour: "#32cd32", location: [20, 25 + i * 13], notControl: true, visible: false, className: "mir-hud" });
@@ -243,109 +203,82 @@ export class HudExtras {
     this.rollRoot = new MirControl({ parent: root, visible: false, className: "mir-hud" });
     this.rollImage = new MirImage({ parent: this.rollRoot, library: Lib.Prguse, index: 282, useOffset: true });
     this.rollImage.onClick(() => {
-      const r = this.roll;
+      const r = state.roll;
       if (!r || r.rolling) return;
-      if (r.rolled) { this.rollRoot.visible = false; return; }
-      this.doRoll(r);
+      if (r.rolled) { state.closeRoll(); return; }
+      state.startRoll();
     });
     for (const c of [this.rollRoot]) c.el.addEventListener("mousedown", (e) => e.stopPropagation());
+    const offs = [
+      state.changed.on((part) => {
+        if (part === "timer") this.timer.render(state.timer);
+        else if (part === "chatNotice") this.renderChatNotice();
+        else if (part === "roll") this.renderRoll();
+      }),
+      state.notice.on(({ title, message }) => this.notice.update(title, message)),
+      // S.OpenBrowser: the desktop opens the default browser; here a new tab (HudState passes http / https links only)
+      state.openBrowser.on((href) => { window.open(href, "_blank", "noopener,noreferrer"); }),
+      // S.NPCRequestInput: MirInputBox -> C.NPCConfirmInput
+      state.requestInput.on(({ npcId, pageName }) => {
+        inputBox(this.w.stage, "Please enter the required information.", "", (value) => state.confirmInput(npcId, pageName, value));
+      }),
+    ];
     gameSignal().addEventListener("abort", () => {
+      for (const off of offs) off();
       for (const l of this.outputLines) l.dispose();
       this.compass.dispose(); this.chatNotice.dispose(); this.rollRoot.dispose();
     });
   }
 
-  /** GameScene.OutputMessage. */
-  output(message: string, type: number = OutputMessageType.Normal): void {
-    this.outputs.push({ message, expire: this.w.now() + 5000, type });
-    if (this.outputs.length > 10) this.outputs.shift();
-  }
-
-  /** ChatNoticeDialog.ShowNotice (ChatDialog.ReceiveChat for Announcement lines). */
-  showChatNotice(text: string, type = 0): void {
+  /** ChatNoticeDialog.ShowNotice (shown) / its 10 s timeout (hidden). */
+  private renderChatNotice(): void {
+    const n = this.w.state.chatNotice;
+    if (!n) { this.chatNotice.visible = false; return; }
+    const type = n.type;
     this.chatNotice.index = type === 0 ? 1361 : 1363;
     this.chatNoticeLayout.index = type === 0 ? 1360 : 1362;
-    this.chatNoticeText[0].text = this.chatNoticeText[1].text = text;
+    this.chatNoticeText[0].text = this.chatNoticeText[1].text = n.text;
     this.chatNoticeText[0].visible = type === 0;
     this.chatNoticeText[1].visible = type === 1;
     this.chatNotice.visible = true;
-    this.chatNoticeUntil = this.w.now() + 10000;
   }
 
-  handle(p: ServerPacket): boolean {
-    switch (p.type) {
-      case "SendOutputMessage": this.output(p.Message, p.Type); return true;
-      case "UpdateNotice": this.notice.update(p.Notice.Title, p.Notice.Message); return true;
-      case "SetTimer": this.timer.add(p.Key, p.Seconds, p.Type, this.w.now()); return true;
-      case "ExpireTimer": this.timer.expire(p.Key); return true;
-      case "SetCompass":
-        // CompassDialog.SetPoint: (0, 0) = Point.Empty clears it
-        this.compassTarget = p.Location.X === 0 && p.Location.Y === 0 ? null : { ...p.Location };
-        return true;
-      case "Roll": this.setupRoll(p.Type, p.Page, p.Result, p.AutoRoll); return true;
-      case "OpenBrowser": {
-        let url: URL | null = null;
-        try { url = new URL(p.Url); } catch { /* not a URL */ }
-        if (url && (url.protocol === "https:" || url.protocol === "http:")) window.open(url.href, "_blank", "noopener,noreferrer");
-        return true;
-      }
-      case "NPCRequestInput":
-        inputBox(this.w.stage, "Please enter the required information.", "", (value) => {
-          this.w.send(ClientPackets.NPCConfirmInput({ NPCID: p.NPCID, PageName: p.PageName, Value: value }));
-        });
-        return true;
-      default: return false;
+  /** RollDialog.Setup (a new roll), the animation frames (the die spins 290..293, the yut throws 2581..2586) and the
+   *  result picture; hidden once the result is clicked. */
+  private renderRoll(): void {
+    const r = this.w.state.roll;
+    if (!r) { this.rollRoot.visible = false; this.shownRoll = null; return; }
+    if (r !== this.shownRoll) {
+      // RollDialog.Setup
+      const [SW, SH] = this.w.screen ?? [1024, 768];
+      this.shownRoll = r;
+      if (r.type === 0) { this.rollRoot.size = [65, 65]; this.rollRoot.location = [SW / 2 - 38, SH / 2 - 40]; this.rollImage.library = Lib.Prguse; this.rollImage.index = 282; }
+      else { this.rollRoot.size = [180, 130]; this.rollRoot.location = [SW / 2 - 90, SH / 2 - 65]; this.rollImage.library = Lib.Items; this.rollImage.index = 2581; }
+      this.rollRoot.visible = true;
     }
+    const die = r.type === 0, count = die ? 4 : 6;
+    if (r.rolled) this.rollImage.index = (die ? 281 : 2587) + r.result;
+    else if (r.rolling && r.frame > 0) this.rollImage.index = (die ? 290 : 2581) + ((r.frame - 1) % count);
   }
 
-  /** RollDialog.Setup. */
-  private setupRoll(type: number, page: string, result: number, autoRoll: boolean): void {
-    const [SW, SH] = this.w.screen ?? [1024, 768];
-    const r = { type, page, result, rolling: false, rolled: false, frame: 0, next: 0 };
-    this.roll = r;
-    if (type === 0) { this.rollRoot.size = [65, 65]; this.rollRoot.location = [SW / 2 - 38, SH / 2 - 40]; this.rollImage.library = Lib.Prguse; this.rollImage.index = 282; }
-    else { this.rollRoot.size = [180, 130]; this.rollRoot.location = [SW / 2 - 90, SH / 2 - 65]; this.rollImage.library = Lib.Items; this.rollImage.index = 2581; }
-    this.rollRoot.visible = true;
-    if (autoRoll) this.doRoll(r);
-  }
-
-  /** RollDialog.Roll: the die spins 290..293 six times, the yut throws 2581..2586 once, 100 ms a frame. */
-  private doRoll(r: NonNullable<HudExtras["roll"]>): void {
-    r.rolling = true;
-    r.frame = 0;
-    r.next = 0;
-    this.w.play(r.type === 0 ? 10600 : 10601);
-  }
-
-  /** Per frame: output lines, timers, compass, chat notice and the roll animation. */
+  /** Per frame: the model's process (output expiry, timers, chat notice timeout, roll animation), then the output
+   *  lines, the egg timer and the compass. */
   update(user: WirePoint | null): void {
     const now = this.w.now();
+    const state = this.w.state;
+    state.process(now);
     // ProcessOuput
-    this.outputs = this.outputs.filter((o) => now < o.expire);
+    const outputs = state.outputs;
     this.outputLines.forEach((l, i) => {
-      const o = this.outputs[i];
+      const o = outputs[i];
       l.visible = !!o;
       if (!o) return;
       l.text = o.message;
       l.foreColour = o.type === OutputMessageType.Quest ? "#ffd700" : o.type === OutputMessageType.Guild ? "#ff1493" : "#32cd32";
     });
-    this.timer.process(now);
-    if (this.chatNotice.visible && now > this.chatNoticeUntil) this.chatNotice.visible = false;
-    // RollDialog animation
-    const r = this.roll;
-    if (r?.rolling && now >= r.next) {
-      r.next = now + 100;
-      const die = r.type === 0, count = die ? 4 : 6, total = die ? count * 6 : count;
-      if (r.frame < total) { this.rollImage.index = (die ? 290 : 2581) + (r.frame % count); r.frame++; }
-      else {
-        this.rollImage.index = (die ? 281 : 2587) + r.result;
-        r.rolling = false;
-        r.rolled = true;
-        this.w.callNpcPage(r.page); // RollDialog.ReturnResult
-      }
-    }
+    this.timer.animate(now);
     // CompassDialog.Process
-    const d = this.compassTarget;
+    const d = state.compassTarget;
     if (!d || !user || (d.X === user.X && d.Y === user.Y)) { this.compass.visible = false; return; }
     this.compass.visible = true;
     const angle = (Math.atan2(-(user.X - d.X), user.Y - d.Y) * 180) / Math.PI;

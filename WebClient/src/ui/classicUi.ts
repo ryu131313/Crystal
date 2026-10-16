@@ -1,18 +1,21 @@
 // The classic game UI: the desktop-look windows (src/ui/*.ts, the GameScene dialogs with the desktop .Lib artwork)
 // behind the GameUi seam (gameUi.ts). createClassicUi builds them in the GameScene ctor's order that game.ts used, wires
 // the cross-window hooks, and feeds them the packets and frame calls game.ts used to make itself. Window listeners
-// register in the same order as before (they run before game.ts's key router, which is created after this).
+// register in the same order as before (they run before game.ts's key router, which is created after this). Since
+// phase 1b the packet-driven state lives in src/game models (chatLog, hudState, account, currentMap, itemPick,
+// heroStats, mount, fishing, group, trade, rental, creatures): game.ts feeds them, and the windows here are views that
+// subscribe to their events.
 
 import type { ServerPacket, GameShopItem } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
-import { ChatType, MirGridType, BindMode, EquipmentSlot, Stat, StatName } from "../protocol/enums.generated.ts";
+import { ChatType, MirGridType, Stat, StatName } from "../protocol/enums.generated.ts";
 import { KeybindOptions, keyLabel, matches, type KeybindOption } from "../game/keybinds.ts";
 import { itemFriendlyName } from "../game/gameInfo.ts";
-import { canWearItem } from "../game/canWear.ts";
+import { ItemDrop } from "../game/itemDrop.ts";
 import type { InputRouter } from "../game/input.ts";
 import { setUiSound } from "./mir/controls.ts";
 import { messageBox, amountBox } from "./messageBox.ts";
-import { InventoryWindow } from "./inventoryWindow.ts";
+import { InventoryWindow, classicDropPrompts } from "./inventoryWindow.ts";
 import { NpcWindow } from "./npcWindow.ts";
 import { MagicBar } from "./magicBar.ts";
 import { BuffBar } from "./buffBar.ts";
@@ -63,15 +66,16 @@ const friendlyName = (info: Parameters<typeof itemFriendlyName>[0], count: numbe
 
 export function createClassicUi(ctx: GameUiContext): GameUi {
   const { stage, screen, session, sound, player, world, actions } = ctx;
-  const { itemInfos, gameInfo, inventory, hero, heroItems, itemChanges, magic, quests, creatures, chatItems } = ctx.models;
+  const {
+    itemInfos, gameInfo, inventory, hero, heroItems, itemChanges, magic, quests, creatures, chatLog, hudState, account, currentMap,
+    itemPick, heroStats, mount, fishing, group: groupState, trade: tradeState, rental: rentalState,
+  } = ctx.models;
   const [width] = screen;
   const send = (f: Uint8Array) => ctx.send(f);
-  const chat = (text: string, type: number) => chatDialog.receiveChat(text, type);
+  const chat = (text: string, type: number) => chatLog.receive(text, type);
   const userName = () => player.user?.name ?? "";
 
   // — HUD (GameScene ctor): MainDialog, ChatDialog + ChatControlBar, MenuDialog; the rest below —
-  /** GameScene.PickedUpGold: the GoldLabel was clicked; the next map click asks how much gold to drop. */
-  let pickedUpGold = false;
   const mainDialog = new MainDialog(screen, {
     inventory: () => inventoryWindow.toggle(),
     character: () => characterWindow.openPage("character"),
@@ -80,13 +84,11 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
     options: () => optionWindow.toggle(),
     menu: () => menuDialog.toggle(),
     gameShop: () => gameShop.toggle(),
-    gold: () => { if (inventoryWindow.pickedInventorySlot < 0) pickedUpGold = !pickedUpGold && inventory.gold > 0; },
+    gold: () => itemPick.toggleHudGold(inventory.gold), // GameScene.PickedUpGold (itemPick.ts hudGold)
   });
   const chatDialog = new ChatDialog({
-    screen, mainX: mainDialog.location[0], send: (f) => session.send(f),
-    chatItem: (id) => chatItems.get(id),
+    screen, mainX: mainDialog.location[0], log: chatLog,
     describe: (item) => inventoryWindow.describe(item),
-    chatNotice: (text) => extras.showChatNotice(text),
     chatOptions: () => chatOptions.toggle(),
     trade: () => trade.request(),
   });
@@ -98,12 +100,12 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
     group: () => group.toggle(), guild: () => guild.toggle(),
   });
 
-  const inventoryWindow = new InventoryWindow(stage, inventory, () => performance.now());
-  const npcWindow = new NpcWindow(stage, session, inventory, itemInfos, inventoryWindow, () => performance.now(), gameInfo);
+  const inventoryWindow = new InventoryWindow(stage, inventory, () => performance.now(), itemPick);
+  const npcWindow = new NpcWindow(stage, session, inventory, itemInfos, inventoryWindow, () => performance.now(), gameInfo, currentMap);
   /** TrustMerchantDialog (NPCMarket / NPCMarketPage / MarketFail / MarketSuccess; closes with the NPC dialog). */
   const market = new MarketWindow(stage, inventory, inventoryWindow, send, (t, ty) => chat(t, ty), () => performance.now(), npcWindow);
   /** StorageDialog (opened by S.NPCStorage; the items live in inventory.storage). */
-  const storageWindow = new StorageWindow(stage, inventoryWindow, send, (t, ty) => chat(t, ty), npcWindow);
+  const storageWindow = new StorageWindow(stage, inventoryWindow, send, (t, ty) => chat(t, ty), npcWindow, account);
   /** NPC item services: refine, wedding ring, crafting, awakening, disassemble / downgrade / reset, pearl shop. */
   const npcServices = new NpcServices({
     stage, send, inv: inventory, infos: itemInfos, invWindow: inventoryWindow, npc: npcWindow,
@@ -112,14 +114,11 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
   /** Sockets / mount and fishing slots, seal, combine, upgrade, rental items (itemChanges.ts) + their windows. */
   inventoryWindow.changes = itemChanges; // the bag's slot-item cells (was set by the SocketWindow ctor)
   new SocketWindow(stage, inventory, inventoryWindow, itemChanges, (i) => gameInfo.requestItem(i));
-  const rental = new RentalWindow(stage, inventory, inventoryWindow, itemChanges, send,
-    (t, ty) => chat(t, ty), userName, (i) => gameInfo.requestItem(i), () => performance.now());
+  const rental = new RentalWindow(stage, inventory, inventoryWindow, itemChanges, rentalState, userName);
   /** MountDialog, FishingDialog, FishingStatusDialog (J / N / Esc are registered by the windows; M rides via bindInput). */
-  const mountWindow = new MountWindow(stage, inventory, inventoryWindow, itemChanges, send,
-    () => { const u = player.user; return u && { id: u.id, mountType: u.mountType, ridingMount: u.ridingMount, action: u.action, fishing: u.fishing }; },
-    (i) => gameInfo.requestItem(i), () => performance.now());
-  const fishingWindow = new FishingWindow(stage, inventory, inventoryWindow, send, (i) => gameInfo.requestItem(i), () => performance.now());
-  const fishingStatus = new FishingStatusWindow(stage, inventory, inventoryWindow, send);
+  const mountWindow = new MountWindow(stage, inventory, inventoryWindow, itemChanges, mount, (i) => gameInfo.requestItem(i));
+  const fishingWindow = new FishingWindow(stage, inventory, inventoryWindow, fishing, (i) => gameInfo.requestItem(i));
+  const fishingStatus = new FishingStatusWindow(stage, inventoryWindow, fishing); // after FishingWindow: same subscription order
   const magicBar = new MagicBar(stage, magic, send);
   /** Hero skills (Ctrl+S, registered by the window; Shift+F1-F8 cast for the hero). */
   const heroMagicWindow = new HeroMagicWindow(stage, magic);
@@ -136,7 +135,7 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
     equipment: () => inventory.equipment, info: (item) => inventory.info(item),
   });
   /** OptionDialog (F12 / O), HelpDialog (H), ChatOptionDialog; MirButton click sounds on every stage button. */
-  const optionWindow = new OptionWindow(stage, send, (t, ty) => chat(t, ty), sound);
+  const optionWindow = new OptionWindow(stage, send, (t, ty) => chat(t, ty), sound, account);
   const helpWindow = new HelpWindow(stage, (o) => { // the shortcut pages show the live bindings (keybinds.ts)
     const opt = (KeybindOptions as Record<string, KeybindOption | undefined>)[o];
     return opt === undefined ? HELP_DEFAULT_KEYS[o] ?? "" : keyLabel(opt);
@@ -144,17 +143,17 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
   const chatOptions = new ChatOptionWindow(stage); // ChatDialog follows the [Filters] / TransparentChat settings itself
   const keyboardLayout = new KeyboardLayoutWindow(stage); // KeyboardLayoutDialog (U), rebinding through keybinds.ts
   installClickSounds(stage, (id) => sound.play(id));
-  const bigMap = new BigMap(stage, gameInfo, send, () => inventory.gold);
-  const group = new Group(stage, send, (t, ty) => chat(t, ty), userName);
+  const bigMap = new BigMap(stage, gameInfo, send, () => inventory.gold, currentMap);
+  const group = new Group(stage, groupState, (t, ty) => chat(t, ty), userName);
   bigMap.onWalk = (cell) => world.walkTo(cell); // MapControl.AutoPath
-  const trade = new TradeWindow(stage, inventory, inventoryWindow, send, (t, ty) => chat(t, ty), userName);
+  const trade = new TradeWindow(stage, inventory, inventoryWindow, tradeState, userName);
   const guild = new Guild(stage, send, (t, ty) => chat(t, ty), userName, () => performance.now(),
     () => chatDialog.setText("!~"), inventoryWindow, () => inventory.gold,
     (stats) => actions.setGuildBuff(stats));
-  const extras = new HudExtras({
-    stage, send, now: () => performance.now(), play: (id) => sound.play(id), screen,
-    callNpcPage: (page) => npcWindow.callPage(page),
-  });
+  const extras = new HudExtras({ stage, state: hudState, now: () => performance.now(), screen });
+  // RollDialog.ReturnResult: C.CallNPC "[page]" through the NPC dialog (GameScene.NPCID, NPCTime)
+  const offRoll = hudState.rollDone.on(({ page }) => npcWindow.callPage(page));
+  ctx.signal.addEventListener("abort", offRoll);
   const characterWindow = new CharacterWindow(stage, () => {
     const user = player.user;
     return {
@@ -209,19 +208,11 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
     ]);
   }
   /** Hero panels (info, menu, behaviour, buffs, summon), hero character (Ctrl+C), manage + create dialogs. */
-  const heroChar = new HeroCharacterWindow(stage, hero, itemInfos, () => performance.now(), () => magic.heroMagics);
+  const heroChar = new HeroCharacterWindow(stage, hero, heroStats);
   /** The hero's bag, belt (7 / 8), equipment and auto-pot (Ctrl+I); cells share the inventory pick. */
   const heroInventoryWindow = new HeroInventoryWindow(stage, hero, heroItems, inventoryWindow, () => performance.now());
-  // MirItemCell.CanWearItem with the hero as the wearer (UserHeroObject stats from heroCharacterWindow; a model hook set
-  // here until the hero stats leave the window, phase 1b heroStats.ts)
-  heroItems.canWear = (item, slot) => {
-    const h = hero.info, stats = heroChar.stats(), info = itemInfos.get(item.ItemIndex);
-    if (!h || !stats || !info) return null; // no data yet: let the server decide
-    const cur = h.equipment[slot] ?? null, curInfo = cur ? itemInfos.get(cur.ItemIndex) : undefined;
-    const weapon = h.equipment[EquipmentSlot.Weapon];
-    return canWearItem({ cls: h.cls, gender: h.gender, level: h.level, stats, weaponInfo: weapon ? itemInfos.get(weapon.ItemIndex) : undefined },
-      item, info, cur && curInfo ? { item: cur, info: curInfo } : null);
-  };
+  /** MapControl.OnMouseClick with a picked item (itemDrop.ts): hero bag item, bag item, picked HUD gold. */
+  const itemDrop = new ItemDrop({ pick: itemPick, inventory, itemInfos, hero, heroItems, clearPick: () => inventoryWindow.clearPick() }, classicDropPrompts);
   const openHeroInventory = (): void => heroInventoryWindow.toggle();
   const heroPanels = new HeroPanels(stage, hero, send, {
     openSkills: () => heroMagicWindow.toggle(),
@@ -229,7 +220,7 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
     openCharacter: () => heroChar.toggle(),
   }, {
     main: mainDialog.win, mainLocation: mainDialog.location, screen,
-    maxHp: () => heroChar.maxHp(), maxMp: () => heroChar.maxMp(), itemImage: (i) => itemInfos.get(i)?.Image,
+    heroStats, itemImage: (i) => itemInfos.get(i)?.Image,
   });
   new HeroManageWindow(stage, hero, send);
   new NewHeroWindow(stage, hero, send);
@@ -244,13 +235,13 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
   const relationship = new RelationshipWindow(stage, send, (t, ty) => chat(t, ty), prefillChat);
   const mentor = new MentorWindow(stage, send, (t, ty) => chat(t, ty), () => ({ name: userName(), level: player.level, cls: player.user?.look.class ?? 0 }));
   const inspect = new InspectWindow(stage, send, (t, ty) => chat(t, ty), prefillChat,
-    () => group.list, userName, () => performance.now(), inventoryWindow, gameInfo);
+    () => groupState.list, userName, () => performance.now(), inventoryWindow, gameInfo, account);
   const ranking = new RankingWindow(stage, send, userName, inspect);
   const mail = new MailWindow(stage, inventory, inventoryWindow, send, (t, ty) => chat(t, ty), (i) => gameInfo.requestItem(i));
   inspect.composeMail = (n) => mail.composeLetter(n);
   market.mailTo = (name, msg) => mail.composeLetter(name, msg);
   mail.onHelp = () => helpWindow.toggle(true);
-  const friends = new FriendWindow(stage, send, (t, ty) => chat(t, ty), (name) => mail.composeLetter(name));
+  const friends = new FriendWindow(stage, send, (t, ty) => chat(t, ty), (name) => mail.composeLetter(name), prefillChat);
   relationship.composeMail = (n) => mail.composeLetter(n);
   /** Section 5: game shop (Y / Shop button) and the guild territory list (opened by the server). */
   const gameShop = new GameShopWindow(stage, inventoryWindow, send, (t, ty) => chat(t, ty),
@@ -259,41 +250,24 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
   /** IntelligentCreatureDialog (E; X / Alt+A pick up at the mouse cell, via bindInput). */
   const creatureWindow = new CreatureWindow(stage, creatures, send, (t, ty) => chat(t, ty), () => world.mouseCell());
 
-  /** The window half of GameScene.ProcessPacket, in game.ts's old order and with its early returns. */
+  /** The window half of GameScene.ProcessPacket, in game.ts's old order and with its early returns (the models game.ts
+   *  runs first took rental, AllowObserve, creatures, the HUD packets, group and trade out of this chain). */
   function handle(p: ServerPacket): boolean {
-    rental.handle(p);
     questWindow.handle(p);
-    // S.AllowObserve: GameScene.AllowObserve, shown by OptionDialog and checked by InspectDialog (both get it)
-    if (p.type === "AllowObserve") { optionWindow.handle(p); inspect.handle(p); return true; }
-    creatureWindow.handle(p); // the creature list + window (false for UserInformation, so nothing is skipped)
-    if (extras.handle(p)) return true;
     storageWindow.handle(p);
     if (relationship.handle(p) || mentor.handle(p) || inspect.handle(p) || ranking.handle(p) || mail.handle(p) || friends.handle(p)) return true;
     if (gameShop.handle(p) || territories.handle(p)) return true;
-    group.handle(p);
-    trade.handle(p);
     guild.handle(p, (name) => actions.setUserGuild(name));
     npcWindow.handle(p);
     npcServices.handle(p);
     bigMap.handle(p);
-    // GameScene.MapInformation / MapChanged: BigMapDialog index (was set in game.ts's switch; nothing reads it in between)
-    if (p.type === "MapInformation" || p.type === "MapChanged") bigMap.bigMapIndex = p.BigMap;
     return market.handle(p);
   }
 
   function notify(e: UiEvent): void {
     switch (e.kind) {
       case "itemInfo": inventoryWindow.render(); break;
-      case "allowObserve": optionWindow.setAllowObserve(e.allow); inspect.setUserAllowObserve(e.allow); break; // GameScene.UserInformation: AllowObserve
-      case "mountUpdate": mountWindow.handle(e.packet); break;
-      case "fishingUpdate": {
-        const u = player.user;
-        if (u) { fishingWindow.handle(e.packet, u.id); fishingStatus.handle(e.packet, u.id); }
-        break;
-      }
-      case "heroStats": heroChar.invalidate(); break;
       case "gameDataApplied":
-        heroChar.invalidate();
         if (e.shopChanged && gameShop.visible) gameShop.updateShop();
         break;
     }
@@ -316,8 +290,8 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
       case "afterRender": {
         const user = player.user;
         if (!user) break;
-        miniMap.draw(world.map, world.miniMapIndex, world.mapTitle, user, world.objects.values(), (n) => group.has(n));
-        bigMap.draw(world.map, world.mapTitle, user, world.objects.values(), group);
+        miniMap.draw(world.map, world.miniMapIndex, world.mapTitle, user, world.objects.values(), (n) => groupState.has(n));
+        bigMap.draw(world.map, world.mapTitle, user, world.objects.values(), groupState);
         break;
       }
       case "end": {
@@ -341,31 +315,11 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
     }
   }
 
-  /** MapControl.OnMouseClick with a picked item: hero bag item, bag item (GameScene.SelectedCell), picked gold. */
+  /** MapControl.OnMouseClick with a picked item (left button): hero bag item, bag item (GameScene.SelectedCell), picked
+   *  HUD gold, in that order (itemDrop.ts). */
   function mapMouseDown(e: MouseEvent): boolean {
-    // An inventory item is picked: a click on the map drops it (GameScene: SelectedCell + map click -> DropItem)
-    if (e.button === 0 && heroInventoryWindow.mapDrop()) return true; // a picked hero item dropped on the map
-    const slot = inventoryWindow.pickedInventorySlot;
-    if (slot >= 0 && e.button === 0) {
-      // MapControl.OnMouseClick with GameScene.SelectedCell: DontDrop refusal, YesNo for one item, MirAmountBox for a stack
-      const item = inventory.inventory[slot];
-      const info = item ? itemInfos.get(item.ItemIndex) : undefined;
-      if (item) {
-        const name = info ? friendlyName(info, item.Count) : "this item";
-        if (info && (info.Bind & BindMode.DontDrop)) messageBox(stage, `You cannot drop ${name}`, [{ label: "OK" }]);
-        else if (item.Count === 1) messageBox(stage, `Are you sure you want to drop ${name}?`, [{ label: "Yes", onClick: () => inventory.drop(slot) }, { label: "No" }]);
-        else amountBox("Drop Amount:", info?.Image ?? 0, item.Count, (n) => { if (n > 0) inventory.drop(slot, n); });
-      }
-      inventoryWindow.clearPick();
-      return true;
-    }
-    // GameScene.PickedUpGold: MirAmountBox (Items 116) -> C.DropGold
-    if (pickedUpGold && e.button === 0) {
-      pickedUpGold = false;
-      amountBox("Drop Amount:", 116, inventory.gold, (n) => { if (n > 0) inventory.dropGold(n); });
-      return true;
-    }
-    return false;
+    if (e.button !== 0) return false;
+    return itemDrop.mapClick();
   }
 
   function command(c: UiCommand): void {
@@ -383,7 +337,7 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
     input.register("gameplay", (e) => {
       const a = document.activeElement;
       if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement) return;
-      if (!matches(e, KeybindOptions.MountWindow) && matches(e, KeybindOptions.Mount) && mountWindow.canRide()) mountWindow.ride();
+      if (!matches(e, KeybindOptions.MountWindow) && matches(e, KeybindOptions.Mount) && mount.canRide()) mount.ride();
     });
     // GameScene KeybindOptions.CreaturePickup (X) / CreatureAutoPickup (Alt+A); same else-if chain as the window's listener
     input.register("gameplay", (e) => {
@@ -400,8 +354,6 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
     handle,
     notify,
     frame,
-    chat,
-    output: (text) => extras.output(text),
     confirm: (text, yes, opts) => messageBox(stage, text, [
       { label: "Yes", primary: opts?.primary, onClick: yes }, { label: "No", onClick: opts?.no }]),
     amount: (title, image, max, ok) => amountBox(title, image, max, ok),
@@ -412,7 +364,6 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
     prefillChat,
     mapMouseDown,
     command,
-    inGroup: (name) => group.has(name),
     shopItems: (): GameShopItem[] => gameShop.items,
     bindInput,
     debug: {

@@ -12,22 +12,20 @@
 //   ChatControlBar  Prguse 2034 above the chat: the tab buttons (All / Shout / Whisper / Lover / Mentor / Group / Guild)
 //                   pick ChatPrefix, Trade (C.TradeRequest), Size (ChangeSize), Settings (ChatOptionDialog). Report is
 //                   hidden like the desktop.
+// The messages, LastPM, LinkedItems, ChatPrefix, the chat items and the send logic live in the ChatLog model
+// (src/game/chatLog.ts); this window is a view over it (it wraps and colours each `added` message).
 
 import type { UserItem } from "../protocol/server.ts";
-import { ClientPackets } from "../protocol/client.ts";
 import { ChatType } from "../protocol/enums.generated.ts";
 import { SoundList } from "../game/audio.ts";
 import { KeybindOptions, keyLabel, matchesAnyBinding } from "../game/keybinds.ts";
 import { gameSettings, setSetting, onSettingChange } from "../game/settings.ts";
 import { gameSignal } from "../game/scope.ts";
-import { tryLightingCommand } from "../game/lightingEnhanced.ts";
+import { chatVisible, CHAT_TAB_PREFIX, CHAT_LINK, MAX_CHAT_LENGTH, type ChatLog } from "../game/chatLog.ts";
 import { MirWindow, MirButton, MirImage, MirLabel, MirTextBox, Lib, styleTooltip, getUiRoot } from "./mir/controls.ts";
-import { chatVisible, CHAT_TAB_PREFIX } from "./chatOptionWindow.ts";
 import { pixelDetect, scaleOf } from "./hudCommon.ts";
 
-const MAX_CHAT_LENGTH = 80; // Globals.MaxChatLength
 const CHAT_WIDTH = 614;
-const CHAT_LINK = /<([^<>]*?)\/(\d+)>/g; // RegexFunctions.ChatItemLinks
 
 /** ChatDialog.ReceiveChat: [back, fore] per ChatType. */
 function chatColours(type: number): [string, string] {
@@ -63,13 +61,10 @@ export interface ChatWorld {
   screen: readonly [number, number];
   /** MainDialog.Location.X. */
   mainX: number;
-  send: (f: Uint8Array) => void;
-  /** GameScene.ChatItemList (S.NewChatItem) by UniqueID. */
-  chatItem: (uniqueId: string) => UserItem | undefined;
+  /** The chat model: messages, LastPM, LinkedItems, ChatPrefix, ChatItemList (S.NewChatItem), C.Chat. */
+  log: ChatLog;
   /** The item text for a chat link (GameScene.CreateItemLabel). */
   describe: (item: UserItem) => string;
-  /** ChatNoticeDialog.ShowNotice. */
-  chatNotice: (text: string) => void;
   /** ChatControlBar.SettingsButton: ChatOptionDialog Show / Hide. */
   chatOptions: () => void;
   /** ChatControlBar.TradeButton. */
@@ -91,15 +86,12 @@ export class ChatDialog {
   private readonly positionBar: MirButton;
   private readonly tabButtons = new Map<string, [MirButton, number]>();
   private lines: MirLabel[] = [];
+  /** The log's messages as wrapped rows (ChatDialog.FullHistory). */
   private full: ChatHistory[] = [];
   private history: ChatHistory[] = [];
   private startIndex = 0;
   private lineCount = 4;
   private windowSize = 0;
-  private chatPrefix = "";
-  private lastPM = "";
-  /** ChatDialog.LinkedItems. */
-  private linkedItems: { UniqueID: bigint; Title: string; Grid: number }[] = [];
   private tooltip: HTMLDivElement | null = null;
 
   constructor(w: ChatWorld) {
@@ -162,7 +154,10 @@ export class ChatDialog {
       if (key.startsWith("Filter")) this.update();
       if (key === "TransparentChat") this.updateTransparency();
     });
-    gameSignal().addEventListener("abort", () => { off(); this.win.dispose(); this.bar.dispose(); this.tooltip?.remove(); });
+    // ChatDialog.ReceiveChat: the log's messages (any already there, then each new one)
+    for (const m of w.log.messages) this.addRows(m.text, m.type);
+    const offAdded = w.log.added.on((m) => this.addRows(m.text, m.type));
+    gameSignal().addEventListener("abort", () => { off(); offAdded(); this.win.dispose(); this.bar.dispose(); this.tooltip?.remove(); });
     this.updateTransparency();
     this.update();
   }
@@ -192,7 +187,7 @@ export class ChatDialog {
   addLink(uniqueId: bigint, title: string, grid: number): boolean {
     const text = `<${title}> `;
     if (this.input.value.length + text.length > MAX_CHAT_LENGTH) return false;
-    this.linkedItems.push({ UniqueID: uniqueId, Title: title, Grid: grid });
+    this.w.log.addLink({ UniqueID: uniqueId, Title: title, Grid: grid });
     this.setText(this.input.value + text);
     return true;
   }
@@ -200,20 +195,13 @@ export class ChatDialog {
   private closeInput(): void {
     this.showTextBox(false);
     this.input.value = "";
-    this.linkedItems = [];
+    this.w.log.clearLinks();
     this.input.blur();
   }
 
-  /** ChatTextBox_KeyPress Enter. */
+  /** ChatTextBox_KeyPress Enter (ChatLog.submit: local commands, C.Chat, LastPM). */
   private sendText(): void {
-    const msg = this.input.value;
-    if (msg) {
-      if (msg.toUpperCase() === "@LEVELEFFECT") setSetting("LevelEffect", !gameSettings.LevelEffect);
-      if (msg.toUpperCase() === "@TARGETDEAD") setSetting("TargetDead", !gameSettings.TargetDead);
-      if (tryLightingCommand(msg, (t, ty) => this.receiveChat(t, ty))) { this.closeInput(); return; }
-      this.w.send(ClientPackets.Chat({ Message: msg, LinkedItems: this.linkedItems.filter((i) => msg.includes(`<${i.Title}>`)) }));
-      if (msg[0] === "/") this.lastPM = msg.split(" ")[0]!;
-    }
+    this.w.log.submit(this.input.value);
     this.closeInput();
   }
 
@@ -225,11 +213,11 @@ export class ChatDialog {
     switch (e.key) {
       case "@": case "!": case " ": case "Enter":
         e.preventDefault();
-        this.setText(this.chatPrefix !== "" ? this.chatPrefix : e.key === "!" || e.key === "@" ? e.key : "");
+        this.setText(this.w.log.prefix !== "" ? this.w.log.prefix : e.key === "!" || e.key === "@" ? e.key : "");
         return;
       case "/":
         e.preventDefault();
-        this.setText(this.lastPM + " ");
+        this.setText(this.w.log.lastPM + " ");
         return;
     }
     if (matchesAnyBinding(e)) return;
@@ -277,10 +265,9 @@ export class ChatDialog {
     window.addEventListener("pointerup", up);
   }
 
-  /** ChatDialog.ReceiveChat: colours, word wrap (never inside an item link), auto-scroll at the bottom. */
-  receiveChat(text: string, type: number): void {
+  /** ChatDialog.ReceiveChat's view half: colours, word wrap (never inside an item link), auto-scroll at the bottom. */
+  private addRows(text: string, type: number): void {
     const [back, fore] = chatColours(type);
-    if (type === ChatType.Announcement) this.w.chatNotice(text.replace(CHAT_LINK, "$1")); // RegexFunctions.CleanChatString
     const parts: string[] = [];
     let index = 0;
     for (let i = 1; i < text.length; i++) {
@@ -321,7 +308,7 @@ export class ChatDialog {
       let last = 0;
       for (const m of h.text.matchAll(CHAT_LINK)) {
         label.el.append(h.text.slice(last, m.index));
-        const item = this.w.chatItem(m[2]!);
+        const item = this.w.log.chatItem(m[2]!);
         if (item) label.el.append(this.chatLink(m[1]!, item));
         else label.el.append(m[1]!);
         last = m.index! + m[0].length;
@@ -376,7 +363,7 @@ export class ChatDialog {
       if (n === name) button.setIndices(index + 2, index + 2, index + 2);
       else button.setIndices(index, index + 1, index + 2);
     }
-    this.chatPrefix = CHAT_TAB_PREFIX[name];
+    this.w.log.selectTab(name);
   }
 
   /** ChatDialog.ChangeSize (+ ChatControlBar.SizeButton moving the bar): 4 / 7 / 11 lines, the bottom stays put. */

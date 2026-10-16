@@ -8,7 +8,7 @@
 import type { Session } from "./session.ts";
 import type { ServerPacket, PacketOf } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
-import { MirAction as A, ObjectType, ChatType, Spell, LightSetting, DamageType } from "../protocol/enums.generated.ts";
+import { MirAction as A, ObjectType, ChatType, Spell, DamageType } from "../protocol/enums.generated.ts";
 import type { WirePoint } from "../protocol/binaryCodec.ts";
 import type { StartInfo } from "../ui/screens.ts";
 import { WebGl2Renderer } from "../render/backend.ts";
@@ -34,6 +34,17 @@ import { GameInfo } from "./gameInfo.ts";
 import { ItemChanges } from "./itemChanges.ts";
 import { Hero } from "./hero.ts";
 import { Creatures } from "./creatures.ts";
+import { ChatLog } from "./chatLog.ts";
+import { HudState } from "./hudState.ts";
+import { Account } from "./account.ts";
+import { CurrentMap } from "./currentMap.ts";
+import { ItemPick } from "./itemPick.ts";
+import { HeroStats } from "./heroStats.ts";
+import { MountState } from "./mountState.ts";
+import { Fishing } from "./fishing.ts";
+import { GroupState } from "./group.ts";
+import { Trade } from "./trade.ts";
+import { Rental } from "./rental.ts";
 import { HeroItems } from "./heroItems.ts";
 import { Weather } from "./weather.ts";
 import { gameSettings, uiStyle } from "./settings.ts";
@@ -43,7 +54,7 @@ import { Quests, questIconImage } from "./quests.ts";
 import { refreshStats, type UserStats } from "./stats.ts";
 import { canWearItem } from "./canWear.ts";
 import { gameSignal, endGameScope } from "./scope.ts";
-import type { BaseStats, SelectInfo, UserItem } from "../protocol/server.ts";
+import type { BaseStats, SelectInfo } from "../protocol/server.ts";
 import { findPath } from "./pathFinder.ts";
 import { monsterSound, playerSound, fishingFrame, intelligentCreaturePickupSound, type SoundWorld } from "./sounds.ts";
 import { canFish, canRideAttack, canCastNextMagic, canUseSpell, canHarvest, canRangeAttack, isFishingAction, isIdleAction, runDistance, transformTypeFromBuffs } from "./riding.ts";
@@ -142,8 +153,9 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
 
   // — Models (src/game) and world state: built before the UI, which reads them through the GameUiContext below —
   let map: MapCells = blankMap();
-  let mapTitle = "", mapFile = "";
-  const lightState: LightState = { mapLights: LightSetting.Normal, timeOfDay: LightSetting.Day, mapDarkLight: 0 };
+  /** MapControl Index / FileName / Title / MiniMap / BigMap + the map lights (currentMap.ts). */
+  const currentMap = new CurrentMap();
+  const lightState: LightState = currentMap.lights;
   const itemInfos = new ItemInfos();
   /** GameScene MonsterInfoList / NPCInfoList / MapInfoList (NPC page links, big map / world map). */
   const gameInfo = new GameInfo((f) => session.send(f), itemInfos);
@@ -166,6 +178,12 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   });
   const sound = new SoundManager();
   const play = (id: number) => sound.play(id);
+  /** ChatDialog's state + MirScene.ChatItemList (chatLog.ts). */
+  const chatLog = new ChatLog((f) => session.send(f));
+  /** Output lines, notice, timers, compass, chat notice, roll (hudState.ts). */
+  const hudState = new HudState({ send: (f) => session.send(f), now: () => performance.now(), play: (id) => sound.play(id), chatLog });
+  /** GameScene.AllowObserve + the UserObject storage flags (account.ts). */
+  const account = new Account();
   /** BuffsDialog.Buffs (the user's). */
   let userBuffs: UserBuff[] = [];
   const doors = new Doors();
@@ -173,9 +191,10 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   let autoPath: WirePoint[] | null = null;
   /** The hero's bag, belt (7 / 8), equipment and auto-pot (heroItems.ts). */
   const heroItems = new HeroItems(hero, inventory, (f) => session.send(f));
+  /** GameScene.SelectedCell / PickedUpGold (itemPick.ts), shared by the UIs. */
+  const itemPick = new ItemPick();
   /** Quests: state (quests.ts); the windows are the UI's. */
   const quests = new Quests((f) => session.send(f), itemInfos);
-  let miniMapIndex = 0; // MapControl.MiniMap
   const objects = new Map<number, MapObj>();
   /** Floating damage numbers per object id (damageNumbers.ts); `critAt` = when S.DamageIndicator Critical arrived, the next Hit is the crit. */
   const damageNumbers = new Map<number, DamageNumber[]>();
@@ -191,11 +210,23 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   let statsDirty = true;
   /** GameScene.LogTime: no log out / quit before this (S.Struck, attacking a target, casting; 0 on S.Death). */
   let logTime = 0;
-  /** GameScene.ChatItemList (S.NewChatItem, for incoming chat links). */
-  const chatItems = new Map<string, UserItem>();
   let disposed = false, rafId = 0;
-  /** Intelligent creatures: UserObject.IntelligentCreatures (creatures.ts; fed by the classic CreatureWindow until phase 1b). */
+  /** Intelligent creatures: UserObject.IntelligentCreatures (creatures.ts). */
   const creatures = new Creatures();
+  /** UserHeroObject.Stats (the hero character window, hero info panel, hero CanWearItem). */
+  const heroStats = new HeroStats(hero, itemInfos, () => performance.now(), () => magic.heroMagics);
+  /** PlayerObject.MountTime + MountDialog.CanRide / Ride. */
+  const mountState = new MountState((f) => session.send(f),
+    () => user && { id: user.id, mountType: user.mountType, ridingMount: user.ridingMount, action: user.action, fishing: user.fishing },
+    () => performance.now());
+  /** FishingStatusDialog state (S.FishingUpdate for the user). */
+  const fishing = new Fishing(inventory, (f) => session.send(f), () => user?.id ?? null);
+  /** GroupDialog roster + GameScene group handlers. */
+  const group = new GroupState((f) => session.send(f), (t, ty) => chat(t, ty));
+  /** GuestTradeDialog + GameScene trade handlers (the user's side is Inventory). */
+  const trade = new Trade((f) => session.send(f));
+  /** Rental guest side + rented-items list (the user's side is ItemChanges). */
+  const rental = new Rental(itemChanges, inventory, (f) => session.send(f), (i) => gameInfo.requestItem(i), () => performance.now());
 
   /** "Cannot leave game for {0} seconds" (ClientTextKeys.CannotLeaveGame, (LogTime - CMain.Time) / 1000). */
   const cannotLeave = (t: number) => `Cannot leave game for ${Math.trunc((logTime - t) / 1000)} seconds`;
@@ -216,10 +247,13 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   };
   const ctx: GameUiContext = {
     stage, screen, signal, send: (f) => session.send(f), now: () => performance.now(), sound, session,
-    models: { itemInfos, gameInfo, inventory, hero, heroItems, itemChanges, magic, quests, creatures, chatItems },
+    models: {
+      itemInfos, gameInfo, inventory, hero, heroItems, itemChanges, magic, quests, creatures, chatLog, hudState, account, currentMap,
+      itemPick, heroStats, mount: mountState, fishing, group, trade, rental,
+    },
     player,
     world: {
-      get map() { return map; }, get mapTitle() { return mapTitle; }, get miniMapIndex() { return miniMapIndex; }, lights: lightState, objects,
+      get map() { return map; }, get mapTitle() { return currentMap.title; }, get miniMapIndex() { return currentMap.miniMapIndex; }, lights: lightState, objects,
       mouseCell: () => (user ? view.mapLocation(mouse.x, mouse.y, user) : null),
       walkTo: (cell) => {
         if (!user) return;
@@ -261,6 +295,15 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   itemChanges.userState = () => ({ ridingMount: !!user?.ridingMount, fishing: !!user?.fishing });
   heroItems.refuse = (text) => chat(text, ChatType.System);
   heroItems.ask = (text, yes) => { ui.confirm(text, yes); };
+  // MirItemCell.CanWearItem with the hero as the wearer (UserHeroObject stats: heroStats.ts)
+  heroItems.canWear = (item, slot) => {
+    const h = hero.info, stats = heroStats.stats(), info = itemInfos.get(item.ItemIndex);
+    if (!h || !stats || !info) return null; // no data yet: let the server decide
+    const cur = h.equipment[slot] ?? null, curInfo = cur ? itemInfos.get(cur.ItemIndex) : undefined;
+    const weapon = h.equipment[EquipmentSlot.Weapon];
+    return canWearItem({ cls: h.cls, gender: h.gender, level: h.level, stats, weaponInfo: weapon ? itemInfos.get(weapon.ItemIndex) : undefined },
+      item, info, cur && curInfo ? { item: cur, info: curInfo } : null);
+  };
   // MapControl.UseMagic: GameScene.LogTime = CMain.Time + Globals.LogDelay on the user's casts (magic.ts sendCast)
   magic.onCast(() => { logTime = now() + LOG_DELAY; });
 
@@ -378,18 +421,17 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   };
   const now = () => performance.now();
 
-  /** ChatDialog.ReceiveChat (the UI's chat). */
+  /** ChatDialog.ReceiveChat (chatLog.ts; the UI renders the lines from its `added` event). */
   function chat(text: string, type: number): void {
-    ui.chat(text, type);
+    chatLog.receive(text, type);
   }
 
   async function loadMap(fileName: string): Promise<void> {
-    mapFile = fileName;
     map = blankMap();
     try {
       rememberMap(fileName);
       const parsed = await mapCells(fileName);
-      if (mapFile === fileName) map = parsed;
+      if (currentMap.fileName === fileName) map = parsed; // currentMap.handle took the name first
     } catch (e) {
       chat(`Could not load map ${fileName}: ${(e as Error).message}`, ChatType.System);
     }
@@ -402,7 +444,6 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   }
 
   function setupUser(p: PacketOf<"UserInformation">): void {
-    ui.notify({ kind: "allowObserve", allow: p.AllowObserve }); // GameScene.UserInformation: AllowObserve
     if (user) objects.delete(user.id);
     const u = new MapObj(p.ObjectID, ObjectType.Player, p.Location, p.Direction);
     u.isUser = true;
@@ -486,18 +527,28 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     if (hero.handle(p) && p.type === "HeroLevelChanged") play(SoundList.LevelUp); // GameScene.HeroLevelChanged
     if (inventory.handle(p)) { refreshUserLooks(); statsDirty = true; }
     if (itemChanges.handle(p)) { refreshUserLooks(); statsDirty = true; } // after inventory.handle (DeleteItem, bait MergeItem)
-    if (heroItems.handle(p)) { refreshUserLooks(); statsDirty = true; ui.notify({ kind: "heroStats" }); } // TakeBack / Transfer change the user's bag too
+    if (heroItems.handle(p)) { refreshUserLooks(); statsDirty = true; heroStats.invalidate(); } // TakeBack / Transfer change the user's bag too
     magic.handle(p); // (the classic RentalWindow used to run just before it: no packet reaches both)
     if (STATS_PACKETS.has(p.type)) statsDirty = true;
     quests.handle(p); // reads UserInformation / LevelChanged too, so never returns early
-    // The UI's packets (classic: rental, quest share, options / inspect, creatures, HUD extras, storage, social, shop,
-    // group, trade, guild, NPC, big map, market windows, in that order); true = consumed
+    // The models the classic windows used to feed (phase 1b), with the old classic ui.handle early returns. Each only
+    // reads packets no earlier handler of the old chain reacted to, so moving them ahead of the windows keeps the order.
+    rental.handle(p); // was first in the classic ui.handle; never consumes
+    chatLog.handle(p); // MirScene.NewChatItem; never consumes
+    currentMap.handle(p); // MapInformation / MapChanged / TimeOfDay / MapAtmosphere; never consumes (BigMap / NpcWindow read it)
+    if (account.handle(p)) return; // S.AllowObserve consumed (UserInformation / storage packets are only read)
+    creatures.handle(p); // the creature packets (the classic ui.handle ignored this return: nothing else reads them)
+    if (hudState.handle(p)) return; // output / notice / timers / compass / roll / browser / NPC input: consumed
+    group.handle(p); // never consumes
+    trade.handle(p); // never consumes
+    // The UI's packets (classic: quest share, storage, social, shop, guild, NPC, big map, market windows, in that
+    // order); true = consumed
     if (ui.handle(p)) return;
     if (gameInfo.handle(p)) return;
     switch (p.type) {
       case "GainExperience":
         // GameScene.GainExperience (OutputMessage)
-        ui.output(`Experience Gained ${p.Amount}`);
+        hudState.output(`Experience Gained ${p.Amount}`);
         experience += BigInt(p.Amount);
         break;
       case "BaseStatsInfo": baseStats = p.Stats; break;
@@ -506,23 +557,22 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
       case "LogOutSuccess": dispose(); exits.logOut(p.Characters); break;
       case "LogOutFailed": break; // GameScene.LogOutFailed: just re-enables the scene
       case "ReturnToLogin": dispose(); exits.returnToLogin(); break;
-      case "NewChatItem": chatItems.set(String(p.Item.UniqueID), p.Item); break; // MirScene.NewChatItem
       case "LevelChanged":
         experience = p.Experience; maxExperience = p.MaxExperience;
         level = p.Level;
         if (user) user.level = p.Level;
         refreshUserLooks(); // level-based items change shape (GetRealItem)
-        ui.output("Congratulations! You have leveled up. Your HP and MP have been restored."); // GameScene.LevelChanged
+        hudState.output("Congratulations! You have leveled up. Your HP and MP have been restored."); // GameScene.LevelChanged
         play(SoundList.LevelUp);
         break;
       case "GainedItem": {
         const info = itemInfos.get(p.Item.ItemIndex);
-        ui.output(`You gained ${info ? friendlyName(info.Name, p.Item.Count) : "an item"}.`); // GameScene.GainedItem
+        hudState.output(`You gained ${info ? friendlyName(info.Name, p.Item.Count) : "an item"}.`); // GameScene.GainedItem
         break;
       }
       // GameScene.GainedGold / GainedCredit / LoseCredit (inventory.ts keeps the amounts); "{0:###,###,###} {1}"
-      case "GainedGold": ui.output(`You gained ${p.Gold > 0 ? p.Gold.toLocaleString("en-US") : ""} Gold`); play(SoundList.Gold); break;
-      case "GainedCredit": if (p.Credit !== 0) { ui.output(`You gained ${p.Credit.toLocaleString("en-US")} Credit`); play(SoundList.Gold); } break;
+      case "GainedGold": hudState.output(`You gained ${p.Gold > 0 ? p.Gold.toLocaleString("en-US") : ""} Gold`); play(SoundList.Gold); break;
+      case "GainedCredit": if (p.Credit !== 0) { hudState.output(`You gained ${p.Credit.toLocaleString("en-US")} Credit`); play(SoundList.Gold); } break;
       case "LoseCredit": play(SoundList.Gold); break;
       case "NewItemInfo":
         itemInfos.add(p.Info);
@@ -534,23 +584,15 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
         if (ob && ob !== user) { ob.look = { ...ob.look, armour: p.Armour, weapon: p.Weapon, weaponEffect: p.WeaponEffect }; ob.light = p.Light; }
         break;
       }
-      case "MapInformation":
-        miniMapIndex = p.MiniMap;
+      case "MapInformation": // MiniMap / Title / Lights / MapDarkLight: currentMap.ts
         sound.playMusic(p.Music);
-        mapTitle = p.Title;
-        lightState.mapLights = p.Lights;
-        lightState.mapDarkLight = p.MapDarkLight;
         weather.set(p.WeatherParticles); // GameScene.MapInformation -> MapControl.Weather + UpdateWeather
         void loadMap(p.FileName);
         break;
-      case "MapChanged":
-        miniMapIndex = p.MiniMap;
+      case "MapChanged": // MiniMap / Title / Lights / MapDarkLight: currentMap.ts
         autoPath = null;
         attackTargetId = 0; // MapControl.ResetMap: TargetObjectID = 0
         sound.playMusic(p.Music);
-        mapTitle = p.Title;
-        lightState.mapLights = p.Lights;
-        lightState.mapDarkLight = p.MapDarkLight;
         weather.set(p.Weather); // GameScene.MapChanged -> MapControl.UpdateWeather
         for (const id of [...objects.keys()]) if (id !== user?.id) objects.delete(id);
         mapEffects.length = 0;
@@ -570,10 +612,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
         user.snap(p.Location, p.Direction);
         inputDelay = now() + 400;
         break;
-      case "TimeOfDay": lightState.timeOfDay = p.Lights; break;
-      case "MapAtmosphere": // GameScene.MapAtmosphere: LiveDb changed the current map's light / weather; applied in place, no reload
-        lightState.mapLights = p.Lights;
-        lightState.mapDarkLight = p.MapDarkLight;
+      case "MapAtmosphere": // GameScene.MapAtmosphere: LiveDb changed the current map's weather (lights: currentMap.ts); no reload
         if (weather.setting !== p.Weather) weather.set(p.Weather);
         break;
       case "HealthChanged": hp = p.HP; mp = p.MP; break;
@@ -746,7 +785,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
           playerSound(ob, "mount", soundWorld);
         }
         if (p.ObjectID === user?.id) { canRun = false; statsDirty = true; }
-        ui.notify({ kind: "mountUpdate", packet: p });
+        mountState.handle(p); // PlayerObject.MountTime for the user (MountDialog)
         break;
       }
       // — Section 6: the web admin's LiveDb push (GameScene.GameDataChanged) —
@@ -760,7 +799,8 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
         }, gameDataChanges);
         if (p.Last) { // the refresh after the last chunk: stats, skill bars, an open shop
           statsDirty = true;
-          ui.notify({ kind: "gameDataApplied", shopChanged: gameDataChanges.shop }); // hero stats, an open shop
+          heroStats.invalidate();
+          ui.notify({ kind: "gameDataApplied", shopChanged: gameDataChanges.shop }); // an open shop
           gameDataChanges.magics = false; gameDataChanges.shop = false;
         }
         break;
@@ -768,7 +808,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
       case "TransformUpdate": { const ob = objects.get(p.ObjectID); if (ob?.race === ObjectType.Player) ob.transformType = p.TransformType; break; }
       case "FishingUpdate":
         objects.get(p.ObjectID)?.fishingUpdate(p);
-        if (user) ui.notify({ kind: "fishingUpdate", packet: p });
+        if (user) fishing.handle(p); // FishingDialog / FishingStatusDialog state
         break;
       case "ObjectDied": {
         const ob = objects.get(p.ObjectID);
@@ -1110,7 +1150,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     const rideAttack = canRideAttack(u.ridingMount, inventory.equipment[EquipmentSlot.Mount]);
     const dazed = (u.poison & PoisonType.Dazed) !== 0;
     const inRange = (ob: MapObj) => Math.max(Math.abs(ob.location.X - u.location.X), Math.abs(ob.location.Y - u.location.Y)) <= MAX_ATTACK_RANGE;
-    const tooFar = () => { if (t >= outputDelay) { outputDelay = t + 1000; ui.output("Target is too far."); } };
+    const tooFar = () => { if (t >= outputDelay) { outputDelay = t + 1000; hudState.output("Target is too far."); } };
     const shoot = (direction: number, targetId: number, point: WirePoint) =>
       u.queue(A.AttackRange1, direction, u.location, { spell: Spell.None, targetId, targetPoint: { ...point }, cast: false, level: 0, secondaryTargetIds: [] });
 
@@ -1305,7 +1345,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
       if (ob.race === ObjectType.Monster) return OUTLINE_RED;
       if (ob.race === ObjectType.Merchant) return OUTLINE_BLUE;
     }
-    if (ob.race === ObjectType.Player && ob !== user && (ui.inGroup(ob.name) || (!!user?.guildName && ob.guildName === user.guildName))) return OUTLINE_BLUE;
+    if (ob.race === ObjectType.Player && ob !== user && (group.has(ob.name) || (!!user?.guildName && ob.guildName === user.guildName))) return OUTLINE_BLUE;
     return null;
   };
   let shiftHeld = false, altHeld = false;
@@ -1370,7 +1410,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   // Debug object; classic src/ui/userRefs.ts reads `user` / `itemInfos` from it. The UI's windows keep their old keys.
   (window as unknown as { crystalGame: unknown }).crystalGame = {
     ...ui.debug, ui,
-    objects, get user() { return user; }, get map() { return map; }, view, step, doors, itemChanges, weather, creatures, hero, heroItems, quests, get autoPath() { return autoPath; }, lightState, itemInfos, inventory, gameInfo, magic, mapEffects, sound, get userBuffs() { return userBuffs; },
+    objects, get user() { return user; }, get map() { return map; }, view, step, doors, itemChanges, weather, creatures, hero, heroItems, quests, chatLog, hudState, account, currentMap, itemPick, heroStats, mountState, fishing, groupState: group, tradeState: trade, rentalState: rental, get autoPath() { return autoPath; }, lightState, itemInfos, inventory, gameInfo, magic, mapEffects, sound, get userBuffs() { return userBuffs; },
     get fps() { return fps; }, get loading() { return loadingCount(); },
     /** Debug/test hook: hold a mouse button at a canvas pixel (buttons: 1 left, 2 right, 0 release). */
     mouse(x: number, y: number, b: number) { mouse = { x, y }; buttons = b; if (!(b & 2)) canRun = false; },

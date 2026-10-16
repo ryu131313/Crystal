@@ -5,7 +5,8 @@
 // the name / guild labels, class image, LoverButton (Prguse 604, hint = LoverName) and the Group / Friend / Mail / Trade /
 // Observe buttons (Prguse 431 / 434 / 437 / 523, Title 854), hidden for a hero. Escape hides it (GameScene Closeall).
 // The item labels use the inspected player's level and class (GameScene.CreateItemLabel with Inspect).
-// Also the AllowObserve flag (S.AllowObserve; OptionDialog.ToggleObserve = the "@ALLOWOBSERVE" chat command).
+// Also reads the AllowObserve flag (the Account model: S.UserInformation / S.AllowObserve; OptionDialog.ToggleObserve = the
+// "@ALLOWOBSERVE" chat command).
 // Deliberate differences: the Observe button stays hidden (a granted C.Observe ends the requester's own game (StopGame)
 // and the observer mode is not ported); the Mail button calls `composeMail` (set by game.ts; inert while null); the
 // name label takes a click (the desktop's NameLabel.Click never fires: NotControl).
@@ -13,6 +14,7 @@
 import type { ServerPacket, UserItem } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
 import { ChatType, EquipmentSlot, MirClass, MirGender } from "../protocol/enums.generated.ts";
+import type { Account } from "../game/account.ts";
 import type { GameInfo } from "../game/gameInfo.ts";
 import { gameSignal } from "../game/scope.ts";
 import { SoundList } from "../game/audio.ts";
@@ -54,8 +56,8 @@ export class InspectWindow {
   isHero = false;
   /** InspectDialog.InspectID. */
   inspectId = 0;
-  /** GameScene.AllowObserve (the user's own flag): S.UserInformation / S.AllowObserve (classicUi.ts); null before. */
-  userAllowObserve: boolean | null = null;
+  /** GameScene.AllowObserve (the user's own flag): S.UserInformation / S.AllowObserve (the Account model). */
+  get userAllowObserve(): boolean { return this.account.allowObserve; }
   /** MailButton: MailComposeLetterDialog.ComposeMail(Name) (game.ts: `= (n) => mail.composeLetter(n)`). */
   composeMail: ((name: string) => void) | null = null;
   private inspectTime = 0;
@@ -67,6 +69,7 @@ export class InspectWindow {
   private readonly now: () => number;
   private readonly invWindow: InventoryWindow;
   private readonly gameInfo: GameInfo;
+  private readonly account: Account;
 
   private readonly win: MirWindow;
   private readonly characterPage: MirImage;
@@ -79,7 +82,8 @@ export class InspectWindow {
   private readonly playerButtons: MirButton[];
 
   constructor(_stage: HTMLElement, send: (f: Uint8Array) => void, chat: (text: string, type: number) => void, prefillChat: (text: string) => void,
-    groupList: () => string[], me: () => string, now: () => number, invWindow: InventoryWindow, gameInfo: GameInfo) {
+    groupList: () => string[], me: () => string, now: () => number, invWindow: InventoryWindow, gameInfo: GameInfo, account: Account) {
+    this.account = account;
     this.send = send;
     this.chat = chat;
     this.prefillChat = prefillChat;
@@ -170,16 +174,9 @@ export class InspectWindow {
         for (const item of this.items) if (item) this.gameInfo.requestItem(item.ItemIndex);
         this.toggle(true);
         return true;
-      case "AllowObserve": // GameScene.ProcessPacket: AllowObserve = p.Allow
-        this.setUserAllowObserve(p.Allow);
-        return true;
+      // S.AllowObserve (GameScene.ProcessPacket: AllowObserve = p.Allow): the Account model
     }
     return false;
-  }
-
-  /** GameScene.UserInformation's AllowObserve (classicUi.ts notify "allowObserve"). */
-  setUserAllowObserve(allow: boolean): void {
-    this.userAllowObserve = allow;
   }
 
   /** InspectDialog.GroupButton.Click (the desktop still sends after the not-leader line; the server refuses). */

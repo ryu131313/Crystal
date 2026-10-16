@@ -27,6 +27,7 @@ import type { Inventory } from "../game/inventory.ts";
 import { type ItemInfos, itemPrice, repairPrice } from "../game/items.ts";
 import { placeCell, type InventoryWindow } from "./inventoryWindow.ts";
 import { LibPath, monsterLibPath } from "../game/libraries.ts";
+import type { CurrentMap } from "../game/currentMap.ts";
 import { type GameInfo, type InfoKind, itemFriendlyName } from "../game/gameInfo.ts";
 import { SoundList } from "../game/audio.ts";
 import { gameSignal } from "../game/scope.ts";
@@ -845,13 +846,17 @@ export class NpcWindow {
   private tooltipLink: PageLink | null = null;
   private tooltipSeq = 0;
   private links: PageLink[] = [];
-  private mapIndex = -1; // MapControl.Index / Title, for GetNPCInfo's location line
-  private mapTitle = "";
+  /** MapControl.Index / Title, for GetNPCInfo's location line (CurrentMap). */
+  private readonly currentMap: CurrentMap;
+  private get mapIndex(): number { return this.currentMap.index; }
+  private get mapTitle(): string { return this.currentMap.title; }
 
   private readonly invWindow: InventoryWindow;
 
-  constructor(stage: HTMLElement, session: Session, inv: Inventory, infos: ItemInfos, invWindow: InventoryWindow, now: () => number, gameInfo: GameInfo) {
+  constructor(stage: HTMLElement, session: Session, inv: Inventory, infos: ItemInfos, invWindow: InventoryWindow, now: () => number, gameInfo: GameInfo,
+    currentMap: CurrentMap) {
     void stage;
+    this.currentMap = currentMap;
     this.session = session;
     this.now = now;
     this.gameInfo = gameInfo;
@@ -982,7 +987,7 @@ export class NpcWindow {
 
   handle(p: ServerPacket): void {
     switch (p.type) {
-      case "MapInformation": case "MapChanged": this.mapIndex = p.MapIndex; this.mapTitle = p.Title; break;
+      // S.MapInformation / S.MapChanged: MapControl.Index / Title are in CurrentMap
       case "NPCResponse":
         // GameScene.NPCResponse
         this.npcTime = 0;

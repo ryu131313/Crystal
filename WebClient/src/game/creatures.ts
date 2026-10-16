@@ -1,11 +1,13 @@
 // The user's intelligent creatures (collectible pets that follow the player and pick up items): UserObject
 // IntelligentCreatures / SummonedCreatureType / CreatureSummoned / PearlCount, kept in step with UserInformation
-// (UserObject.Load) and UpdateIntelligentCreatureList / NewIntelligentCreature (GameScene). The dialog side of those
-// handlers (rename prompt, hiding the dialog, the rename button) lives in src/ui/creatureWindow.ts, which calls handle().
+// (UserObject.Load) and UpdateIntelligentCreatureList / NewIntelligentCreature (GameScene). game.ts feeds handle(); the
+// dialog side of those handlers (rename prompt, hiding the dialog, the rename button) lives in the UI, which subscribes
+// to `changed` (classic: src/ui/creatureWindow.ts).
 // Also IntelligentCreatureItemFilter.SetItemFilter (Shared/Data/IntelligentCreatureData.cs).
 
 import type { ServerPacket, ClientIntelligentCreature, IntelligentCreatureItemFilter } from "../protocol/server.ts";
 import { IntelligentCreatureType, ItemGrade } from "../protocol/enums.generated.ts";
+import { Emitter } from "./emitter.ts";
 
 /** What a handled packet changed, for the dialog. */
 export type CreatureChange =
@@ -24,9 +26,19 @@ export class Creatures {
   summoned = false;
   /** UserObject.PearlCount (only UpdateIntelligentCreatureList carries it). */
   pearlCount = 0;
+  /** What a handled packet changed (emitted after the model update), for the dialog. */
+  readonly changed = new Emitter<CreatureChange>();
 
-  /** Server packets; returns what changed, or null when the packet is not a creature packet. */
-  handle(p: ServerPacket): CreatureChange | null {
+  /** Server packets. True = consumed (the creature packets; UserInformation is read by others too, so false). */
+  handle(p: ServerPacket): boolean {
+    const change = this.apply(p);
+    if (!change) return false;
+    this.changed.emit(change);
+    return change.kind !== "load";
+  }
+
+  /** The model half of the GameScene handlers; returns what changed, or null when the packet is not a creature packet. */
+  private apply(p: ServerPacket): CreatureChange | null {
     switch (p.type) {
       case "UserInformation": // UserObject.Load
         this.list = p.IntelligentCreatures;
