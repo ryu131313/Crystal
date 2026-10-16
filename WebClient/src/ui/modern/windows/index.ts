@@ -30,3 +30,18 @@ import "./awaken.ts";
 import "./socket.ts";
 import "./trust.ts";
 import "./rent.ts";
+
+// Phase 3e: the social windows. Menu windows (guild, group, friends, mail, mentor, relationship, ranking, territories)
+// plus trade (no hotkey: T sends C.TradeRequest through GameUi.command; it opens on S.TradeAccept). Their watch hooks
+// run at UI start and own the incoming prompts as request toasts: group invite (group.ts), trade request (trade.ts),
+// marriage / divorce (relationship.ts), mentor (mentor.ts); the territory NPC page opens territories; mail's composeTo
+// is what inspect / friends / relationship / territories call to write a letter.
+import "./guild.ts";
+import "./territories.ts";
+import "./ranking.ts";
+import "./group.ts";
+import "./trade.ts";
+import "./friends.ts";
+import "./mail.ts";
+import "./mentor.ts";
+import "./relationship.ts";

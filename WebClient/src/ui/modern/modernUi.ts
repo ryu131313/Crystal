@@ -20,8 +20,10 @@
 //             belt 9 / 0, skill keys and Ranking / Minimap stay game.ts's (Ranking / Minimap arrive as UiCommands)
 //   watchers  held Ctrl / Shift (the skill row's bar 2 / hero view: hud.ts; the tooltip's compare card)
 //
-// Prompts the classic windows open on model events (friend / group / guild / trade / marriage / divorce / mentor
-// requests, the guild name / war inputs) are popups here until the social windows (phase 3e) take them over.
+// Incoming social prompts are request toasts (core/popups.ts request) wired once per game, window open or not: group and
+// trade invites by windows/group.ts / trade.ts (their sessions, built by the watch hooks), marriage / divorce / mentor
+// requests by windows/relationship.ts / mentor.ts's watch hooks, and the friend request + guild invite here; the guild
+// name / war inputs (S.GuildNameRequest / GuildRequestWar) are input popups here. Each answers with the classic packet.
 //
 // Settings (settings.ts): UiScale / UiAutoScale -> the runtime's HUD scale, UiTheme + the custom colours -> the theme,
 // UiOpacity -> the bottom HUD's opacity, UiPlates -> the stat plates; all live (onSettingChange).
@@ -204,22 +206,17 @@ export function createModernUi(ctx: GameUiContext): GameUi {
   });
 
   // — Request prompts (GameScene's MirMessageBox / MirInputBox handlers; the classic windows open the same) —
-  const answer = (q: Promise<boolean>, reply: (yes: boolean) => void) => { void q.then((yes) => { if (!sig.aborted) reply(yes); }); };
   /** S.FriendRequest: an invite toast per requester, closed when the request runs out or is settled elsewhere. */
   const friendPrompts = new Map<string, { close(): void }>();
   const offs: (() => void)[] = [
     offCatalog, offSettings,
     () => { for (const off of watches.values()) off(); watches.clear(); },
-    m.group.invite.on(({ name }) => answer(rt.popups.ask(`Do you want to group with ${name}?`), (y) => m.group.answerInvite(y))),
-    m.guild.invite.on(({ name }) => answer(rt.popups.ask(`Do you want to join the ${name} guild?`), (y) => m.guild.answerInvite(y))),
-    m.trade.requested.on(({ name }) => answer(rt.popups.ask(`Player ${name} has requested to trade with you.`), (y) => m.trade.reply(y))),
-    m.relationship.marriageRequest.on(({ name }) =>
-      answer(rt.popups.ask(`${name} has asked for your hand in marriage.`), (y) => m.relationship.answerMarriage(y))),
-    m.relationship.divorceRequest.on(({ name }) =>
-      answer(rt.popups.ask(`${name} has requested a divorce`), (y) => m.relationship.answerDivorce(y))),
-    m.mentor.request.on(({ name, level }) => {
-      const cls = MirClassName[player.user?.look.class ?? 0] ?? "";
-      answer(rt.popups.ask(`${name} (Level ${level}) has requested you teach him the ways of the ${cls}.`), (y) => m.mentor.answerMentor(y));
+    // Group / trade invites: windows/group.ts / trade.ts (their sessions' toasts); marriage / divorce / mentor requests:
+    // windows/relationship.ts / mentor.ts (their watch hooks). The guild ones stay here (the guild window has none).
+    m.guild.invite.on(({ name }) => {
+      // S.GuildInvite carries the guild name. MirMessageBox Yes/No as a request toast; running out declines (C.GuildInvite false clears the pending invite).
+      void rt.popups.request({ from: name, tag: "Guild", text: "guild has invited you to join.", seconds: 30, accept: "Join" })
+        .then((yes) => { if (!sig.aborted) m.guild.answerInvite(yes); });
     }),
     m.guild.nameRequest.on(() => {
       void rt.popups.input({ title: "Guild name", text: "Please enter a guild name, length must be 3~20 characters.", min: 3, max: 20 })
