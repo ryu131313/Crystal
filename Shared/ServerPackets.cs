@@ -6976,4 +6976,210 @@ namespace ServerPackets
             writer.Write((ushort)Weather);
         }
     }
+
+    /// <summary>
+    /// Snapshot of the server's rules (Settings + the Shared <see cref="Awake"/> statics) so clients show real odds and prices
+    /// instead of hard-coding them. Sent after <see cref="LoginSuccess"/> and again on a successful StartGame (a settings reload
+    /// between log-ins is picked up). No secrets: observable. Fixed part ~110 bytes; the awakening lists add a few dozen more.
+    /// Counts are Int32 and checked with ReadCount on read.
+    /// </summary>
+    public sealed class ServerRules : Packet
+    {
+        public override short Index
+        {
+            get { return (short)ServerPacketIds.ServerRules; }
+        }
+
+        // Refine (Settings, RefineSystem.ini)
+        public bool OnlyRefineWeapon;
+        public byte RefineBaseChance, RefineIncrease, RefineCritChance, RefineCritIncrease, RefineWepStatReduce, RefineItemStatReduce;
+        public int RefineTime, RefineCost;
+        public string RefineOreName = string.Empty;
+
+        // Awakening (Awake statics, AwakeningSystem.ini)
+        public byte AwakeSuccessRate, AwakeHitRate, Awake_WeaponRate, Awake_HelmetRate, Awake_ArmorRate;
+        public int MaxAwakeLevel;
+        public byte[] AwakeChanceMax = new byte[0];
+        public float[] AwakeMaterialRate = new float[0];
+        /// <summary>Per AwakeType (index = type - 1): [0] = Material1 counts, [1] = Material2 counts, one entry per ItemGrade.</summary>
+        public List<List<byte>[]> AwakeMaterials = new List<List<byte>[]>();
+
+        // Mentor
+        public byte MentorLevelGap, MentorLength, MentorDamageBoost, MentorExpBoost, MenteeExpBank;
+        public bool MentorSkillBoost;
+
+        // Marriage
+        public int LoverEXPBonus, MarriageCooldown, MarriageLevelRequired, ReplaceWedRingCost;
+        public bool WeddingRingRecall;
+
+        // Mail
+        public bool MailAutoSendGold, MailAutoSendItems, MailFreeWithStamp;
+        public uint MailCostPer1KGold, MailItemInsurancePercentage, MailCapacity;
+
+        // Guild territories
+        public int BuyGTGold, ExtendGT, GTDays;
+
+        // Gems
+        public bool GemStatIndependent;
+
+        // Account (class gating on the select screen)
+        public bool AllowCreateAssassin, AllowCreateArcher;
+
+        // Features
+        public bool MapDetailsEnabled, FriendRequestsEnabled;
+        public int MaxFriends;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            OnlyRefineWeapon = reader.ReadBoolean();
+            RefineBaseChance = reader.ReadByte();
+            RefineTime = reader.ReadInt32();
+            RefineIncrease = reader.ReadByte();
+            RefineCritChance = reader.ReadByte();
+            RefineCritIncrease = reader.ReadByte();
+            RefineWepStatReduce = reader.ReadByte();
+            RefineItemStatReduce = reader.ReadByte();
+            RefineCost = reader.ReadInt32();
+            RefineOreName = reader.ReadString();
+
+            AwakeSuccessRate = reader.ReadByte();
+            AwakeHitRate = reader.ReadByte();
+            MaxAwakeLevel = reader.ReadInt32();
+            Awake_WeaponRate = reader.ReadByte();
+            Awake_HelmetRate = reader.ReadByte();
+            Awake_ArmorRate = reader.ReadByte();
+
+            var count = ReadCount(reader, sizeof(byte));
+            AwakeChanceMax = reader.ReadBytes(count);
+
+            count = ReadCount(reader, sizeof(float));
+            AwakeMaterialRate = new float[count];
+            for (var i = 0; i < count; i++) AwakeMaterialRate[i] = reader.ReadSingle();
+
+            count = ReadCount(reader, sizeof(int));
+            AwakeMaterials = new List<List<byte>[]>(count);
+            for (var i = 0; i < count; i++)
+            {
+                var arrayLength = ReadCount(reader, sizeof(int));
+                var lists = new List<byte>[arrayLength];
+                for (var j = 0; j < arrayLength; j++)
+                {
+                    var listCount = ReadCount(reader, sizeof(byte));
+                    lists[j] = new List<byte>(reader.ReadBytes(listCount));
+                }
+                AwakeMaterials.Add(lists);
+            }
+
+            MentorLevelGap = reader.ReadByte();
+            MentorSkillBoost = reader.ReadBoolean();
+            MentorLength = reader.ReadByte();
+            MentorDamageBoost = reader.ReadByte();
+            MentorExpBoost = reader.ReadByte();
+            MenteeExpBank = reader.ReadByte();
+
+            LoverEXPBonus = reader.ReadInt32();
+            MarriageCooldown = reader.ReadInt32();
+            WeddingRingRecall = reader.ReadBoolean();
+            MarriageLevelRequired = reader.ReadInt32();
+            ReplaceWedRingCost = reader.ReadInt32();
+
+            MailAutoSendGold = reader.ReadBoolean();
+            MailAutoSendItems = reader.ReadBoolean();
+            MailFreeWithStamp = reader.ReadBoolean();
+            MailCostPer1KGold = reader.ReadUInt32();
+            MailItemInsurancePercentage = reader.ReadUInt32();
+            MailCapacity = reader.ReadUInt32();
+
+            BuyGTGold = reader.ReadInt32();
+            ExtendGT = reader.ReadInt32();
+            GTDays = reader.ReadInt32();
+
+            GemStatIndependent = reader.ReadBoolean();
+
+            AllowCreateAssassin = reader.ReadBoolean();
+            AllowCreateArcher = reader.ReadBoolean();
+
+            MapDetailsEnabled = reader.ReadBoolean();
+            FriendRequestsEnabled = reader.ReadBoolean();
+            MaxFriends = reader.ReadInt32();
+        }
+
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(OnlyRefineWeapon);
+            writer.Write(RefineBaseChance);
+            writer.Write(RefineTime);
+            writer.Write(RefineIncrease);
+            writer.Write(RefineCritChance);
+            writer.Write(RefineCritIncrease);
+            writer.Write(RefineWepStatReduce);
+            writer.Write(RefineItemStatReduce);
+            writer.Write(RefineCost);
+            writer.Write(RefineOreName ?? string.Empty);
+
+            writer.Write(AwakeSuccessRate);
+            writer.Write(AwakeHitRate);
+            writer.Write(MaxAwakeLevel);
+            writer.Write(Awake_WeaponRate);
+            writer.Write(Awake_HelmetRate);
+            writer.Write(Awake_ArmorRate);
+
+            var chanceMax = AwakeChanceMax ?? new byte[0];
+            writer.Write(chanceMax.Length);
+            writer.Write(chanceMax);
+
+            var materialRate = AwakeMaterialRate ?? new float[0];
+            writer.Write(materialRate.Length);
+            for (var i = 0; i < materialRate.Length; i++) writer.Write(materialRate[i]);
+
+            var materialCount = AwakeMaterials == null ? 0 : AwakeMaterials.Count;
+            writer.Write(materialCount);
+            for (var i = 0; i < materialCount; i++)
+            {
+                var lists = AwakeMaterials[i];
+                var arrayLength = lists == null ? 0 : lists.Length;
+                writer.Write(arrayLength);
+                for (var j = 0; j < arrayLength; j++)
+                {
+                    var list = lists[j];
+                    var listCount = list == null ? 0 : list.Count;
+                    writer.Write(listCount);
+                    for (var k = 0; k < listCount; k++) writer.Write(list[k]);
+                }
+            }
+
+            writer.Write(MentorLevelGap);
+            writer.Write(MentorSkillBoost);
+            writer.Write(MentorLength);
+            writer.Write(MentorDamageBoost);
+            writer.Write(MentorExpBoost);
+            writer.Write(MenteeExpBank);
+
+            writer.Write(LoverEXPBonus);
+            writer.Write(MarriageCooldown);
+            writer.Write(WeddingRingRecall);
+            writer.Write(MarriageLevelRequired);
+            writer.Write(ReplaceWedRingCost);
+
+            writer.Write(MailAutoSendGold);
+            writer.Write(MailAutoSendItems);
+            writer.Write(MailFreeWithStamp);
+            writer.Write(MailCostPer1KGold);
+            writer.Write(MailItemInsurancePercentage);
+            writer.Write(MailCapacity);
+
+            writer.Write(BuyGTGold);
+            writer.Write(ExtendGT);
+            writer.Write(GTDays);
+
+            writer.Write(GemStatIndependent);
+
+            writer.Write(AllowCreateAssassin);
+            writer.Write(AllowCreateArcher);
+
+            writer.Write(MapDetailsEnabled);
+            writer.Write(FriendRequestsEnabled);
+            writer.Write(MaxFriends);
+        }
+    }
 }

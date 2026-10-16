@@ -169,7 +169,7 @@ What are you editing?
 | Server address for players | Client §2.6, §2.7 (`[Network] UseConfig/IPAddress/Port`) | Server §2.5 (`Settings.IPAddress`/`Port`) |
 
 **Packet rule (Crystal):** a packet lives in **four** places, all in one commit:
-1. ID appended at the **end** of `ServerPacketIds` / `ClientPacketIds` in `Shared/Enums.cs` (~L1434 / ~L1717). IDs are **implicit ordinals** (declaration position) — inserting mid-enum renumbers every later ID. Current last members: `MapAtmosphere` (280, LiveDb map light / weather) / `SortItems` (157; 153-157 = `SellItems`, `RepairItems`, `CollectAllParcels`, `ReadMails`, `SortItems`, 2026-10-16); re-check before relying on an ordinal.
+1. ID appended at the **end** of `ServerPacketIds` / `ClientPacketIds` in `Shared/Enums.cs` (~L1434 / ~L1717). IDs are **implicit ordinals** (declaration position) — inserting mid-enum renumbers every later ID. Current last members: `ServerRules` (281, login rules snapshot, 2026-10-16; 280 = `MapAtmosphere`) / `SortItems` (157; 153-157 = `SellItems`, `RepairItems`, `CollectAllParcels`, `ReadMails`, `SortItems`, 2026-10-16); re-check before relying on an ordinal.
 2. `sealed class` in `Shared/ServerPackets.cs` (`S`) / `Shared/ClientPackets.cs` (`C`) with `ReadPacket`/`WritePacket` in identical field order and types.
 3. A `case` in `Shared/Packet.cs` `GetServerPacket` / `GetClientPacket` — **a missing case makes the receiver discard its whole receive buffer, silently.**
 4. Handler: server `MirConnection.ProcessPacket` (`Server/MirNetwork/MirConnection.cs`) → usually `PlayerObject`/`HumanObject`; client `GameScene.ProcessPacket` (or `LoginScene`/`SelectScene`/base `MirScene.ProcessPacket`).

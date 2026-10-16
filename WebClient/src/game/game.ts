@@ -54,6 +54,7 @@ import { MailBox } from "./mail.ts";
 import { Friends } from "./friends.ts";
 import { Relationship, Mentor } from "./relationship.ts";
 import { Rankings, rankingDetails } from "./rankings.ts";
+import { serverRules } from "./serverRules.ts";
 import { Inspect } from "./inspect.ts";
 import { Shop } from "./shop.ts";
 import { Territories } from "./territories.ts";
@@ -571,6 +572,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   // — Packets —
   const gameDataChanges: GameDataChanges = { magics: false, shop: false };
   function handle(p: ServerPacket): void {
+    if (serverRules(session).handle(p)) return; // S.ServerRules on StartGame success (session-scoped store; no window reads it)
     if (hero.handle(p) && p.type === "HeroLevelChanged") play(SoundList.LevelUp); // GameScene.HeroLevelChanged
     if (inventory.handle(p)) { refreshUserLooks(); statsDirty = true; }
     if (itemChanges.handle(p)) { refreshUserLooks(); statsDirty = true; } // after inventory.handle (DeleteItem, bait MergeItem)

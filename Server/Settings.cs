@@ -178,6 +178,13 @@ namespace Server
 
         public static int MaxBossTames = 1;
 
+        //Sent to clients in S.ServerRules: MapDetailsEnabled gates S.MapDetails (phase 2.4), MaxFriends caps the friend list (phase 2.7)
+        public static bool MapDetailsEnabled = true;
+        public static int MaxFriends = 100;
+
+        //Friend requests are not implemented yet: constant false until phase 2.7 turns them on
+        public const bool FriendRequestsEnabled = false;
+
         public static int RestedPeriod = 60,
                           RestedBuffLength = 10,
                           RestedExpBonus = 5,
@@ -490,6 +497,9 @@ namespace Server
             PlayerDiedItemTimeOut = Reader.ReadInt32("Game", "PlayerDiedItemTimeOut", PlayerDiedItemTimeOut);
             PetSave = Reader.ReadBoolean("Game", "PetSave", PetSave);
             MaxBossTames = Math.Max(0, Reader.ReadInt32("Game", "MaxBossTames", MaxBossTames));
+            MapDetailsEnabled = Reader.ReadBoolean("Game", "MapDetailsEnabled", MapDetailsEnabled);
+            MaxFriends = Math.Max(0, Reader.ReadInt32("Game", "MaxFriends", MaxFriends));
+            if (MaxFriends > 1000) MaxFriends = 1000; //SettingsCatalog bounds it to 0..1000
             PKDelay = Reader.ReadInt32("Game", "PKDelay", PKDelay);
             MonsterRecallEnabled = Reader.ReadBoolean("Game", "MonsterRecallEnabled", MonsterRecallEnabled);
             MonsterRecallRange = Reader.ReadInt32("Game", "MonsterRecallRange", MonsterRecallRange);
@@ -810,6 +820,8 @@ namespace Server
             Reader.Write("Game", "PlayerDiedItemTimeOut", PlayerDiedItemTimeOut);
             Reader.Write("Game", "PetSave", PetSave);
             Reader.Write("Game", "MaxBossTames", MaxBossTames);
+            Reader.Write("Game", "MapDetailsEnabled", MapDetailsEnabled);
+            Reader.Write("Game", "MaxFriends", MaxFriends);
             Reader.Write("Game", "PKDelay", PKDelay);
             Reader.Write("Game", "NewbieGuild", NewbieGuild);
             Reader.Write("Game", "NewbieGuildMaxSize", NewbieGuildMaxSize);

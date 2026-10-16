@@ -287,6 +287,26 @@ namespace Server.WebAdmin.Tests
         }
 
         [Fact]
+        public void ServerRulesSettings_AreGameplayEntries_WithBounds()
+        {
+            // [Game] MapDetailsEnabled / MaxFriends (phase 2.2, 2026-10-16): sent to clients in S.ServerRules.
+            var map = Field("MapDetailsEnabled");
+            Assert.Equal(typeof(bool), map.Type);
+            Assert.Equal(SettingsCatalog.GroupGameplay, map.Group);
+            Assert.Same(map, SettingsCatalog.ByKey("Game", "MapDetailsEnabled"));
+            Assert.Equal(false, Convert(map, "false"));
+
+            var friends = Field("MaxFriends");
+            Assert.Equal(typeof(int), friends.Type);
+            Assert.Equal(SettingsCatalog.GroupGameplay, friends.Group);
+            Assert.Same(friends, SettingsCatalog.ByKey("Game", "MaxFriends"));
+            Assert.Equal(0, Convert(friends, "0"));
+            Assert.Equal(1000, Convert(friends, "1000"));
+            Reject(friends, "-1");
+            Reject(friends, "1001");
+        }
+
+        [Fact]
         public void Floats_AreInvariant_AndBounded()
         {
             var rate = Field("DropRate");               // float, 0.01..1000 (divisor)

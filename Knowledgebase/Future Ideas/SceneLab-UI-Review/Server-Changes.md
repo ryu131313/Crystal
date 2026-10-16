@@ -224,7 +224,7 @@ Prefer **new** packets over changing existing ones: existing packets are already
 
 | Name | Dir | Fields | Observable | Hero-forwarded |
 |---|---|---|---|---|
-| `ServerRules` | S→C | Refine (cost, time, base chance, stat reduce, increase, crit chance/increase), Awakening (success rate, hit rate, ChanceMax[], weapon/helmet/armour values), Mentor (level gap, length, damage/EXP boosts, % to mentor), Marriage (min level, cooldown, ring cost, EXP bonus, AllowLoverRecall), Mail (cost per 1k gold, insurance %, free with stamp), GT (BuyGTGold, ExtendGT, GTDays, min sale), GemRate | yes (no secrets) | no |
+| ~~`ServerRules`~~ **Done 2026-10-16 (phase 2.2)**, id 281: sent after `S.LoginSuccess` and after `S.StartGame`; fields as built (no min sale / GemRate: `GemStatIndependent` instead; adds `AllowCreateAssassin/Archer`, `MapDetailsEnabled`, `FriendRequestsEnabled` (const false until 2.7), `MaxFriends`); new `[Game] MapDetailsEnabled` (true) / `MaxFriends` (100) settings | S→C | Refine (cost, time, base chance, stat reduce, increase, crit chance/increase), Awakening (success rate, hit rate, ChanceMax[], weapon/helmet/armour values), Mentor (level gap, length, damage/EXP boosts, % to mentor), Marriage (min level, cooldown, ring cost, EXP bonus, AllowLoverRecall), Mail (cost per 1k gold, insurance %, free with stamp), GT (BuyGTGold, ExtendGT, GTDays, min sale), GemRate | yes (no secrets) | no |
 | `PoisonStatus` | S→C | count; per entry: `PoisonType`, ms left, value | yes | optional (hero frame) |
 | `GroupMemberStatus` | S→C | Name, Class, Level, HP %, MP %, buff count + `BuffType[]` | yes | no |
 | `GuildMemberDetails` | S→C | count; Name, Class, Level, LastLogin, Online, RankIndex | no | no |
@@ -394,7 +394,7 @@ Tests: `Server.Persistence.Tests` (synthetic characters built with 46 cells, so 
    existing web protocol; mark b/c features as disabled in the UI. No server change.
 2. **Done 2026-10-16 (phase 2.1)** **Safety before bulk buttons:** `SellItems`, `RepairItems`, `CollectAllParcels`, `ReadMails`, `SortStorage` /
    `StackStorage`; fix the `C.PurchaseGuildTerritory` factory case.
-3. **`S.ServerRules`** (unblocks refine / awakening / mentor / marriage / mail / territory panels).
+3. **Done 2026-10-16 (phase 2.2)** **`S.ServerRules`** (id 281; new `[Game] MapDetailsEnabled` / `MaxFriends` settings, in the web admin catalogue) (unblocks refine / awakening / mentor / marriage / mail / territory panels).
 4. **Class b detail packets**, one small commit each: `PoisonStatus`, `GroupMemberStatus`, `GuildMemberDetails` +
    `GuildWarList`, `RankingsDetail`, `SelectDetails`, `LoginFailed`, `HeroSpellToggle`, `MentorDetails` /
    `FindMentor`, `GameshopGift`, `GuildTerritoryAction`, `MarketSearchEx`, `MapDetails` (behind a setting),

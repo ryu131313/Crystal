@@ -458,6 +458,26 @@ internal static class Fixtures
             Last = true,
         };
         yield return new S.MapAtmosphere { Lights = LightSetting.Night, MapDarkLight = 2, Weather = WeatherSetting.Fog | WeatherSetting.Rain };
+        yield return new S.ServerRules
+        {
+            OnlyRefineWeapon = true, RefineBaseChance = 20, RefineTime = 20, RefineIncrease = 1, RefineCritChance = 10, RefineCritIncrease = 2,
+            RefineWepStatReduce = 6, RefineItemStatReduce = 15, RefineCost = 125, RefineOreName = "黑铁矿石 Black Iron Ore",
+            AwakeSuccessRate = 70, AwakeHitRate = 70, MaxAwakeLevel = 5, Awake_WeaponRate = 1, Awake_HelmetRate = 1, Awake_ArmorRate = 5,
+            AwakeChanceMax = new byte[] { 1, 2, 3, 4, 5 },
+            AwakeMaterialRate = new[] { 1f, 1.5f, 2f, 2.5f, 0.25f }, // exact in f32 (the fixture JSON writes floats shortest-form)
+            AwakeMaterials = new List<List<byte>[]>
+            {
+                new[] { new List<byte> { 1, 1, 1, 1, 1 }, new List<byte> { 1, 1, 1, 1, 1 } },
+                new[] { new List<byte> { 2, 3, 4, 5, 6 }, new List<byte>() },
+            },
+            MentorLevelGap = 10, MentorSkillBoost = true, MentorLength = 7, MentorDamageBoost = 10, MentorExpBoost = 10, MenteeExpBank = 1,
+            LoverEXPBonus = 5, MarriageCooldown = 7, WeddingRingRecall = true, MarriageLevelRequired = 10, ReplaceWedRingCost = 125,
+            MailAutoSendGold = false, MailAutoSendItems = true, MailFreeWithStamp = true, MailCostPer1KGold = 100, MailItemInsurancePercentage = 5, MailCapacity = 100,
+            BuyGTGold = 1000000, ExtendGT = 500000, GTDays = 7,
+            GemStatIndependent = true,
+            AllowCreateAssassin = true, AllowCreateArcher = false,
+            MapDetailsEnabled = true, FriendRequestsEnabled = false, MaxFriends = 100,
+        };
     }
 
     private static IEnumerable<Packet> ClientSamples()

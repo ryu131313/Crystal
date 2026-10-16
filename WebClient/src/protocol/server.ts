@@ -346,6 +346,85 @@ function readGuildRank(r: Reader): GuildRank {
   return { Name, Options, Index, Members };
 }
 
+/** S.ServerRules (Settings + the Shared Awake statics): the server's refine / awakening odds, mentor / marriage / mail /
+ *  territory costs, class gating and feature flags. Sent after LoginSuccess and again on StartGame success. */
+export interface ServerRules {
+  // Refine
+  OnlyRefineWeapon: boolean; RefineBaseChance: number; RefineTime: number; RefineIncrease: number; RefineCritChance: number;
+  RefineCritIncrease: number; RefineWepStatReduce: number; RefineItemStatReduce: number; RefineCost: number; RefineOreName: string;
+  // Awakening
+  AwakeSuccessRate: number; AwakeHitRate: number; MaxAwakeLevel: number; Awake_WeaponRate: number; Awake_HelmetRate: number; Awake_ArmorRate: number;
+  /** byte[] (one per ItemGrade slot). */
+  AwakeChanceMax: number[];
+  /** float[] (f32). */
+  AwakeMaterialRate: number[];
+  /** Per AwakeType (index = type - 1): [0] = Material1 counts, [1] = Material2 counts, one byte per ItemGrade. */
+  AwakeMaterials: number[][][];
+  // Mentor
+  MentorLevelGap: number; MentorSkillBoost: boolean; MentorLength: number; MentorDamageBoost: number; MentorExpBoost: number; MenteeExpBank: number;
+  // Marriage
+  LoverEXPBonus: number; MarriageCooldown: number; WeddingRingRecall: boolean; MarriageLevelRequired: number; ReplaceWedRingCost: number;
+  // Mail
+  MailAutoSendGold: boolean; MailAutoSendItems: boolean; MailFreeWithStamp: boolean; MailCostPer1KGold: number; MailItemInsurancePercentage: number;
+  MailCapacity: number;
+  // Guild territories
+  BuyGTGold: number; ExtendGT: number; GTDays: number;
+  // Gems
+  GemStatIndependent: boolean;
+  // Account (select-screen class gating)
+  AllowCreateAssassin: boolean; AllowCreateArcher: boolean;
+  // Features
+  MapDetailsEnabled: boolean; FriendRequestsEnabled: boolean; MaxFriends: number;
+}
+
+function readServerRules(r: Reader): ServerRules {
+  const OnlyRefineWeapon = r.readBool(), RefineBaseChance = r.readU8(), RefineTime = r.readI32(), RefineIncrease = r.readU8();
+  const RefineCritChance = r.readU8(), RefineCritIncrease = r.readU8(), RefineWepStatReduce = r.readU8(), RefineItemStatReduce = r.readU8();
+  const RefineCost = r.readI32(), RefineOreName = r.readString();
+
+  const AwakeSuccessRate = r.readU8(), AwakeHitRate = r.readU8(), MaxAwakeLevel = r.readI32();
+  const Awake_WeaponRate = r.readU8(), Awake_HelmetRate = r.readU8(), Awake_ArmorRate = r.readU8();
+  let n = readCount(r, 1);
+  const AwakeChanceMax: number[] = [];
+  for (let i = 0; i < n; i++) AwakeChanceMax.push(r.readU8());
+  n = readCount(r, 4);
+  const AwakeMaterialRate: number[] = [];
+  for (let i = 0; i < n; i++) AwakeMaterialRate.push(r.readF32());
+  n = readCount(r, 4);
+  const AwakeMaterials: number[][][] = [];
+  for (let i = 0; i < n; i++) {
+    const arrayLength = readCount(r, 4);
+    const lists: number[][] = [];
+    for (let j = 0; j < arrayLength; j++) {
+      const listCount = readCount(r, 1);
+      const list: number[] = [];
+      for (let k = 0; k < listCount; k++) list.push(r.readU8());
+      lists.push(list);
+    }
+    AwakeMaterials.push(lists);
+  }
+
+  const MentorLevelGap = r.readU8(), MentorSkillBoost = r.readBool(), MentorLength = r.readU8(), MentorDamageBoost = r.readU8();
+  const MentorExpBoost = r.readU8(), MenteeExpBank = r.readU8();
+  const LoverEXPBonus = r.readI32(), MarriageCooldown = r.readI32(), WeddingRingRecall = r.readBool(), MarriageLevelRequired = r.readI32();
+  const ReplaceWedRingCost = r.readI32();
+  const MailAutoSendGold = r.readBool(), MailAutoSendItems = r.readBool(), MailFreeWithStamp = r.readBool();
+  const MailCostPer1KGold = r.readU32(), MailItemInsurancePercentage = r.readU32(), MailCapacity = r.readU32();
+  const BuyGTGold = r.readI32(), ExtendGT = r.readI32(), GTDays = r.readI32();
+  const GemStatIndependent = r.readBool();
+  const AllowCreateAssassin = r.readBool(), AllowCreateArcher = r.readBool();
+  const MapDetailsEnabled = r.readBool(), FriendRequestsEnabled = r.readBool(), MaxFriends = r.readI32();
+  return {
+    OnlyRefineWeapon, RefineBaseChance, RefineTime, RefineIncrease, RefineCritChance, RefineCritIncrease, RefineWepStatReduce, RefineItemStatReduce,
+    RefineCost, RefineOreName,
+    AwakeSuccessRate, AwakeHitRate, MaxAwakeLevel, Awake_WeaponRate, Awake_HelmetRate, Awake_ArmorRate, AwakeChanceMax, AwakeMaterialRate, AwakeMaterials,
+    MentorLevelGap, MentorSkillBoost, MentorLength, MentorDamageBoost, MentorExpBoost, MenteeExpBank,
+    LoverEXPBonus, MarriageCooldown, WeddingRingRecall, MarriageLevelRequired, ReplaceWedRingCost,
+    MailAutoSendGold, MailAutoSendItems, MailFreeWithStamp, MailCostPer1KGold, MailItemInsurancePercentage, MailCapacity,
+    BuyGTGold, ExtendGT, GTDays, GemStatIndependent, AllowCreateAssassin, AllowCreateArcher, MapDetailsEnabled, FriendRequestsEnabled, MaxFriends,
+  };
+}
+
 const decoders = {
   KeepAlive: (r: Reader) => ({ Time: r.readI64() }),
   Connected: (_r: Reader) => ({}),
@@ -531,6 +610,8 @@ const decoders = {
   TimeOfDay: (r: Reader) => ({ Lights: r.readU8() }),
   /** S.MapAtmosphere (LiveDb: the current map's light / dark light / weather changed; same encodings as MapChanged). */
   MapAtmosphere: (r: Reader) => ({ Lights: r.readU8(), MapDarkLight: r.readU8(), Weather: r.readU16() }),
+  /** S.ServerRules (after LoginSuccess and on StartGame success): see the ServerRules interface. */
+  ServerRules: (r: Reader) => readServerRules(r),
   ObjectPlayer: (r: Reader) => readObjectPlayer(r),
   ObjectMonster: (r: Reader) => ({
     ObjectID: r.readU32(), Name: r.readString(), NameColour: r.readI32(), Location: readPoint(r), Image: r.readU16(), Direction: r.readU8(),

@@ -316,6 +316,8 @@ namespace Server.WebAdmin
             const string GP = GroupGameplay;
             Add(GP, "Game", "PetSave", "PetSave", B, "Save pets", "Pets are saved when the player logs out and return on login.");
             Add(GP, "Game", "MaxBossTames", "MaxBossTames", I32, "Max boss tames", "How many boss monsters a player may tame at once (0 = none).", min: 0, max: 100);
+            Add(GP, "Game", "MapDetailsEnabled", "MapDetailsEnabled", B, "Map details", "Clients may ask for map details (monsters, NPCs, exits) for the map panel (sent to clients when they log in).");
+            Add(GP, "Game", "MaxFriends", "MaxFriends", I32, "Max friends", "Largest friend list a character may have (sent to clients when they log in).", min: 0, max: 1000);
             Add(GP, "Game", "PKDelay", "PKDelay", I32, "PK point decay (s)", "Seconds between PK point reductions.", min: 1);
             Add(GP, "Game", "MonsterRecallEnabled", "MonsterRecallEnabled", B, "Monster recall", "Monsters pulled too far from their spawn are recalled.", savedBySave: false);
             Add(GP, "Game", "MonsterRecallRange", "MonsterRecallRange", I32, "Monster recall range (cells)", "Distance from home before a monster is recalled.", min: 1, max: 1000, savedBySave: false);

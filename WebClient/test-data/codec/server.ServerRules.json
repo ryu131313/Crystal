@@ -1,0 +1,92 @@
+{
+  "name": "ServerRules",
+  "dir": "server",
+  "id": 281,
+  "hex": "BF001901011414000000010A02060F7D0000001BE9BB91E99381E79FBFE79FB320426C61636B2049726F6E204F7265464605000000010105050000000102030405050000000000803F0000C03F00000040000020400000803E020000000200000005000000010101010105000000010101010102000000050000000203040506000000000A01070A0A010500000007000000010A0000007D00000000010164000000050000006400000040420F0020A1070007000000010100010064000000",
+  "fields": {
+    "OnlyRefineWeapon": true,
+    "RefineBaseChance": 20,
+    "RefineIncrease": 1,
+    "RefineCritChance": 10,
+    "RefineCritIncrease": 2,
+    "RefineWepStatReduce": 6,
+    "RefineItemStatReduce": 15,
+    "RefineTime": 20,
+    "RefineCost": 125,
+    "RefineOreName": "黑铁矿石 Black Iron Ore",
+    "AwakeSuccessRate": 70,
+    "AwakeHitRate": 70,
+    "Awake_WeaponRate": 1,
+    "Awake_HelmetRate": 1,
+    "Awake_ArmorRate": 5,
+    "MaxAwakeLevel": 5,
+    "AwakeChanceMax": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "AwakeMaterialRate": [
+      1,
+      1.5,
+      2,
+      2.5,
+      0.25
+    ],
+    "AwakeMaterials": [
+      [
+        [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        [
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      ],
+      [
+        [
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        []
+      ]
+    ],
+    "MentorLevelGap": 10,
+    "MentorLength": 7,
+    "MentorDamageBoost": 10,
+    "MentorExpBoost": 10,
+    "MenteeExpBank": 1,
+    "MentorSkillBoost": true,
+    "LoverEXPBonus": 5,
+    "MarriageCooldown": 7,
+    "MarriageLevelRequired": 10,
+    "ReplaceWedRingCost": 125,
+    "WeddingRingRecall": true,
+    "MailAutoSendGold": false,
+    "MailAutoSendItems": true,
+    "MailFreeWithStamp": true,
+    "MailCostPer1KGold": 100,
+    "MailItemInsurancePercentage": 5,
+    "MailCapacity": 100,
+    "BuyGTGold": 1000000,
+    "ExtendGT": 500000,
+    "GTDays": 7,
+    "GemStatIndependent": true,
+    "AllowCreateAssassin": true,
+    "AllowCreateArcher": false,
+    "MapDetailsEnabled": true,
+    "FriendRequestsEnabled": false,
+    "MaxFriends": 100
+  }
+}

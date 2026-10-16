@@ -456,6 +456,8 @@ public abstract class Packet
                 return new S.GameDataChanged();
             case (short)ServerPacketIds.MapAtmosphere:
                 return new S.MapAtmosphere();
+            case (short)ServerPacketIds.ServerRules:
+                return new S.ServerRules();
             case (short)ServerPacketIds.Login:
                 return new S.Login();
             case (short)ServerPacketIds.LoginBanned:

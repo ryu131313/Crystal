@@ -4985,7 +4985,92 @@ namespace Server.MirEnvir
 
             MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.UserLoggedIn), account.Connection.SessionID, account.Connection.IPAddress));
             c.Enqueue(new ServerPackets.LoginSuccess { Characters = account.GetSelectInfo() });
+            c.Enqueue(ServerRulesPacket());
             global::Server.WebAdmin.WebAdminHooks.RaiseLoginAttempt(account.AccountID, c.IPAddress, "ok");
+        }
+
+        /// <summary>
+        /// Snapshot of the live server rules for S.ServerRules (sent after LoginSuccess and on StartGame success).
+        /// Game thread only. Login-time only, so the copies below are not a per-tick cost.
+        /// </summary>
+        public static S.ServerRules ServerRulesPacket()
+        {
+            var p = new S.ServerRules
+            {
+                OnlyRefineWeapon = Settings.OnlyRefineWeapon,
+                RefineBaseChance = Settings.RefineBaseChance,
+                RefineTime = Settings.RefineTime,
+                RefineIncrease = Settings.RefineIncrease,
+                RefineCritChance = Settings.RefineCritChance,
+                RefineCritIncrease = Settings.RefineCritIncrease,
+                RefineWepStatReduce = Settings.RefineWepStatReduce,
+                RefineItemStatReduce = Settings.RefineItemStatReduce,
+                RefineCost = Settings.RefineCost,
+                RefineOreName = Settings.RefineOreName ?? string.Empty,
+
+                AwakeSuccessRate = Awake.AwakeSuccessRate,
+                AwakeHitRate = Awake.AwakeHitRate,
+                MaxAwakeLevel = Awake.MaxAwakeLevel,
+                Awake_WeaponRate = Awake.Awake_WeaponRate,
+                Awake_HelmetRate = Awake.Awake_HelmetRate,
+                Awake_ArmorRate = Awake.Awake_ArmorRate,
+                AwakeChanceMax = Awake.AwakeChanceMax != null ? (byte[])Awake.AwakeChanceMax.Clone() : new byte[0],
+                AwakeMaterialRate = Awake.AwakeMaterialRate != null ? (float[])Awake.AwakeMaterialRate.Clone() : new float[0],
+
+                MentorLevelGap = Settings.MentorLevelGap,
+                MentorSkillBoost = Settings.MentorSkillBoost,
+                MentorLength = Settings.MentorLength,
+                MentorDamageBoost = Settings.MentorDamageBoost,
+                MentorExpBoost = Settings.MentorExpBoost,
+                MenteeExpBank = Settings.MenteeExpBank,
+
+                LoverEXPBonus = Settings.LoverEXPBonus,
+                MarriageCooldown = Settings.MarriageCooldown,
+                WeddingRingRecall = Settings.WeddingRingRecall,
+                MarriageLevelRequired = Settings.MarriageLevelRequired,
+                ReplaceWedRingCost = Settings.ReplaceWedRingCost,
+
+                MailAutoSendGold = Settings.MailAutoSendGold,
+                MailAutoSendItems = Settings.MailAutoSendItems,
+                MailFreeWithStamp = Settings.MailFreeWithStamp,
+                MailCostPer1KGold = Settings.MailCostPer1KGold,
+                MailItemInsurancePercentage = Settings.MailItemInsurancePercentage,
+                MailCapacity = Settings.MailCapacity,
+
+                BuyGTGold = Settings.BuyGTGold,
+                ExtendGT = Settings.ExtendGT,
+                GTDays = Settings.GTDays,
+
+                GemStatIndependent = Settings.GemStatIndependent,
+
+                AllowCreateAssassin = Settings.AllowCreateAssassin,
+                AllowCreateArcher = Settings.AllowCreateArcher,
+
+                MapDetailsEnabled = Settings.MapDetailsEnabled,
+                FriendRequestsEnabled = Settings.FriendRequestsEnabled,
+                MaxFriends = Settings.MaxFriends,
+            };
+
+            // The server reads AwakeMaterials[type - 1] for types 1..HPMP only; Settings.LoadAwakeAttribute/SaveAwakeAttribute
+            // can append duplicate entries after that (Known defect), so send just the first HPMP entries, copied.
+            List<List<byte>[]> materials = Awake.AwakeMaterials;
+            int typeCount = materials == null ? 0 : Math.Min(materials.Count, (int)AwakeType.HPMP);
+            for (int i = 0; i < typeCount; i++)
+            {
+                List<byte>[] source = materials[i];
+                if (source == null)
+                {
+                    p.AwakeMaterials.Add(new List<byte>[0]);
+                    continue;
+                }
+
+                var copy = new List<byte>[source.Length];
+                for (int k = 0; k < source.Length; k++)
+                    copy[k] = source[k] != null ? new List<byte>(source[k]) : new List<byte>();
+                p.AwakeMaterials.Add(copy);
+            }
+
+            return p;
         }
 
         public int HTTPLogin(string AccountID, string Password)

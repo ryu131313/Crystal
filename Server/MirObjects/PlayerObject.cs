@@ -1143,6 +1143,7 @@ namespace Server.MirObjects
             Connection.Stage = GameStage.Game;
 
             Enqueue(new S.StartGame { Result = 4, Resolution = Settings.AllowedResolution });
+            Enqueue(Envir.ServerRulesPacket()); //Re-sent so a settings reload since the account login is picked up
             ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.Welcome), GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GameName)), ChatType.Hint);
 
             if (Settings.TestServer)

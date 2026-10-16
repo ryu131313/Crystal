@@ -171,7 +171,7 @@ private static void Application_Idle(object sender, EventArgs e)
 
 **Frame** (`Shared/Packet.cs`): `[ushort totalLength incl. 4-byte header][short id][payload]`, little-endian `BinaryWriter`. **Max 65535 bytes per packet**; `GetPacketBytes` casts `(ushort)ms.Length` with no guard. `Compressed => true` (GZip) is used only by `S.NPCGoods`.
 
-**Lifecycle:** `LoginScene` connect → `S.Connected` → `Network.Connected = true` + `C.ClientVersion { VersionHash = MD5(Application.ExecutablePath) }` → `S.ClientVersion` result → login packets → `SelectScene` → `S.StartGame` → `GameScene`.
+**Lifecycle:** `LoginScene` connect → `S.Connected` → `Network.Connected = true` + `C.ClientVersion { VersionHash = MD5(Application.ExecutablePath) }` → `S.ClientVersion` result → login packets → `SelectScene` → `S.StartGame` → `GameScene`. `S.ServerRules` (2026-10-16, after `S.LoginSuccess` and after `S.StartGame`) is a web-client packet: Login/Select/GameScene pass it to `MirScene.ProcessPacket`, which has no case, so the desktop ignores it.
 
 **Dispatch:** `Packet.IsServer = false` → `ReceivePacket` uses `GetServerPacket(id)`. Main thread `Network.Process()` drains the **entire** queue per spin into `MirScene.ActiveScene.ProcessPacket(p)` — a manual `switch (p.Index)` in each scene, `default: base.ProcessPacket(p)`. `MirScene.ProcessPacket` (base) handles packets valid in any scene: `Disconnect`, `NewItemInfo`, `NewMonsterInfo`, `NewNPCInfo`, `NewChatItem`, `NewQuestInfo`, `NewRecipeInfo`, `NewHeroInfo`. Handlers are not individually try/caught — an exception propagates to the `Application_Idle` catch; remaining packets are drained on the next spin.
 
@@ -573,7 +573,7 @@ private void ObjectTurn(S.ObjectTurn p)
 
 #### Recipe — add a server→client packet (client half; server half in `Knowledgebase/Server/server.md`)
 
-1. `Shared/Enums.cs`: append the member at the **end** of `ServerPacketIds` (current last: `MapAtmosphere`; re-count before relying on an ordinal).
+1. `Shared/Enums.cs`: append the member at the **end** of `ServerPacketIds` (current last: `ServerRules` = 281, 2026-10-16; re-count before relying on an ordinal).
 2. `Shared/ServerPackets.cs`:
    ```csharp
    public sealed class MyThing : Packet

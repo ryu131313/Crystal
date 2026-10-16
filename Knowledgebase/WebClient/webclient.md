@@ -79,6 +79,7 @@ Shared is referenced for the enums and the generators only; relayed packets are 
 | `src/ui/characterWindow.ts` | Character window (C): CharacterDialog status page from `stats.ts` | port (desktop look) |
 | `src/ui/hudExtras.ts` | `SendOutputMessage`, notice, timers, compass, roll (die / yut), `OpenBrowser` (chat link), NPC input box | port (desktop look) |
 | `src/ui/messageBox.ts` | MirMessageBox (Prguse 360) / MirInputBox (660) / MirAmountBox (238), non-blocking and modal; promise forms `confirmBox` / `promptBox` / `amountPrompt` | port |
+| `src/game/serverRules.ts` | `S.ServerRules` snapshot (2026-10-16, phase 2.2): `serverRules(session)` = one `ServerRulesStore` per `Session` (WeakMap; outlives the game scene), `rules` (null before the first packet) + `changed` Emitter; fed by the account screens (sent after `S.LoginSuccess`) and `game.ts` (after `S.StartGame`). Refine / awakening odds, mentor / marriage / mail / territory costs, class gating, `MapDetailsEnabled` / `FriendRequestsEnabled` / `MaxFriends`. `AwakeMaterials[type-1][0/1]` may be short: check bounds; `AwakeMaterialRate` is raw f32 (format it) | new |
 | `src/game/gameInfo.ts` | GameScene MonsterInfoList / NPCInfoList / MapInfoList + world-map setup, deduped `C.Request*Info` | port |
 | `src/ui/storageWindow.ts` | StorageDialog (S.NPCStorage): 2 x 80 cells sharing the inventory pick (items in `Inventory.storage`), password unlock / first-time setup / change, rent extra storage (`@ADDSTORAGE`) | port (desktop look) |
 | `src/ui/npcServices.ts` | NPC item services: the NPCDropDialog types (refine, check refine, wedding ring, disassemble, downgrade, reset), RefineDialog (`Inventory.refine`), crafting (NPCCraftGoodsDialog + CraftDialog), NPCAwakeDialog, pearl goods | port (desktop look) |
@@ -175,7 +176,7 @@ Shared is referenced for the enums and the generators only; relayed packets are 
 
 ### 3.4 Backlog (not ported yet, surveyed 2026-10-12)
 
-Survey: 116 of 280 `ServerPacketIds` and 48 of 153 `ClientPacketIds` ported; every unported server packet is handled by the desktop. Work top to bottom; strike items here as they land.
+Survey (2026-10-12): 116 of 280 `ServerPacketIds` and 48 of 153 `ClientPacketIds` ported. Codec count 2026-10-16 (after Scene Lab UI phase 2.2): 281 of 282 `ServerPacketIds` decode (`isPorted`; only `UserName` is missing) and 154 of 158 `ClientPacketIds` encode; a decoder does not mean the game handles the packet. Every unported server packet is handled by the desktop. Work top to bottom; strike items here as they land.
 
 **1. Basic play** — done 2026-10-12 (see the port notes above). Left: `UserInformation` tail (intelligent creatures, observe flags), the `DontTrade` / NPC bind pre-checks.
 
