@@ -428,8 +428,13 @@ C	144	ItemRentalLockFee	ItemRentalLockFee	1	E3B0C442
 C	145	ItemRentalLockItem	ItemRentalLockItem	1	E3B0C442
 C	146	ConfirmItemRental	ConfirmItemRental	1	E3B0C442
 C	147	GuildTerritoryPage	GuildTerritoryPage	1	17EBA345
-C	148	PurchaseGuildTerritory	-	-	-
+C	148	PurchaseGuildTerritory	PurchaseGuildTerritory	1	5C7B958D
 C	149	DeleteItem	DeleteItem	1	17A50A8E
 C	150	UnlockStorage	UnlockStorage	1	394EBE3E
 C	151	SetStoragePassword	SetStoragePassword	1	C936D126
 C	152	RemoveStoragePassword	RemoveStoragePassword	1	153139BA
+C	153	SellItems	SellItems	1	CB7AE3A4
+C	154	RepairItems	RepairItems	1	20D358A7
+C	155	CollectAllParcels	CollectAllParcels	1	E3B0C442
+C	156	ReadMails	ReadMails	1	8E16636E
+C	157	SortItems	SortItems	1	4F094976

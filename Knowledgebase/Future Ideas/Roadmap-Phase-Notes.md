@@ -101,7 +101,7 @@
   - `Index` values are unique and match the enums;
   - private packets are `Observable=false`;
   - the ID enums are append-only against a checked-in manifest (ID → class → field-order hash).
-- **Expected failures until C5:** `C.PurchaseGuildTerritory` and `S.RefineCancel` (no factory case), and the storage-password replies being observable.
+- **Expected failures until C5:** ~~`C.PurchaseGuildTerritory`~~ (factory case added 2026-10-16, Scene Lab UI phase 2.1) and `S.RefineCancel` (no factory case), and the storage-password replies being observable.
 - **AGENTS.md, same commit:** add `Server.Persistence.Tests` and `Shared.Tests` to the project table, the "compile every consumer after a `Shared/` change" list and the "ALWAYS run tests" list. AGENTS.md currently says `Server.WebAdmin.Tests` is the only test project.
 
 **Background, agent-only (due before P5, or before P9 for the audit):**
@@ -629,7 +629,7 @@ SlimDX is referenced from 16 client files. Some import it only for `Vector2/3`, 
    - Review the client NuGet packages: `Microsoft.AspNet.WebApi.Client` 6.0.0 (used only for `ProgressMessageHandler`), WebView2 and NAudio.
 3. **Handshake.** A `Shared` build id or manifest hash in `C.ClientVersion` replaces the apphost-MD5 check.
 4. **Batched `Shared` fixes:**
-   - `C.PurchaseGuildTerritory`: review its handler, then enable or remove.
+   - ~~`C.PurchaseGuildTerritory`: review its handler, then enable or remove.~~ **Enabled 2026-10-16 (Scene Lab UI phase 2.1)** after a handler review and hardening (server.md §3.5 Known defects).
    - `S.RefineCancel`: add the case or remove the packet.
    - `Observable=false` on the storage-password replies.
    - The remaining `ReadPacket` length checks.
@@ -690,5 +690,5 @@ SlimDX is referenced from 16 client files. Some import it only for `Vector2/3`, 
 | P9 | Mob threads and GC mode | Decide from measurements |
 | C2 | Patch host and runtime delivery | HTTPS with AutoPatcherAdminV2 only; framework-dependent with detection and ≥2 weeks' notice |
 | C4 | Fallback cycle and shader compile | ≥1 two-week D3D9 fallback cycle; embedded HLSL compiled at runtime (`d3dcompiler_47` ships with Windows 10+) or offline `.cso` |
-| C5 | TLS; `PurchaseGuildTerritory` | TLS **in**: the server will face the internet (user, 2026-10-09), and TLS is part of the go-public gate. Enable `PurchaseGuildTerritory` only after its handler is reviewed |
+| C5 | TLS; `PurchaseGuildTerritory` | TLS **in**: the server will face the internet (user, 2026-10-09), and TLS is part of the go-public gate. Enable `PurchaseGuildTerritory` only after its handler is reviewed (**done 2026-10-16**, Scene Lab UI phase 2.1: reviewed, hardened, enabled) |
 | C6 | Widescreen ambition | Decide after P9 |

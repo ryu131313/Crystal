@@ -616,6 +616,8 @@ const decoders = {
   NPCStorage: (_r: Reader) => ({}),
   /** `bool present, i32 length, length x (bool present, UserItem)`. */
   UserStorage: (r: Reader) => ({ Storage: readItemArray(r) }),
+  /** Whole-grid replace (C.SortItems reply for the bag, GameScene.UserSlotsRefresh): each array is null when not sent. */
+  UserSlotsRefresh: (r: Reader) => ({ Inventory: readItemArray(r), Equipment: readItemArray(r) }),
   StoreItem: (r: Reader) => ({ From: r.readI32(), To: r.readI32(), Success: r.readBool() }),
   TakeBackItem: (r: Reader) => ({ From: r.readI32(), To: r.readI32(), Success: r.readBool() }),
   /** Result: 0 success, 1 bad password, 2 wrong password, 3 not available, 4 no password set. */

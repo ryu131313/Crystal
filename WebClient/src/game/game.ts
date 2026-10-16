@@ -195,7 +195,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   /** Output lines, notice, timers, compass, chat notice, roll (hudState.ts). */
   const hudState = new HudState({ send: (f) => session.send(f), now: () => performance.now(), play: (id) => sound.play(id), chatLog });
   /** GameScene.AllowObserve + the UserObject storage flags (account.ts). */
-  const account = new Account();
+  const account = new Account((f) => session.send(f));
   /** BuffsDialog.Buffs (the user's). */
   let userBuffs: UserBuff[] = [];
   const doors = new Doors();

@@ -421,7 +421,7 @@ Hot path = anything reached from `UpdateEnviroment` (every spin) or `RenderEnvir
 - ~~**`ExpandedHeroBuffWindow` saves the wrong variable**~~ (fixed 2026-10-10, C1): `Reader.Write("Game", "ExpandedHeroBuffWindow", ExpandedBuffWindow)` (`Settings.cs` ~L371).
 - **`[Logs] LogErrors`/`LogChat`** are now also written by `Save()` (fixed 2026-10-10, C1). `LogChat` is unused. `LogErrors` is checked by ~12 callers (`if (Settings.LogErrors) CMain.SaveError(...)`) but not inside `SaveError`.
 - **`S.RefineCancel`** has a class and a `GameScene` handler but no `GetServerPacket` case (only the `ClientPacketIds` one) — dead.
-- **`C.PurchaseGuildTerritory` has no `GetClientPacket` case** in `Shared/Packet.cs`; `GuildTerritoryDialog .cs` (filename has a space) sends it, so the server discards that connection's receive buffer and its handler is unreachable.
+- ~~**`C.PurchaseGuildTerritory` has no `GetClientPacket` case** in `Shared/Packet.cs`; `GuildTerritoryDialog .cs` (filename has a space) sends it, so the server discards that connection's receive buffer and its handler is unreachable.~~ — **fixed 2026-10-16** (Scene Lab UI phase 2.1): factory case added, the server now handles it.
 - **Client version check is weak:** `LoginScene.SendVersion` hashes `Application.ExecutablePath` — on .NET 8 that is the `Client.exe` apphost stub, not `Client.dll`, so a code-only rebuild likely produces the same hash (inference, unverified). The server's default `VersionPath` is `.\Mir2.Exe`, which doesn't match `Client.exe`. Never treat a passing version check as proof of matching `Shared` builds.
 - ~~Looping-sound duplicate key / leaks~~ — **fixed 2026-10-10 (C1)**: replay restarts the loop, `StopSound` removes, timeout cleanup disposes. Original note: **`SoundManager.PlaySound(index, loop: true)`** did `_loopingSounds.Add` (throws on a duplicate key); `StopSound` disposes but doesn't remove; `CheckSoundTimeOut` removes loop entries without disposing. **Live:** `ElementsEffect` (`Effect.cs` ~L275/296) passes `loop: true` for the user's own type-3/4 elemental orbs (`GameScene.cs` ~L5582); a repeat for the same orb before the 30 s timeout check throws `ArgumentException` from `_loopingSounds.Add` into the `Application_Idle` catch.
 - `SelectScene` overwrites the user's `Settings.Resolution` with the server cap when lower, and that is saved on exit.
@@ -587,7 +587,7 @@ private void ObjectTurn(S.ObjectTurn p)
    Read/Write in identical order and types. Keep < 64 KB. Override `Observable => false` if spectators must not receive it.
 3. `Shared/Packet.cs` `GetServerPacket` switch: `case (short)ServerPacketIds.MyThing: return new S.MyThing();` — missing ⇒ the client discards its whole receive buffer.
 4. `GameScene.ProcessPacket`: `case` + `private void MyThing(S.MyThing p)` (template above), or `LoginScene`/`SelectScene`/`MirScene` base if needed outside the game.
-5. Client → server is the mirror: `ClientPacketIds` (append; current last `RemoveStoragePassword`), `Shared/ClientPackets.cs`, `GetClientPacket` case, server `MirConnection.ProcessPacket` handler; client sends `Network.Enqueue(new C.X { ... })`.
+5. Client → server is the mirror: `ClientPacketIds` (append; current last `SortItems` = 157, 2026-10-16), `Shared/ClientPackets.cs`, `GetClientPacket` case, server `MirConnection.ProcessPacket` handler; client sends `Network.Enqueue(new C.X { ... })`.
 6. Compile both `Client\Client.csproj` and `Server\Server.Library.csproj`; deploy client + server together.
 
 ### 4.6 MapObject / Rendering Pattern

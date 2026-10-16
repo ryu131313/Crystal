@@ -296,6 +296,7 @@ internal static class Fixtures
         yield return new S.Rankings { RankType = 2, MyRank = 5, ListingDetails = { new RankCharacterInfo { PlayerId = 9_000_000_004, Name = "WebHero", level = 30, Class = MirClass.Warrior } }, Listings = { 9_000_000_004, 7 }, Count = 2 };
         yield return new S.NPCStorage();
         yield return new S.UserStorage { Storage = new UserItem[] { torch, null, armour } };
+        yield return new S.UserSlotsRefresh { Inventory = new UserItem[] { torch, null, armour } }; // Equipment stays null (not sent)
         yield return new S.StoreItem { From = 7, To = 80, Success = true };
         yield return new S.TakeBackItem { From = 80, To = 7, Success = false };
         yield return new S.StorageUnlockResult { Result = 2, HasPassword = true };
@@ -622,6 +623,14 @@ internal static class Fixtures
         };
         yield return new C.IntelligentCreaturePickup { MouseMode = true, Location = new Point(301, 257) };
         yield return new C.RequestIntelligentCreatureUpdates { Update = true };
+        yield return new C.PurchaseGuildTerritory { Owner = "WebGuild" };
+        yield return new C.DeleteItem { UniqueID = 8, Count = 2, HeroInventory = true };
+        yield return new C.RemoveStoragePassword { CurrentPassword = "old" };
+        yield return new C.SellItems { Items = { (8UL, (ushort)2), (9_000_000_003UL, (ushort)1) } };
+        yield return new C.RepairItems { Special = true, UniqueIDs = { 8, 9_000_000_003UL } };
+        yield return new C.CollectAllParcels();
+        yield return new C.ReadMails { MailIDs = { 9_000_000_003UL, 7 } };
+        yield return new C.SortItems { Grid = MirGridType.Storage, Mode = 1 };
     }
 
     public static int Emit(string dir)
@@ -632,7 +641,7 @@ internal static class Fixtures
             IncludeFields = true,
             WriteIndented = true,
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-            Converters = { new PointConverter(), new ColorConverter(), new DateTimeConverter(), new UserItemConverter(), new ItemInfoLiteConverter(), new StatsConverter(), new ByteArrayConverter(), new QuestProgressConverter() },
+            Converters = { new PointConverter(), new ColorConverter(), new DateTimeConverter(), new UserItemConverter(), new ItemInfoLiteConverter(), new StatsConverter(), new ByteArrayConverter(), new QuestProgressConverter(), new SellEntryConverter() },
         };
         int n = 0;
         foreach (var (packet, direction) in ServerSamples().Select(p => (p, "server")).Concat(ClientSamples().Select(p => (p, "client"))))
@@ -792,5 +801,18 @@ internal static class Fixtures
     {
         public override DateTime Read(ref Utf8JsonReader reader, Type t, JsonSerializerOptions o) => throw new NotSupportedException();
         public override void Write(Utf8JsonWriter w, DateTime v, JsonSerializerOptions o) => w.WriteStringValue(v.ToBinary().ToString());
+    }
+
+    /// <summary>C.SellItems entry as client.ts `{ UniqueID, Count }` (a ValueTuple would serialise as Item1/Item2).</summary>
+    private sealed class SellEntryConverter : JsonConverter<(ulong UniqueID, ushort Count)>
+    {
+        public override (ulong UniqueID, ushort Count) Read(ref Utf8JsonReader reader, Type t, JsonSerializerOptions o) => throw new NotSupportedException();
+        public override void Write(Utf8JsonWriter w, (ulong UniqueID, ushort Count) v, JsonSerializerOptions o)
+        {
+            w.WriteStartObject();
+            w.WriteString("UniqueID", v.UniqueID.ToString());
+            w.WriteNumber("Count", v.Count);
+            w.WriteEndObject();
+        }
     }
 }

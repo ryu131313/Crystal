@@ -1,0 +1,9 @@
+{
+  "name": "PurchaseGuildTerritory",
+  "dir": "client",
+  "id": 148,
+  "hex": "0D009400085765624775696C64",
+  "fields": {
+    "Owner": "WebGuild"
+  }
+}

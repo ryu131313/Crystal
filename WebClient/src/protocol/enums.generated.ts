@@ -441,6 +441,11 @@ export const ClientPacketIds = {
   UnlockStorage: 150,
   SetStoragePassword: 151,
   RemoveStoragePassword: 152,
+  SellItems: 153,
+  RepairItems: 154,
+  CollectAllParcels: 155,
+  ReadMails: 156,
+  SortItems: 157,
 } as const;
 export type ClientPacketIds = (typeof ClientPacketIds)[keyof typeof ClientPacketIds];
 export const ClientPacketIdsName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(ClientPacketIds).map(([k, v]) => [v, k]));

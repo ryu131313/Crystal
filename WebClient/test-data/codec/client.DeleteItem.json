@@ -1,0 +1,11 @@
+{
+  "name": "DeleteItem",
+  "dir": "client",
+  "id": 149,
+  "hex": "0F0095000800000000000000020001",
+  "fields": {
+    "UniqueID": 8,
+    "Count": 2,
+    "HeroInventory": true
+  }
+}

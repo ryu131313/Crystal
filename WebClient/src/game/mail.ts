@@ -3,6 +3,7 @@
 // MailDialogs send (Client/MirScenes/Dialogs/MailDialogs.cs). The parcel being composed (its cells, gold, stamp) and its
 // locks stay in the UI. game.ts feeds handle(); the UI follows `changed` (the list was replaced) and the events
 // `sendRequest` (an NPC asks for a parcel recipient), `sent`, `collected` and `cost`.
+// Web batch requests (phase 2.1, no desktop sender): C.CollectAllParcels and C.ReadMails (one S.ReceiveMail answers).
 
 import type { ServerPacket, ClientMail } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
@@ -13,6 +14,8 @@ import { Emitter } from "./emitter.ts";
 
 /** MailComposeParcelDialog._cellCount (the ItemsIdx length of C.SendMail / C.MailCost). */
 export const MAIL_PARCEL_CELLS = 5;
+/** PlayerObject.ReadMails cap: the server reads at most this many MailIDs from one C.ReadMails. */
+export const MAX_READ_MAILS = 100;
 
 /** A parcel: gold or items (MailListDialog / MailReadParcelDialog). */
 export const isParcel = (m: ClientMail): boolean => m.Gold > 0 || m.Items.length > 0;
@@ -64,6 +67,37 @@ export class MailBox {
   /** MailReadParcelDialog.CollectButton. */
   collect(mailId: bigint): void {
     this.send(ClientPackets.CollectParcel({ MailID: mailId }));
+  }
+
+  /** C.ReadMails (web batch): marks the listed mails read; only unopened mails in the list are sent (repeats dropped, at
+   *  most MAX_READ_MAILS). Returns the number sent (0 = nothing sent). */
+  readMails(mailIds: readonly bigint[]): number {
+    const ids: bigint[] = [];
+    for (let i = 0; i < mailIds.length && ids.length < MAX_READ_MAILS; i++) {
+      const id = mailIds[i]!;
+      if (ids.includes(id)) continue;
+      const m = this.find(id);
+      if (m && !m.Opened) ids.push(id);
+    }
+    if (ids.length > 0) this.send(ClientPackets.ReadMails({ MailIDs: ids }));
+    return ids.length;
+  }
+
+  /** True when a mail holds a parcel that can be collected here (ClientMail.Collected = ready; CollectAllParcels' rule). */
+  get hasParcelsToCollect(): boolean {
+    for (let i = 0; i < this._mail.length; i++) {
+      const m = this._mail[i]!;
+      if (m.Collected && isParcel(m)) return true;
+    }
+    return false;
+  }
+
+  /** C.CollectAllParcels (web batch): collect every ready parcel (the server stops at the first full bag, with its chat
+   *  line). False = nothing to collect, nothing sent. S.ParcelCollected + one S.ReceiveMail answer. */
+  collectAllParcels(): boolean {
+    if (!this.hasParcelsToCollect) return false;
+    this.send(ClientPackets.CollectAllParcels());
+    return true;
   }
 
   /** MailComposeLetterDialog / MailComposeParcelDialog SendButton (`itemsIdx`: MAIL_PARCEL_CELLS UniqueIDs, 0 = empty). */

@@ -9,6 +9,9 @@
 // MergeItem / SplitItem(1) / DeleteItem). Hero grids are kept by heroItems.ts: every packet naming a hero grid (MoveItem /
 // EquipItem / RemoveItem / UseItem with Grid = HeroInventory, DropItem.HeroItem, a MergeItem with a hero side) is left alone here.
 // Locks mirror MirItemCell.Locked: a cell stays locked until the server answers.
+// Web batch requests (phase 2.1, no desktop sender): C.SellItems / C.RepairItems (answered per item by S.SellItem /
+// S.RepairItem), C.SortItems (answered by S.UserSlotsRefresh for the bag, S.UserStorage for storage; refused while a
+// cell of that grid is locked) and C.DeleteItem (answered by S.DeleteItem).
 
 import type { ServerPacket, UserItem } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
@@ -20,6 +23,8 @@ export const TRADE_SLOTS = 10; // UserObject.Trade
 export const GUILD_STORAGE_SLOTS = 112; // GuildDialog.StorageGrid (8 x 14) = GuildInfo.StoredItems
 export const STORAGE_GRID_SIZE = 80; // Globals.StorageGridSize: one StorageDialog page (the expanded page is slots 80..159)
 export const REFINE_SLOTS = 16; // RefineDialog.Grid (4 x 4) = GameScene.Refine
+/** PlayerObject.SortItems cooldown (Settings.Second * 2): a sort sent sooner is ignored by the server without an answer. */
+export const SORT_COOLDOWN_MS = 2000;
 
 export class Inventory {
   inventory: (UserItem | null)[] = [];
@@ -52,6 +57,7 @@ export class Inventory {
   private readonly infos: ItemInfos;
   private readonly send: (frame: Uint8Array) => void;
   private useItemTime = 0;
+  private sortTime = 0;
 
   constructor(infos: ItemInfos, send: (frame: Uint8Array) => void) {
     this.infos = infos;
@@ -263,7 +269,15 @@ export class Inventory {
         if (item) item.Count -= p.Count;
         break;
       }
-      case "DeleteItem": this.deleteItem(p.UniqueID, p.Count); break;
+      case "DeleteItem": this.unlock(p.UniqueID); this.applyDelete(p.UniqueID, p.Count); break; // unlock: answer to deleteItem()
+      case "UserSlotsRefresh":
+        // GameScene.UserSlotsRefresh -> UserObject.SetSlots (the C.SortItems answer for the bag): replace the grids that
+        // were sent (the server sends both arrays with C.SortItems' reply: the desktop SetSlots cannot take a null one). The
+        // game refreshes looks and stats on the true return (SetSlots: BindAllItems + RefreshStats).
+        if (!p.Inventory && !p.Equipment) return false;
+        if (p.Inventory) this.inventory = p.Inventory;
+        if (p.Equipment) this.equipment = p.Equipment;
+        break;
       case "RefreshItem": {
         const i = this.findInventory(p.Item.UniqueID);
         if (i >= 0) { this.inventory[i] = p.Item; break; }
@@ -393,7 +407,7 @@ export class Inventory {
     put(0, this.inventory.length);
   }
 
-  private deleteItem(id: bigint, count: number): void {
+  private applyDelete(id: bigint, count: number): void {
     for (const list of [this.inventory, this.equipment]) {
       for (let i = 0; i < list.length; i++) {
         const item = list[i];
@@ -722,6 +736,70 @@ export class Inventory {
     if (kind === "sell") this.send(ClientPackets.SellItem({ UniqueID: item.UniqueID, Count: item.Count }));
     else if (kind === "repair") this.send(ClientPackets.RepairItem({ UniqueID: item.UniqueID }));
     else this.send(ClientPackets.SRepairItem({ UniqueID: item.UniqueID }));
+    this.lock(item);
+  }
+
+  /** C.SellItems (web batch): sells each listed bag / belt item (count clamped to 1..Count; missing, locked and repeated
+   *  items skipped, at most inventory.length entries like the server's cap). The cells lock until each S.SellItem.
+   *  Returns the number of items sent (0 = nothing sent). */
+  sellItems(items: readonly { uniqueId: bigint; count: number }[]): number {
+    const out: { UniqueID: bigint; Count: number }[] = [];
+    const picked: UserItem[] = [];
+    for (let i = 0; i < items.length && out.length < this.inventory.length; i++) {
+      const e = items[i]!;
+      const at = this.findInventory(e.uniqueId);
+      if (at < 0) continue;
+      const item = this.inventory[at]!;
+      if (this.isLocked(item) || picked.includes(item)) continue;
+      const count = Math.min(item.Count, Math.max(1, Math.trunc(e.count) || item.Count));
+      out.push({ UniqueID: item.UniqueID, Count: count });
+      picked.push(item);
+    }
+    if (out.length === 0) return 0;
+    this.send(ClientPackets.SellItems({ Items: out }));
+    this.lock(...picked);
+    return out.length;
+  }
+
+  /** C.RepairItems (web batch; `special` = SRepair): repairs each listed bag / belt item (missing, locked and repeated
+   *  items skipped, at most inventory.length). The cells lock until each S.RepairItem. Returns the number sent. */
+  repairItems(uniqueIds: readonly bigint[], special: boolean): number {
+    const ids: bigint[] = [];
+    const picked: UserItem[] = [];
+    for (let i = 0; i < uniqueIds.length && ids.length < this.inventory.length; i++) {
+      const at = this.findInventory(uniqueIds[i]!);
+      if (at < 0) continue;
+      const item = this.inventory[at]!;
+      if (this.isLocked(item) || picked.includes(item)) continue;
+      ids.push(item.UniqueID);
+      picked.push(item);
+    }
+    if (ids.length === 0) return 0;
+    this.send(ClientPackets.RepairItems({ Special: special, UniqueIDs: ids }));
+    this.lock(...picked);
+    return ids.length;
+  }
+
+  /** C.SortItems (web): sort ('sort') or stack partial stacks then sort ('stack') the bag (cells after the belt) or the
+   *  NPC storage (the server also needs the storage page in range and the storage unlocked, else it ignores it). Nothing
+   *  locks; refused (false) while any cell of that grid is locked or within SORT_COOLDOWN_MS of the last sort. The
+   *  answer is S.UserSlotsRefresh (bag) or S.UserStorage (storage). */
+  sortItems(grid: "inventory" | "storage", mode: "sort" | "stack", now: number = performance.now()): boolean {
+    if (now < this.sortTime) return false;
+    const list = grid === "inventory" ? this.inventory : this.storage;
+    for (let i = 0; i < list.length; i++) if (this.isLocked(list[i] ?? null)) return false;
+    this.sortTime = now + SORT_COOLDOWN_MS;
+    this.send(ClientPackets.SortItems({ Grid: grid === "inventory" ? MirGridType.Inventory : MirGridType.Storage, Mode: mode === "stack" ? 1 : 0 }));
+    return true;
+  }
+
+  /** C.DeleteItem (web; the desktop's DelItemButton): destroys `count` (default the whole stack, clamped to 1..Count) of
+   *  the bag / belt item in `slot`. The cell locks until S.DeleteItem. */
+  deleteItem(slot: number, count?: number): void {
+    const item = this.inventory[slot];
+    if (!item || this.isLocked(item)) return;
+    const n = Math.min(item.Count, Math.max(1, Math.trunc(count ?? item.Count)));
+    this.send(ClientPackets.DeleteItem({ UniqueID: item.UniqueID, Count: n, HeroInventory: false }));
     this.lock(item);
   }
 

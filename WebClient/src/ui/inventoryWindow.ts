@@ -224,7 +224,8 @@ export class InventoryWindow {
           [{ label: "OK", onClick: () => this.send(ClientPackets.Chat({ Message: "@ADDINVENTORY" })) }, { label: "Cancel" }]);
       } });
     closeButton(this.win, [289, 3], () => this.toggle(false));
-    // DelItemButton: C.DeleteItem is not ported, so the bin button shows but does nothing
+    // DelItemButton: the C.DeleteItem encoder and Inventory.deleteItem(slot, count) exist since phase 2.1, but the classic
+    // bin button is deliberately left inert this phase (it shows but does nothing)
     new MirButton({ parent: this.win, library: Lib.Prguse2, index: 366, hoverIndex: 367, pressedIndex: 368, location: [291, 212], sound: SoundList.ButtonA });
     this.goldLabel = new MirLabel({ parent: this.win, location: [40, 212], size: [111, 14] });
     this.goldLabel.onClick(() => {

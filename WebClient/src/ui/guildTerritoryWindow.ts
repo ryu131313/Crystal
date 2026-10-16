@@ -4,9 +4,8 @@
 // send C.GuildTerritoryPage, a row click selects it (lime border); Mail composes a letter to the selected owner's leader
 // (MailComposeLetterDialog.ComposeMail). Since phase 1c the list, page, length, selection and page sends live in the
 // Territories model (src/game/territories.ts); this window is a view that opens on its `received` event.
-// Purchase is inert: C.PurchaseGuildTerritory has no GetClientPacket case in Shared/Packet.cs, so the server would
-// discard the connection's whole receive buffer (Client §3.5 Known defect); it is deliberately not in client.ts. The
-// button shows like the desktop's (a selected "For Sale" row) but sends nothing.
+// Purchase shows like the desktop's (a selected "For Sale" row) and sends C.PurchaseGuildTerritory through the model
+// (enabled in phase 2.1, once the server's Packet.cs gained the factory case).
 // Deliberate differences: the page resets to 0 when the server opens the hidden window (the NPC always asks for page 0;
 // the desktop keeps the old Page and mislabels the rows); the window opens centred (the desktop never sets a Location,
 // so it opens at 0, 0).
@@ -61,8 +60,7 @@ export class GuildTerritoryWindow {
     new MirButton({ parent: this.win, library: Lib.Prguse2, index: 240, hoverIndex: 241, pressedIndex: 242, location: [214, 213], sound: SoundList.ButtonA, hint: "Page Back", onClick: () => this.prev() });
     new MirButton({ parent: this.win, library: Lib.Prguse2, index: 243, hoverIndex: 244, pressedIndex: 245, location: [317, 213], sound: SoundList.ButtonA, hint: "Page Forward", onClick: () => this.next() });
     new MirButton({ parent: this.win, library: Lib.Prguse, index: 437, hoverIndex: 438, pressedIndex: 439, location: [262, 208], sound: SoundList.ButtonA, hint: "Mail a Guild Leader", onClick: () => this.mail() });
-    // BuyButton: C.PurchaseGuildTerritory is not ported (see the header), so the click does nothing
-    this.buyButton = new MirButton({ parent: this.win, library: Lib.Prguse, index: 437, hoverIndex: 438, pressedIndex: 439, location: [292, 208], sound: SoundList.ButtonA, hint: "Purchase", visible: false });
+    this.buyButton = new MirButton({ parent: this.win, library: Lib.Prguse, index: 437, hoverIndex: 438, pressedIndex: 439, location: [292, 208], sound: SoundList.ButtonA, hint: "Purchase", visible: false, onClick: () => this.purchase() });
     new MirImage({ parent: this.win, library: Lib.Title, index: 54, location: [217, 11] });
     const header = (x: number, text: string) => new MirLabel({ parent: this.win, location: [x, 38], autoSize: true, notControl: true, foreColour: GOLDENROD, text });
     header(15, "GT #");
@@ -131,6 +129,14 @@ export class GuildTerritoryWindow {
     const gt = this.selectedRow();
     if (!gt || gt.ownerName.text === NONE) return;
     this.composeMail(gt.owner1);
+  }
+
+  /** BuyButton.Click: a selected row with a leader (not None) that reads For Sale -> C.PurchaseGuildTerritory(GuildOwner). */
+  private purchase(): void {
+    const gt = this.selectedRow();
+    if (!gt || gt.ownerName.text === NONE) return;
+    if (gt.status.text !== FOR_SALE) return;
+    this.model.purchase(gt.guildOwner.text);
   }
 
   /** GuildTerritoryDialog.UpdateInterface. */

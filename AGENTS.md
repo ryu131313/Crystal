@@ -157,7 +157,7 @@ What are you editing?
 
 | Task | Primary doc | Also read |
 |---|---|---|
-| Add / change a packet | Server §3.5, §4.2, §3.8 | Client §3.5 (incl. Known defects: `C.PurchaseGuildTerritory`, `S.RefineCancel`, Observable storage-password replies), §4.5 |
+| Add / change a packet | Server §3.5, §4.2, §3.8 | Client §3.5 (incl. Known defects: `S.RefineCancel`, Observable storage-password replies; `C.PurchaseGuildTerritory` fixed 2026-10-16), §4.5 |
 | Add / change a shared enum (`Monster`, `Stat`, `ItemType`, `Spell`, `BuffType`, `MirAction`, …) | Server §3.4 | Client §3.5 (enum values map to `.Lib` files / client logic); Client §4.4 "Recipe — add a UI string" step 4 (members of `Stat`, `BuffType`, `MirClass`, `PoisonType`, … need an `EnumType_Member` entry in the client JSON `Enum` object) |
 | Change a `Shared/Data` model's `Save`/ctor, or any DB layout (`Envir.Version` bump + `LoadVersion` gate) | Server §2.6, §3.4, §4.3 | Client §4.8 (client reads the packet layout with `int.MaxValue`) |
 | Add a user-facing string (`ServerTextKeys` / `ClientTextKeys`) | Server §4.1 / Client §4.4 "Recipe — add a UI string" | Server keys → `Server.MirForms/Localization/{English,Chinese}.json`; client keys → `Client/Localization/{English,Chinese}.json` (never both) |
@@ -169,7 +169,7 @@ What are you editing?
 | Server address for players | Client §2.6, §2.7 (`[Network] UseConfig/IPAddress/Port`) | Server §2.5 (`Settings.IPAddress`/`Port`) |
 
 **Packet rule (Crystal):** a packet lives in **four** places, all in one commit:
-1. ID appended at the **end** of `ServerPacketIds` / `ClientPacketIds` in `Shared/Enums.cs` (~L1434 / ~L1717). IDs are **implicit ordinals** (declaration position) — inserting mid-enum renumbers every later ID. Current last members: `MapAtmosphere` (280, LiveDb map light / weather) / `RemoveStoragePassword`; re-check before relying on an ordinal.
+1. ID appended at the **end** of `ServerPacketIds` / `ClientPacketIds` in `Shared/Enums.cs` (~L1434 / ~L1717). IDs are **implicit ordinals** (declaration position) — inserting mid-enum renumbers every later ID. Current last members: `MapAtmosphere` (280, LiveDb map light / weather) / `SortItems` (157; 153-157 = `SellItems`, `RepairItems`, `CollectAllParcels`, `ReadMails`, `SortItems`, 2026-10-16); re-check before relying on an ordinal.
 2. `sealed class` in `Shared/ServerPackets.cs` (`S`) / `Shared/ClientPackets.cs` (`C`) with `ReadPacket`/`WritePacket` in identical field order and types.
 3. A `case` in `Shared/Packet.cs` `GetServerPacket` / `GetClientPacket` — **a missing case makes the receiver discard its whole receive buffer, silently.**
 4. Handler: server `MirConnection.ProcessPacket` (`Server/MirNetwork/MirConnection.cs`) → usually `PlayerObject`/`HumanObject`; client `GameScene.ProcessPacket` (or `LoginScene`/`SelectScene`/base `MirScene.ProcessPacket`).

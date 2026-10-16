@@ -873,6 +873,21 @@ namespace Server.MirNetwork
                 case (short)ClientPacketIds.DeleteItem:
                     DeleteItem((C.DeleteItem)p);
                     break;
+                case (short)ClientPacketIds.SellItems:
+                    SellItems((C.SellItems)p);
+                    break;
+                case (short)ClientPacketIds.RepairItems:
+                    RepairItems((C.RepairItems)p);
+                    break;
+                case (short)ClientPacketIds.CollectAllParcels:
+                    CollectAllParcels();
+                    break;
+                case (short)ClientPacketIds.ReadMails:
+                    ReadMails((C.ReadMails)p);
+                    break;
+                case (short)ClientPacketIds.SortItems:
+                    SortItems((C.SortItems)p);
+                    break;
                 default:
                     MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.InvalidPacketReceived), p.Index));
                     break;
@@ -2499,6 +2514,41 @@ namespace Server.MirNetwork
             if (Stage != GameStage.Game) return;
 
             Player.DeleteItem(p.UniqueID, p.Count);
+        }
+
+        private void SellItems(C.SellItems p)
+        {
+            if (Stage != GameStage.Game) return;
+
+            Player.SellItems(p.Items);
+        }
+
+        private void RepairItems(C.RepairItems p)
+        {
+            if (Stage != GameStage.Game) return;
+
+            Player.RepairItems(p.Special, p.UniqueIDs);
+        }
+
+        private void CollectAllParcels()
+        {
+            if (Stage != GameStage.Game) return;
+
+            Player.CollectAllParcels();
+        }
+
+        private void ReadMails(C.ReadMails p)
+        {
+            if (Stage != GameStage.Game) return;
+
+            Player.ReadMails(p.MailIDs);
+        }
+
+        private void SortItems(C.SortItems p)
+        {
+            if (Stage != GameStage.Game) return;
+
+            Player.SortItems(p.Grid, p.Mode);
         }
     }
 

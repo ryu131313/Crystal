@@ -281,8 +281,28 @@ export const ClientPackets = {
   IntelligentCreaturePickup: (p: { MouseMode: boolean; Location: { X: number; Y: number } }) =>
     frame(C.IntelligentCreaturePickup, (w) => { w.writeBool(p.MouseMode); w.writeI32(p.Location.X); w.writeI32(p.Location.Y); }),
   RequestIntelligentCreatureUpdates: (p: { Update: boolean }) => frame(C.RequestIntelligentCreatureUpdates, (w) => w.writeBool(p.Update)),
-  // C.PurchaseGuildTerritory is deliberately not ported: Shared/Packet.cs has no GetClientPacket case for it, so the
-  // server would discard the connection's whole receive buffer (Client §3.5 Known defect).
+  /** Owner: the guild territory's current owner name (GuildTerritoryDialog). Needs the GetClientPacket case added in Phase 2.1. */
+  PurchaseGuildTerritory: (p: { Owner: string }) => frame(C.PurchaseGuildTerritory, (w) => w.writeString(p.Owner)),
+  // — Bag / storage / mail batches (Phase 2.1) —
+  /** Destroys a bag item (HeroInventory = the hero's bag). */
+  DeleteItem: (p: { UniqueID: bigint; Count: number; HeroInventory: boolean }) => frame(C.DeleteItem, (w) => { w.writeU64(p.UniqueID); w.writeU16(p.Count); w.writeBool(p.HeroInventory); }),
+  RemoveStoragePassword: (p: { CurrentPassword: string }) => frame(C.RemoveStoragePassword, (w) => w.writeString(p.CurrentPassword)),
+  /** One S.SellItem reply per entry; the server caps the list at the bag size and ignores repeated UniqueIDs. */
+  SellItems: (p: { Items: { UniqueID: bigint; Count: number }[] }) => frame(C.SellItems, (w) => {
+    w.writeI32(p.Items.length);
+    for (const i of p.Items) { w.writeU64(BigInt(i.UniqueID)); w.writeU16(i.Count); }
+  }),
+  /** Special = true: special repair (SRepairItem rules). Bag items only; capped at the bag size, repeats ignored. */
+  RepairItems: (p: { Special: boolean; UniqueIDs: bigint[] }) => frame(C.RepairItems, (w) => {
+    w.writeBool(p.Special); w.writeI32(p.UniqueIDs.length); for (const id of p.UniqueIDs) w.writeU64(BigInt(id));
+  }),
+  /** Collects every ready parcel (CollectParcel rules); stops at the first full-bag failure. */
+  CollectAllParcels: () => frame(C.CollectAllParcels),
+  /** Server caps the list at 100 and ignores repeated IDs. */
+  ReadMails: (p: { MailIDs: bigint[] }) => frame(C.ReadMails, (w) => { w.writeI32(p.MailIDs.length); for (const id of p.MailIDs) w.writeU64(BigInt(id)); }),
+  /** Grid: MirGridType.Inventory (1, bag cells only, never the belt) or MirGridType.Storage (4). Mode 0 = sort, 1 = stack then compact.
+   *  Reply: S.UserSlotsRefresh (inventory) or S.UserStorage (storage); 2 s server cooldown. */
+  SortItems: (p: { Grid: number; Mode: number }) => frame(C.SortItems, (w) => { w.writeU8(p.Grid); w.writeU8(p.Mode); }),
 } as const;
 
 export type ClientPacketName = keyof typeof ClientPackets;

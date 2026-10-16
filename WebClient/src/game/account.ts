@@ -8,7 +8,11 @@
 // handle() consumes only S.AllowObserve (GameScene.ProcessPacket returns after it); the storage packets go on to the
 // storage window (prompts) and the inventory (S.ResizeStorage resizes the grid).
 
+// removeStoragePassword() sends C.RemoveStoragePassword (web; the desktop has no sender); S.StoragePasswordResult with
+// Removing = true answers (Result 4 = removed).
+
 import type { ServerPacket } from "../protocol/server.ts";
+import { ClientPackets } from "../protocol/client.ts";
 import { Emitter } from "./emitter.ts";
 
 export class Account {
@@ -21,6 +25,8 @@ export class Account {
   private _hadStoragePassword = false;
   private _requireStoragePassword = false;
   private _storagePasswordLastSet = 0n;
+
+  constructor(private readonly send: (f: Uint8Array) => void = () => {}) {}
 
   /** GameScene.AllowObserve. */
   get allowObserve(): boolean { return this._allowObserve; }
@@ -37,6 +43,14 @@ export class Account {
   get requireStoragePassword(): boolean { return this._requireStoragePassword; }
   /** UserObject.StoragePasswordLastSet (DateTime.ToBinary; 0 = never). */
   get storagePasswordLastSet(): bigint { return this._storagePasswordLastSet; }
+
+  /** C.RemoveStoragePassword: the server checks the storage NPC page / range and the password (StoragePasswordResult
+   *  Result 1 = invalid, 2 = wrong, 4 = removed, 5 = none set). False = no password set, nothing sent. */
+  removeStoragePassword(currentPassword: string): boolean {
+    if (!this._hasStoragePassword) return false;
+    this.send(ClientPackets.RemoveStoragePassword({ CurrentPassword: currentPassword }));
+    return true;
+  }
 
   /** True = consumed (S.AllowObserve only). */
   handle(p: ServerPacket): boolean {

@@ -128,6 +128,7 @@ namespace Server.MirObjects
         public Dictionary<string, object> NPCData = new Dictionary<string, object>();
 
         private bool StorageUnlocked;
+        private long NextSortItemsTime;
 
         public bool UserMatch;
         public string MatchName;
@@ -8145,17 +8146,26 @@ namespace Server.MirObjects
         }
         public void RepairItem(ulong uniqueID, bool special = false)
         {
+            ServerTextKeys? failure = RepairItemCore(uniqueID, special);
+
+            if (failure.HasValue)
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(failure.Value), ChatType.System);
+        }
+
+        /// <summary>The body of RepairItem; returns the chat line to send when the item cannot be repaired (the caller sends it).</summary>
+        private ServerTextKeys? RepairItemCore(ulong uniqueID, bool special)
+        {
             Enqueue(new S.RepairItem { UniqueID = uniqueID });
 
-            if (Dead) return;
+            if (Dead) return null;
 
-            if (NPCPage == null || (!String.Equals(NPCPage.Key, NPCScript.RepairKey, StringComparison.CurrentCultureIgnoreCase) && !special) || (!String.Equals(NPCPage.Key, NPCScript.SRepairKey, StringComparison.CurrentCultureIgnoreCase) && special)) return;
+            if (NPCPage == null || (!String.Equals(NPCPage.Key, NPCScript.RepairKey, StringComparison.CurrentCultureIgnoreCase) && !special) || (!String.Equals(NPCPage.Key, NPCScript.SRepairKey, StringComparison.CurrentCultureIgnoreCase) && special)) return null;
 
             for (int n = 0; n < CurrentMap.NPCs.Count; n++)
             {
                 NPCObject ob = CurrentMap.NPCs[n];
                 if (ob.ObjectID != NPCObjectID) continue;
-                if (!Functions.InRange(ob.CurrentLocation, CurrentLocation, Globals.DataRange)) return;
+                if (!Functions.InRange(ob.CurrentLocation, CurrentLocation, Globals.DataRange)) return null;
 
                 UserItem temp = null;
                 int index = -1;
@@ -8168,20 +8178,18 @@ namespace Server.MirObjects
                     break;
                 }
 
-                if (temp == null || index == -1) return;
+                if (temp == null || index == -1) return null;
 
                 if ((temp.Info.Bind.HasFlag(BindMode.DontRepair)) || (temp.Info.Bind.HasFlag(BindMode.NoSRepair) && special))
                 {
-                    ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.CannotRepairItem), ChatType.System);
-                    return;
+                    return ServerTextKeys.CannotRepairItem;
                 }
 
                 NPCScript script = NPCScript.Get(NPCScriptID);
 
                 if (script.Types.Count != 0 && !script.Types.Contains(temp.Info.Type))
                 {
-                    ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.CannotRepairItemHere), ChatType.System);
-                    return;
+                    return ServerTextKeys.CannotRepairItemHere;
                 }
 
                 uint cost;
@@ -8197,7 +8205,7 @@ namespace Server.MirObjects
                     baseCost = (uint)(temp.RepairPrice() * 3 * script.PriceRate(this, true));
                 }
 
-                if (cost > Account.Gold) return;
+                if (cost > Account.Gold) return null;
 
                 Account.Gold -= cost;
                 Enqueue(new S.LoseGold { Gold = cost });
@@ -8209,9 +8217,283 @@ namespace Server.MirObjects
                 temp.DuraChanged = false;
 
                 Enqueue(new S.ItemRepaired { UniqueID = uniqueID, MaxDura = temp.MaxDura, CurrentDura = temp.CurrentDura });
-                return;
+                return null;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// C.SellItems: SellItem per entry (it does every check and replies S.SellItem), capped at the bag size, duplicate IDs
+        /// ignored. The NPC range check runs once first: SellItem returns without a reply when the NPC is on the map but out of
+        /// range, so here every entry gets a failed S.SellItem instead (one reply per entry, the web lock-until-reply contract).
+        /// </summary>
+        public void SellItems(List<(ulong UniqueID, ushort Count)> items)
+        {
+            if (items == null) return;
+
+            int count = Math.Min(items.Count, Info.Inventory.Length);
+            bool outOfRange = IsNpcOutOfRange();
+            bool goldFull = false;
+
+            for (int i = 0; i < count; i++)
+            {
+                ulong uniqueID = items[i].UniqueID;
+                bool duplicate = false;
+
+                for (int j = 0; j < i; j++)
+                {
+                    if (items[j].UniqueID != uniqueID) continue;
+                    duplicate = true;
+                    break;
+                }
+
+                if (duplicate) continue;
+
+                if (outOfRange)
+                {
+                    Enqueue(new S.SellItem { UniqueID = uniqueID, Count = items[i].Count });
+                    continue;
+                }
+
+                if (SaleExceedsGoldLimit(uniqueID, items[i].Count))
+                {
+                    Enqueue(new S.SellItem { UniqueID = uniqueID, Count = items[i].Count });
+                    goldFull = true;
+                    continue;
+                }
+
+                SellItem(uniqueID, items[i].Count);
+            }
+
+            if (goldFull)
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.YouCannotReceiveMoreGold), ChatType.System);
+        }
+
+        /// <summary>
+        /// True when selling the whole bag stack would pass the gold limit. SellItem caps that payout silently (the item is
+        /// gone); a partial-stack sale is already refused by SellItem itself, so it is not checked here.
+        /// </summary>
+        private bool SaleExceedsGoldLimit(ulong uniqueID, ushort count)
+        {
+            for (int i = 0; i < Info.Inventory.Length; i++)
+            {
+                UserItem temp = Info.Inventory[i];
+                if (temp == null || temp.UniqueID != uniqueID) continue;
+                if (temp.Info.StackSize > 1 && count != temp.Count) return false;
+
+                return (ulong)Account.Gold + temp.Price() / 2 > uint.MaxValue;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// C.RepairItems: the RepairItem checks per ID (bag only), capped at the bag size, duplicate IDs ignored. Each distinct
+        /// failure chat line is sent once after the loop, not once per item.
+        /// </summary>
+        public void RepairItems(bool special, List<ulong> uniqueIDs)
+        {
+            if (uniqueIDs == null) return;
+
+            int count = Math.Min(uniqueIDs.Count, Info.Inventory.Length);
+            bool cannotRepair = false, cannotRepairHere = false;
+
+            for (int i = 0; i < count; i++)
+            {
+                ulong uniqueID = uniqueIDs[i];
+                if (IsDuplicateID(uniqueIDs, i, uniqueID)) continue;
+
+                ServerTextKeys? failure = RepairItemCore(uniqueID, special);
+                if (failure == ServerTextKeys.CannotRepairItem) cannotRepair = true;
+                else if (failure == ServerTextKeys.CannotRepairItemHere) cannotRepairHere = true;
+            }
+
+            if (cannotRepair)
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.CannotRepairItem), ChatType.System);
+            if (cannotRepairHere)
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.CannotRepairItemHere), ChatType.System);
+        }
+
+        private static bool IsDuplicateID(List<ulong> ids, int index, ulong id)
+        {
+            for (int j = 0; j < index; j++)
+            {
+                if (ids[j] == id) return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// C.SortItems: sorts (mode 0) or stacks then compacts (mode 1) the bag cells after the belt, or the usable storage
+        /// cells while at the storage NPC and unlocked. Order: ItemInfo.Type, ItemInfo.Index, Count descending, empty cells last.
+        /// </summary>
+        public void SortItems(MirGridType grid, byte mode)
+        {
+            if (mode > 1) return;
+            if (Envir.Time < NextSortItemsTime) return;
+
+            UserItem[] array;
+            int start, end;
+
+            switch (grid)
+            {
+                case MirGridType.Inventory:
+                    array = Info.Inventory;
+                    start = BeltSize;
+                    end = array.Length;
+                    break;
+                case MirGridType.Storage:
+                    if (!IsAtStorageNpc() || !CanAccessStorage()) return;
+                    array = Account.Storage;
+                    start = 0;
+                    end = 0;
+                    while (end < array.Length && Account.IsValidStorageIndex(end)) end++;
+                    break;
+                default:
+                    return;
+            }
+
+            if (end - start < 1) return;
+
+            NextSortItemsTime = Envir.Time + Settings.Second * 2;
+
+            if (mode == 1 && StackItems(array, start, end, grid))
+                TradeUnlock();
+
+            // Old cell of every item, for the Report.ItemMoved audit lines after the sort.
+            UserItem[] before = new UserItem[end - start];
+            Array.Copy(array, start, before, 0, before.Length);
+
+            Array.Sort(array, start, end - start, SortItemComparer.Instance);
+
+            for (int i = start; i < end; i++)
+            {
+                UserItem item = array[i];
+                if (item == null || ReferenceEquals(before[i - start], item)) continue;
+
+                for (int j = 0; j < before.Length; j++)
+                {
+                    if (!ReferenceEquals(before[j], item)) continue;
+                    Report.ItemMoved(item, grid, grid, j + start, i);
+                    break;
+                }
+            }
+
+            // Snapshot the cells: the packet is encoded later in the connection pass, after any further packets in the same
+            // receive batch have been handled. Equipment is always sent too: the desktop SetSlots needs both arrays.
+            if (grid == MirGridType.Inventory)
+            {
+                S.UserSlotsRefresh p = new S.UserSlotsRefresh { Inventory = new UserItem[Info.Inventory.Length], Equipment = new UserItem[Info.Equipment.Length] };
+                Info.Inventory.CopyTo(p.Inventory, 0);
+                Info.Equipment.CopyTo(p.Equipment, 0);
+                Enqueue(p);
+            }
+            else
+            {
+                S.UserStorage p = new S.UserStorage { Storage = new UserItem[Account.Storage.Length] };
+                Account.Storage.CopyTo(p.Storage, 0);
+                Enqueue(p);
+            }
+
+            RefreshBagWeight();
+        }
+
+        /// <summary>Merges partial stacks of the same ItemInfo into the earliest one (MergeItem's rule: same Info, target not full).</summary>
+        private bool StackItems(UserItem[] array, int start, int end, MirGridType grid)
+        {
+            bool merged = false;
+
+            for (int i = start; i < end; i++)
+            {
+                UserItem target = array[i];
+                if (target == null || target.Info.StackSize <= 1) continue;
+
+                for (int j = i + 1; j < end && target.Count < target.Info.StackSize; j++)
+                {
+                    UserItem source = array[j];
+                    if (source == null || source.Info != target.Info) continue;
+
+                    ushort room = (ushort)(target.Info.StackSize - target.Count);
+
+                    if (source.Count <= room)
+                    {
+                        target.Count += source.Count;
+                        array[j] = null;
+                    }
+                    else
+                    {
+                        source.Count -= room;
+                        target.Count = target.Info.StackSize;
+                    }
+
+                    Report.ItemMerged(source, target, j, i, grid, grid);
+                    merged = true;
+                }
+            }
+
+            return merged;
+        }
+
+        private sealed class SortItemComparer : IComparer<UserItem>
+        {
+            public static readonly SortItemComparer Instance = new SortItemComparer();
+
+            public int Compare(UserItem a, UserItem b)
+            {
+                if (ReferenceEquals(a, b)) return 0;
+                if (a == null) return 1;
+                if (b == null) return -1;
+
+                int result = ((int)a.Info.Type).CompareTo((int)b.Info.Type);
+                if (result != 0) return result;
+
+                result = a.Info.Index.CompareTo(b.Info.Index);
+                if (result != 0) return result;
+
+                result = b.Count.CompareTo(a.Count);
+                if (result != 0) return result;
+
+                return a.UniqueID.CompareTo(b.UniqueID);
             }
         }
+
+        private bool IsAtStorageNpc()
+        {
+            return IsAtNpcPage(NPCScript.StorageKey);
+        }
+
+        /// <summary>True when the open NPC page is <paramref name="key"/> and that NPC is on this map within DataRange.</summary>
+        private bool IsAtNpcPage(string key)
+        {
+            if (NPCPage == null || !String.Equals(NPCPage.Key, key, StringComparison.CurrentCultureIgnoreCase)) return false;
+
+            for (int i = 0; i < CurrentMap.NPCs.Count; i++)
+            {
+                NPCObject ob = CurrentMap.NPCs[i];
+                if (ob.ObjectID != NPCObjectID) continue;
+
+                return Functions.InRange(ob.CurrentLocation, CurrentLocation, Globals.DataRange);
+            }
+
+            return false;
+        }
+
+        /// <summary>True when the NPC with NPCObjectID is on this map but outside DataRange (the case SellItem leaves unanswered).</summary>
+        private bool IsNpcOutOfRange()
+        {
+            for (int i = 0; i < CurrentMap.NPCs.Count; i++)
+            {
+                NPCObject ob = CurrentMap.NPCs[i];
+                if (ob.ObjectID != NPCObjectID) continue;
+
+                return !Functions.InRange(ob.CurrentLocation, CurrentLocation, Globals.DataRange);
+            }
+
+            return false;
+        }
+
         public void SendStorage()
         {
             if (Settings.RequireStoragePassword && Account != null && Account.HasStoragePassword && !StorageUnlocked)
@@ -10507,9 +10789,21 @@ namespace Server.MirObjects
             Enqueue(new S.GuildTerritoryPage { Listings = tempList, length = Envir.GTMapList.Count });
         }
 
+        /// <summary>
+        /// C.PurchaseGuildTerritory (reachable since Scene Lab UI phase 2.1): only while alive at the [@GUILDTERRITORY] NPC page in
+        /// range. The territory is looked up by its owner name (the wire carries no index), so "None" buys the first unowned one.
+        /// </summary>
         public void PurchaseGuildTerritory(string owner)
         {
-            var gt = Envir.GTMapList.FirstOrDefault(x => x.Owner == owner);
+            if (Dead || owner == null || !IsAtNpcPage(NPCScript.GuildTerritoryKey)) return;
+
+            Server.Library.MirDatabase.GTMap gt = null;
+            for (int i = 0; i < Envir.GTMapList.Count; i++)
+            {
+                if (Envir.GTMapList[i].Owner != owner) continue;
+                gt = Envir.GTMapList[i];
+                break;
+            }
 
             if (gt == null)
             {
@@ -10523,7 +10817,7 @@ namespace Server.MirObjects
                 return;
             }
 
-            if (MyGuild == null || MyGuildRank.Index != 0)
+            if (MyGuild == null || MyGuildRank == null || MyGuildRank.Index != 0)
             {
                 ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildLeaderToPurchaseTerritory), ChatType.System);
                 return;
@@ -10548,14 +10842,19 @@ namespace Server.MirObjects
             }
 
             MyGuild.Gold -= (uint)gt.Price;
+            MyGuild.NeedSave = true;
             MyGuild.SendServerPacket(new S.GuildStorageGoldChange { Type = 2, Amount = (uint)gt.Price });
             ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildTerritoryPurchaseProcess24Hrs), ChatType.System);
 
-            GuildObject guild = Envir.GetGuild(gt.Owner);
-            if (guild != null)
+            // Pay the seller only when a guild really holds this territory: unowned ones are "None", which must never resolve to a
+            // guild of that name (EndGT on a guild without a territory throws).
+            GuildObject guild = gt.Owner == "None" ? null : Envir.GetGuild(gt.Owner);
+            if (guild != null && guild.GTIndex == gt.Index)
             {
-                guild.Gold += (uint)gt.Price;
-                guild.SendServerPacket(new S.GuildStorageGoldChange { Type = 3, Amount = (uint)gt.Price });
+                uint paid = (uint)Math.Min((ulong)(uint)gt.Price, (ulong)(uint.MaxValue - guild.Gold));
+                guild.Gold += paid;
+                guild.NeedSave = true;
+                guild.SendServerPacket(new S.GuildStorageGoldChange { Type = 3, Amount = paid });
                 guild.EndGT();
                 guild.SendServerPacket(new S.Chat
                 {
@@ -11906,25 +12205,105 @@ namespace Server.MirObjects
 
         public void ReadMail(ulong mailID)
         {
-            MailInfo mail = Info.Mail.SingleOrDefault(e => e.MailID == mailID);
-
-            if (mail == null) return;
-
-            mail.DateOpened = Envir.Now;
+            if (!MarkMailRead(mailID)) return;
 
             GetMail();
         }
 
+        /// <summary>C.ReadMails: marks up to 100 distinct mails read with the ReadMail rules, then one mail-list refresh.</summary>
+        public void ReadMails(List<ulong> mailIDs)
+        {
+            if (mailIDs == null) return;
+
+            const int maxMails = 100;
+            int count = Math.Min(mailIDs.Count, maxMails);
+            bool changed = false;
+
+            for (int i = 0; i < count; i++)
+            {
+                ulong mailID = mailIDs[i];
+                if (IsDuplicateID(mailIDs, i, mailID)) continue;
+
+                if (MarkMailRead(mailID)) changed = true;
+            }
+
+            if (changed) GetMail();
+        }
+
+        private MailInfo FindMail(ulong mailID)
+        {
+            for (int i = 0; i < Info.Mail.Count; i++)
+            {
+                if (Info.Mail[i].MailID == mailID) return Info.Mail[i];
+            }
+
+            return null;
+        }
+
+        private bool MarkMailRead(ulong mailID)
+        {
+            MailInfo mail = FindMail(mailID);
+
+            if (mail == null) return false;
+
+            mail.DateOpened = Envir.Now;
+            return true;
+        }
+
         public void CollectMail(ulong mailID)
         {
-            MailInfo mail = Info.Mail.SingleOrDefault(e => e.MailID == mailID);
+            MailInfo mail = FindMail(mailID);
 
             if (mail == null) return;
 
+            if (!CollectMailContents(mail)) return;
+
+            Enqueue(new S.ParcelCollected { Result = 1 });
+
+            GetMail();
+        }
+
+        /// <summary>C.CollectAllParcels: collects every ready parcel with the CollectMail rules, stops at the first full bag, then one refresh.</summary>
+        public void CollectAllParcels()
+        {
+            bool collected = false;
+            bool goldSkipped = false;
+
+            for (int i = 0; i < Info.Mail.Count; i++)
+            {
+                MailInfo mail = Info.Mail[i];
+                if (!mail.Collected || !mail.Parcel) continue;
+
+                // Unlike a single CollectParcel (the player picks it), the batch never caps a parcel's gold at the wallet
+                // limit: a parcel whose gold would not fit is left uncollected and reported once.
+                if (mail.Gold > 0 && (ulong)Account.Gold + mail.Gold > uint.MaxValue)
+                {
+                    goldSkipped = true;
+                    continue;
+                }
+
+                if (!CollectMailContents(mail)) break;
+
+                collected = true;
+            }
+
+            if (goldSkipped)
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.YouCannotReceiveMoreGold), ChatType.System);
+
+            if (!collected) return;
+
+            Enqueue(new S.ParcelCollected { Result = 1 });
+
+            GetMail();
+        }
+
+        /// <summary>The body of CollectMail: gives the parcel's items and gold. Sends the chat line and returns false when it cannot.</summary>
+        private bool CollectMailContents(MailInfo mail)
+        {
             if (!mail.Collected)
             {
                 ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.MailCollectFromPostOffice), ChatType.System);
-                return;
+                return false;
             }
 
             if (mail.Items.Count > 0)
@@ -11932,7 +12311,7 @@ namespace Server.MirObjects
                 if (!CanGainItems(mail.Items.ToArray()))
                 {
                     ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.CannotCollectWhenBagFull), ChatType.System);
-                    return;
+                    return false;
                 }
 
                 for (int i = 0; i < mail.Items.Count; i++)
@@ -11956,9 +12335,7 @@ namespace Server.MirObjects
 
             mail.Collected = true;
 
-            Enqueue(new S.ParcelCollected { Result = 1 });
-
-            GetMail();
+            return true;
         }
 
         public void DeleteMail(ulong mailID)

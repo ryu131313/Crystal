@@ -1878,6 +1878,11 @@ public enum ClientPacketIds : short
     UnlockStorage,
     SetStoragePassword,
     RemoveStoragePassword,
+    SellItems,
+    RepairItems,
+    CollectAllParcels,
+    ReadMails,
+    SortItems,
 }
 
 public enum ConquestType : byte

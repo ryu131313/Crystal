@@ -413,6 +413,18 @@ public abstract class Packet
                 return new C.GuildTerritoryPage();
             case (short)ClientPacketIds.DeleteItem:
                 return new C.DeleteItem();
+            case (short)ClientPacketIds.PurchaseGuildTerritory:
+                return new C.PurchaseGuildTerritory();
+            case (short)ClientPacketIds.SellItems:
+                return new C.SellItems();
+            case (short)ClientPacketIds.RepairItems:
+                return new C.RepairItems();
+            case (short)ClientPacketIds.CollectAllParcels:
+                return new C.CollectAllParcels();
+            case (short)ClientPacketIds.ReadMails:
+                return new C.ReadMails();
+            case (short)ClientPacketIds.SortItems:
+                return new C.SortItems();
             default:
                 return null;
         }

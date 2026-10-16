@@ -2702,4 +2702,109 @@ namespace ClientPackets
             writer.Write(HeroInventory);
         }
     }
+
+    /// <summary>Sells several bag items in one packet (one socket read instead of N). Server caps the list at the bag size and ignores repeated UniqueIDs.</summary>
+    public sealed class SellItems : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.SellItems; } }
+
+        public List<(ulong UniqueID, ushort Count)> Items = new List<(ulong UniqueID, ushort Count)>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            int count = reader.ReadInt32();
+            for (int i = 0; i < count; i++)
+            {
+                ulong uniqueID = reader.ReadUInt64();
+                ushort itemCount = reader.ReadUInt16();
+                Items.Add((uniqueID, itemCount));
+            }
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Items.Count);
+            for (int i = 0; i < Items.Count; i++)
+            {
+                writer.Write(Items[i].UniqueID);
+                writer.Write(Items[i].Count);
+            }
+        }
+    }
+
+    /// <summary>Repairs several bag items in one packet. Server caps the list at the bag size and ignores repeated UniqueIDs.</summary>
+    public sealed class RepairItems : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.RepairItems; } }
+
+        public bool Special;
+        public List<ulong> UniqueIDs = new List<ulong>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Special = reader.ReadBoolean();
+            int count = reader.ReadInt32();
+            for (int i = 0; i < count; i++)
+                UniqueIDs.Add(reader.ReadUInt64());
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Special);
+            writer.Write(UniqueIDs.Count);
+            for (int i = 0; i < UniqueIDs.Count; i++)
+                writer.Write(UniqueIDs[i]);
+        }
+    }
+
+    /// <summary>Collects every parcel that is ready to collect (same rules as CollectParcel, stops when the bag is full).</summary>
+    public sealed class CollectAllParcels : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.CollectAllParcels; } }
+
+        protected override void ReadPacket(BinaryReader reader)
+        { }
+
+        protected override void WritePacket(BinaryWriter writer)
+        { }
+    }
+
+    /// <summary>Marks several mails as read. Server caps the list at 100 and ignores repeated IDs.</summary>
+    public sealed class ReadMails : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.ReadMails; } }
+
+        public List<ulong> MailIDs = new List<ulong>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            int count = reader.ReadInt32();
+            for (int i = 0; i < count; i++)
+                MailIDs.Add(reader.ReadUInt64());
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(MailIDs.Count);
+            for (int i = 0; i < MailIDs.Count; i++)
+                writer.Write(MailIDs[i]);
+        }
+    }
+
+    /// <summary>Sorts or stacks the bag (MirGridType.Inventory, belt excluded) or storage (MirGridType.Storage). Mode 0 = sort, 1 = stack then compact.</summary>
+    public sealed class SortItems : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.SortItems; } }
+
+        public MirGridType Grid;
+        public byte Mode;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Grid = (MirGridType)reader.ReadByte();
+            Mode = reader.ReadByte();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write((byte)Grid);
+            writer.Write(Mode);
+        }
+    }
 }

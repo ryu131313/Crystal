@@ -1,7 +1,7 @@
 // Guild territories: GuildTerritoryDialog's state (GTMapList, Page, Lenght, selectedIndex; Client/MirScenes/Dialogs/
 // GuildTerritoryDialog .cs) with GameScene.GuildTerritoryPage and the page buttons' C.GuildTerritoryPage. Opened by the
 // server (an NPC script calls GetGuildTerritories(0)), so the UI shows its window on `received`.
-// C.PurchaseGuildTerritory is never sent: it has no GetClientPacket case in Shared/Packet.cs (Client §3.5 Known defect).
+// purchase() sends C.PurchaseGuildTerritory (GuildTerritoryDialog.BuyButton; the server decodes it since phase 2.1).
 
 import type { ClientGTMap, ServerPacket } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
@@ -52,6 +52,13 @@ export class Territories {
     this._page++;
     this.send(ClientPackets.GuildTerritoryPage({ Page: this._page }));
     return true;
+  }
+
+  /** GuildTerritoryDialog.BuyButton.Click: C.PurchaseGuildTerritory with the owning guild's name (the window checks the
+   *  row first: selected, a leader, "For Sale"). The server answers with chat lines and a fresh page. */
+  purchase(owner: string): void {
+    if (owner === "") return;
+    this.send(ClientPackets.PurchaseGuildTerritory({ Owner: owner }));
   }
 
   /** Server packets; true = consumed (the classic chain returned on it). */

@@ -12,7 +12,7 @@ public class PacketProtocolTests
 {
     // Known gaps (client.md §3.5 / server.md §3.5 Known defects). Fixing one must also remove it
     // from these lists: the tests assert the gap set EXACTLY, so new gaps and fixed gaps both fail.
-    private static readonly string[] KnownClientFactoryGaps = { "PurchaseGuildTerritory" };
+    private static readonly string[] KnownClientFactoryGaps = Array.Empty<string>();
     private static readonly string[] KnownServerFactoryGaps = { "RefineCancel" };
     // Known read/write asymmetries (latent: not sent today). Fix in the roadmap C5 Shared batch.
     // S.ChatItemStats: WritePacket skips a null Stats but ReadPacket always reads a UserItem

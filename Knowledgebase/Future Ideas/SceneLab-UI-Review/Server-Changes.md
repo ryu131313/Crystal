@@ -13,8 +13,8 @@ tests) · **d** = cosmetic or client-side settings (`localStorage` / `Mir2Config
 ## Summary
 
 - The protocol already covers the large majority of the mocks. The web client ports every packet except
-  `S.UserName`, `S.UserSlotsRefresh` and a few client packets (`ChangeTrade`, `DeleteItem`, `PurchaseGuildTerritory`,
-  `RemoveStoragePassword`, `ReportIssue`, `RequestUserName`), so most windows are **client work over existing packets**.
+  `S.UserName` and a few client packets (`ChangeTrade`, `ReportIssue`, `RequestUserName`; `S.UserSlotsRefresh`,
+  `DeleteItem`, `PurchaseGuildTerritory` and `RemoveStoragePassword` ported 2026-10-16), so most windows are **client work over existing packets**.
 - The HUD itself (HP/MP, EXP %, level, AC/MAC/DC, bag/weight/gold, buff row with timers, F1-F8 skill row with
   cooldowns, attack-mode and pet-mode slots) is **all class a**. **Belt decision (user, 2026-10-15): keep the 10-slot
   belt; slots 9-0 are the hero's potions.** Those two are the hero's own belt (`HeroInfo.Inventory[0..1]`, client
@@ -78,7 +78,7 @@ tests) · **d** = cosmetic or client-side settings (`localStorage` / `Mir2Config
 | 40-cell bag, weight, gold/credit | a | `S.UserInformation`, `S.ResizeInventory` | — |
 | Storage 80 + expanded 80, password lock | a | `S.UserStorage`, `S.ResizeStorage`, `C.UnlockStorage`/`S.StorageUnlockResult` | — |
 | Search highlight, category chips | d | — | — |
-| Sort / auto-stack | b | Only per-cell `C.MoveItem`/`MergeItem` (rate-limit risk) | `C.SortStorage` / `C.StackStorage` handled server-side in one packet |
+| Sort / auto-stack | b | Only per-cell `C.MoveItem`/`MergeItem` (rate-limit risk) | ~~`C.SortStorage` / `C.StackStorage`~~ **Done 2026-10-16 (phase 2.1)**: one `C.SortItems { Grid (Inventory / Storage), Mode (0 sort / 1 stack then compact) }` (scope addition: covers the bag too, belt excluded; 2 s cooldown; reply `S.UserSlotsRefresh` with both Inventory and Equipment / `S.UserStorage`, arrays copied at send time; one `Report.ItemMoved` per relocated item) |
 | "Who stored it", storage activity log | c | Not stored | `UserItem` field — **not recommended** (every item record). Drop, or keep a local log (d) |
 
 ### Skills (hudSkills.ts)
@@ -107,7 +107,7 @@ tests) · **d** = cosmetic or client-side settings (`localStorage` / `Mir2Config
 | Diplomacy: alliances | — | Crystal has none (only the unused `CanAlterAlliance` bit) | New system — out of scope |
 | Activity log | c | Not stored | Capped list on `GuildInfo` (`.mgd`, gate on the guild file's version) + `S.GuildLog`; or in-memory since start (b) |
 | Territory list, lease days, price, owner | a | `C.GuildTerritoryPage`/`S.GuildTerritoryPage` (`ClientGTMap`) | — |
-| Buy a for-sale estate | **b** | `C.PurchaseGuildTerritory` has a server handler (`MirConnection.cs` ~L1819) but **no `Shared/Packet.cs` factory case** (Known defect: the server drops it and the rest of the buffer) | Add the factory case |
+| Buy a for-sale estate | **b** | `C.PurchaseGuildTerritory` has a server handler (`MirConnection.cs` ~L1819) but **no `Shared/Packet.cs` factory case** (Known defect: the server drops it and the rest of the buffer) | ~~Add the factory case~~ **Done 2026-10-16 (phase 2.1)**; TS encoder added, web window Purchase button wired; handler hardened (alive, `[@GUILDTERRITORY]` page + range, no payout/`EndGT` for owner `None`, gold clamp, `NeedSave`) |
 | Rent / extend / list for sale / cancel / teleport from the window | b | Today only NPC script commands (`BuyGT`, `ExtendGT`, `GTSale`, `GTCancelSale`, `TeleportGT`) | `C.GuildTerritoryAction(Kind, Index, Price)` reusing the NPC-command code paths (same checks: leader, gold, standing in it) — or keep these on NPC pages |
 | Floor blueprint / amenities | b | Not sent | Optional: part of `S.MapDetails` |
 
@@ -138,7 +138,7 @@ tests) · **d** = cosmetic or client-side settings (`localStorage` / `Mir2Config
 |---|---|---|---|
 | Inbox, unread, attachments, locked, read, collect, lock, reply, delete, compose (5 items, gold, stamp), postage | a | `S.ReceiveMail` (`ClientMail` + Items), `C.SendMail`/`ReadMail`/`CollectParcel`/`DeleteMail`/`LockMail`/`MailCost` | — |
 | Subject line | d | Only `Message` | first line = subject |
-| Collect all / mark all read | b | One packet per mail (rate risk) | `C.CollectAllParcels`, `C.ReadMails(list)` |
+| Collect all / mark all read | b | One packet per mail (rate risk) | ~~`C.CollectAllParcels`, `C.ReadMails(list)`~~ **Done 2026-10-16 (phase 2.1)** (one mail-list refresh per packet; collect stops at the first full bag; a parcel whose gold would pass the wallet limit is skipped, not capped as a single collect does, with one `YouCannotReceiveMoreGold` line; ReadMails cap 100) |
 | Sent folder | c | Mail lives only in the recipient's `CharacterInfo.Mail`, `Sender` is a name | `MailInfo.SenderIndex` + sender-side hidden flag, `S.SentMail` list |
 
 ### Trade / Rent / Trust merchant / Game shop
@@ -167,7 +167,7 @@ tests) · **d** = cosmetic or client-side settings (`localStorage` / `Mir2Config
 | NPC page markup, links, item links, quests tab | a | `S.NPCResponse`, `C.CallNPC`, `S.NewQuestInfo`, `C.AcceptQuest` | — |
 | Buy (cart), sell, repair, special repair | a | `S.NPCGoods`/`NPCSell`/`NPCRepair`/`NPCSRepair`, `C.BuyItem`/`SellItem`/`RepairItem`/`SRepairItem` | — |
 | Buy back | a | `[@BUYBACK]` → `NPCGoods` list, bought via `C.BuyItem` (`C.BuyItemBack` handler is commented out — leave it) | — |
-| Sell junk / repair all | b | one packet per item (rate risk) | `C.SellItems(list)`, `C.RepairItems(list, special)` |
+| Sell junk / repair all | b | one packet per item (rate risk) | ~~`C.SellItems(list)`, `C.RepairItems(list, special)`~~ **Done 2026-10-16 (phase 2.1)** (cap = bag size, repeated ids ignored, per-item `SellItem` / `RepairItem` replies unchanged; `SellItems` refuses (failed `S.SellItem`, one `YouCannotReceiveMoreGold` line) a whole-stack sale whose payout would pass the gold limit, which the single `SellItem` caps silently; `RepairItems` sends each distinct failure line (`CannotRepairItem` / `CannotRepairItemHere`) once per packet, not per item; `SellItems` answers a failed `S.SellItem` per entry when the NPC is out of range). Follow-ups (separate debt tasks): the single `PlayerObject.SellItem` still returns without a reply when the NPC is on the map but out of range (enqueue `p` before that `return`); `S.DeleteItem` has no `Success` flag, so a dead player's refused delete looks done (wire change); server handlers have no automated tests (only the wire layer) |
 | Item box: repair, special repair, disassemble, downgrade, reset, wedding ring | a | `C.DisassembleItem`, `DowngradeAwakening`, `ResetAddedItem`, `ReplaceWedRing`, `S.NPCDisassemble`/`Downgrade`/`Reset`/`ReplaceWedRing` | Preview texts duplicate server rules (see `S.ServerRules`) |
 | Craft: recipes, chance, gold, tools, batch N | a | `S.NewRecipeInfo` (`ClientRecipeInfo` Gold, Chance, Item, tools, ingredients), `C.CraftItem(Count, Slots)`, `S.CraftItem`, `Stat.CraftRatePercent` | — |
 | Refine: deposit, refine, collect, check | a | `C.DepositRefineItem`/`RefineItem`/`CheckRefine`, `S.NPCRefine`/`NPCCollectRefine`/`NPCCheckRefine` | Live chance gauge needs `RefineSystem.ini` values → `S.ServerRules` |
@@ -250,11 +250,11 @@ Prefer **new** packets over changing existing ones: existing packets are already
 | `GuildTerritoryAction` | C→S | Kind (Rent / Extend / ListForSale / CancelSale / Teleport), Index, Price | | |
 | `FriendRequestReply` | C→S | Name, Accept | | |
 | (changed) `ClientFriend` in `S.FriendUpdate` | S→C | + Class, Level, Gender, GuildName, LastSeen (no `FriendDetails` packet needed) | | |
-| `SellItems` / `RepairItems` | C→S | list of (UniqueID, Count) / list + special flag; one NPC check, one reply list | | |
-| `CollectAllParcels` / `ReadMails` | C→S | — / list of MailID | | |
-| `SortStorage` / `StackStorage` | C→S | page | | |
+| ~~`SellItems` / `RepairItems`~~ **Done 2026-10-16 (phase 2.1)**, ids 153 / 154 | C→S | list of (UniqueID, Count) / Special + list of UniqueID; per-item checks and replies of the existing handlers | | |
+| ~~`CollectAllParcels` / `ReadMails`~~ **Done 2026-10-16 (phase 2.1)**, ids 155 / 156 | C→S | — / list of MailID | | |
+| ~~`SortStorage` / `StackStorage`~~ → `SortItems` **Done 2026-10-16 (phase 2.1)**, id 157 | C→S | Grid (`MirGridType` byte: Inventory / Storage), Mode byte | | |
 
-Also: add the missing `Shared/Packet.cs` `GetClientPacket` case for `C.PurchaseGuildTerritory` (Known defect).
+Also: ~~add the missing `Shared/Packet.cs` `GetClientPacket` case for `C.PurchaseGuildTerritory` (Known defect)~~ **Done 2026-10-16 (phase 2.1)**.
 Every list packet must stay ≤ 65 535 bytes (big guilds, big maps, mail): measure and split, or `Compressed => true`
 (web client then needs the id in `COMPRESSED`). Every new handler validates its input on the game thread and
 allocates nothing per tick; `GroupMemberStatus` must be change-driven and throttled, not built every loop.
@@ -392,7 +392,7 @@ Tests: `Server.Persistence.Tests` (synthetic characters built with 46 cells, so 
 1. **Client-only first (a / d):** port the HUD (10-slot belt: 8 player belt cells + 2 hero belt cells; until the 8-cell
    change lands, keys 7-8 stay disabled) and the windows whose features are class a over the
    existing web protocol; mark b/c features as disabled in the UI. No server change.
-2. **Safety before bulk buttons:** `SellItems`, `RepairItems`, `CollectAllParcels`, `ReadMails`, `SortStorage` /
+2. **Done 2026-10-16 (phase 2.1)** **Safety before bulk buttons:** `SellItems`, `RepairItems`, `CollectAllParcels`, `ReadMails`, `SortStorage` /
    `StackStorage`; fix the `C.PurchaseGuildTerritory` factory case.
 3. **`S.ServerRules`** (unblocks refine / awakening / mentor / marriage / mail / territory panels).
 4. **Class b detail packets**, one small commit each: `PoisonStatus`, `GroupMemberStatus`, `GuildMemberDetails` +
