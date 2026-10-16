@@ -11,6 +11,10 @@ import { WebGl2Renderer } from "../src/render/backend.ts";
 import { Grade, type GradeParams } from "../src/render/grade.ts";
 import { attachRenderer, setLocalLib, libAsync, LibPath } from "../src/game/libraries.ts";
 import { analyseReference, loadPicture, poseFrames, writeLib, DIRS, type Reference } from "./weaponPose.ts";
+import { HudMock } from "./hudMock.ts";
+import { NpcMock } from "./hudNpc.ts";
+import { HudWindow, setText } from "./hudWindow.ts";
+import { InspectMock } from "./hudInspect.ts";
 import { CrystalLib } from "../src/assets/crystalLib.ts";
 import { MapView, shadowTuning } from "../src/game/mapView.ts";
 import { MapObj, CELL_W, CELL_H, pointMove } from "../src/game/objects.ts";
@@ -94,6 +98,24 @@ const REFLECT: Knob[] = [
   { kind: "num", key: "rfEffect", label: "Effect height", min: 0, max: 100, step: 1, def: RT.effectHeight, unit: "px" },
 ];
 
+/** UI tester knobs (play/hudMock.ts): the mock HUD's size, theme hue and sample values. */
+const HUD: Knob[] = [
+  { kind: "num", key: "hudScale", label: "HUD scale", min: 0.5, max: 2, step: 0.01, def: 1, unit: "x" },
+  { kind: "num", key: "hudOpacity", label: "HUD opacity", min: 0.2, max: 1, step: 0.01, def: 1 },
+  { kind: "num", key: "hudHue", label: "Panel hue", min: 0, max: 360, step: 1, def: 218, unit: "°" },
+  { kind: "num", key: "hudSat", label: "Panel saturation", min: 0, max: 2, step: 0.01, def: 1, unit: "x" },
+  { kind: "num", key: "hudLit", label: "Panel brightness", min: 0.3, max: 2.5, step: 0.01, def: 1, unit: "x" },
+  { kind: "col", key: "hudAccent", label: "Accent", def: "#3fb4ff" },
+  { kind: "col", key: "hudFrame", label: "Frame", def: "#3a5a8c" },
+  { kind: "col", key: "hudText", label: "Text", def: "#d6e2f5" },
+  { kind: "num", key: "hudGlow", label: "Glow", min: 0, max: 2, step: 0.01, def: 1, unit: "x" },
+  { kind: "num", key: "hudRadius", label: "Corner radius", min: 0, max: 12, step: 0.5, def: 5, unit: "px" },
+  { kind: "num", key: "hudHp", label: "HP", min: 0, max: 100, step: 1, def: 72, unit: "%" },
+  { kind: "num", key: "hudMp", label: "MP", min: 0, max: 100, step: 1, def: 45, unit: "%" },
+  { kind: "num", key: "hudExp", label: "EXP", min: 0, max: 100, step: 0.01, def: 63.4, unit: "%" },
+  { kind: "num", key: "hudLevel", label: "Level", min: 1, max: 60, step: 1, def: 42 },
+];
+
 type ShadowStyle = "dither" | "flat" | "soft";
 const SHADOW_STYLES: [ShadowStyle, string][] = [["dither", "Dither (desktop art)"], ["flat", "Flat"], ["soft", "Soft edge (shipped)"]];
 
@@ -114,6 +136,7 @@ interface LabState {
   paused: boolean;
   actualSize: boolean;
   tester: boolean; testAction: string; testArmour: number; testHair: number;
+  hud: boolean; hudBelt: number; hudClass: number; hudBackplate: boolean; hudKeys: boolean; hudDemo: boolean; hudAuto: boolean; hudMenu: boolean; hudBuffs: boolean;
   poseLength: number; poseWidth: number; poseMirror: boolean; poseRef: number; poseGlow: number;
   v: Record<string, number | string>;
 }
@@ -122,7 +145,8 @@ const defaults = (): LabState => ({
   map: "0", camX: -1, camY: -1, resolution: 1024, timeOfDay: LightSetting.Day, darkLight: 0, lighting: "Enhanced",
   atmosphere: true, effects: true, weather: 0, ambientOverride: false, gradeOn: true, split: false, paused: false,
   shadowStyle: "soft", oneShadow: false, mapShadows: true, actors: true, turnActors: false, reflections: true, holdWet: true,
-  actualSize: false, tester: true, testAction: "cycle", testArmour: 0, testHair: 1, poseLength: 1, poseWidth: 1, poseMirror: true, poseRef: 0, poseGlow: 0, v: Object.fromEntries([...GRADE, ...LIGHT, ...SHADOW, ...REFLECT].map((k) => [k.key, k.def])),
+  actualSize: false, tester: true, testAction: "cycle", testArmour: 0, testHair: 1, poseLength: 1, poseWidth: 1, poseMirror: true, poseRef: 0, poseGlow: 0,
+  hud: false, hudBelt: 10, hudClass: MirClass.Wizard, hudBackplate: true, hudKeys: true, hudDemo: false, hudAuto: true, hudMenu: true, hudBuffs: true, v: Object.fromEntries([...GRADE, ...LIGHT, ...SHADOW, ...REFLECT, ...HUD].map((k) => [k.key, k.def])),
 });
 
 const STORE = "crystal.lab";
@@ -171,6 +195,20 @@ const statusEl = document.getElementById("status") as HTMLElement;
 const msgEl = document.getElementById("msg") as HTMLElement;
 const splitLine = document.getElementById("splitLine") as HTMLElement;
 const panel = document.getElementById("panel") as HTMLElement;
+const hud = new HudMock(viewEl);
+// The minimap and big map mocks show the lab's map, camera, sample actors, time of day and weather; clicking them moves
+// the camera, Travel loads another map.
+const LIGHT_NAMES: Record<number, string> = { [LightSetting.Normal]: "Day", [LightSetting.Dawn]: "Dawn", [LightSetting.Day]: "Day", [LightSetting.Evening]: "Evening", [LightSetting.Night]: "Night" };
+hud.setWorld({
+  map: () => state.map,
+  cam: () => ({ x: state.camX, y: state.camY }),
+  level: () => hud.playerLevel,
+  walk: (x, y) => { state.camX = x; state.camY = y; placeCamera(); placeActors(); placeTesters(); save(); },
+  travel: (file) => void loadMap(file),
+  objects: () => [...actors, ...testers.map((t) => t.ob)].map((o) => ({ x: o.location.X, y: o.location.Y, kind: o.race === ObjectType.Monster ? "monster" as const : "player" as const })),
+  light: () => LIGHT_NAMES[state.timeOfDay] ?? "Day",
+  weather: () => Object.entries(WeatherSetting).filter(([, bit]) => bit && (state.weather & bit)).map(([name]) => name.replace(/([a-z])([A-Z])/g, "$1 $2")),
+});
 
 const RESOLUTIONS: Record<number, [number, number]> = { 1024: [1024, 768], 1280: [1280, 800], 1366: [1366, 768], 1920: [1920, 1080] };
 let [width, height] = RESOLUTIONS[state.resolution] ?? [1024, 768];
@@ -316,8 +354,20 @@ let frames = 0, fps = 0, fpsAt = 0;
 let mouseCell: { X: number; Y: number } | null = null;
 let holdOriginal = false;
 
+/** Push the UI tester state into the HUD mock. */
+function applyHud(): void {
+  hud.root.hidden = !state.hud;
+  hud.set({
+    scale: num("hudScale"), autoScale: state.hudAuto, opacity: num("hudOpacity"),
+    hue: num("hudHue"), sat: num("hudSat"), lit: num("hudLit"), accent: String(state.v.hudAccent), frame: String(state.v.hudFrame), text: String(state.v.hudText), glow: num("hudGlow"), radius: num("hudRadius"), belt: state.hudBelt, cls: state.hudClass,
+    hp: num("hudHp"), mp: num("hudMp"), exp: num("hudExp"), level: num("hudLevel"),
+    backplate: state.hudBackplate, keys: state.hudKeys, menu: state.hudMenu, buffs: state.hudBuffs, demo: state.hudDemo,
+  });
+}
+
 /** The game's own settings, changed in memory only (setSetting would persist them into the game's localStorage). */
 function applyGameSettings(): void {
+  applyHud();
   const g = gameSettings as GameSettings;
   g.Lighting = state.lighting;
   g.Atmosphere = state.atmosphere;
@@ -393,6 +443,7 @@ function fit(): void {
   canvas.style.transform = `scale(${scale})`;
   canvas.style.left = state.actualSize ? "0" : Math.max(0, (viewEl.clientWidth - width * scale) / 2) + "px";
   canvas.style.top = state.actualSize ? "0" : Math.max(0, (viewEl.clientHeight - height * scale) / 2) + "px";
+  hud.place(width, height, scale, canvas.style.left, canvas.style.top);
 }
 window.addEventListener("resize", fit);
 
@@ -469,6 +520,13 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string,
 const refreshers: (() => void)[] = [];
 const refreshUi = () => { for (const f of refreshers) f(); };
 let camRefresh: () => void = () => {};
+let hudReadout: HTMLElement | null = null;
+/** The UI tester's size line: effective scale and HUD width against the screen. */
+function refreshHudReadout(): void {
+  if (!hudReadout || !state.hud) return;
+  const w = Math.round(hud.widthPx());
+  hudReadout.textContent = `${width} x ${height}: HUD scale ${hud.effectiveScale().toFixed(2)}x, ${w} px wide (${Math.round(w / width * 100)} % of the screen)${w > width - 32 ? " - TOO WIDE" : ""}`;
+}
 
 function section(title: string, open = true): HTMLElement {
   const d = el("details", { open });
@@ -633,6 +691,117 @@ function buildPanel(): void {
     "Glow halo cut (0 = off, try 90) drops the dark coloured halo of a glow on a black background (it also eats a dark brown handle). " +
     "Change them and press Re-pose; Download .Lib saves the result for Data/CWeapon."));
 
+  // UI tester
+  const ui = section("UI tester", state.hud);
+  const uic = el("div", { className: "checks" });
+  check(uic, "Show HUD mock", () => state.hud, (v) => { state.hud = v; });
+  check(uic, "Auto scale (height / 768)", () => state.hudAuto, (v) => { state.hudAuto = v; });
+  check(uic, "Backplate", () => state.hudBackplate, (v) => { state.hudBackplate = v; });
+  check(uic, "Key labels", () => state.hudKeys, (v) => { state.hudKeys = v; });
+  check(uic, "Menu strip", () => state.hudMenu, (v) => { state.hudMenu = v; });
+  check(uic, "Buff row", () => state.hudBuffs, (v) => { state.hudBuffs = v; });
+  check(uic, "Demo events", () => state.hudDemo, (v) => { state.hudDemo = v; });
+  ui.append(uic);
+  select(ui, "Belt slots", [["10", "10 (5 a side, mockup)"], ["6", "6 (3 a side, Crystal today)"]], () => String(state.hudBelt), (v) => { state.hudBelt = Number(v); });
+  select(ui, "Skills (class)", [[String(MirClass.Warrior), "Warrior"], [String(MirClass.Wizard), "Wizard"], [String(MirClass.Taoist), "Taoist"]], () => String(state.hudClass), (v) => { state.hudClass = Number(v); });
+  for (const k of HUD) knobRow(k, ui, applyHud);
+  const btn2 = (parent: HTMLElement, label: string, fn: () => void) => { const b = el("button", {}, label); b.addEventListener("click", fn); parent.append(b); };
+  const uib = el("div", { className: "buttons" });
+  // Theme presets: [hue, saturation, brightness, accent, frame, text, glow].
+  const THEMES: [string, number, number, number, string, string, string, number][] = [
+    ["Midnight electric", 218, 1, 1, "#3fb4ff", "#3a5a8c", "#d6e2f5", 1],
+    ["Abyss", 222, 0.8, 0.65, "#00c8ff", "#24395e", "#c8d6ec", 1.2],
+    ["Neon", 224, 1.3, 0.85, "#19e3ff", "#1f4f9a", "#e0f4ff", 1.6],
+    ["Royal", 230, 1.1, 1.15, "#5c8dff", "#4a5fa8", "#e2e8ff", 1],
+    ["Steel", 214, 0.45, 1.1, "#7cc4ff", "#5a6c86", "#dce4ee", 0.7],
+    ["Ice", 205, 0.6, 1.3, "#a6ecff", "#5d86a8", "#eef8ff", 0.9],
+    ["Royal gold", 224, 1.25, 1.2, "#e8b84a", "#8a6a2e", "#f2ead6", 0.9],
+    ["Dark brown / red", 14, 0.55, 0.9, "#c8402e", "#5e3a2a", "#ead8cc", 0.8],
+    ["Lost Ark red", 356, 0.8, 0.9, "#ff3b3b", "#6a2a30", "#f0dada", 1],
+  ];
+  for (const [name, hh, sa, li, ac, fr, tx, gl] of THEMES) btn2(uib, name, () => {
+    Object.assign(state.v, { hudHue: hh, hudSat: sa, hudLit: li, hudAccent: ac, hudFrame: fr, hudText: tx, hudGlow: gl });
+    refreshUi(); applyHud(); save();
+  });
+  // Resolutions: the HUD is meant to be the only one at every size, so check each.
+  const res = el("div", { className: "buttons" });
+  for (const r of Object.keys(RESOLUTIONS)) btn2(res, `${RESOLUTIONS[Number(r)]![0]} x ${RESOLUTIONS[Number(r)]![1]}`, () => { setResolution(Number(r)); refreshUi(); save(); refreshHudReadout(); });
+  hudReadout = el("div", { className: "hint" });
+  // Simulated events.
+  const sim = el("div", { className: "buttons" });
+  btn2(sim, "Take hit", () => hud.hit());
+  btn2(sim, "Big hit", () => hud.hit(true));
+  btn2(sim, "HP potion", () => hud.useBelt(0));
+  btn2(sim, "MP potion", () => hud.useBelt(1));
+  btn2(sim, "Gain EXP", () => hud.gainExp());
+  btn2(sim, "Level up", () => hud.levelUp());
+  btn2(sim, "Loot", () => hud.loot());
+  btn2(sim, "Trade request", () => hud.trade.ask());
+  btn2(sim, "Storage NPC", () => hud.storage.openAtNpc());
+  btn2(sim, "Merchant NPC", () => hud.merchant.openAtNpc());
+  btn2(sim, "Trust merchant", () => hud.trust.openAtNpc());
+  btn2(sim, "Crafting", () => hud.craft.toggle(true));
+  btn2(sim, "Refine", () => hud.refine.toggle(true));
+  btn2(sim, "Awakening", () => hud.awaken.toggle(true));
+  btn2(sim, "Sockets & gems", () => hud.socket.toggle(true));
+  btn2(sim, "Item rental", () => hud.rent.toggle(true));
+  btn2(sim, "Login screen", () => hud.login.show());
+  btn2(sim, "Character select", () => hud.select.show());
+  btn2(sim, "Loading screen", () => void hud.loading.show(state.map, hud.playerLevel));
+  btn2(sim, "Poison me", () => hud.extras.poison());
+  btn2(sim, "Wear gear", () => hud.extras.wear("hit", 12));
+  btn2(sim, "Repair gear", () => hud.extras.repairAll());
+  btn2(sim, "Compass to an NPC", () => void hud.extras.compassToNpc());
+  btn2(sim, "Start timer", () => hud.extras.startDemoTimer());
+  btn2(sim, "Roll dice", () => hud.extras.roll(0));
+  btn2(sim, "Throw yut", () => hud.extras.roll(1, true));
+  for (const [label, key] of [["Popup: Yes / No", "teleport"], ["Popup: OK", "notice"], ["Popup: hold to delete", "delete"], ["Popup: reconnect countdown", "reconnect"],
+    ["Popup: Yes / No / Cancel", "save"], ["Popup: don't ask again", "sell"], ["Popup: rename (input)", "rename"], ["Popup: mail to (input)", "mail"],
+    ["Popup: gold amount", "gold"], ["Popup: stack amount", "stack"], ["Popup: group invite", "group"], ["Popup: guild invite", "guild"], ["Popup: three queued", "burst"]] as const)
+    btn2(sim, label, () => void hud.popupDemo(key));
+  btn2(sim, "NPC: repair", () => hud.merchant.openAtNpc("Repair", false));
+  btn2(sim, "NPC: special repair", () => hud.merchant.openAtNpc("Repair", true));
+  for (const [label, svc] of [["NPC: disassemble", "disassemble"], ["NPC: downgrade", "downgrade"], ["NPC: reset stats", "reset"], ["NPC: wedding ring", "wedring"]] as const)
+    btn2(sim, label, () => hud.npcBox.openService(svc));
+  btn2(sim, "Guild territories", () => hud.territory.toggle(true));
+  btn2(sim, "Game menu", () => hud.gameMenu.toggle());
+  btn2(sim, "Close all windows", () => HudWindow.closeAll());
+  btn2(sim, "Reset window positions", () => HudWindow.resetPositions());
+  for (const [id, name] of NpcMock.ids) btn2(sim, `Talk: ${name}`, () => hud.npc.talk(id));
+  for (const name of InspectMock.names) btn2(sim, `Inspect: ${name}`, () => hud.inspect.show(name));
+  btn2(sim, "Reset", () => hud.resetSim());
+  // Export / import of the HUD's own settings (the lab-wide export carries them too).
+  const hudText = el("textarea", { spellcheck: false });
+  hudText.style.height = "70px";
+  const HUD_FLAGS = ["hud", "hudBelt", "hudClass", "hudBackplate", "hudKeys", "hudDemo", "hudAuto", "hudMenu", "hudBuffs"] as const;
+  const io = el("div", { className: "buttons" });
+  btn2(io, "Export HUD JSON", () => {
+    const out: Record<string, unknown> = Object.fromEntries(HUD_FLAGS.map((k) => [k, state[k]]));
+    out.v = Object.fromEntries(HUD.map((k) => [k.key, state.v[k.key]]));
+    hudText.value = JSON.stringify(out, null, 1);
+    hudText.select();
+    void navigator.clipboard?.writeText(hudText.value).catch(() => {});
+  });
+  btn2(io, "Import HUD JSON", () => {
+    try {
+      const inp = JSON.parse(hudText.value) as Record<string, unknown> & { v?: Record<string, unknown> };
+      const st = state as unknown as Record<string, unknown>;
+      for (const k of HUD_FLAGS) if (typeof inp[k] === typeof st[k]) st[k] = inp[k];
+      for (const k of HUD) if (typeof inp.v?.[k.key] === typeof state.v[k.key]) state.v[k.key] = inp.v![k.key] as number;
+      // Range-check what came in: a belt of 6 or 10, a class the HUD has skills for, each knob inside its slider.
+      if (state.hudBelt !== 6 && state.hudBelt !== 10) state.hudBelt = 10;
+      if (!([MirClass.Warrior, MirClass.Wizard, MirClass.Taoist] as number[]).includes(state.hudClass)) state.hudClass = MirClass.Wizard;
+      for (const k of HUD) if (k.kind === "num") { const v = Number(state.v[k.key]); state.v[k.key] = Number.isFinite(v) ? Math.min(k.max, Math.max(k.min, v)) : k.def; }
+      applyGameSettings(); refreshUi(); save();
+    } catch (e) { hudText.value = `Bad JSON: ${(e as Error).message}
+` + hudText.value; }
+  });
+  ui.append(el("div", { className: "hint" }, "Theme presets (then fine-tune with the Panel / Accent / Frame / Text / Glow knobs above):"), uib, el("div", { className: "hint" }, "Preview at:"), res, hudReadout, el("div", { className: "hint" }, "Simulate:"), sim, io, hudText, el("div", { className: "hint" },
+    "A DOM mock of the proposed bottom HUD over the scene (mock values; real MagIcon2 spell icons, Items.Lib potions / scrolls and BuffIcon buffs; nothing wired to a game). " +
+    "Click a skill to cast it (costs MP, dims when MP is short, shakes if it cannot), right-click to toggle its gold armed border; click a belt item to use it (an empty stack greys out). " +
+    "Attack / Pet slots open a mode list. C / F10 or the Character button opens the Character window (drag by its title; the arrow tab slides out Stats), I / F9 or the Bag button the Inventory, S / F11 or the Skills button the Skills window (search, categories, F1-F8 put a spell on the HUD bar; S does not pan while the HUD is shown), Q or the Quests button the Quests window (pin quests to the right-hand tracker; Gain EXP counts as a kill for kill objectives), G or the Guild button the Guild window (G does not toggle the grade while the HUD is shown), F or the Friends button the Friends window, O or the Options button the Options window, B or the Big map button the world map (click it to move the camera, right-click for waypoints, Travel loads a map), M or the Mail button the mail (the button shows the unread count), T or Simulate > Trade request a trade with Seren, P or the Group button the group (party frames on the left, members on the minimap), Simulate > Storage NPC the account storage (locked: any 4+ character password), Simulate > Merchant NPC a merchant (buy / sell / repair / buy back), Y or the Shop button the game shop, K the rankings, E the creatures, J the mount, N fishing (a playable mock), H the hero (H does not cycle shadows while the HUD is shown; the frame on the left shows the summoned hero and its mode chip cycles the behaviour), U the key bindings (a keyboard map; rebinding is local to the mock), ? the help (← → turn a topic's pages), X the mentorship (view as mentor or mentee), L the relationship (marriage), Enter the chat box (bottom left: hover to see its tabs and settings; typed prefixes switch channel, @ and / autocomplete), Simulate > Talk: Bill / Jason / Jude the NPC dialogue (1-9 pick an option, Space skips the typing, Esc closes; Jason's teleports move the camera), Simulate > Inspect or a chat name's Inspect the inspect window (Garrick, Seren, Elowen), Simulate > Trust merchant the market (buy now, bids, your listings, sell), Simulate > Crafting the server's 79 recipes, Simulate > Refine weapon refining (the server's chance formula, a forge timer with Skip wait, then the test), Simulate > Awakening (hold the button: a failure destroys the item), Simulate > Sockets & gems (the real gem / orb upgrade, and a sample socket bench), Simulate > Item rental (rent out or rent, +1 day fast-forward), Simulate > Login screen (mock accounts GMRyu / crystal1 and a banned one; nothing is sent anywhere; logging in goes on to character select), Simulate > Character select (↑ ↓ and Enter, create, delete; Start game goes through the loading screen), Simulate > Loading screen (this map; any key continues). Belt: 1-6 (1-8 on the 10-slot belt, whose 9 / 0 are the hero's potions: the hero drinks them, greyed out with no hero out; potions only) or a click uses a potion or scroll; gear on the belt (marked ⇄) is put on and the worn piece takes its slot, so a second set swaps in with one key. Simulate > Poison me (a random poison: debuff row above the right wing, HP ticks, screen effects, Frozen / Stunned / Paralysed block casting and the belt), Wear gear / Repair gear (the durability strip under the minimap; hover lists the items), Compass to an NPC (an arrow around the character; it clears when the camera arrives), Start timer (countdowns under the notice line), Roll dice (click the die) and Throw yut (rolls itself). Esc with no window open (or the ≡ button at the end of the menu strip, or Simulate > Game menu) opens the game menu: Resume, Options, Key bindings, Help, Log out (character select) and Exit (login screen), locked for 10 s after a hit or a cast; the right side opens any window (hotkeys work there too). Simulate > NPC: repair / special repair (or Bill's dialogue, or the merchant's Repair tab) opens the merchant's Repair tab: worn gear and damaged bag items in one list, per-item Repair or Repair all, a Special repair switch (3x, keeps the maximum); NPC: disassemble / downgrade / reset stats / wedding ring opens the NPC item box: drag an item onto the altar or click it in the bag strip (what the service can't take is dimmed; hover for why), check the preview and the price, then pay (disassemble needs the button held). Simulate > Guild territories (or the game menu's Territories tile): the 10 estates from the live database, rent / extend / list for sale (stand inside first: Teleport in) / buy one that's for sale (keys after 24 h), Look around loads the estate's court map; View as member shows the leader-only refusals. Simulate > Popup: the generic boxes (Enter = the main button, Esc = cancel / no, Y / N on yes-no boxes, arrows and PageUp / PageDown on amounts, which also take 1.5k / 2m; boxes queue one at a time; invites decline themselves when their bar runs out). Windows: a click brings one to the front, Esc closes the front window and Shift+Esc all, dragging snaps to edges and other windows (Alt moves freely), positions are remembered (double-click a title to reset; Simulate > Reset window positions). The diamond's edge is the EXP bar (clockwise from the top, quarter marks light as it passes); a full ring levels up. " +
+    "Auto scale multiplies HUD scale by screen height / 768, as one HUD for every resolution. Crystal's belt is 6 slots today; 10 needs inventory changes on both sides."));
+
   // Weather
   const w = section("Weather", false);
   const wc = el("div", { className: "checks" });
@@ -742,14 +911,16 @@ function frame(t: number): void {
       splitLine.style.left = r.left - vr.left + viewEl.scrollLeft + (splitX / width) * r.width + "px";
     }
   }
+  hud.tick(t); // outside `if (map)`: the HUD keeps running while a map loads or after one failed
   frames++;
   if (t - fpsAt >= 1000) {
     fps = frames; frames = 0; fpsAt = t;
     refreshCamFields();
+    refreshHudReadout();
   }
   const i = map && mouseCell && mouseCell.X >= 0 && mouseCell.Y >= 0 && mouseCell.X < map.width && mouseCell.Y < map.height ? mouseCell.X * map.height + mouseCell.Y : -1;
-  statusEl.textContent = `${loadedName || "-"}  cam ${state.camX.toFixed(1)},${state.camY.toFixed(1)}  ${width}x${height}  ${fps} fps` +
-    (i >= 0 && mouseCell ? `   cell ${mouseCell.X},${mouseCell.Y} light ${map!.light[i]}` : "") + (holdOriginal || !state.gradeOn ? "   [ungraded]" : "");
+  setText(statusEl, `${loadedName || "-"}  cam ${state.camX.toFixed(1)},${state.camY.toFixed(1)}  ${width}x${height}  ${fps} fps` +
+    (i >= 0 && mouseCell ? `   cell ${mouseCell.X},${mouseCell.Y} light ${map!.light[i]}` : "") + (holdOriginal || !state.gradeOn ? "   [ungraded]" : ""));
   requestAnimationFrame(frame);
 }
 /** Keep the camera X / Y boxes current after panning without fighting the user's typing. */
@@ -771,4 +942,4 @@ setResolution(state.resolution);
 refreshUi();
 requestAnimationFrame(frame);
 void loadMap(state.map);
-(window as unknown as { crystalLab: unknown }).crystalLab = { state, view, renderer, cam, get actors() { return actors; } };
+(window as unknown as { crystalLab: unknown }).crystalLab = { state, view, renderer, cam, hud, get actors() { return actors; } };

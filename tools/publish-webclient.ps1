@@ -40,17 +40,20 @@ if (-not (Test-Path (Join-Path $web 'js\play\main.js'))) { throw 'WebClient\js\p
 if (Test-Path $next) { Remove-Item $next -Recurse -Force }
 New-Item -ItemType Directory -Path $next | Out-Null
 
-# play\: index.html, play.css, lights\ (the .ts entry is compiled into js\play\). Not lab.html: the scene lab is a dev tool.
+# play\: index.html, play.css, lights\ (the .ts entry is compiled into js\play\). Not lab.html or lab-data\: the scene lab is a
+# dev tool, and lab-data\maps.json holds the live server's NPC / spawn data for its big map mock.
 $playSrc = Join-Path $web 'play'
-Get-ChildItem $playSrc -Recurse -File | Where-Object { $_.Extension -ne '.ts' -and $_.Name -ne 'lab.html' } | ForEach-Object {
+Get-ChildItem $playSrc -Recurse -File | Where-Object { $_.Extension -ne '.ts' -and $_.Name -ne 'lab.html' -and $_.FullName -notlike '*\lab-data\*' } | ForEach-Object {
     $target = Join-Path (Join-Path $next 'play') $_.FullName.Substring($playSrc.Length + 1)
     New-Item -ItemType Directory -Path (Split-Path $target) -Force | Out-Null
     Copy-Item $_.FullName $target
 }
-# js\: the compiled ES modules only.
+# js\: the compiled ES modules only. From js\play\ only main.js (the game entry): the rest (lab.js, hud*.js, weaponPose.js) is
+# the scene lab, and PageBuild would otherwise add a modulepreload for every one of them to the game page.
 $jsSrc = Join-Path $web 'js'
+$jsPlay = Join-Path $jsSrc 'play'
 $jsCount = 0
-Get-ChildItem $jsSrc -Recurse -File -Filter '*.js' | ForEach-Object {
+Get-ChildItem $jsSrc -Recurse -File -Filter '*.js' | Where-Object { $_.DirectoryName -ne $jsPlay -or $_.Name -eq 'main.js' } | ForEach-Object {
     $target = Join-Path (Join-Path $next 'js') $_.FullName.Substring($jsSrc.Length + 1)
     New-Item -ItemType Directory -Path (Split-Path $target) -Force | Out-Null
     Copy-Item $_.FullName $target

@@ -37,6 +37,19 @@ reversed frames).
 Writes the `.Lib` (v2, no frame table, like `CWeapon`) and per-action preview sheets. Read only from the client
 folder; never write into `Build\` - copy the result into a client's `Data\CWeapon\` yourself.
 
+## Weapons from WoW models (WMVx)
+
+WMVx (`C:\WMVx-0.5.2`, the WoW model viewer fork) renders a weapon on its own with `--item-still`:
+
+```
+C:\WMVx-0.5.2\Build2\Release\WMVx.exe --item-still --item 19019 --size 1024 --directions 8 --pitch 0 --out <dir>
+```
+
+It writes 8 side views (`d00.png` ... `d07.png`, transparent background). Pick the view that shows the blade flat
+(the widest one), crop it, rotate it so the tip points up, and render it with `--length` as usual (Thunderfury,
+2026-10-14: view 2, `--length 2.0` for Dragon Slayer size). Run the exe directly (Start-Process with
+`-Wait`), not through `scripts\wmvx-cli.ps1`, whose `--out` collides with PowerShell's `-OutVariable`.
+
 ## Limits
 
 - One picture rotated: no per-angle redraw; frames pointing at / away from the camera are short and keep full width.
