@@ -7,10 +7,11 @@
 //    list, nothing is marked locally); "Mark all read" is ONE C.ReadMails (MailBox.readMails, at most 100 ids);
 //  - Lock / Unlock = C.LockMail (MailBox.toggleLock); Delete = C.DeleteMail after a popup (a parcel still holding gold
 //    or items asks ParcelContainsItemsOrGoldDeleteConfirm: they are lost); locked mail can't be deleted;
-//  - parcels: ClientMail.Collected = the parcel is READY (a post office NPC's [@COLLECTPARCEL] page marks every parcel
+//  - parcels: ClientMail.Collected = the parcel is READY (the server releases waiting parcels while the player stands in a
+//    safe zone, PlayerObject.ReleaseParcelsInSafeZone; a post office NPC's [@COLLECTPARCEL] page still marks every parcel
 //    ready, or the server auto-sends). A ready parcel is collected with C.CollectParcel, "Collect all" is ONE
 //    C.CollectAllParcels (MailBox.collectAllParcels); both wait for the server (the mail and the button stay busy
-//    until S.ParcelCollected / S.ReceiveMail). A parcel that is not ready says "Visit a post office" (no button).
+//    until S.ParcelCollected / S.ReceiveMail). A parcel that is not ready says "Enter a safe zone" (no button).
 //    COLLECT_NEEDS_POST_OFFICE (default false = desktop + server: MailReadParcelDialog enables Collect whenever
 //    Mail.Collected, PlayerObject.CollectMail has no NPC check) can gate both buttons on an open post office page;
 //  - "New mail" composes a LETTER anywhere (C.SendMail with no gold or items); a PARCEL is composed only when the
@@ -69,7 +70,7 @@ const T = {
   YouCannotMailItem: "You cannot mail this item.",
   CannotSwap: "You cannot swap items.",
   NeedStamp: "You need a stamp in your bag.",
-  VisitPostOffice: "Visit a post office to collect it.",
+  VisitPostOffice: "Enter a safe zone (or visit a post office) to collect it.",
 };
 
 type Folder = "Inbox" | "Unread" | "Attachments" | "Locked" | "Sent";
@@ -498,7 +499,7 @@ export class MailWindow extends UiWindow {
       const tags = h("div", "tags");
       if (m.Gold) tags.append(h("span", "tag gold", svg("coin"), fmt(m.Gold)));
       if (m.Items.length) tags.append(h("span", "tag", svg("clip"), plural(m.Items.length, "item")));
-      if (this.pending(m) && !m.Collected) tags.append(h("span", "tag wait", "At the post office"));
+      if (this.pending(m) && !m.Collected) tags.append(h("span", "tag wait", "Waiting"));
       if (m.Locked) tags.append(h("span", "tag", svg("lock"), "Locked"));
       if (!m.CanReply) tags.append(h("span", "tag done", "No reply"));
       const row = h("div", "ml" + (m.MailID === sel ? " sel" : "") + (!m.Opened ? " new" : "") + (this.busy.has(m.MailID) ? " busy" : ""),
@@ -510,7 +511,7 @@ export class MailWindow extends UiWindow {
     }
     if (!els.length) els.push(h("div", "empty-note", this.query ? "No mail matches." : this.folder === "Unread" ? "You're all caught up." : "Nothing here."));
     this.list.replaceChildren(...els);
-    setText(this.listHint, this.inbox().some((m) => this.pending(m) && !m.Collected) ? "Parcels marked \"At the post office\" are handed over by a post office NPC." : "");
+    setText(this.listHint, this.inbox().some((m) => this.pending(m) && !m.Collected) ? "Parcels marked \"Waiting\" are handed over when you enter a safe zone." : "");
   }
 
   private renderSentList(): void {
@@ -564,8 +565,8 @@ export class MailWindow extends UiWindow {
         this.readCells.push(this.ui.cells.cell(READ_GRID, this.readCells.length, { size: 40, readOnly: true, signal: this.signal }));
       }
       for (let i = 0; i < m.Items.length; i++) att.append(this.readCells[i]!.el);
-      parts.push(h("div", "", h("div", "lbl", svg("clip"), m.Collected ? "Attachments" : "Attachments · waiting at the post office"), att));
-      if (!m.Collected) parts.push(h("div", "waitnote", `${T.VisitPostOffice} A post office NPC hands your parcels over.`));
+      parts.push(h("div", "", h("div", "lbl", svg("clip"), m.Collected ? "Attachments" : "Attachments · waiting for a safe zone"), att));
+      if (!m.Collected) parts.push(h("div", "waitnote", `${T.VisitPostOffice} Your parcels are handed over as soon as you stand in a safe zone.`));
     }
     if (this.note) parts.push(h("div", "note", this.note));
     this.ui.cells.refresh();
@@ -587,7 +588,7 @@ export class MailWindow extends UiWindow {
       collect.setDisabled(busy || !here, busy ? "Waiting for the server" : T.VisitPostOffice);
       bar.append(collect.el);
     } else if (this.pending(m)) {
-      bar.append(h("span", "hint", "Visit a post office"));
+      bar.append(h("span", "hint", "Enter a safe zone"));
     }
     return bar;
   }
@@ -610,7 +611,7 @@ export class MailWindow extends UiWindow {
     ];
     if (s.Gold || s.ItemCount) {
       const sentWith = [s.Gold ? `${fmt(s.Gold)} gold` : "", s.ItemCount ? plural(s.ItemCount, "item") : ""].filter(Boolean).join(" and ");
-      parts.push(h("div", "", h("div", "lbl", svg("clip"), "Sent with this mail"), h("div", "hint", sentWith + (s.Collected ? "" : " · waiting at their post office"))));
+      parts.push(h("div", "", h("div", "lbl", svg("clip"), "Sent with this mail"), h("div", "hint", sentWith + (s.Collected ? "" : " · waiting for them to reach a safe zone"))));
     }
     if (this.note) parts.push(h("div", "note", this.note));
     const hide = confirmTwice("Remove from Sent", () => this.hideSent(s.MailID), { icon: "trash", confirmLabel: "Click again to remove", signal: this.signal,

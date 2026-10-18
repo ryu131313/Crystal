@@ -389,7 +389,7 @@
     "CannotMailPlayerOnBlacklist": "对方在你的黑名单中，无法发送邮件。",
     "TextExceedsMailSizeLimit": "抱歉，你的邮件内容超出了大小限制。",
     "CannotBeMailed": "{0} 无法被邮寄。",
-    "MailCollectFromPostOffice": "邮件必须在邮局领取。",
+    "MailCollectFromPostOffice": "包裹需在安全区或邮局领取。",
     "CannotCollectWhenBagFull": "背包已满，无法领取物品。",
     "CreatureSummoned": "生物 {0} 已被召唤。",
     "CreatureDismissed": "生物 {0} 已被解散。",

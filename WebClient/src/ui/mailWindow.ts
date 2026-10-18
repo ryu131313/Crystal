@@ -473,7 +473,7 @@ export class MailWindow {
     for (let i = 0; i < PARCEL_CELLS && i < m.Items.length; i++) {
       this.readCells.push(placeCell(this.invWindow.viewCell(m.Items[i]!, MAIL_CELL), this.parcelReadWin, [27 + i * 36, 311]));
     }
-    // Collected = the server delivered it straight to the mailbox; otherwise it waits at a post office NPC
+    // Collected = the parcel is ready (auto-send, a safe zone or a post office NPC released it); otherwise it waits
     if (!m.Collected) { this.collectButton.setIndices(683, 684, 685); this.collectButton.enabled = false; }
     else { this.collectButton.setIndices(680, 681, 682); this.collectButton.enabled = true; }
     this.scheduleRetry(m.Items.some((i) => !this.inv.info(i)));

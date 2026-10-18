@@ -389,7 +389,7 @@
     "CannotMailPlayerOnBlacklist": "Cannot mail player whilst they are on your blacklist.",
     "TextExceedsMailSizeLimit": "Sorry your text exceeds the size limit for mails",
     "CannotBeMailed": "{0} cannot be mailed",
-    "MailCollectFromPostOffice": "Mail must be collected from the post office.",
+    "MailCollectFromPostOffice": "Parcels are handed over in a safe zone or at a post office.",
     "CannotCollectWhenBagFull": "Cannot collect items when bag is full.",
     "CreatureSummoned": "Creature {0} has been summoned.",
     "CreatureDismissed": "Creature {0} has been dismissed.",

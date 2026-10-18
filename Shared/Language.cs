@@ -2334,7 +2334,7 @@ public static class GameLanguage
             { nameof(ServerTextKeys.CannotMailPlayerOnBlacklist), "Cannot mail player whilst they are on your blacklist." },
             { nameof(ServerTextKeys.TextExceedsMailSizeLimit), "Sorry your text exceeds the size limit for mails" },
             { nameof(ServerTextKeys.CannotBeMailed), "{0} cannot be mailed" },
-            { nameof(ServerTextKeys.MailCollectFromPostOffice), "Mail must be collected from the post office." },
+            { nameof(ServerTextKeys.MailCollectFromPostOffice), "Parcels are handed over in a safe zone or at a post office." },
             { nameof(ServerTextKeys.CannotCollectWhenBagFull), "Cannot collect items when bag is full." },
             { nameof(ServerTextKeys.CreatureSummoned), "Creature {0} has been summoned." },
             { nameof(ServerTextKeys.CreatureDismissed), "Creature {0} has been dismissed." },

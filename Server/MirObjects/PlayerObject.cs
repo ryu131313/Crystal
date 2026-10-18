@@ -89,6 +89,8 @@ namespace Server.MirObjects
         }
 
         public bool NewMail = false;
+        /// <summary>Set when entering a safe zone released waiting parcels; Process sends the refreshed mail list.</summary>
+        private bool _parcelsReleased;
 
         public override int PKPoints
         {
@@ -1415,6 +1417,10 @@ namespace Server.MirObjects
             {
                 ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.NewMail), ChatType.System);
 
+                GetMail();
+            }
+            else if (_parcelsReleased)
+            {
                 GetMail();
             }
 
@@ -13433,8 +13439,40 @@ namespace Server.MirObjects
             return cost;
         }
 
+        public override void OnSafeZoneChanged()
+        {
+            base.OnSafeZoneChanged();
+
+            if (ReleaseParcelsInSafeZone()) _parcelsReleased = true;
+        }
+
+        /// <summary>
+        /// In a safe zone the player's waiting parcels are handed over without a post office NPC: every parcel still marked
+        /// not Collected becomes collectable (what [@COLLECTPARCEL] does). Returns true when any parcel was released.
+        /// </summary>
+        private bool ReleaseParcelsInSafeZone()
+        {
+            if (!InSafeZone) return false;
+
+            bool released = false;
+
+            for (int i = 0; i < Info.Mail.Count; i++)
+            {
+                MailInfo mail = Info.Mail[i];
+                if (mail.Collected || !mail.Parcel) continue;
+
+                mail.Collected = true;
+                released = true;
+            }
+
+            return released;
+        }
+
         public void GetMail()
         {
+            ReleaseParcelsInSafeZone();
+            _parcelsReleased = false;
+
             List<ClientMail> mail = new List<ClientMail>();
 
             int start = (Info.Mail.Count - Settings.MailCapacity) > 0 ? (Info.Mail.Count - (int)Settings.MailCapacity) : 0;
