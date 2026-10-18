@@ -202,7 +202,10 @@ confirmation dialog, with a reason field for moderation actions. Every successfu
   with the monster and count; bosses amber), movements (blue arrow to a destination on the same map, violet stub with the
   destination map's name otherwise), inbound movements from other maps (green triangle), mine zones (cyan), NPCs (gold), online
   players, blocked cells and a grid. Scroll zooms, drag pans, click selects (click again to cycle through overlapping objects),
-  double-click follows a movement to its destination map, right-click copies `x, y`. Side column: every object grouped by kind
+  double-click follows a movement to its destination map, right-click opens a menu of live GM actions on that cell
+  (instance 1, running world only): teleport an online GM there (one click each), teleport a chosen player there, teleport all
+  online players or gather the players already on the map there (GM verb `teleportall`, with a spread), spawn a monster,
+  open the map in the Live Monitor, copy `x, y`. Side column: every object grouped by kind
   with a filter, and the selected object's details (walkable cells in a respawn area, blocked-cell warnings). Under the map: the
   map's own row (summary chips, *Edit all fields…* opens the row form) and its safe zones, respawns, movements, mine zones and
   NPCs as Game Data grids filtered to the map; clicking a row spotlights it on the map. Saves use the Game Data pipeline (LiveDb

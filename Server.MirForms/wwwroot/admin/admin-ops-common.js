@@ -437,6 +437,66 @@
     return !!sec && !sec.classList.contains('hidden');
   }
 
+  /*
+   * A right-click menu at viewport (x, y), appended to <body> (styles: .mon-menu in admin-monitor.css). items: '-' for a
+   * separator, or { label, run, danger, disabled } where disabled is the tooltip text explaining why. A click outside,
+   * scrolling or Escape closes it. Returns a function that closes it.
+   */
+  var openMenu = null;
+  function contextMenu(title, items, x, y) {
+    if (openMenu) openMenu();
+    var doc = global.document;
+    var menu = doc.createElement('div');
+    menu.className = 'mon-menu';
+    menu.setAttribute('role', 'menu');
+    if (title) {
+      var h = doc.createElement('div');
+      h.className = 'mon-menu-title';
+      h.textContent = title;
+      menu.appendChild(h);
+    }
+    function close() {
+      if (openMenu !== close) return;
+      openMenu = null;
+      if (menu.parentNode) menu.parentNode.removeChild(menu);
+      doc.removeEventListener('mousedown', onDown, true);
+      doc.removeEventListener('keydown', onKey, true);
+      global.removeEventListener('scroll', close, true);
+    }
+    function onDown(e) { if (!menu.contains(e.target)) close(); }
+    function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } }
+    (items || []).forEach(function (it) {
+      if (it === '-') {
+        var hr = doc.createElement('div');
+        hr.className = 'mon-menu-sep';
+        menu.appendChild(hr);
+        return;
+      }
+      var b = doc.createElement('button');
+      b.type = 'button';
+      b.setAttribute('role', 'menuitem');
+      b.className = 'mon-menu-item' + (it.danger ? ' danger' : '');
+      b.textContent = it.label;
+      if (it.disabled) { b.disabled = true; b.title = it.disabled; }
+      b.addEventListener('click', function () {
+        close();
+        if (it.run) Promise.resolve().then(it.run).catch(function (err) { if (global.portalToast) global.portalToast(String(err && err.message || err), 'error'); });
+      });
+      menu.appendChild(b);
+    });
+    doc.body.appendChild(menu);
+    openMenu = close;
+    var w = menu.offsetWidth, hgt = menu.offsetHeight;
+    menu.style.left = Math.max(4, Math.min(global.innerWidth - w - 4, x)) + 'px';
+    menu.style.top = Math.max(4, Math.min(global.innerHeight - hgt - 4, y)) + 'px';
+    doc.addEventListener('mousedown', onDown, true);
+    doc.addEventListener('keydown', onKey, true);
+    global.addEventListener('scroll', close, true);
+    var first = menu.querySelector('button:not([disabled])');
+    if (first) first.focus();
+    return close;
+  }
+
   global.OpsUI = {
     esc: esc,
     val: val,
@@ -458,6 +518,7 @@
     renderLog: renderLog,
     playerLink: playerLink,
     actionDialog: actionDialog,
+    contextMenu: contextMenu,
     durationBody: durationBody,
     MUTE_PRESETS: MUTE_PRESETS,
     BAN_PRESETS: BAN_PRESETS,

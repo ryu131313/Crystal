@@ -237,6 +237,37 @@ namespace Server.WebAdmin.Tests
         }
 
         [Fact]
+        public void TeleportAll_PreparesAndScopes()
+        {
+            var verb = GmCatalog.Find("teleportall");
+            Assert.Equal("world", verb.Target);
+            Assert.Equal(GmCatalog.Movement, verb.Group);
+            Assert.Equal(GmRules.MassTeleportScopes, verb.Args.First(a => a.Name == "who").Options.Select(o => o.Value));
+
+            var all = Prepare("{\"action\":\"teleportall\",\"map\":\"#3\",\"x\":10,\"y\":12}");
+            Assert.Equal("all", all.Who);
+            Assert.Equal("#3", all.MapRef);
+            Assert.Equal(0, all.Spread);
+
+            var gather = Prepare("{\"action\":\"teleportall\",\"who\":\"MAP\",\"map\":\"0\",\"x\":1,\"y\":2,\"spread\":3}");
+            Assert.Equal("map", gather.Who);
+            Assert.Equal(3, gather.Spread);
+
+            Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"teleportall\",\"who\":\"nope\",\"map\":\"0\",\"x\":1,\"y\":1}")).Status);
+            Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"teleportall\",\"map\":\"0\",\"x\":1}")).Status);
+            Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"teleportall\",\"map\":\"0\",\"x\":1,\"y\":1,\"spread\":21}")).Status);
+
+            Assert.True(GmRules.MassTeleportIncludes("all", false, false));
+            Assert.True(GmRules.MassTeleportIncludes("gms", true, false));
+            Assert.False(GmRules.MassTeleportIncludes("gms", false, true));
+            Assert.True(GmRules.MassTeleportIncludes("players", false, false));
+            Assert.False(GmRules.MassTeleportIncludes("players", true, false));
+            Assert.True(GmRules.MassTeleportIncludes("map", true, true));
+            Assert.False(GmRules.MassTeleportIncludes("map", false, false));
+            Assert.False(GmRules.MassTeleportIncludes("nope", true, true));
+        }
+
+        [Fact]
         public void Prepare_ValidatesVerbArguments()
         {
             Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"teleport\",\"character\":\"Bob\"}")).Status);

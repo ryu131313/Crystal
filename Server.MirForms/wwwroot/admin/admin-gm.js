@@ -81,6 +81,11 @@
         f.options = [{ value: '', label: 'Choose a spell…' }].concat((arg.options || []).map(function (o) { return { value: o.value, label: o.label }; }));
         f.value = '';
         break;
+      case 'select':
+        f.type = 'select';
+        f.options = (arg.options || []).map(function (o) { return { value: o.value, label: o.label }; });
+        if (arg['default'] != null) f.value = arg['default'];
+        break;
       case 'conquest':
         if (caps && caps.conquests && caps.conquests.length) {
           f.type = 'select';
@@ -363,6 +368,10 @@
       case 'spell':
         input = '<select class="fd-input" id="' + id + '" data-arg="' + esc(arg.name) + '"><option value="">Choose a spell…</option>' +
           (arg.options || []).map(function (o) { return '<option value="' + esc(o.value) + '">' + esc(o.label) + '</option>'; }).join('') + '</select>';
+        break;
+      case 'select':
+        input = '<select class="fd-input" id="' + id + '" data-arg="' + esc(arg.name) + '">' +
+          (arg.options || []).map(function (o) { return '<option value="' + esc(o.value) + '"' + (String(o.value) === String(arg['default']) ? ' selected' : '') + '>' + esc(o.label) + '</option>'; }).join('') + '</select>';
         break;
       case 'conquest':
         if (caps && caps.conquests && caps.conquests.length) {

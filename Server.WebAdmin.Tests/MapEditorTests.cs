@@ -191,10 +191,12 @@ namespace Server.WebAdmin.Tests
         [MemberData(nameof(JsFiles))]
         public void ApiCalls_AreTheMapEditorReadRoutesOnly(string file)
         {
-            // Writes go through the Game Data pipeline (GameData.persist / MirLiveDb.runBatch), never a URL of this module.
+            // Game-data writes go through the Game Data pipeline (GameData.persist / MirLiveDb.runBatch), never a URL of this module.
+            // The one exception: the page's cell right-click menu runs live GM verbs (teleport here, mass teleport, spawn).
             var urls = Regex.Matches(Read(file), @"'(/api/[^']*)'").Select(m => m.Groups[1].Value).Distinct().ToList();
             if (file != "admin-mapeditor-edit.js") Assert.NotEmpty(urls);
-            var unknown = urls.Where(u => !u.StartsWith("/api/admin/mapeditor/maps", StringComparison.Ordinal) && u != "/api/admin/mapeditor/online").ToList();
+            var gmMenu = file == "admin-mapeditor.js" ? new[] { "/api/admin/players-online", "/api/admin/gm/action" } : Array.Empty<string>();
+            var unknown = urls.Where(u => !u.StartsWith("/api/admin/mapeditor/maps", StringComparison.Ordinal) && u != "/api/admin/mapeditor/online" && !gmMenu.Contains(u)).ToList();
             Assert.True(unknown.Count == 0, "Routes outside the map editor: " + string.Join(", ", unknown));
         }
 

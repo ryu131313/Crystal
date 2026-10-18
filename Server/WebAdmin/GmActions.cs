@@ -27,7 +27,7 @@ namespace Server.WebAdmin
 
         public string Label { get; set; }
 
-        /// <summary>int | text | longtext | map | item | monster | spell | conquest | duration | guild.</summary>
+        /// <summary>int | text | longtext | map | item | monster | spell | conquest | duration | guild | select (<see cref="Options"/>).</summary>
         public string Type { get; set; }
 
         public bool Required { get; set; }
@@ -125,6 +125,14 @@ namespace Server.WebAdmin
                 .ToList();
         }
 
+        private static List<GmOption> MassTeleportOptions() => new List<GmOption>
+        {
+            new GmOption { Value = "all", Label = "Everyone online" },
+            new GmOption { Value = "gms", Label = "GMs only" },
+            new GmOption { Value = "players", Label = "Non-GM players" },
+            new GmOption { Value = "map", Label = "Players already on the target map" },
+        };
+
         private static IReadOnlyList<GmVerbSpec> Build()
         {
             var list = new List<GmVerbSpec>
@@ -174,6 +182,20 @@ namespace Server.WebAdmin
                         MapArg(true),
                         Int("x", "X", false, 0, 10000),
                         Int("y", "Y", false, 0, 10000),
+                        InstanceArg(),
+                    },
+                },
+                new GmVerbSpec
+                {
+                    Action = "teleportall", Label = "Mass teleport…", Group = Movement, Target = "world", Danger = true,
+                    Description = "Move online players to one cell: everyone, GMs only, non-GM players, or the players already on the target map. Dead players are skipped.",
+                    Args = new List<GmArgSpec>
+                    {
+                        new GmArgSpec { Name = "who", Label = "Who", Type = "select", Required = true, Default = "all", Options = MassTeleportOptions() },
+                        MapArg(true),
+                        Int("x", "X", true, 0, 10000),
+                        Int("y", "Y", true, 0, 10000),
+                        Int("spread", "Spread (cells around X/Y)", false, 0, 20, 0),
                         InstanceArg(),
                     },
                 },
@@ -489,6 +511,22 @@ namespace Server.WebAdmin
             return (null, text);
         }
 
+        /// <summary>The <c>who</c> values of the teleportall verb.</summary>
+        public static readonly IReadOnlyList<string> MassTeleportScopes = new[] { "all", "gms", "players", "map" };
+
+        /// <summary>Whether a player is moved by teleportall with scope <paramref name="who"/> (one of <see cref="MassTeleportScopes"/>).</summary>
+        public static bool MassTeleportIncludes(string who, bool isGm, bool onTargetMap)
+        {
+            switch (who)
+            {
+                case "all": return true;
+                case "gms": return isGm;
+                case "players": return !isGm;
+                case "map": return onTargetMap;
+                default: return false;
+            }
+        }
+
         /// <summary>Case- and space-insensitive name key ("Wooden Sword" == "woodensword").</summary>
         public static string NameKey(string s) => (s ?? string.Empty).Replace(" ", string.Empty).Trim().ToLowerInvariant();
     }
@@ -531,6 +569,7 @@ namespace Server.WebAdmin
         public byte SpellLevel;
         public int ConquestIndex;
         public string Guild;
+        public string Who;
     }
 
     /// <summary>
@@ -628,6 +667,16 @@ namespace Server.WebAdmin
                     plan.X = (int)args.Long("x", true, 0, 10000, "X").Value;
                     plan.Y = (int)args.Long("y", true, 0, 10000, "Y").Value;
                     plan.Count = (int)(args.Long("count", false, 1, GmCatalog.MaxSpawnCount, "Count") ?? 1);
+                    plan.Spread = (int)(args.Long("spread", false, 0, 20, "Spread") ?? 0);
+                    plan.Instance = (int)(args.Long("instance", false, 1, 1000, "Instance") ?? 1);
+                    break;
+                case "teleportall":
+                    plan.Who = (args.String("who", false, 20, "Who") ?? "all").ToLowerInvariant();
+                    if (!GmRules.MassTeleportScopes.Contains(plan.Who))
+                        throw new WebAdminException(400, "Who must be one of: " + string.Join(", ", GmRules.MassTeleportScopes));
+                    plan.MapRef = args.String("map", true, 100, "Map");
+                    plan.X = (int)args.Long("x", true, 0, 10000, "X").Value;
+                    plan.Y = (int)args.Long("y", true, 0, 10000, "Y").Value;
                     plan.Spread = (int)(args.Long("spread", false, 0, 20, "Spread") ?? 0);
                     plan.Instance = (int)(args.Long("instance", false, 1, 1000, "Instance") ?? 1);
                     break;
@@ -1023,6 +1072,7 @@ namespace Server.WebAdmin
             switch (plan.Verb.Action)
             {
                 case "spawnmob": SpawnMob(plan, result); break;
+                case "teleportall": TeleportAll(plan, result); break;
                 case "clearmobs": ClearMobs(plan, result); break;
                 case "startconquest": StartConquest(plan, result); break;
                 case "stopconquest": StopConquest(plan, result); break;
@@ -1030,6 +1080,63 @@ namespace Server.WebAdmin
             }
 
             return result;
+        }
+
+        private static void TeleportAll(GmPlan plan, GmResult result)
+        {
+            var map = ResolveMap(plan.MapRef, plan.Instance);
+            var centre = new Point(plan.X.Value, plan.Y.Value);
+            RequireWalkable(map, centre);
+
+            // A copy: a teleport can run map scripts, and nothing here may depend on the live list staying put.
+            var players = Main.Players.ToArray();
+            int moved = 0, failed = 0, dead = 0;
+            var names = new List<string>();
+
+            foreach (var p in players)
+            {
+                if (p?.Info == null || p.CurrentMap == null) continue;
+                if (!GmRules.MassTeleportIncludes(plan.Who, p.IsGM, p.CurrentMap == map)) continue;
+                if (p.Dead) { dead++; continue; }
+
+                var pt = centre;
+                if (plan.Spread > 0)
+                {
+                    for (var attempt = 0; attempt < 20; attempt++)
+                    {
+                        var c = new Point(centre.X + Main.Random.Next(-plan.Spread, plan.Spread + 1), centre.Y + Main.Random.Next(-plan.Spread, plan.Spread + 1));
+                        if (map.ValidPoint(c)) { pt = c; break; }
+                    }
+                }
+
+                if (p.Teleport(map, pt))
+                {
+                    moved++;
+                    if (names.Count < 50) names.Add(p.Name);
+                }
+                else
+                {
+                    failed++;
+                }
+            }
+
+            if (moved == 0 && failed == 0 && dead == 0)
+                throw new WebAdminException(409, "No online player matches (" + plan.Who + ")");
+
+            result.Target = MapLabel(map);
+            result.Message = "Teleported " + moved + (moved == 1 ? " player" : " players") + " to " + MapLabel(map) + " (" + centre.X + ", " + centre.Y + ")" +
+                             (failed > 0 ? "; " + failed + " refused (e.g. a group-only map)" : string.Empty) +
+                             (dead > 0 ? "; " + dead + " dead skipped" : string.Empty) + ".";
+            result.Details["who"] = plan.Who;
+            result.Details["map"] = map.Info.FileName;
+            result.Details["mapIndex"] = map.Info.Index;
+            result.Details["x"] = centre.X;
+            result.Details["y"] = centre.Y;
+            result.Details["moved"] = moved;
+            result.Details["failed"] = failed;
+            result.Details["dead"] = dead;
+            result.Details["players"] = names;
+            result.Data = new { map = map.Info.Title, mapFile = map.Info.FileName, moved, failed, dead };
         }
 
         private static void SpawnMob(GmPlan plan, GmResult result)

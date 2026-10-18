@@ -7,7 +7,8 @@
  * and JSON), all from the editor copy and the server's map file, so the page works while the world is stopped.
  * Writes: never a route of its own. The grids are Game Data grids (makeDbGridEditor over /api/admin/db/{maps,mapsafezones,
  * maprespawns,mapmovements,mapminezones,npcs}) and save through GameData.persist: one LiveDb batch (dry run, preview, apply live)
- * when [LiveDb] is on, else PUT + database/save.
+ * when [LiveDb] is on, else PUT + database/save. The cell right-click menu acts on the running world through the GM verbs
+ * (POST /api/admin/gm/action: teleport a GM / a player / everyone here, spawn a monster), on instance 1 of the map.
  *
  * Unsaved edits use DbSave dirty keys "mapeditor:<endpoint>", so the shell's leave-section and beforeunload guards cover them and
  * switching maps asks first. Deep link: #section=mapeditor&map=<index>[&sel=<kind>:<rowIndex>][&x=&y=].
@@ -349,9 +350,9 @@
       },
       onSelect: function (o) { setSelected(o ? o.key : null, { from: 'map' }); },
       onActivate: activate,
-      onContext: function (c) {
+      onContext: function (c, e) {
         if (hooks.onContext && hooks.onContext(c)) return;
-        copyText(c.x + ', ' + c.y);
+        openCellMenu(c, e);
       },
       onWalkability: function () { renderInfoBar(); if (hooks.onWalkability) hooks.onWalkability(); },
       onBaseChange: renderBaseOptions,
@@ -1031,6 +1032,109 @@
       loadMaps(false);
     }
     renderTableTabs();
+  }
+
+  // ---- right-click on a cell: live GM actions (instance 1 of the map in the running world) ----------------------------------
+
+  async function openCellMenu(c, e) {
+    var m = current && maps.filter(function (q) { return q.index === current.index; })[0];
+    if (!m || !e || !global.OpsUI || !OpsUI.contextMenu) { copyText(c.x + ', ' + c.y); return; }
+    var mapIndex = m.index;
+    var title = (m.title || m.fileName || '#' + mapIndex) + ' · ' + c.x + ', ' + c.y;
+
+    var res = await OpsUI.fetchResult('/api/admin/players-online');
+    if (!current || current.index !== mapIndex) return;
+    var data = res.ok ? (OpsUI.unwrap(res.data) || {}) : {};
+    var rows = Array.isArray(data.rows) ? data.rows : [];
+    var down = !res.ok ? 'Could not read the online players' : (data.world && data.world !== 'running' ? 'The world is ' + data.world : null);
+    var blocked = view && view.walkable(c.x, c.y) === false ? 'This cell is not walkable' : null;
+    var why = down || blocked;
+    var gms = rows.filter(function (r) { return r.isGM; });
+
+    var items = [];
+    if (!gms.length) {
+      items.push({ label: 'Teleport GM here', disabled: why || 'No GM is online' });
+    } else {
+      gms.slice(0, 8).forEach(function (g) {
+        items.push({ label: 'Teleport ' + g.name + ' (GM) here', disabled: why, run: function () { return teleportOne(g, m, c, 'Map editor: GM teleport'); } });
+      });
+    }
+    items.push({ label: 'Teleport a player here…', disabled: why || (rows.length ? null : 'Nobody is online'), run: function () { return pickAndTeleport(rows, m, c); } });
+    items.push('-');
+    items.push({ label: 'Teleport all online players here…', danger: true, disabled: why || (rows.length ? null : 'Nobody is online'), run: function () { return massTeleport('all', m, c); } });
+    items.push({ label: 'Gather players on this map here…', danger: true, disabled: why, run: function () { return massTeleport('map', m, c); } });
+    items.push({ label: 'Spawn monster here…', disabled: why, run: function () { return spawnHere(m, c); } });
+    items.push('-');
+    if (global.LiveMonitor) items.push({ label: 'Open in Live Monitor', run: function () { global.LiveMonitor.openMap(mapIndex, 1); } });
+    items.push({ label: 'Copy coordinates', run: function () { copyText(c.x + ', ' + c.y); } });
+    OpsUI.contextMenu(title, items, e.clientX, e.clientY);
+  }
+
+  function mapRefBody(m, c) { return { map: '#' + m.index, x: c.x, y: c.y }; }
+
+  function afterLiveAction(r) {
+    if (r && r.__ok && layers.players) setTimeout(function () { pollPlayers(); }, 400);
+    return r;
+  }
+
+  async function teleportOne(p, m, c, reason) {
+    var body = Object.assign({ action: 'teleport', character: p.name, reason: reason }, mapRefBody(m, c));
+    if (p.characterIndex) body.characterIndex = p.characterIndex;
+    return afterLiveAction(await OpsUI.post('/api/admin/gm/action', body));
+  }
+
+  async function pickAndTeleport(rows, m, c) {
+    var sorted = rows.slice().sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+    var v = await OpsUI.actionDialog({
+      title: 'Teleport a player — ' + (m.title || m.fileName) + ' ' + c.x + ', ' + c.y,
+      message: 'Moves the player to this cell (instance 1).',
+      confirmText: 'Teleport',
+      fields: [
+        { key: 'who', label: 'Player', type: 'select', value: String(sorted[0].characterIndex),
+          options: sorted.map(function (r) { return { value: String(r.characterIndex), label: r.name + ' · Lv ' + r.level + (r.isGM ? ' (GM)' : '') + (r.mapTitle ? ' · ' + r.mapTitle : '') }; }) },
+        { key: 'reason', label: 'Reason (audit trail)', type: 'text', required: true, placeholder: 'Why?' }
+      ]
+    });
+    if (!v) return null;
+    var p = sorted.filter(function (r) { return String(r.characterIndex) === String(v.who); })[0];
+    return p ? teleportOne(p, m, c, v.reason || '') : null;
+  }
+
+  async function massTeleport(who, m, c) {
+    var where = (m.title || m.fileName) + ' (' + c.x + ', ' + c.y + ')';
+    var v = await OpsUI.actionDialog({
+      title: who === 'map' ? 'Gather players on this map' : 'Teleport all online players',
+      message: (who === 'map' ? 'Moves every player already on this map' : 'Moves EVERY online player, GMs included,') + ' to ' + where + '. Dead players are skipped.',
+      confirmText: 'Teleport',
+      danger: true,
+      fields: [
+        { key: 'spread', label: 'Spread (cells around the point)', type: 'number', value: 3, min: 0, max: 20 },
+        { key: 'reason', label: 'Reason (audit trail)', type: 'text', required: true, placeholder: 'Why?' }
+      ]
+    });
+    if (!v) return null;
+    var body = Object.assign({ action: 'teleportall', who: who, reason: v.reason || '' }, mapRefBody(m, c));
+    if (v.spread) body.spread = v.spread;
+    return afterLiveAction(await OpsUI.post('/api/admin/gm/action', body));
+  }
+
+  async function spawnHere(m, c) {
+    var v = await OpsUI.actionDialog({
+      title: 'Spawn monster — ' + (m.title || m.fileName) + ' ' + c.x + ', ' + c.y,
+      message: 'Spawns monsters around this cell (instance 1) in the running world.',
+      confirmText: 'Spawn',
+      fields: [
+        { key: 'monster', label: 'Monster (index or name)', type: 'text', required: true, placeholder: 'e.g. Hen' },
+        { key: 'count', label: 'Count', type: 'number', value: 1, min: 1, max: 50 },
+        { key: 'spread', label: 'Spread (cells around the point)', type: 'number', value: 0, min: 0, max: 20 },
+        { key: 'reason', label: 'Reason (audit trail)', type: 'text', required: true, placeholder: 'Why?' }
+      ]
+    });
+    if (!v) return null;
+    var body = Object.assign({ action: 'spawnmob', monster: String(v.monster || '').trim(), reason: v.reason || '' }, mapRefBody(m, c));
+    if (v.count) body.count = v.count;
+    if (v.spread) body.spread = v.spread;
+    return OpsUI.post('/api/admin/gm/action', body);
   }
 
   // ---- players (phase 3 layer) -------------------------------------------------------------------------------------------
