@@ -87,8 +87,9 @@ namespace Client.MirScenes.Dialogs
             };
             AddButton.Click += (o1, e) =>
             {
-                int openLevel = (GameScene.User.Inventory.Length - UserObject.BagStart2) / 4;
-                int openGold = (1000000 + openLevel * 1000000);
+                //Server @ADDINVENTORY: one row of 10 per purchase, 2.5m << row (row = (Length - BagStart2) / 10, 0..3).
+                int openLevel = Math.Clamp((GameScene.User.Inventory.Length - UserObject.BagStart2) / 10, 0, 3);
+                int openGold = 2500000 << openLevel;
                 MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.ExtraSlots4), openGold), MirMessageBoxButtons.OKCancel);
 
                 messageBox.OKButton.Click += (o, a) =>
@@ -372,13 +373,15 @@ namespace Client.MirScenes.Dialogs
                     grid.Visible = true;
             }
 
-            int openLevel = (GameScene.User.Inventory.Length - UserObject.BagStart2) / 4;
+            //Each LockBar covers 4 cells; purchases open rows of 10, so a bar half open is lifted (its locked cells stay hidden).
+            int openCells = GameScene.User.Inventory.Length - UserObject.BagStart2;
+            int openLevel = (openCells + 3) / 4;
             for (int i = 0; i < LockBar.Length; i++)
             {
                 LockBar[i].Visible = (i < openLevel) ? false : true;
             }
 
-            AddButton.Visible = openLevel >= 10 ? false : true;
+            AddButton.Visible = openCells >= 40 ? false : true;
         }
 
         public void Process()

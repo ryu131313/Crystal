@@ -116,7 +116,7 @@ function itemSound(type: number): number {
 const UI_32BIT = "UI_32bit"; // Libraries.UI_32bit
 const BAG_PAGE = 40; // cells per bag page
 /** UserObject.Inventory.Length before any @ADDINVENTORY: the belt + bag I (48 since phase 2.9 = CharacterInfo.Inventory;
- *  the @ADDINVENTORY price ladder is (Length - 48) / 4, PlayerObject). */
+ *  the @ADDINVENTORY price ladder is one row of 10 per purchase, 2.5m << ((Length - 48) / 10), PlayerObject). */
 const INVENTORY_BASE = BELT_IDX + BAG_PAGE;
 
 /** One MirItemCell element and what it currently shows. */
@@ -220,9 +220,10 @@ export class InventoryWindow {
     this.questButton = new MirButton({ parent: this.win, library: Lib.Title, index: 739, location: [146, 7], size: [72, 23], sound: SoundList.ButtonA, onClick: () => this.onQuestTab?.() });
     this.addButton = new MirButton({ parent: this.win, library: Lib.Title, index: 483, hoverIndex: 484, pressedIndex: 485, location: [235, 5], size: [72, 23], sound: SoundList.ButtonA, visible: false,
       onClick: () => {
-        const openLevel = Math.trunc((this.inv.inventory.length - INVENTORY_BASE) / 4);
-        const openGold = 1000000 + openLevel * 1000000;
-        messageBox(stage, `Are you sure you would like to unlock 4 extra slots? for gold: ${openGold.toLocaleString("en-US")}`,
+        // PlayerObject "ADDINVENTORY": one row of 10 per purchase, 2.5m << row (row = (Length - 48) / 10, 0..3)
+        const openLevel = Math.min(3, Math.max(0, Math.trunc((this.inv.inventory.length - INVENTORY_BASE) / 10)));
+        const openGold = 2500000 * 2 ** openLevel;
+        messageBox(stage, `Are you sure you would like to unlock a row of 10 extra slots for ${openGold.toLocaleString("en-US")} gold?`,
           [{ label: "OK", onClick: () => this.send(ClientPackets.Chat({ Message: "@ADDINVENTORY" })) }, { label: "Cancel" }]);
       } });
     closeButton(this.win, [289, 3], () => this.toggle(false));
@@ -327,7 +328,7 @@ export class InventoryWindow {
     // Ctrl + left-click with a picked bag item: move it to that bag page (TryMoveSelectedInventoryItem)
     if (e.ctrlKey && this.pick) { this.moveToBag(page === 2); return; }
     if (this.inv.inventory.length === INVENTORY_BASE && page === 2) {
-      messageBox(getUiRoot(), "Are you sure you would like to buy 8 extra slots for 1,000,000 gold? Next purchase you can unlock 4 extra slots up to a maximum of 40 slots.",
+      messageBox(getUiRoot(), "Are you sure you would like to unlock a row of 10 extra slots for 2,500,000 gold? Each later row costs double, up to a maximum of 40 slots.",
         [{ label: "OK", onClick: () => this.send(ClientPackets.Chat({ Message: "@ADDINVENTORY" })) }, { label: "Cancel" }]);
       return;
     }
@@ -363,9 +364,10 @@ export class InventoryWindow {
     this.itemButton2.index = two ? 168 : len === INVENTORY_BASE ? 169 : 738;
     this.questButton.index = 739;
     for (const v of this.grid) v.el.hidden = two ? v.index < INVENTORY_BASE || v.index >= len : v.index >= INVENTORY_BASE;
-    const openLevel = Math.trunc((len - INVENTORY_BASE) / 4);
-    for (let i = 0; i < this.lockBars.length; i++) this.lockBars[i]!.visible = two && i >= openLevel;
-    this.addButton.visible = two && openLevel < 10;
+    // a lock bar covers 4 cells and purchases open rows of 10: a bar half open is lifted (its locked cells stay hidden)
+    const openCells = len - INVENTORY_BASE, openBars = Math.ceil(openCells / 4);
+    for (let i = 0; i < this.lockBars.length; i++) this.lockBars[i]!.visible = two && i >= openBars;
+    this.addButton.visible = two && openCells < BAG_PAGE;
   }
 
   // — Per-frame (InventoryDialog.Process / WeightBar_BeforeDraw); called from the user's CharacterWindow.render —

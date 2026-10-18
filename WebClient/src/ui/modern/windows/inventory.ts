@@ -1,10 +1,11 @@
 // Ported from play/hudInventory.ts (InventoryMock): the new UI's bag window, wired to the real Inventory model
 // (src/game/inventory.ts) the way the classic src/ui/inventoryWindow.ts (InventoryDialog) is. Changes from the mock:
-//  - the bag is Inventory.inventory after the belt (BELT_IDX 8 on; the belt cells are the HUD's): Bag I = slots 8-47,
-//    Bag II = slots 48-87, following Inventory.inventory.length (48 base, up to 88). Bag II's missing slots show locks;
-//    a lock (or the Bag II tab before the first purchase) asks the @ADDINVENTORY price (PlayerObject's ladder:
-//    1,000,000 + ((Length - 48) / 4) x 1,000,000 gold, 8 slots the first time, then 4) and sends the chat command;
-//  - Ctrl + click a bag tab with a bag item picked: move it to the first free cell of that page (TryMoveSelectedInventoryItem);
+//  - the bag is Inventory.inventory after the belt (BELT_IDX 8 on; the belt cells are the HUD's): one 10-wide grid of
+//    slots 8.., following Inventory.inventory.length (48 base = 10 x 4, up to 88 = 10 x 8). Under the last row one locked
+//    row of 10 with an "Unlock row" button asks the @ADDINVENTORY price (PlayerObject's ladder: one row per purchase,
+//    2.5m / 5m / 10m / 20m) and sends the chat command; the grid grows down by a row and the new row plays a golden
+//    wave (each cell hops and flashes gold, left to right; off with reduced motion). The desktop keeps its two 8 x 5
+//    pages over the same slots (no Ctrl + click page move here: there is one page);
 //  - a Quest tab with the quest items (Quests.questInventory, display only: the classic quest button's grid);
 //  - cells are the shared item cells (core/itemCells.ts, grid "inv"), so pick, drag, split, right-click use, Shift +
 //    right-click chat link and Ctrl + right-click sockets are core/drag.ts's; nothing moves until the server answers;
@@ -27,8 +28,8 @@ import { BELT_IDX, SORT_COOLDOWN_MS } from "../../../game/inventory.ts";
 import { itemFriendlyName } from "../../../game/gameInfo.ts";
 import { KeybindOptions, keyLabel } from "../../../game/keybinds.ts";
 import { Lib, libPicture } from "../../mir/controls.ts";
-import { h, injectCss, setStyle, setText } from "../core/dom.ts";
-import { fmt } from "../core/format.ts";
+import { h, injectCss, later, reducedMotion, setStyle, setText } from "../core/dom.ts";
+import { fmt, fmtCompact } from "../core/format.ts";
 import { svg } from "../core/icons.ts";
 import { GOLD_IMG } from "../core/popups.ts";
 import { button, chips, searchBox, tabs, type Btn, type Choice } from "../core/widgets.ts";
@@ -37,13 +38,21 @@ import type { ItemCell } from "../core/itemCells.ts";
 import type { CellRef } from "../core/dragRoutes.ts";
 import { registerWindow, type ModernUiHost } from "../windowRegistry.ts";
 
-/** Cells per bag page (InventoryDialog: 8 x 5). */
-const BAG_PAGE = 40;
-/** UserObject.Inventory.Length before any @ADDINVENTORY (the belt + Bag I = CharacterInfo.Inventory since phase 2.9). */
-const INVENTORY_BASE = BELT_IDX + BAG_PAGE;
+/** Bag columns: one @ADDINVENTORY purchase opens one row (CharacterInfo.ResizeInventory). */
+const BAG_COLS = 10;
+/** Bag cells at the cap (10 x 8). */
+const BAG_MAX = 80;
+/** UserObject.Inventory.Length before any @ADDINVENTORY (the belt + a 10 x 4 bag = CharacterInfo.Inventory since phase 2.9). */
+const INVENTORY_BASE = BELT_IDX + 40;
 /** The largest bag (CharacterInfo.ResizeInventory cap). */
-const INVENTORY_MAX = INVENTORY_BASE + BAG_PAGE;
-const QUEST_PAGE = 2;
+const INVENTORY_MAX = BELT_IDX + BAG_MAX;
+/** Quest item cells (CharacterInfo.QuestInventory). */
+const QUEST_CELLS = 40;
+const QUEST_PAGE = 1;
+/** Cell size, gap and grid padding (px): the unlock button and the wave overlays are placed from these. */
+const CELL = 40, GAP = 4, PAD_X = 14, PAD_TOP = 10;
+/** The unlock wave: delay between neighbouring cells and one cell's run (ms; the CSS animations last WAVE_MS). */
+const WAVE_STEP = 70, WAVE_MS = 1500;
 const BIN = "x:invBin" as const;
 
 /** Client-side categories for the chips (by ItemType; anything else is "Other"). */
@@ -64,19 +73,41 @@ const CATS: readonly Choice<Cat>[] = [
 ];
 
 const CSS = `
-.hudm .iwin { width: 408px; }
+.hudm .iwin { width: 464px; }
 .hudm .iwin .itabs { margin: 6px 14px 0; }
 .hudm .iwin .itool { display: flex; align-items: center; gap: 6px; padding: 8px 14px 0; flex-wrap: wrap; }
 .hudm .iwin .itool .ui-search { flex: 1 1 130px; min-width: 110px; }
-.hudm .iwin .grid { display: grid; grid-template-columns: repeat(8, 44px); gap: 4px; padding: 10px 14px 10px; }
+.hudm .iwin .grid { position: relative; display: grid; grid-template-columns: repeat(10, 40px); gap: 4px; padding: 10px 14px 10px; }
 .hudm .iwin .grid .icell.nomatch { opacity: .22; }
 .hudm .iwin .grid .icell.match { border-color: var(--ac); }
-.hudm .iwin .lk { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; cursor: pointer; pointer-events: auto;
+.hudm .iwin .lk { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; pointer-events: auto;
   border-radius: var(--rad); border: 1px dashed var(--fr); background: color-mix(in srgb, var(--pb) 60%, #000); color: var(--dim); }
 .hudm .iwin .lk svg { width: 14px; height: 14px; opacity: .55; }
-.hudm .iwin .lk.next { border-color: color-mix(in srgb, var(--gold) 55%, var(--fr)); color: var(--gold); }
-.hudm .iwin .lk.next svg { opacity: .9; }
 .hudm .iwin .lk:hover { border-color: var(--ac); color: #fff; }
+.hudm .iwin .unlock { position: absolute; transform: translate(-50%, -50%); padding: 5px 12px; white-space: nowrap; cursor: pointer; pointer-events: auto;
+  border-radius: calc(var(--rad) * .8); border: 1px solid color-mix(in srgb, var(--gold) 70%, var(--fr)); color: var(--gold);
+  background: color-mix(in srgb, var(--pb) 88%, #000); box-shadow: 0 1px 6px #000c; font: inherit; font-size: 12px; font-weight: 600; }
+/* The unlock wave (transform / opacity only, Performance.md "Glow via opacity"): the new cell hops (.wave) while an
+   overlay on top of it (.wv) flashes a fixed gold halo, sweeps a shine across and throws two sparkles. --wd = stagger. */
+.hudm .iwin .icell.wave { animation: inv-hop .8s cubic-bezier(.3, 1.5, .5, 1) var(--wd) both; }
+.hudm .iwin .wv { position: absolute; width: 40px; height: 40px; z-index: 2; pointer-events: none; border-radius: var(--rad);
+  animation: inv-hop .8s cubic-bezier(.3, 1.5, .5, 1) var(--wd) both; }
+.hudm .iwin .wv::before { content: ""; position: absolute; inset: -1px; border-radius: inherit; opacity: 0;
+  box-shadow: 0 0 14px 3px color-mix(in srgb, var(--gold) 75%, transparent), inset 0 0 0 2px var(--gold), inset 0 0 12px color-mix(in srgb, var(--gold) 60%, transparent);
+  animation: inv-glow 1.5s ease-out var(--wd) both; }
+.hudm .iwin .wv > i { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; }
+.hudm .iwin .wv > i::after { content: ""; position: absolute; top: -20%; bottom: -20%; left: -60%; width: 50%; transform: translateX(-100%) skewX(-20deg);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--gold) 55%, #fff) 50%, transparent); opacity: .9;
+  animation: inv-shine .7s ease-in-out calc(var(--wd) + .1s) both; }
+.hudm .iwin .wv > b { position: absolute; left: var(--sx); top: 30%; width: 5px; height: 5px; opacity: 0; transform: rotate(45deg);
+  background: #fff6c8; box-shadow: 0 0 6px 2px var(--gold); animation: inv-spark 1s ease-out calc(var(--wd) + .15s) both; }
+.hudm .iwin .wv > b + b { top: 55%; animation-delay: calc(var(--wd) + .3s); }
+@keyframes inv-hop { 0% { transform: none; } 30% { transform: translateY(-8px) scale(1.12); } 60% { transform: translateY(1px) scale(.97); } 100% { transform: none; } }
+@keyframes inv-glow { 0% { opacity: 0; } 15% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes inv-shine { to { transform: translateX(460%) skewX(-20deg); } }
+@keyframes inv-spark { 0% { opacity: 0; transform: translate(0, 0) rotate(45deg) scale(.4); } 25% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--dx), -26px) rotate(225deg) scale(1); } }
+.hudm .iwin .unlock:hover { border-color: var(--gold); color: #fff; box-shadow: 0 0 calc(8px * var(--gl)) color-mix(in srgb, var(--gold) 45%, transparent); }
 .hudm .iwin .qnote { padding: 0 14px 6px; font-size: 11px; color: var(--dim); }
 .hudm .iwin .foot { display: flex; flex-direction: column; gap: 9px; padding: 2px 14px 12px; }
 .hudm .iwin .wt { display: flex; align-items: center; gap: 8px; font-size: 11px; }
@@ -115,6 +146,7 @@ export class InventoryWindow extends UiWindow {
   private readonly qnote = h("div", "qnote", "Quest items are kept apart from your bag and go when their quest is done.");
   private readonly cells: ItemCell[] = [];
   private readonly locks: HTMLElement[] = [];
+  private readonly unlockBtn = h("button", "unlock");
   private readonly qcells: QuestCell[] = [];
   private readonly wt = h("div", "wt");
   private readonly fill = h("i");
@@ -132,6 +164,11 @@ export class InventoryWindow extends UiWindow {
   private sortWhy = "-";
   private dead = false;
   private wtKey = "";
+  /** The bag length at the last render: a growth since then (an unlock) plays the wave on the new cells. */
+  private lastLen = -1;
+  /** The playing wave's overlays (cleared when it ends or another starts). */
+  private waveEls: HTMLElement[] = [];
+  private waveEnd: (() => void) | null = null;
 
   constructor(ui: ModernUiHost) {
     super(ui.rt, "iwin", null, 70); // opens 40 px from the right edge of the screen
@@ -139,27 +176,16 @@ export class InventoryWindow extends UiWindow {
     injectCss("win-inventory", CSS);
     const m = ui.ctx.models, inv = m.inventory, sig = this.signal;
 
-    this.tabBar = tabs(["Bag I", "Bag II", "Quest"], 0, (i) => this.selectPage(i));
+    this.tabBar = tabs(["Bag", "Quest"], 0, (i) => this.selectPage(i));
     this.tabBar.el.classList.add("itabs");
-    // Ctrl + click a bag tab with a bag item picked: move it to that page (InventoryDialog.TryMoveSelectedInventoryItem).
-    this.listen(this.tabBar.el, "click", (e) => {
-      if (!e.ctrlKey) return;
-      const b = (e.target as Element).closest("button");
-      const i = b ? Array.prototype.indexOf.call(this.tabBar.el.children, b) : -1;
-      const pick = m.itemPick.cell;
-      if (i < 0 || i >= QUEST_PAGE || !pick || pick.grid !== "inv") return;
-      e.stopPropagation();
-      e.preventDefault();
-      this.moveToBag(i === 1, pick.index);
-    }, { capture: true });
 
     const search = searchBox("Search the bag", (q) => { this.query = q.toLowerCase(); this.invalidate(); }, { signal: sig });
     const chipRow = chips(CATS, [], (sel) => { this.cats = sel; this.invalidate(); }, { multi: true, allowNone: true });
     chipRow.el.title = "Highlight items by kind (none selected = all)";
 
-    // The 40 cells of one page, re-pointed on a page change (setRef), and a lock tile behind each for Bag II.
-    for (let p = 0; p < BAG_PAGE; p++) {
-      const c = ui.cells.cell("inv", BELT_IDX + p, { size: 44, signal: sig });
+    // A cell per bag slot up to the cap (shown while the slot exists) and a lock tile behind each (shown for the next row).
+    for (let p = 0; p < BAG_MAX; p++) {
+      const c = ui.cells.cell("inv", BELT_IDX + p, { size: CELL, signal: sig });
       const lk = h("div", "lk", svg("lock", "ic"));
       lk.hidden = true;
       lk.setAttribute("role", "button");
@@ -168,11 +194,15 @@ export class InventoryWindow extends UiWindow {
       this.locks.push(lk);
       this.grid.append(c.el, lk);
     }
-    for (let p = 0; p < BAG_PAGE; p++) {
+    this.unlockBtn.type = "button";
+    this.unlockBtn.hidden = true;
+    this.unlockBtn.addEventListener("click", () => this.askUnlock(), { signal: sig });
+    this.grid.append(this.unlockBtn);
+    for (let p = 0; p < QUEST_CELLS; p++) {
       const icon = h("i"), count = h("b");
       count.hidden = true;
       const el = h("div", "icell ro", icon, count);
-      el.style.setProperty("--cs", "44px");
+      el.style.setProperty("--cs", `${CELL}px`);
       this.qcells.push({ el, icon, count, img: -2, item: null });
       this.qgrid.append(el);
     }
@@ -240,51 +270,49 @@ export class InventoryWindow extends UiWindow {
 
   protected render(): void {
     const m = this.ui.ctx.models, inv = m.inventory, list = inv.inventory, len = list.length;
-    if (this.page === 1 && len <= INVENTORY_BASE) this.page = 0;
     this.tabBar.select(this.page);
-    const bag2 = this.tabBar.el.children[1] as HTMLElement | undefined;
-    if (bag2) bag2.title = len <= INVENTORY_BASE ? "Locked: click to buy 8 more cells" : "";
     const quest = this.page === QUEST_PAGE;
     this.grid.hidden = quest;
     this.qgrid.hidden = !quest;
     this.qnote.hidden = !quest;
 
-    // Bag page: cells for the slots that exist, lock tiles for the rest of Bag II.
+    // Bag: cells for the slots that exist, lock tiles for the next row (the one @ADDINVENTORY opens), nothing below it.
     const filtering = this.query !== "" || this.cats.size > 0;
-    const base = BELT_IDX + (this.page === 1 ? BAG_PAGE : 0);
-    const step = len <= INVENTORY_BASE ? 8 : 4;
-    const per = [0, 0];
-    if (!quest) {
-      for (let p = 0; p < BAG_PAGE; p++) {
-        const slot = base + p, c = this.cells[p]!, lk = this.locks[p]!;
-        const exists = slot < len;
-        c.setRef({ grid: "inv", index: exists ? slot : BELT_IDX + p });
-        c.el.hidden = !exists;
-        lk.hidden = exists;
-        if (!exists) {
-          const next = slot - len < step && len < INVENTORY_MAX;
-          lk.classList.toggle("next", next);
-          lk.title = next ? `Unlock ${step} more cells for ${fmt(this.unlockPrice(len))} gold` : "Locked: unlock the cells before it first";
-        }
-        const item = exists ? list[slot] ?? null : null;
-        const hit = filtering && !!item && this.matches(m.itemInfos.get(item.ItemIndex));
-        c.el.classList.toggle("match", hit);
-        c.el.classList.toggle("nomatch", filtering && !!item && !hit);
-      }
+    const next = nextLength(len), price = unlockPrice(len);
+    let bagHits = 0;
+    for (let p = 0; p < BAG_MAX; p++) {
+      const slot = BELT_IDX + p, c = this.cells[p]!, lk = this.locks[p]!;
+      const exists = slot < len;
+      c.el.hidden = !exists;
+      lk.hidden = exists || slot >= next;
+      if (!lk.hidden) lk.title = `Unlock this row for ${fmt(price)} gold`;
+      const item = exists ? list[slot] ?? null : null;
+      const hit = filtering && !!item && this.matches(m.itemInfos.get(item.ItemIndex));
+      if (hit) bagHits++;
+      c.el.classList.toggle("match", hit);
+      c.el.classList.toggle("nomatch", filtering && !!item && !hit);
     }
-    if (filtering) {
-      for (let s = BELT_IDX; s < len; s++) {
-        const item = list[s];
-        if (item && this.matches(m.itemInfos.get(item.ItemIndex))) per[s < INVENTORY_BASE ? 0 : 1]!++;
-      }
+    this.tabBar.badge(0, filtering && quest ? bagHits : 0);
+    // An unlock since the last render (not the first fill after login): the wave on the new cells.
+    if (this.lastLen >= INVENTORY_BASE && len > this.lastLen && !quest) this.wave(this.lastLen, len);
+    if (!quest) this.lastLen = len;
+
+    // The unlock button sits on the middle of the locked cells (a whole row unless an older bag ends mid-row).
+    const canBuy = !quest && len < INVENTORY_MAX;
+    this.unlockBtn.hidden = !canBuy;
+    if (canBuy) {
+      const bag = Math.max(0, len - BELT_IDX), row = Math.trunc(bag / BAG_COLS), col = bag % BAG_COLS;
+      const span = Math.max(1, next - BELT_IDX - bag);
+      setStyle(this.unlockBtn, "left", `${PAD_X + col * (CELL + GAP) + (span * (CELL + GAP) - GAP) / 2}px`);
+      setStyle(this.unlockBtn, "top", `${PAD_TOP + row * (CELL + GAP) + CELL / 2}px`);
+      setText(this.unlockBtn, span >= 5 ? `Unlock row for ${fmtCompact(price)}` : fmtCompact(price));
+      this.unlockBtn.title = `Unlock ${span} more bag cells for ${fmt(price)} gold`;
     }
-    this.tabBar.badge(0, filtering && this.page !== 0 ? per[0]! : 0);
-    this.tabBar.badge(1, filtering && this.page !== 1 ? per[1]! : 0);
 
     // Quest page (display only).
     let questHits = 0;
     const qi = m.quests.questInventory;
-    for (let p = 0; p < BAG_PAGE; p++) {
+    for (let p = 0; p < QUEST_CELLS; p++) {
       const q = this.qcells[p]!, item = qi[p] ?? null, info = item ? m.itemInfos.get(item.ItemIndex) : undefined;
       const hit = filtering && !!item && this.matches(info);
       if (hit) questHits++;
@@ -306,7 +334,7 @@ export class InventoryWindow extends UiWindow {
     }
     this.tabBar.badge(QUEST_PAGE, filtering && !quest ? questHits : 0);
 
-    // Free cells (both pages), gold, credit, the Sort / Stack state.
+    // Free cells, gold, credit, the Sort / Stack state.
     let free = 0;
     for (let s = BELT_IDX; s < len; s++) if (!list[s]) free++;
     setText(this.freeText, `${free} / ${Math.max(0, len - BELT_IDX)}`);
@@ -319,54 +347,50 @@ export class InventoryWindow extends UiWindow {
   // — Pages —
 
   private selectPage(i: number): void {
-    const len = this.ui.ctx.models.inventory.inventory.length;
-    if (i === 1 && len <= INVENTORY_BASE) {
-      this.tabBar.select(this.page); // stays where it was: Bag II has to be bought first
-      this.askUnlock();
-      return;
-    }
     if (this.page === i) return;
     this.page = i;
     this.ui.tooltip.hide();
     this.invalidate();
   }
 
-  /** InventoryDialog.TryMoveSelectedInventoryItem: the picked bag item to the first free cell of a page. */
-  private moveToBag(second: boolean, from: number): void {
-    const m = this.ui.ctx.models, inv = m.inventory, list = inv.inventory, len = list.length;
-    const item = list[from];
-    if (!item || inv.isLocked(item)) return;
-    if (second && (len <= INVENTORY_BASE || from >= INVENTORY_BASE)) return;
-    if (!second && from >= BELT_IDX && from < INVENTORY_BASE) return;
-    const start = second ? INVENTORY_BASE : BELT_IDX, end = second ? len : Math.min(len, INVENTORY_BASE);
-    let to = -1;
-    for (let i = start; i < end; i++) if (!list[i]) { to = i; break; }
-    if (to < 0) { this.ui.drag.toast("No free cell there"); return; }
-    m.itemPick.clear();
-    const id = item.UniqueID;
-    this.ui.drag.request(() => {
-      const now = inv.inventory[from];
-      if (now && now.UniqueID === id && !inv.inventory[to]) inv.move(from, to);
-    }, [{ grid: "inv", index: from }, { grid: "inv", index: to }]);
-  }
-
   // — @ADDINVENTORY —
-
-  /** PlayerObject "ADDINVENTORY": 1,000,000 + ((Length - 48) / 4) x 1,000,000 gold. */
-  private unlockPrice(len: number): number {
-    return 1000000 + Math.trunc((len - INVENTORY_BASE) / 4) * 1000000;
-  }
 
   private askUnlock(): void {
     const len = this.ui.ctx.models.inventory.inventory.length;
     if (len >= INVENTORY_MAX) return;
-    const first = len <= INVENTORY_BASE, price = this.unlockPrice(len);
-    const text = first
-      ? `Buy 8 more bag cells for ${fmt(price)} gold? After this, each purchase unlocks 4 more cells, up to 40.`
-      : `Unlock 4 more bag cells for ${fmt(price)} gold?`;
-    void this.ui.rt.popups.ask(text, { title: first ? "Bag II" : "More bag cells", kind: "question", gold: price }).then((yes) => {
+    const price = unlockPrice(len), after = nextLength(len);
+    const text = `Unlock ${after - len} more bag cells for ${fmt(price)} gold?` +
+      (after < INVENTORY_MAX ? ` The row after it costs ${fmt(unlockPrice(after))}.` : " This is the last row.");
+    void this.ui.rt.popups.ask(text, { title: "Unlock bag row", kind: "question", gold: price }).then((yes) => {
       if (yes && !this.signal.aborted) this.ui.ctx.send(ClientPackets.Chat({ Message: "@ADDINVENTORY" }));
     });
+  }
+
+  /** The golden wave over the cells [from, to): each hops and flashes in turn, left to right. */
+  private wave(from: number, to: number): void {
+    this.clearWave();
+    if (reducedMotion()) return;
+    for (let slot = from; slot < to; slot++) {
+      const p = slot - BELT_IDX, c = this.cells[p];
+      if (!c) continue;
+      const col = p % BAG_COLS, row = Math.trunc(p / BAG_COLS), wd = `${(slot - from) * WAVE_STEP}ms`;
+      c.el.style.setProperty("--wd", wd);
+      c.el.classList.add("wave");
+      const sx = 8 + ((col * 7) % 22), dx = (col % 2 ? 1 : -1) * (4 + (col % 3) * 3);
+      const ov = h("div", "wv", h("i"), h("b"), h("b"));
+      ov.style.cssText = `left:${PAD_X + col * (CELL + GAP)}px;top:${PAD_TOP + row * (CELL + GAP)}px;--wd:${wd};--sx:${sx}px;--dx:${dx}px`;
+      this.grid.append(ov);
+      this.waveEls.push(ov);
+    }
+    this.waveEnd = later(() => this.clearWave(), (to - from) * WAVE_STEP + WAVE_MS, this.signal);
+  }
+
+  private clearWave(): void {
+    this.waveEnd?.();
+    this.waveEnd = null;
+    for (const ov of this.waveEls) ov.remove();
+    this.waveEls = [];
+    for (const c of this.cells) if (c.el.classList.contains("wave")) { c.el.classList.remove("wave"); c.el.style.removeProperty("--wd"); }
   }
 
   // — Sort / Stack —
@@ -463,6 +487,16 @@ export class InventoryWindow extends UiWindow {
     const el = t instanceof Element ? t.closest(".icell") : null;
     return el ? this.qcells.find((q) => q.el === el) : undefined;
   }
+}
+
+/** CharacterInfo.ResizeInventory: the length after the next purchase (the end of the next row of 10, capped). */
+function nextLength(len: number): number {
+  return Math.min(BELT_IDX + (Math.trunc(Math.max(0, len - BELT_IDX) / BAG_COLS) + 1) * BAG_COLS, INVENTORY_MAX);
+}
+
+/** PlayerObject "ADDINVENTORY": 2.5m, 5m, 10m, 20m for the 1st to 4th row (row = (Length - 48) / 10, 0..3). */
+function unlockPrice(len: number): number {
+  return 2500000 * 2 ** Math.min(3, Math.max(0, Math.trunc((len - INVENTORY_BASE) / BAG_COLS)));
 }
 
 registerWindow("inventory", (host) => new InventoryWindow(host));

@@ -623,16 +623,10 @@ namespace Server.MirDatabase
         {
             if (Inventory.Length >= 88) return Inventory.Length;
 
-            if (Inventory.Length == 48)
-            {
-                Array.Resize(ref Inventory, Inventory.Length + 8);
-            }
-            else
-            {
-                //Clamp: a leftover pre-phase-2.9 character (46 cells, wipe skipped or archive restored) steps 46..86 and must
-                //stop at 88, not 90, or the desktop's 80-cell bag grid (Inventory[8..87]) is indexed out of range.
-                Array.Resize(ref Inventory, Math.Min(Inventory.Length + 4, 88));
-            }
+            //The bag (Inventory[8..87]) is the web client's 10 x 8 grid: each purchase opens one row of 10 (48 -> 58 -> 68 -> 78 -> 88).
+            //An off-row length (an older 46-cell or +4-step character) rounds up to the end of its row, capped at 88 so the
+            //desktop's 80-cell bag grid is never indexed out of range.
+            Array.Resize(ref Inventory, Math.Min(8 + ((Inventory.Length - 8) / 10 + 1) * 10, 88));
 
             return Inventory.Length;
         }

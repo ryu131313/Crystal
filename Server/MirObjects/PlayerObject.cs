@@ -4599,8 +4599,12 @@ namespace Server.MirObjects
                         break;
                     case "ADDINVENTORY":
                         {
-                            int openLevel = (int)((Info.Inventory.Length - 48) / 4);
-                            uint openGold = (uint)(1000000 + openLevel * 1000000);
+                            //A full bag (88) buys nothing: no charge.
+                            if (Info.Inventory.Length >= 88) break;
+
+                            //One row of 10 per purchase: 2.5m, 5m, 10m, 20m for the 1st to 4th row (row = (Length - 48) / 10, 0..3).
+                            int openLevel = Math.Clamp((Info.Inventory.Length - 48) / 10, 0, 3);
+                            uint openGold = 2500000u << openLevel;
                             if (Account.Gold >= openGold)
                             {
                                 Account.Gold -= openGold;
