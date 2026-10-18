@@ -17,6 +17,19 @@ namespace Client.MirScenes
     /// </summary>
     public sealed partial class GameScene
     {
+        /// <summary>Was GameScene.NPCRequestInput (moved verbatim).</summary>
+        internal void ClassicNpcRequestInput(S.NPCRequestInput p)
+        {
+            MirInputBox inputBox = new MirInputBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PleaseEnterRequiredInformation));
+
+            inputBox.OKButton.Click += (o1, e1) =>
+            {
+                Network.Enqueue(new C.NPCConfirmInput { Value = inputBox.InputTextBox.Text, NPCID = p.NPCID, PageName = p.PageName });
+                inputBox.Dispose();
+            };
+            inputBox.Show();
+        }
+
         internal void ClassicBuffAdded(bool hero, ClientBuff buff)
         {
             (hero ? HeroBuffsDialog : BuffsDialog).CreateBuff(buff);

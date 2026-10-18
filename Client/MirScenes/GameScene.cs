@@ -1260,6 +1260,22 @@ namespace Client.MirScenes
                         Models.Inspect.ProfileChanged.Emit();
                     }
                     break;
+                case (short)ServerPacketIds.MarketPriceHistory:
+                    {
+                        var history = (S.MarketPriceHistory)p; // the modern trust merchant's price history (phase 3)
+                        Models.Market.PriceHistory[history.ItemIndex] = history.Sales ?? new List<ClientMarketSale>();
+                        Models.Market.PriceHistoryChanged.Emit(history.ItemIndex);
+                    }
+                    break;
+                case (short)ServerPacketIds.SentMail:
+                    {
+                        var sent = (S.SentMail)p; // the modern mail window's sent tab (phase 3)
+                        Models.Mail.Sent.Clear();
+                        if (sent.Mails != null) Models.Mail.Sent.AddRange(sent.Mails);
+                        Models.Mail.SentKnown = true;
+                        Models.Mail.SentChanged.Emit();
+                    }
+                    break;
                 case (short)ServerPacketIds.HeroAutoCast:
                     Models.HeroAutoCast.Set(((S.HeroAutoCast)p).Disabled); // the modern skills window's hero auto-cast switches
                     break;
@@ -3750,14 +3766,7 @@ namespace Client.MirScenes
         }
         private void NPCRequestInput(S.NPCRequestInput p)
         {
-            MirInputBox inputBox = new MirInputBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PleaseEnterRequiredInformation));
-
-            inputBox.OKButton.Click += (o1, e1) =>
-            {
-                Network.Enqueue(new C.NPCConfirmInput { Value = inputBox.InputTextBox.Text, NPCID = p.NPCID, PageName = p.PageName });
-                inputBox.Dispose();
-            };
-            inputBox.Show();
+            Ui.NpcRequestInput(p);
         }
 
         private void NPCSRepair(S.NPCSRepair p)
@@ -5130,48 +5139,49 @@ namespace Client.MirScenes
         private void MarketFail(S.MarketFail p)
         {
             Models.Market.MarketTime = 0;
+            string text = null;
             switch (p.Reason)
             {
                 case 0:
-                    MirMessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.YouCannotUseTrustMerchantWhenDead));
+                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.YouCannotUseTrustMerchantWhenDead);
                     break;
                 case 1:
-                    MirMessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.YouCannotBuyFromTrustMerchantWithoutUsing));
+                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.YouCannotBuyFromTrustMerchantWithoutUsing);
                     break;
                 case 2:
-                    MirMessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemHasBeenSold));
+                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemHasBeenSold);
                     break;
                 case 3:
-                    MirMessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemExpiredCannotBeBought));
+                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemExpiredCannotBeBought);
                     break;
                 case 4:
-                    MirMessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.LowGold));
+                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.LowGold);
                     break;
                 case 5:
-                    MirMessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.NotEnoughWeightOrSpaceToBuyItem));
+                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.NotEnoughWeightOrSpaceToBuyItem);
                     break;
                 case 6:
-                    MirMessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CannotBuyOwnItems));
+                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CannotBuyOwnItems);
                     break;
                 case 7:
-                    MirMessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.TooFarFromTrustMerchant));
+                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.TooFarFromTrustMerchant);
                     break;
                 case 8:
-                    MirMessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CannotHoldGoldForSale));
+                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CannotHoldGoldForSale);
                     break;
                 case 9:
-                    MirMessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemNotMetMinimumBid));
+                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemNotMetMinimumBid);
                     break;
                 case 10:
-                    MirMessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AuctionAlreadyEndedForItem));
+                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AuctionAlreadyEndedForItem);
                     break;
             }
-
+            if (text != null) Ui.MarketMessage(text, true);
         }
         private void MarketSuccess(S.MarketSuccess p)
         {
             Models.Market.MarketTime = 0;
-            MirMessageBox.Show(p.Message);
+            Ui.MarketMessage(p.Message, false);
         }
         private void ObjectSitDown(S.ObjectSitDown p)
         {
@@ -5831,7 +5841,7 @@ namespace Client.MirScenes
                 }
             }
 
-            Ui.ItemMailSent();
+            Ui.ItemMailSent(p.Result);
         }
 
         private void ParcelCollected(S.ParcelCollected p)

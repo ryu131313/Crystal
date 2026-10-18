@@ -47,6 +47,10 @@ namespace Client.RenderTest
         static partial void AddHudSteps(List<Step> steps);
         static partial void AddChatSteps(List<Step> steps);
         static partial void AddWindowSteps(List<Step> steps);
+        // Phase 3: UiTestRunner.Npc.cs / .Upgrade.cs / .Economy.cs.
+        static partial void AddNpcSteps(List<Step> steps);
+        static partial void AddUpgradeSteps(List<Step> steps);
+        static partial void AddEconomySteps(List<Step> steps);
         static partial void DumpModern(List<string> log);
 
         public static bool ParseArg(string arg, string[] args, ref int i)
@@ -413,6 +417,9 @@ namespace Client.RenderTest
             AddHudSteps(steps);
             AddChatSteps(steps);
             AddWindowSteps(steps);
+            AddNpcSteps(steps);
+            AddUpgradeSteps(steps);
+            AddEconomySteps(steps);
             return steps;
         }
 

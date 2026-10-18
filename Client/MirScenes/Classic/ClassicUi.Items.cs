@@ -21,7 +21,7 @@
         public void ItemDuraUpdate(UserItem item) => _scene.ClassicItemDuraUpdate(item);
         public void ItemAwakeningClosing() => _scene.ClassicItemAwakeningClosing();
         public void ItemAwakeningResult(int result) => _scene.ClassicItemAwakeningResult(result);
-        public void ItemMailSent() => _scene.ClassicItemMailSent();
+        public void ItemMailSent(sbyte result) => _scene.ClassicItemMailSent(); // classic closes either way
         public void ItemRentalDeposited() => _scene.ClassicItemRentalDeposited();
     }
 }

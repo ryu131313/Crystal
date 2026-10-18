@@ -46,7 +46,7 @@
         /// <summary>S.Awakening, after the slot updates: show the result (negative = failure reason).</summary>
         void ItemAwakeningResult(int result);
         /// <summary>S.MailSent, after the inventory locks were cleared: close the parcel window.</summary>
-        void ItemMailSent();
+        void ItemMailSent(sbyte result);
         /// <summary>S.DepositRentalItem succeeded: ask for the rental period if none is set.</summary>
         void ItemRentalDeposited();
     }

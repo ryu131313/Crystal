@@ -84,7 +84,11 @@ namespace Client.MirScenes.Modern
         }
 
         /// <summary>S.NPCStorage (classic: only while the NPC dialog is open; the modern NPC window is a later phase).</summary>
-        public void NpcStorage() => Storage?.Opened();
+        public void NpcStorage()
+        {
+            if (!IsNpcDialogOpen()) return; // classic opens the storage only while the NPC dialog is up
+            Storage?.Opened();
+        }
 
         public void StorageUnlockResult(S.StorageUnlockResult p) => Storage?.UnlockResult(p);
 

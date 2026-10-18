@@ -45,6 +45,9 @@ namespace Client.MirScenes.Modern
             Root.Wm.Register(KitTestWindow.WindowKey, () => new KitTestWindow());
             RegisterChatWindows();  // ModernUi.Chat.cs
             RegisterCoreWindows();  // ModernUi.Windows.cs: inventory, character, storage, inspect, skills, options, keybinds, help
+            RegisterNpcWindows();      // ModernUi.Npc.cs (phase 3)
+            RegisterUpgradeWindows();  // ModernUi.Upgrade.cs (phase 3)
+            RegisterEconomyWindows();  // ModernUi.Economy.cs (phase 3)
         }
 
         // Area hooks, one partial file per area (phase 2): each builds its part and answers its own keybinds.
@@ -52,10 +55,16 @@ namespace Client.MirScenes.Modern
         partial void BuildChatHud();
         partial void RegisterChatWindows();
         partial void RegisterCoreWindows();
+        partial void RegisterNpcWindows();
+        partial void RegisterUpgradeWindows();
+        partial void RegisterEconomyWindows();
         /// <summary>Keybinds the area handles (true = consumed). Called by <see cref="KeyBind"/> before the shared cases.</summary>
         private partial bool HudKeyBind(KeybindOptions function);
         private partial bool ChatKeyBind(KeybindOptions function);
         private partial bool WindowKeyBind(KeybindOptions function);
+        private partial bool NpcKeyBind(KeybindOptions function);
+        private partial bool UpgradeKeyBind(KeybindOptions function);
+        private partial bool EconomyKeyBind(KeybindOptions function);
 
         /// <summary>Spaces the modern UI's bulk sends (item moves, sorts, sell junk, …) under the server's MaxPacket.</summary>
         public readonly SendPacer Pacer = new SendPacer();
@@ -80,6 +89,7 @@ namespace Client.MirScenes.Modern
         {
             Pacer.Dispose();
             Storage?.Dispose();
+            DisposeUpgrade();   // ModernUi.Upgrade.cs: refine / awaken / rental sessions
             MapData?.Dispose(); // drops its Models.MapDetails subscription (ModernEvents.Clear covers the rest)
             ModernEvents.Clear();
             Root = null; // a child of the scene: disposed with it
@@ -122,7 +132,8 @@ namespace Client.MirScenes.Modern
         public void KeyBind(KeybindOptions function)
         {
             if (Root == null || Root.IsDisposed) return;
-            if (HudKeyBind(function) || ChatKeyBind(function) || WindowKeyBind(function)) return;
+            if (HudKeyBind(function) || ChatKeyBind(function) || WindowKeyBind(function) || NpcKeyBind(function) || UpgradeKeyBind(function) ||
+                EconomyKeyBind(function)) return;
 
             switch (function)
             {
@@ -170,12 +181,6 @@ namespace Client.MirScenes.Modern
         public void UserLoaded() => ModernEvents.UserLoaded.Emit();
         public void HeroBehaviourChanged(HeroBehaviour behaviour) => ModernEvents.HeroBehaviour.Emit(behaviour);
         public void UserInformationReceived() => ModernEvents.UserInformation.Emit();
-        public bool IsNpcDialogOpen()
-        {
-            NotPorted(nameof(IsNpcDialogOpen));
-            return false;
-        }
-        public void CloseNpcDialog() => NotPorted(nameof(CloseNpcDialog));
         public void MountChanged() => ModernEvents.Mount.Emit();
         public void FishingUpdated(S.FishingUpdate p) => NotPorted(nameof(FishingUpdated));
         public void QuestAdded(ClientQuestProgress quest, bool track)
@@ -188,14 +193,6 @@ namespace Client.MirScenes.Modern
         public void LightsChanged() => ModernEvents.Lights.Emit();
         public void UserItemDuraChanged(UserItem item) => ModernEvents.Durability.Emit(item);
         public void HeroInfoChanged() => ModernEvents.HeroInfo.Emit();
-        public void NpcResponse(S.NPCResponse p) => NotPorted(nameof(NpcResponse));
-        public void NpcGoods(S.NPCGoods p) => NotPorted(nameof(NpcGoods));
-        public void NpcPearlGoods(S.NPCPearlGoods p) => NotPorted(nameof(NpcPearlGoods));
-        public void NpcDropPanel(PanelType type) => NotPorted(nameof(NpcDropPanel));
-        public void NpcRefine(bool refining) => NotPorted(nameof(NpcRefine));
-        public void NpcCollectRefine() => NotPorted(nameof(NpcCollectRefine));
-        public void CraftItemDone() => NotPorted(nameof(CraftItemDone));
-        public void ItemUpgraded(MirGridType grid, UserItem item) => NotPorted(nameof(ItemUpgraded));
         public void SkillBarsChanged() => ModernEvents.SkillBars.Emit();
         /// <summary>A group invite as a request toast (classic: a Yes / No box; Yes also opened the group window).</summary>
         public void GroupInvite(S.GroupInvite p)
@@ -207,14 +204,6 @@ namespace Client.MirScenes.Modern
                 () => MirNetwork.Network.Enqueue(new ClientPackets.GroupInvite { AcceptInvite = false }));
         }
         public void ItemInfoChanged(UserItem item) => ModernEvents.ItemInfo.Emit(item);
-        public void MarketOpening() => NotPorted(nameof(MarketOpening));
-        public void MarketListed(int pages) => NotPorted(nameof(MarketListed));
-        public bool IsMarketOpen()
-        {
-            NotPorted(nameof(IsMarketOpen));
-            return false;
-        }
-        public void MarketPageAdded() => NotPorted(nameof(MarketPageAdded));
         public void GuildNoticeChange(S.GuildNoticeChange p) => NotPorted(nameof(GuildNoticeChange));
         public void GuildMemberChange(S.GuildMemberChange p) => NotPorted(nameof(GuildMemberChange));
         public void GuildTerritoryPage(S.GuildTerritoryPage p) => NotPorted(nameof(GuildTerritoryPage));
@@ -229,32 +218,15 @@ namespace Client.MirScenes.Modern
         public void TradeGuestChanged() => NotPorted(nameof(TradeGuestChanged));
         public void TradeConfirmed() => NotPorted(nameof(TradeConfirmed));
         public void TradeCancelled(bool unlock) => NotPorted(nameof(TradeCancelled));
-        public void NpcAwakening() => NotPorted(nameof(NpcAwakening));
-        public void AwakeningNeedMaterials(S.AwakeningNeedMaterials p) => NotPorted(nameof(AwakeningNeedMaterials));
-        public void MailReceived() => NotPorted(nameof(MailReceived));
-        public void MailSendRequest() => NotPorted(nameof(MailSendRequest));
-        public void ParcelCollected(sbyte result) => NotPorted(nameof(ParcelCollected));
         public void InventoryResized() => ModernEvents.InventoryResized.Emit();
         public void StorageResized() => ModernEvents.StorageResized.Emit();
-        public void MailCost(uint cost) => NotPorted(nameof(MailCost));
         public void NewIntelligentCreature() => NotPorted(nameof(NewIntelligentCreature));
         public void IntelligentCreaturesChanged(bool listReplaced) => NotPorted(nameof(IntelligentCreaturesChanged));
         public void IntelligentCreatureEnableRename() => NotPorted(nameof(IntelligentCreatureEnableRename));
         public void FriendsChanged() => NotPorted(nameof(FriendsChanged));
         public void LoverUpdate(S.LoverUpdate p) => NotPorted(nameof(LoverUpdate));
         public void MentorUpdate(S.MentorUpdate p) => NotPorted(nameof(MentorUpdate));
-        public void GameShopNewItems() => NotPorted(nameof(GameShopNewItems));
-        public void GameShopStockChanged() => NotPorted(nameof(GameShopStockChanged));
         public void RankingsReceived(List<RankCharacterInfo> listings, S.Rankings p) => NotPorted(nameof(RankingsReceived));
-        public void RentedItems(S.GetRentedItems p) => NotPorted(nameof(RentedItems));
-        public void ItemRentalRequest(S.ItemRentalRequest p) => NotPorted(nameof(ItemRentalRequest));
-        public void ItemRentalFee(S.ItemRentalFee p) => NotPorted(nameof(ItemRentalFee));
-        public void ItemRentalPeriod(S.ItemRentalPeriod p) => NotPorted(nameof(ItemRentalPeriod));
-        public void RentalGuestItemChanged() => NotPorted(nameof(RentalGuestItemChanged));
-        public void ItemRentalReset(bool cancelled) => NotPorted(nameof(ItemRentalReset));
-        public void ItemRentalLocked() => NotPorted(nameof(ItemRentalLocked));
-        public void ItemRentalPartnerLock(S.ItemRentalPartnerLock p) => NotPorted(nameof(ItemRentalPartnerLock));
-        public void CanConfirmItemRental() => NotPorted(nameof(CanConfirmItemRental));
         public void SetTimer(S.SetTimer p) => NotPorted(nameof(SetTimer));
         public void ExpireTimer(string key) => NotPorted(nameof(ExpireTimer));
         public void SetCompass(Point location) => NotPorted(nameof(SetCompass));

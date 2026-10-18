@@ -11,6 +11,11 @@
         public readonly UserItem[] ParcelItems = new UserItem[ParcelSlots];
         public readonly ulong[] ParcelItemsIdx = new ulong[ParcelSlots];
 
+        /// <summary>S.SentMail: the user's sent mail (C.RequestSentMail asks; C.HideSentMail hides one), newest first, at most MaxRows.</summary>
+        public readonly List<ClientSentMail> Sent = new List<ClientSentMail>();
+        public bool SentKnown;
+        public readonly Emitter SentChanged = new Emitter();
+
         public readonly Emitter Changed = new Emitter();
     }
 }

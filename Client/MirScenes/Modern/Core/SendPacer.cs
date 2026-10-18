@@ -12,7 +12,7 @@ namespace Client.MirScenes.Modern.Core
     /// </summary>
     public sealed class SendPacer
     {
-        private readonly Queue<Packet> _queue = new Queue<Packet>();
+        private readonly Queue<(Packet Packet, Func<bool> StillValid)> _queue = new Queue<(Packet, Func<bool>)>();
         private readonly Action<Packet> _send;
         private readonly double _interval;
         private double _tokens;
@@ -38,8 +38,12 @@ namespace Client.MirScenes.Modern.Core
         /// <summary>Packets waiting for a token.</summary>
         public int Queued => _queue.Count;
 
-        /// <summary>Sends now when a token is free and nothing is queued, else queues the packet (sent in order by Process).</summary>
-        public void Send(Packet p)
+        /// <summary>
+        /// Sends now when a token is free and nothing is queued, else queues the packet (sent in order by Process).
+        /// <paramref name="stillValid"/> (optional) is asked again when a queued packet reaches the front: false = the packet is
+        /// dropped unsent (no token used), e.g. a merchant buy whose NPC panel closed meanwhile.
+        /// </summary>
+        public void Send(Packet p, Func<bool> stillValid = null)
         {
             if (_disposed || p == null) return;
             if (_queue.Count == 0 && Take())
@@ -47,7 +51,7 @@ namespace Client.MirScenes.Modern.Core
                 _send(p);
                 return;
             }
-            _queue.Enqueue(p);
+            _queue.Enqueue((p, stillValid));
             QueuedChanged?.Invoke(_queue.Count);
         }
 
@@ -63,13 +67,22 @@ namespace Client.MirScenes.Modern.Core
         public void Process()
         {
             if (_disposed || _queue.Count == 0) return;
-            bool sent = false;
-            while (_queue.Count > 0 && Take())
+            bool changed = false;
+            while (_queue.Count > 0)
             {
-                _send(_queue.Dequeue());
-                sent = true;
+                var next = _queue.Peek();
+                if (next.StillValid != null && !next.StillValid())
+                {
+                    _queue.Dequeue();
+                    changed = true;
+                    continue;
+                }
+                if (!Take()) break;
+                _queue.Dequeue();
+                _send(next.Packet);
+                changed = true;
             }
-            if (sent) QueuedChanged?.Invoke(_queue.Count);
+            if (changed) QueuedChanged?.Invoke(_queue.Count);
         }
 
         /// <summary>Drops every queued packet (packets already sent stay sent).</summary>

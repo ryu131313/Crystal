@@ -66,6 +66,10 @@ namespace Client.MirScenes
         void DrawOutputLines();
         /// <summary>GameScene.DrawControl, right after the scene texture and before the picked-up item: the modern windows (classic: nothing).</summary>
         void DrawOverlay();
+        /// <summary>S.MarketSuccess / S.MarketFail: the trust merchant's answer text (classic: MirMessageBox.Show); fail = S.MarketFail.</summary>
+        void MarketMessage(string text, bool fail);
+        /// <summary>S.NPCRequestInput: the NPC page asks for a value; answer with C.NPCConfirmInput (classic: a MirInputBox).</summary>
+        void NpcRequestInput(S.NPCRequestInput p);
         /// <summary>GameScene.HasHero changed (classic: the hero summon button).</summary>
         void HasHeroChanged(bool value);
         /// <summary>GameScene.KeyDown, first: true when a window takes the key itself (classic: the keybind dialog waiting for a new binding); GameScene then stops.</summary>
