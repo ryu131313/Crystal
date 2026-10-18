@@ -91,6 +91,8 @@ namespace Client
         public static bool UiAutoScale = true;
         public static float UiOpacity = 1F;
         public static bool UiPlates = true;
+        /// <summary>The six stat plate picks ("AC,MAC,DC,Bag,Weight,Gold"; empty = defaults; HudPlateStore parses).</summary>
+        public static string UiPlateStats = "";
         public static string UiWindows = "";
         public static int Resolution = 1024;
         public static bool DebugMode = false;
@@ -261,6 +263,7 @@ namespace Client
             UiOpacity = Reader.ReadSingle("Interface", "UiOpacity", UiOpacity);
             UiOpacity = float.IsFinite(UiOpacity) ? Math.Clamp(UiOpacity, 0.3F, 1F) : 1F;
             UiPlates = Reader.ReadBoolean("Interface", "UiPlates", UiPlates);
+            UiPlateStats = Reader.ReadString("Interface", "UiPlateStats", UiPlateStats);
             UiWindows = Reader.ReadString("Interface", "UiWindows", UiWindows);
 
             //Network
@@ -401,6 +404,7 @@ namespace Client
             Reader.Write("Interface", "UiAutoScale", UiAutoScale);
             Reader.Write("Interface", "UiOpacity", UiOpacity);
             Reader.Write("Interface", "UiPlates", UiPlates);
+            Reader.Write("Interface", "UiPlateStats", UiPlateStats);
             Reader.Write("Interface", "UiWindows", UiWindows);
             Reader.Write("Logs", "LogErrors", LogErrors); // roadmap C1: [Logs] was load-only
             Reader.Write("Logs", "LogChat", LogChat);

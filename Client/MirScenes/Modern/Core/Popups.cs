@@ -406,6 +406,7 @@ namespace Client.MirScenes.Modern.Core
                 ModernLog.Once("[ModernUi] popup key", ex);
             }
             e.Handled = true;
+            e.SuppressKeyPress = true; // no KeyPress afterwards (Enter would open the chat input once the popup is gone)
             return true;
         }
 

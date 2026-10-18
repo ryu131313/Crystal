@@ -185,7 +185,8 @@ namespace Client.MirScenes.Modern.Core
             using (var bp = new GraphicsPath())
             {
                 bp.AddEllipse(cell.X - cell.Width * 0.25f, cell.Y - cell.Height * 0.4f, cell.Width * 1.5f, cell.Height * 1.5f);
-                using var brush = new PathGradientBrush(bp) { CenterColor = ModernTheme.PanelC, SurroundColors = new[] { ModernTheme.PanelB } };
+                // opaque: a translucent fill inside a surface lets the world show through (see ModernSkin.Dim)
+                using var brush = new PathGradientBrush(bp) { CenterColor = ModernSkin.Opaque(ModernTheme.PanelC), SurroundColors = new[] { ModernSkin.Opaque(ModernTheme.PanelB) } };
                 brush.CenterPoint = new PointF(cell.X + cell.Width / 2f, cell.Y + cell.Height * 0.35f);
                 g.FillPath(brush, p);
             }

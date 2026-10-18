@@ -53,8 +53,20 @@ foreach ($p in $build, $run, $out) {
 if (-not $NoBuild) {
     $csproj = Join-Path $Source 'Client.csproj'
     if (-not (Test-Path $csproj)) { throw "No Client.csproj in $Source" }
-    & dotnet build $csproj -o $build -v q -nologo
-    if ($LASTEXITCODE -ne 0) { throw 'Client build failed' }
+    # Builds of one Client.csproj share its obj\ folder: one build at a time across parallel runs (a lock directory).
+    New-Item -ItemType Directory -Force $base | Out-Null
+    $lock = Join-Path $base 'build.lock'
+    $waited = 0
+    while ($true) {
+        try { New-Item -ItemType Directory $lock -ErrorAction Stop | Out-Null; break }
+        catch { Start-Sleep -Seconds 3; $waited += 3; if ($waited -ge 900) { throw "build lock $lock held for 15 min; remove it if stale" } }
+    }
+    try {
+        & dotnet build $csproj -o $build -v q -nologo
+        if ($LASTEXITCODE -ne 0) { throw 'Client build failed' }
+    } finally {
+        Remove-Item $lock -Force -ErrorAction SilentlyContinue
+    }
 }
 if (-not (Test-Path (Join-Path $build 'Client.exe'))) { throw "No Client.exe in $build" }
 

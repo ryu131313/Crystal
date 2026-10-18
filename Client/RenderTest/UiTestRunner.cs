@@ -43,6 +43,10 @@ namespace Client.RenderTest
 
         /// <summary>Steps that need the modern kit (UiTestRunner.Modern.cs; absent in older builds, so this compiles away there).</summary>
         static partial void AddModernSteps(List<Step> steps);
+        // Phase 2: one file per area (UiTestRunner.Hud.cs / .Chat.cs / .Windows.cs), run after the kit steps in this order.
+        static partial void AddHudSteps(List<Step> steps);
+        static partial void AddChatSteps(List<Step> steps);
+        static partial void AddWindowSteps(List<Step> steps);
         static partial void DumpModern(List<string> log);
 
         public static bool ParseArg(string arg, string[] args, ref int i)
@@ -406,6 +410,9 @@ namespace Client.RenderTest
                 new Step { Name = "relog_inventory", Act = () => PressBind(KeybindOptions.Inventory), ClassicOnly = true },
             };
             AddModernSteps(steps);
+            AddHudSteps(steps);
+            AddChatSteps(steps);
+            AddWindowSteps(steps);
             return steps;
         }
 

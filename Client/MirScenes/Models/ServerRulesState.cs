@@ -19,6 +19,25 @@
     }
 
     /// <summary>
+    /// The hero's spells with auto-cast off (S.HeroAutoCast: the full list, sent on hero load and after C.HeroSpellToggle).
+    /// </summary>
+    public sealed class HeroAutoCastState
+    {
+        public readonly HashSet<Spell> Disabled = new HashSet<Spell>();
+        public readonly Emitter Changed = new Emitter();
+
+        public bool AutoCast(Spell spell) => !Disabled.Contains(spell);
+
+        public void Set(List<Spell> disabled)
+        {
+            Disabled.Clear();
+            if (disabled != null)
+                for (int i = 0; i < disabled.Count; i++) Disabled.Add(disabled[i]);
+            Changed.Emit();
+        }
+    }
+
+    /// <summary>
     /// The user's own social allow toggles (S.AllowToggles: a bit per AllowToggle — group, trade, observe, guild invite, group
     /// recall, marriage, lover recall, mentor, friend requests). Changed with C.SetAllowToggle; the server always echoes.
     /// </summary>

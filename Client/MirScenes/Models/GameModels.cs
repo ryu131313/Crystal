@@ -25,5 +25,7 @@
         public readonly FriendList Friends = new FriendList();
         public readonly ServerRulesState ServerRules = new ServerRulesState();
         public readonly AllowTogglesState AllowToggles = new AllowTogglesState();
+        public readonly MapDetailsState MapDetails = new MapDetailsState();
+        public readonly HeroAutoCastState HeroAutoCast = new HeroAutoCastState();
     }
 }

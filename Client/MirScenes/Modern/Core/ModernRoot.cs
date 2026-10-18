@@ -13,7 +13,7 @@ namespace Client.MirScenes.Modern.Core
     /// so text and shapes are rasterised at their final size (sharp at any scale), and hit-testing, MirTextBox caret placement
     /// and CMain.MPoint stay in plain device pixels. Changing the scale rebuilds the open windows (WindowManager.Rescale).
     /// </para>
-    /// Layers in z order (core/layers.ts): windows, tips, menu, popups, drag — each a child container in that order.
+    /// Layers in z order (core/layers.ts): hud, windows, tips, menu, popups, drag — each a child container in that order.
     /// </summary>
     public sealed class ModernRoot : MirControl
     {
@@ -28,6 +28,8 @@ namespace Client.MirScenes.Modern.Core
         /// <summary>The live root of the current game, or null.</summary>
         public static ModernRoot Instance { get; private set; }
 
+        /// <summary>The bottom HUD and the other always-on pieces (chat, minimap, frames, tracker): below the windows.</summary>
+        public readonly ModernLayer Hud;
         public readonly ModernLayer Windows, Tips, Menu, Drag;
 
         /// <summary>The popups layer and service (veil + centred card, request toasts): Popups.cs.</summary>
@@ -44,6 +46,7 @@ namespace Client.MirScenes.Modern.Core
             Size = new Size(Settings.ScreenWidth, Settings.ScreenHeight);
             Parent = scene;
 
+            Hud = new ModernLayer { Parent = this };
             Windows = new ModernLayer { Parent = this };
             Tips = new ModernLayer { Parent = this };
             Menu = new ModernLayer { Parent = this };
@@ -51,6 +54,7 @@ namespace Client.MirScenes.Modern.Core
             Drag = new ModernLayer { Parent = this };
 
             Wm = new WindowManager(this);
+            ModernTheme.Changed += OnThemeChanged;
         }
 
         /// <summary>Recomputes <see cref="K"/> from Settings; returns true when it changed.</summary>
@@ -70,11 +74,50 @@ namespace Client.MirScenes.Modern.Core
             for (int i = 0; i < Controls.Count; i++) Controls[i].Size = Size;
             bool rescaled = RecomputeScale();
             Wm.Rescale(rescaled);
+            RaiseRelayout(rescaled);
+        }
+
+        /// <summary>
+        /// The HUD pieces (not managed windows) must rebuild: raised after a HUD scale change (true) or a screen size / theme
+        /// change (false = re-place; theme changes pass true too, since chrome and widgets cache their look).
+        /// </summary>
+        public event Action<bool> Relayout;
+
+        private int _themeVersion = ModernTheme.Version;
+
+        private void RaiseRelayout(bool rebuild)
+        {
+            Action<bool> relayout = Relayout;
+            if (relayout == null) return;
+            foreach (Delegate d in relayout.GetInvocationList()) // one failing piece must not skip the others
+            {
+                try
+                {
+                    ((Action<bool>)d)(rebuild);
+                }
+                catch (Exception ex)
+                {
+                    ModernLog.Once("[ModernUi] HUD relayout " + d.Method.DeclaringType?.Name, ex);
+                }
+            }
+        }
+
+        private void OnThemeChanged()
+        {
+            if (_themeVersion == ModernTheme.Version) return;
+            _themeVersion = ModernTheme.Version;
+            RaiseRelayout(true);
         }
 
         /// <summary>Per-frame work outside the windows (ModernUi.Process): the widgets' timers (Widgets.ModernTick: popup hold /
         /// repeat buttons, request toast bars, search debounce). Cheap when nothing is ticking.</summary>
-        public void Process() => Widgets.ModernTick.Run();
+        public void Process()
+        {
+            Widgets.ModernTick.Run();
+            List<MirControl> hud = Hud.Controls;
+            for (int i = 0; i < hud.Count; i++)
+                if (hud[i] is ModernSurface s && s.Visible && !s.IsDisposed) s.Process();
+        }
 
         /// <summary>Keeps the root above every other scene child (a later scene child would otherwise take the mouse first).</summary>
         /// Never above a modal scene child: classic prompts (MirMessageBox / MirInputBox / MirAmountBox) that shared GameScene code
@@ -160,6 +203,8 @@ namespace Client.MirScenes.Modern.Core
                 }
                 finally
                 {
+                    ModernTheme.Changed -= OnThemeChanged;
+                    Relayout = null;
                     Wm.Dispose();
                     ModernTooltip.Forget();
                     Widgets.ModernTick.Clear();

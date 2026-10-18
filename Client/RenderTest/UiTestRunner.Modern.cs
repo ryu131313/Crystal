@@ -18,7 +18,7 @@ namespace Client.RenderTest
     {
         static partial void AddModernSteps(List<Step> steps)
         {
-            steps.Add(new Step { Name = "kit_open", Act = () => PressBind(KeybindOptions.Options), ModernOnly = true });
+            steps.Add(new Step { Name = "kit_open", Act = () => Root?.Wm.Open(KitTestWindow.WindowKey), ModernOnly = true });
             steps.Add(new Step { Name = "kit_drag", Act = () => DragWindow(KitTestWindow.WindowKey, 120, 40), ModernOnly = true });
             steps.Add(new Step { Name = "kit_theme_red", Act = () => ModernTheme.Apply("Lost Ark red", null), ModernOnly = true });
             steps.Add(new Step { Name = "kit_scale_150", Act = () => SetScale(1.5f, false), ModernOnly = true });
@@ -35,7 +35,7 @@ namespace Client.RenderTest
         /// <summary>Phase 1b widget, popup, item cell and pacer steps (after the window steps above).</summary>
         private static void AddWidgetSteps(List<Step> steps)
         {
-            Modern(steps, "w_open", () => { SetScale(1f, false); PressBind(KeybindOptions.Options); });
+            Modern(steps, "w_open", () => { SetScale(1f, false); Root?.Wm.Open(KitTestWindow.WindowKey); });
             Modern(steps, "w_hover_main", () => MouseAt(Centre(Kit.MainButton)));
             Modern(steps, "w_click_main", () => ClickAt(Centre(Kit.MainButton)));
             Modern(steps, "w_disabled_hover_click", () => ClickAt(Centre(Kit.DisabledButton)));

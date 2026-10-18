@@ -1252,6 +1252,20 @@ namespace Client.MirScenes
                 case (short)ServerPacketIds.AllowToggles:
                     Models.AllowToggles.Set(((S.AllowToggles)p).Flags);
                     break;
+                case (short)ServerPacketIds.PlayerProfile:
+                    {
+                        var profile = (S.PlayerProfile)p; // the modern inspect window's profile (phase 2)
+                        Models.Inspect.ProfileName = profile.Name ?? string.Empty;
+                        Models.Inspect.ProfileText = profile.Text ?? string.Empty;
+                        Models.Inspect.ProfileChanged.Emit();
+                    }
+                    break;
+                case (short)ServerPacketIds.HeroAutoCast:
+                    Models.HeroAutoCast.Set(((S.HeroAutoCast)p).Disabled); // the modern skills window's hero auto-cast switches
+                    break;
+                case (short)ServerPacketIds.MapDetails:
+                    Models.MapDetails.Apply((S.MapDetails)p); // the modern big map's respawns / safe zones (phase 2)
+                    break;
                 case (short)ServerPacketIds.ObjectRangeAttack:
                     ObjectRangeAttack((S.ObjectRangeAttack)p);
                     break;

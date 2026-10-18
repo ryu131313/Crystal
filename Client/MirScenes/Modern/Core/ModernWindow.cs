@@ -16,7 +16,7 @@ namespace Client.MirScenes.Modern.Core
     /// subscribe to models in Shown and unsubscribe in Closed (a closed window costs nothing).
     /// </para>
     /// </summary>
-    public abstract class ModernWindow : MirControl
+    public abstract class ModernWindow : ModernSurface
     {
         public const int TitleHeight = 30;
 
@@ -31,7 +31,7 @@ namespace Client.MirScenes.Modern.Core
         internal int HudX = -1, HudY = 80;
         private readonly int _startX, _startY;
 
-        private bool _rendering, _built;
+        private bool _built;
         private ModernWindowChrome _chrome;
         private ModernCloseButton _close;
         private bool _front;
@@ -42,16 +42,12 @@ namespace Client.MirScenes.Modern.Core
             Title = title ?? string.Empty;
             _startX = HudX = x;
             _startY = HudY = y;
-            BackColour = Color.Transparent;
-            DrawControlTexture = true;
             Movable = true;
             Sort = true;
             Visible = false;
             Opacity = float.IsFinite(Settings.UiOpacity) ? Settings.UiOpacity : 1F;
 
         }
-
-        protected static int S(float hudPx) => ModernRoot.S(hudPx);
 
         public bool IsOpen => Visible && !IsDisposed;
 
@@ -85,7 +81,7 @@ namespace Client.MirScenes.Modern.Core
         public virtual bool HandleKey(KeyEventArgs e) => false;
         /// <summary>Per-frame work while open (ModernUi.Process); keep it cheap and change nothing unless a value changed.
         /// Overrides must call base.Process(): it runs the widgets' timers (confirm-twice, hold, search debounce: ModernTick).</summary>
-        public virtual void Process() => Widgets.ModernTick.Run();
+        public override void Process() => Widgets.ModernTick.Run();
 
         /// <summary>Top of the content area in device px.</summary>
         protected int ContentTop => S(TitleHeight);
@@ -175,58 +171,6 @@ namespace Client.MirScenes.Modern.Core
 
         // ---- rendering ----
 
-        /// <summary>While the window renders into its own target its children draw relative to it.</summary>
-        public override Point DisplayLocation => _rendering ? Point.Empty : base.DisplayLocation;
-
-        public override void Redraw()
-        {
-            TextureValid = false;
-        }
-
-        public override void Draw()
-        {
-            if (IsDisposed || !Visible || Size.Width <= 0 || Size.Height <= 0) return;
-            BeforeDrawControl();
-            DrawControl();
-            AfterDrawControl();
-        }
-
-        protected override void CreateTexture()
-        {
-            if (Size != TextureSize) DisposeTexture();
-            if (ControlTexture == null || ControlTexture.Disposed)
-            {
-                DXManager.ControlList.Add(this);
-                ControlTexture = DXManager.CreateRenderTarget(Size.Width, Size.Height);
-                TextureSize = Size;
-            }
-
-            RenderTexture oldSurface = DXManager.CurrentSurface;
-            DXManager.SetSurface(ControlTexture);
-            // The sprite takes its projection from the target only at Begin (D3DX behaviour, kept by the D3D11 backend: golden
-            // S14): without a restart, a target smaller than the screen gets every draw scaled by target / screen size.
-            DXManager.RestartSpriteAlphaBlend();
-            DXManager.Clear(Color.Transparent);
-            _rendering = true;
-            try
-            {
-                DrawChildControls();
-            }
-            finally
-            {
-                _rendering = false;
-                DXManager.Flush();
-                DXManager.SetSurface(oldSurface);
-                DXManager.RestartSpriteAlphaBlend();
-            }
-            TextureValid = true;
-        }
-
-        /// <summary>A move changes only where the target is blitted: no re-render (children keep their relative positions).</summary>
-        protected override void OnLocationChanged()
-        {
-        }
-
         /// <summary>Drag by the title bar only (wm.ts: the title is the handle), then the base raises and starts the move.</summary>
         public override void OnMouseDown(MouseEventArgs e)
         {
@@ -244,12 +188,24 @@ namespace Client.MirScenes.Modern.Core
             if (wasMoving) RememberPosition();
         }
 
-        /// <summary>Only the panel takes the mouse (not the transparent corners outside the rounded rect).</summary>
-        public override bool IsMouseOver(Point p) => Visible && !IsDisposed && (DisplayRectangle.Contains(p) || Moving);
-
         protected override void Dispose(bool disposing)
         {
-            if (disposing) ModernRoot.Instance?.Wm.Forget(this);
+            if (disposing)
+            {
+                // a window open at logout never got Closed(): run it so its subscriptions (static ItemMoves.SlotChanged, models) end
+                if (Visible)
+                {
+                    try
+                    {
+                        Closed();
+                    }
+                    catch (Exception ex)
+                    {
+                        ModernLog.Once("[ModernUi] window closed on dispose " + Key, ex);
+                    }
+                }
+                ModernRoot.Instance?.Wm.Forget(this);
+            }
             base.Dispose(disposing);
         }
     }

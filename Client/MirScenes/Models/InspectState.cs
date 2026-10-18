@@ -21,6 +21,10 @@
         public string LoverName;
         public bool AllowObserve;
 
+        /// <summary>S.PlayerProfile: the inspected player's profile text (C.SetProfile), and whose it is.</summary>
+        public string ProfileName = string.Empty, ProfileText = string.Empty;
+        public readonly Emitter ProfileChanged = new Emitter();
+
         public readonly Emitter Changed = new Emitter();
     }
 }
