@@ -18,6 +18,9 @@ namespace Client.MirGraphics
             Prguse2 = new MLibrary(Settings.DataPath + "Prguse2"),
             Prguse3 = new MLibrary(Settings.DataPath + "Prguse3"),
             UI_32bit = new MLibrary(Settings.DataPath + "UI_32bit"),
+            // The new UI's icons (Desktop-Modern-UI-Plan D4, tools\modern-icons): Data\ModernIcons.Lib when patched in,
+            // else the copy the build ships in Resources\. Indices: MirScenes\Modern\Core\ModernIcons.cs.
+            ModernIcons = new MLibrary(File.Exists(Settings.DataPath + "ModernIcons.Lib") ? Settings.DataPath + "ModernIcons" : @".\Resources\ModernIcons"),
             BuffIcon = new MLibrary(Settings.DataPath + "BuffIcon"),
             Help = new MLibrary(Settings.DataPath + "Help"),
             MiniMap = new MLibrary(Settings.DataPath + "MMap"),
@@ -233,6 +236,9 @@ namespace Client.MirGraphics
 
             Title.Initialize();
             Progress++;
+
+            ModernIcons.Initialize();
+            Progress++;
         }
 
         private static void LoadGameLibraries()
@@ -241,7 +247,7 @@ namespace Client.MirGraphics
                 CHair.Length + CWeapons.Length + CWeaponEffect.Length + AArmours.Length + AHair.Length + AWeaponsL.Length + AWeaponsR.Length +
                 ARArmours.Length + ARHair.Length + ARWeapons.Length + ARWeaponsS.Length +
                 CHumEffect.Length + AHumEffect.Length + ARHumEffect.Length + Mounts.Length + Fishing.Length + Pets.Length +
-                Transform.Length + TransformMounts.Length + TransformEffect.Length + TransformWeaponEffect.Length + 19;
+                Transform.Length + TransformMounts.Length + TransformEffect.Length + TransformWeaponEffect.Length + 20;
 
             Dragon.Initialize();
             Progress++;

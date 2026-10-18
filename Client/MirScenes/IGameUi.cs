@@ -64,6 +64,8 @@ namespace Client.MirScenes
         // ---- seam step 4 (sweep) BEGIN: generated, keep in this order ----
         /// <summary>From GameScene.DrawControl after the scene is drawn: the classic output message lines (per frame; Modern must not log).</summary>
         void DrawOutputLines();
+        /// <summary>GameScene.DrawControl, right after the scene texture and before the picked-up item: the modern windows (classic: nothing).</summary>
+        void DrawOverlay();
         /// <summary>GameScene.HasHero changed (classic: the hero summon button).</summary>
         void HasHeroChanged(bool value);
         /// <summary>GameScene.KeyDown, first: true when a window takes the key itself (classic: the keybind dialog waiting for a new binding); GameScene then stops.</summary>

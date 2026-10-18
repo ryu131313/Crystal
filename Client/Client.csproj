@@ -77,6 +77,9 @@
     <None Update="Localization\English.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Update="Resources\ModernIcons.Lib">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="MIR2.ICO">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>

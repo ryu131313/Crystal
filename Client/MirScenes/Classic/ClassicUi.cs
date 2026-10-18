@@ -31,6 +31,7 @@ namespace Client.MirScenes.Classic
         }
 
         public void Dispose() => _scene.ClassicDispose();
+        public void DrawOverlay() { } // the classic dialogs are scene children, drawn in the scene texture
 
         public void BuffAdded(bool hero, ClientBuff buff) => _scene.ClassicBuffAdded(hero, buff);
         public void BuffRemoved(bool hero, int index) => _scene.ClassicBuffRemoved(hero, index);

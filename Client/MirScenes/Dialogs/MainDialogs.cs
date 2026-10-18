@@ -2622,6 +2622,8 @@ namespace Client.MirScenes.Dialogs
         public MirButton HPViewOn, HPViewOff;
         public MirButton NewMoveOn, NewMoveOff;
         public MirButton ObserveOn, ObserveOff;
+        // Desktop-Modern-UI-Plan phase 1b: the interface style switch (Settings.UiStyle; takes effect at the next log in).
+        public MirLabel UiStyleLabel, UiStyleClassic, UiStyleModern;
         public MirImageControl SoundBar, MusicSoundBar;
         public MirImageControl VolumeBar, MusicVolumeBar;
 
@@ -2871,6 +2873,37 @@ namespace Client.MirScenes.Dialogs
                 GameScene.Scene.ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.OldMovementStyle), ChatType.Hint);
             };
 
+            UiStyleLabel = new MirLabel
+            {
+                Parent = this,
+                AutoSize = true,
+                Location = new Point(36, 320),
+                ForeColour = Color.FromArgb(214, 198, 160),
+                Font = new Font(Settings.FontName, 8F, FontStyle.Bold),
+                Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ModernUiStyle).ToUpperInvariant(),
+                NotControl = true,
+            };
+            UiStyleClassic = new MirLabel
+            {
+                Parent = this,
+                AutoSize = true,
+                Location = new Point(120, 320),
+                Font = new Font(Settings.FontName, 8F),
+                Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ModernUiStyleClassic),
+                Sound = SoundList.ButtonA,
+            };
+            UiStyleClassic.Click += (o, e) => ChangeUiStyle(UiStyle.Classic);
+            UiStyleModern = new MirLabel
+            {
+                Parent = this,
+                AutoSize = true,
+                Location = new Point(176, 320),
+                Font = new Font(Settings.FontName, 8F),
+                Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ModernUiStyleModern),
+                Sound = SoundList.ButtonA,
+            };
+            UiStyleModern.Click += (o, e) => ChangeUiStyle(UiStyle.Modern);
+
             ObserveOn = new MirButton
             {
                 Library = Libraries.Prguse2,
@@ -3000,8 +3033,24 @@ namespace Client.MirScenes.Dialogs
             MusicVolumeBar.Location = percent > 0 ? new Point(159 + (int)((MusicSoundBar.Size.Width - 2) * percent), 244) : new Point(159, 244);
         }
 
+        /// <summary>Saves the interface style and offers to log out now (the UI is chosen when the game scene is built).</summary>
+        private void ChangeUiStyle(UiStyle style)
+        {
+            bool modernNow = GameScene.Ui != null && GameScene.Ui.Style == UiStyle.Modern;
+            Settings.UiStyle = style; // an explicit Classic is saved too: a saved Classic always wins over the default
+            Redraw(); // the gold / gray choice is set in BeforeDraw
+            if ((style == UiStyle.Modern) == modernNow) return;
+
+            MirMessageBox box = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ModernUiStyleSwitchPrompt), MirMessageBoxButtons.YesNo);
+            box.YesButton.Click += (o, e) => GameScene.Scene?.LogOut(false);
+            box.Show();
+        }
+
         private void OptionPanel_BeforeDraw(object sender, EventArgs e)
         {
+            bool modern = Settings.UiStyle == UiStyle.Modern;
+            UiStyleClassic.ForeColour = modern ? Color.Gray : Color.Gold;
+            UiStyleModern.ForeColour = modern ? Color.Gold : Color.Gray;
             if (Settings.SkillMode)
             {
                 SkillModeOn.Index = 452;

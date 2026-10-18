@@ -1,4 +1,5 @@
-﻿using S = ServerPackets;
+﻿using Client.MirScenes.Modern.Core;
+using S = ServerPackets;
 
 namespace Client.MirScenes.Modern
 {
@@ -26,13 +27,36 @@ namespace Client.MirScenes.Modern
             if (Settings.LogErrors) CMain.SaveError("[ModernUi] not ported: " + name);
         }
 
+        /// <summary>The kit's root (windows, popups, …); null before Build and after Dispose.</summary>
+        public ModernRoot Root { get; private set; }
+
         public void Build()
         {
+            ModernTheme.ApplySettings();
+            Root = new ModernRoot(_scene);
+            RegisterWindows();
         }
+
+        /// <summary>The window catalog (window keys → factories). Phase 1b: the kit test window only.</summary>
+        private void RegisterWindows()
+        {
+            Root.Wm.Register(KitTestWindow.WindowKey, () => new KitTestWindow());
+        }
+
+        /// <summary>Spaces the modern UI's bulk sends (item moves, sorts, sell junk, …) under the server's MaxPacket.</summary>
+        public readonly SendPacer Pacer = new SendPacer();
 
         public void Process()
         {
+            if (Root == null || Root.IsDisposed) return;
+            Root.KeepOnTop();
+            Root.Process();
+            Root.Wm.Process();
+            Pacer.Process();
         }
+
+        /// <summary>From GameScene.DrawControl after the scene texture: the windows, each from its own render target.</summary>
+        public void DrawOverlay() => Root?.DrawOverlay();
 
         public void KeyDown(KeyEventArgs e)
         {
@@ -40,6 +64,8 @@ namespace Client.MirScenes.Modern
 
         public void Dispose()
         {
+            Pacer.Dispose();
+            Root = null; // a child of the scene: disposed with it
         }
 
         public void BuffAdded(bool hero, ClientBuff buff) => NotPorted(nameof(BuffAdded));
@@ -55,12 +81,23 @@ namespace Client.MirScenes.Modern
         {
         }
         public void HasHeroChanged(bool value) => NotPorted(nameof(HasHeroChanged));
-        public bool CapturesKey(KeyEventArgs e)
+        /// <summary>Esc closes the front window, Shift+Esc all; the front window's own keys first (wm.ts handleKey).</summary>
+        public bool CapturesKey(KeyEventArgs e) => Root != null && !Root.IsDisposed && Root.Wm.HandleKey(e);
+        public void KeyBind(KeybindOptions function)
         {
-            NotPorted(nameof(CapturesKey));
-            return false;
+            switch (function)
+            {
+                case KeybindOptions.Options:
+                case KeybindOptions.Options2:
+                    // Phase 1b: the options key opens the kit test window (the modern options window comes in phase 2).
+                    Root?.Wm.Toggle(KitTestWindow.WindowKey);
+                    return;
+                case KeybindOptions.Closeall:
+                    Root?.Wm.CloseAll();
+                    return;
+            }
+            NotPorted(nameof(KeyBind));
         }
-        public void KeyBind(KeybindOptions function) => NotPorted(nameof(KeyBind));
         public void SkillModeChanged(bool ctrl) => NotPorted(nameof(SkillModeChanged));
         public void ObjectPositionsChanged() { } // called per object move: silent like the per-frame members
         /// <summary>Per frame: a silent no-op until ported (NotPorted is not called per spin).</summary>

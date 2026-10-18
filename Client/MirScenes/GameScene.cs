@@ -752,10 +752,18 @@ namespace Client.MirScenes
                 Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.CannotLeaveGame), (LogTime - CMain.Time) / 1000), ChatType.System);
             }
         }
-        public void LogOut()
+        /// <param name="confirm">False when the caller already asked (the interface style switch).</param>
+        public void LogOut(bool confirm = true)
         {
             if (CMain.Time >= LogTime)
             {
+                if (!confirm)
+                {
+                    Network.Enqueue(new C.LogOut());
+                    Enabled = false;
+                    return;
+                }
+
                 //If Last Combat < 10 CANCEL
                 MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.LogOutTip), MirMessageBoxButtons.YesNo);
                 messageBox.YesButton.Click += (o, e) =>
@@ -776,6 +784,7 @@ namespace Client.MirScenes
             if (MapControl != null && !MapControl.IsDisposed)
                 MapControl.DrawControl();
             base.DrawControl();
+            Ui?.DrawOverlay();
 
 
             if (PickedUpGold || (ItemMoves.Selected != null && ItemMoves.Selected.Item != null))
@@ -1236,6 +1245,12 @@ namespace Client.MirScenes
                     break;
                 case (short)ServerPacketIds.AllowObserve:
                     AllowObserve = ((S.AllowObserve)p).Allow;
+                    break;
+                case (short)ServerPacketIds.ServerRules:
+                    Models.ServerRules.Set((S.ServerRules)p); // costs and limits for the modern windows (phase 1b)
+                    break;
+                case (short)ServerPacketIds.AllowToggles:
+                    Models.AllowToggles.Set(((S.AllowToggles)p).Flags);
                     break;
                 case (short)ServerPacketIds.ObjectRangeAttack:
                     ObjectRangeAttack((S.ObjectRangeAttack)p);

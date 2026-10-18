@@ -18,7 +18,7 @@ namespace Client.RenderTest
     /// The script uses only APIs that exist both before and after the UI seam (reflection for the rest), so the same file
     /// runs against an older build and the two logs / screenshot sets can be diffed (tools\uitest.ps1).
     /// </summary>
-    internal static class UiTestRunner
+    internal static partial class UiTestRunner
     {
         public static bool Enabled { get; private set; }
         public static string UiStyle = "Classic";
@@ -38,7 +38,12 @@ namespace Client.RenderTest
             public Action Act;
             public int DelayMs = 500;
             public bool ClassicOnly;
+            public bool ModernOnly;
         }
+
+        /// <summary>Steps that need the modern kit (UiTestRunner.Modern.cs; absent in older builds, so this compiles away there).</summary>
+        static partial void AddModernSteps(List<Step> steps);
+        static partial void DumpModern(List<string> log);
 
         public static bool ParseArg(string arg, string[] args, ref int i)
         {
@@ -100,9 +105,9 @@ namespace Client.RenderTest
 
                 Step step = _steps[_next++];
                 _sent.Clear();
-                if (step.ClassicOnly && IsModern)
+                if ((step.ClassicOnly && IsModern) || (step.ModernOnly && !IsModern))
                 {
-                    _log.Add($"== {_next:00} {step.Name}: skipped (classic only)");
+                    _log.Add($"== {_next:00} {step.Name}: skipped ({(step.ClassicOnly ? "classic" : "modern")} only)");
                     return false;
                 }
                 try
@@ -201,6 +206,17 @@ namespace Client.RenderTest
                     c.Dispose();
                     return;
                 }
+            }
+        }
+
+        /// <summary>Closes every open classic prompt (a modal message box takes the keyboard).</summary>
+        private static void CloseAllPrompts()
+        {
+            for (int guard = 0; guard < 20; guard++)
+            {
+                int before = Scene.Controls.Count;
+                CloseTopPrompt();
+                if (Scene.Controls.Count == before) return;
             }
         }
 
@@ -382,11 +398,14 @@ namespace Client.RenderTest
                 new Step { Name = "store_click", Act = () => { Click(InvCell(10)); Click(Scene.StorageDialog.Grid[5]); }, ClassicOnly = true },
                 new Step { Name = "store_reply", Act = () => Feed(new S.StoreItem { From = 10, To = 5, Success = true }) },
                 new Step { Name = "refine_open", Act = () => Feed(new S.NPCRefine { Rate = 1F, Refining = false }) },
-                new Step { Name = "close_all", Act = () => PressBind(KeybindOptions.Closeall) },
+                new Step { Name = "close_all", Act = () => { CloseAllPrompts(); PressBind(KeybindOptions.Closeall); } },
+                new Step { Name = "options_open", Act = () => PressBind(KeybindOptions.Options), ClassicOnly = true },
+                new Step { Name = "options_close", Act = () => PressBind(KeybindOptions.Options), ClassicOnly = true },
                 new Step { Name = "logout", Act = () => Feed(new S.LogOutSuccess { Characters = new List<SelectInfo>() }), DelayMs = 800 },
                 new Step { Name = "relog", Act = EnterGame, DelayMs = 1500 },
                 new Step { Name = "relog_inventory", Act = () => PressBind(KeybindOptions.Inventory), ClassicOnly = true },
             };
+            AddModernSteps(steps);
             return steps;
         }
 
@@ -407,7 +426,11 @@ namespace Client.RenderTest
             _log.Add($"   guild={user.GuildName} rank={user.GuildRankName} myOptions={(int)GuildDialog.MyOptions}");
             _log.Add("   mail " + user.Mail.Count);
 
-            if (IsModern) return;
+            if (IsModern)
+            {
+                DumpModern(_log);
+                return;
+            }
 
             _log.Add("   locked " + LockedCells());
             _log.Add($"   chat lines={Scene.ChatDialog.FullHistory.Count} last=\"{(Scene.ChatDialog.FullHistory.Count > 0 ? Scene.ChatDialog.FullHistory[^1].Text : "")}\"");

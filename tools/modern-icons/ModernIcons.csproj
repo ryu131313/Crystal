@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Generator for the desktop client's modern-UI icon library (Desktop-Modern-UI-Plan D4, phase 1b).
+    Reads WebClient/src/ui/modern/core/icons.ts + WebClient/play/menu-icons/*.png and writes
+    Client/Resources/ModernIcons.Lib + Client/MirScenes/Modern/Core/ModernIcons.cs. See README.md.
+    UseWindowsForms only for the System.Drawing (GDI+) framework reference; this is a console tool.
+    Not in Legend of Mir.sln; builds to its own bin.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(ToolsTfm)</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>ModernIcons</AssemblyName>
+    <RootNamespace>ModernIcons</RootNamespace>
+  </PropertyGroup>
+
+</Project>

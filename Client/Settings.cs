@@ -81,6 +81,17 @@ namespace Client
         // [Interface] UiStyle: Default / Modern / Classic (Desktop-Modern-UI-Plan D6). Default resolves to Classic until phase 5;
         // a saved Classic always wins. Read once per GameScene (UiStyles.IsModern), so a change takes effect on the next log in.
         public static UiStyle UiStyle = UiStyle.Default;
+        // [Interface] the modern UI (Desktop-Modern-UI-Plan phase 1b): theme preset name (ModernTheme.Presets, saved by name) and
+        // custom overrides (a negative number / empty string = use the preset's), HUD scale (UiScale x screen height / 768 when
+        // UiAutoScale), window opacity, stat plates, and window positions in HUD px ("key=x,y;key=x,y").
+        public static string UiTheme = "Midnight electric";
+        public static float UiCustomHue = -1, UiCustomSat = -1, UiCustomLit = -1, UiCustomGlow = -1, UiCustomRadius = -1;
+        public static string UiCustomAccent = "", UiCustomFrame = "", UiCustomText = "";
+        public static float UiScale = 1F;
+        public static bool UiAutoScale = true;
+        public static float UiOpacity = 1F;
+        public static bool UiPlates = true;
+        public static string UiWindows = "";
         public static int Resolution = 1024;
         public static bool DebugMode = false;
         // [Graphics] RebuildOptimisations: fewer UI/map render-target rebuilds (live skill-bar/minimap overlays, no blind 100 ms map
@@ -235,6 +246,22 @@ namespace Client
 
             //Interface
             UiStyle = Enum.TryParse(Reader.ReadString("Interface", "UiStyle", UiStyle.ToString()), true, out UiStyle uiStyle) && Enum.IsDefined(uiStyle) ? uiStyle : UiStyle.Default;
+            UiTheme = Reader.ReadString("Interface", "UiTheme", UiTheme);
+            UiCustomHue = Reader.ReadSingle("Interface", "UiCustomHue", UiCustomHue);
+            UiCustomSat = Reader.ReadSingle("Interface", "UiCustomSat", UiCustomSat);
+            UiCustomLit = Reader.ReadSingle("Interface", "UiCustomLit", UiCustomLit);
+            UiCustomGlow = Reader.ReadSingle("Interface", "UiCustomGlow", UiCustomGlow);
+            UiCustomRadius = Reader.ReadSingle("Interface", "UiCustomRadius", UiCustomRadius);
+            UiCustomAccent = Reader.ReadString("Interface", "UiCustomAccent", UiCustomAccent);
+            UiCustomFrame = Reader.ReadString("Interface", "UiCustomFrame", UiCustomFrame);
+            UiCustomText = Reader.ReadString("Interface", "UiCustomText", UiCustomText);
+            UiScale = Reader.ReadSingle("Interface", "UiScale", UiScale);
+            UiScale = float.IsFinite(UiScale) ? Math.Clamp(UiScale, 0.5F, 3F) : 1F;
+            UiAutoScale = Reader.ReadBoolean("Interface", "UiAutoScale", UiAutoScale);
+            UiOpacity = Reader.ReadSingle("Interface", "UiOpacity", UiOpacity);
+            UiOpacity = float.IsFinite(UiOpacity) ? Math.Clamp(UiOpacity, 0.3F, 1F) : 1F;
+            UiPlates = Reader.ReadBoolean("Interface", "UiPlates", UiPlates);
+            UiWindows = Reader.ReadString("Interface", "UiWindows", UiWindows);
 
             //Network
             UseConfig = Reader.ReadBoolean("Network", "UseConfig", UseConfig);
@@ -361,6 +388,20 @@ namespace Client
             Reader.Write("Graphics", "MaxFPS", MaxFPS);
             Reader.Write("Graphics", "Renderer", Renderer.ToString());
             Reader.Write("Interface", "UiStyle", UiStyle.ToString());
+            Reader.Write("Interface", "UiTheme", UiTheme);
+            Reader.Write("Interface", "UiCustomHue", UiCustomHue);
+            Reader.Write("Interface", "UiCustomSat", UiCustomSat);
+            Reader.Write("Interface", "UiCustomLit", UiCustomLit);
+            Reader.Write("Interface", "UiCustomGlow", UiCustomGlow);
+            Reader.Write("Interface", "UiCustomRadius", UiCustomRadius);
+            Reader.Write("Interface", "UiCustomAccent", UiCustomAccent);
+            Reader.Write("Interface", "UiCustomFrame", UiCustomFrame);
+            Reader.Write("Interface", "UiCustomText", UiCustomText);
+            Reader.Write("Interface", "UiScale", UiScale);
+            Reader.Write("Interface", "UiAutoScale", UiAutoScale);
+            Reader.Write("Interface", "UiOpacity", UiOpacity);
+            Reader.Write("Interface", "UiPlates", UiPlates);
+            Reader.Write("Interface", "UiWindows", UiWindows);
             Reader.Write("Logs", "LogErrors", LogErrors); // roadmap C1: [Logs] was load-only
             Reader.Write("Logs", "LogChat", LogChat);
             Reader.Write("Graphics", "Resolution", Resolution);

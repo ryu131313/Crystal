@@ -23,5 +23,7 @@
         public readonly RentalState Rental = new RentalState();
         public readonly InspectState Inspect = new InspectState();
         public readonly FriendList Friends = new FriendList();
+        public readonly ServerRulesState ServerRules = new ServerRulesState();
+        public readonly AllowTogglesState AllowToggles = new AllowTogglesState();
     }
 }
