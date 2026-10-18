@@ -264,6 +264,7 @@ namespace Client.MirNetwork
         
         public static void Enqueue(Packet p)
         {
+            if (RenderTest.UiTestRunner.Enabled) { RenderTest.UiTestRunner.Sent(p); return; } // offline UI test: record, never send
             if (_sendList != null && p != null)
                 _sendList.Enqueue(p);
         }

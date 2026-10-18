@@ -12,14 +12,15 @@ namespace Client.MirScenes.Dialogs
 {
     public sealed class TrustMerchantDialog : MirImageControl
     {
-        public static bool UserMode = false;
-        public static MarketPanelType MarketType;
+        public static bool UserMode { get => GameScene.Models.Market.UserMode; set => GameScene.Models.Market.UserMode = value; } // seam step 1: lives in GameScene.Models
+        public static MarketPanelType MarketType { get => GameScene.Models.Market.MarketType; set => GameScene.Models.Market.MarketType = value; }
 
         public uint Amount = 0,
             MinConsignAmount = Globals.MinConsignment, MaxConsignAmount = Globals.MaxConsignment,
             MinBidAmount = Globals.MinStartingBid, MaxBidAmount = Globals.MaxStartingBid;
 
-        public static long SearchTime, MarketTime;
+        public static long SearchTime { get => GameScene.Models.Market.SearchTime; set => GameScene.Models.Market.SearchTime = value; }
+        public static long MarketTime { get => GameScene.Models.Market.MarketTime; set => GameScene.Models.Market.MarketTime = value; }
 
         public MirTextBox SearchTextBox, PriceTextBox;
         public MirButton FindButton, RefreshButton, MailButton, BuyButton, SellNowButton, CollectSoldButton, CloseButton, NextButton, BackButton;
@@ -30,11 +31,12 @@ namespace Client.MirScenes.Dialogs
         public MirLabel HelpLabel;
         public MirLabel TitleSalePriceLabel, TitleSellLabel, TitleItemLabel, TitlePriceLabel, TitleExpiryLabel;
 
-        public MirItemCell ItemCell, tempCell;
-        public static UserItem SellItemSlot;
+        public MirItemCell ItemCell;
+        public ItemSlotRef tempCell;
+        public static UserItem SellItemSlot { get => GameScene.Models.Market.SellItem; set => GameScene.Models.Market.SellItem = value; }
         public MirButton SellItemButton;
 
-        public List<ClientAuction> Listings = new List<ClientAuction>();
+        public List<ClientAuction> Listings { get => GameScene.Models.Market.Listings; set => GameScene.Models.Market.Listings = value; }
         public List<ClientAuction> GameShopListings = new List<ClientAuction>();
 
         public int Page, PageCount;
@@ -1384,14 +1386,14 @@ namespace Client.MirScenes.Dialogs
                 tempCell = null;
             }
 
-            if (GameScene.SelectedCell == null || GameScene.SelectedCell.GridType != MirGridType.Inventory ||
-                  GameScene.SelectedCell.Item != null && GameScene.SelectedCell.Item.Info.Durability < 0)
+            if (ItemMoves.Selected == null || ItemMoves.Selected.GridType != MirGridType.Inventory ||
+                  ItemMoves.Selected.Item != null && ItemMoves.Selected.Item.Info.Durability < 0)
                 return;
 
-            SellItemSlot = GameScene.SelectedCell.Item;
-            tempCell = GameScene.SelectedCell;
+            SellItemSlot = ItemMoves.Selected.Item;
+            tempCell = ItemMoves.Selected;
             tempCell.Locked = true;
-            GameScene.SelectedCell = null;
+            ItemMoves.Selected = null;
             PriceTextBox.SetFocus();
         }
 

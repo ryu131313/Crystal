@@ -65,7 +65,7 @@ namespace Client.MirScenes.Dialogs
             };
             _rentalPriceButton.Click += (o, e) =>
             {
-                if (GameScene.SelectedCell != null || GameScene.Gold <= 0)
+                if (ItemMoves.Selected != null || GameScene.Gold <= 0)
                     return;
 
                 var amountBox = new MirAmountBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.RentalFee), 116, GameScene.Gold);
@@ -111,7 +111,7 @@ namespace Client.MirScenes.Dialogs
                 switch (clickEventArgs.Button)
                 {
                     case MouseButtons.Left:
-                        if (GameScene.SelectedCell != null || GameScene.Gold <= 0)
+                        if (ItemMoves.Selected != null || GameScene.Gold <= 0)
                             return;
 
                         var amountBox = new MirAmountBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.RentalFee), 116, GameScene.Gold);

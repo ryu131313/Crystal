@@ -118,6 +118,13 @@ namespace Client
                 while (AppStillIdle)
                 {
                     UpdateTime();
+                    if (RenderTest.UiTestRunner.Enabled && RenderTest.UiTestRunner.Tick(Time))
+                    {
+                        // Offline UI test (tools\uitest.ps1): the scripted steps ran; close.
+                        Application.Idle -= Application_Idle;
+                        Program.Form.Close();
+                        return;
+                    }
                     if (RenderTest.RenderTestRunner.SmokeMode && RenderTest.RenderTestRunner.QaMode)
                         RenderTest.RenderTestRunner.QaTick(Time); // roadmap C4 scripted QA: resolution / fullscreen / minimise steps
                     else if (RenderTest.RenderTestRunner.SmokeMode && !RenderTest.RenderTestRunner.MidSmokeDone && Time >= RenderTest.RenderTestRunner.SmokeSeconds * 500L
@@ -316,9 +323,9 @@ namespace Client
                     Program.Form.ActiveControl = null;
             }
 
-            if (e.Button == MouseButtons.Right && (GameScene.SelectedCell != null || GameScene.PickedUpGold))
+            if (e.Button == MouseButtons.Right && (ItemMoves.Selected != null || GameScene.PickedUpGold))
             {
-                GameScene.SelectedCell = null;
+                ItemMoves.Selected = null;
                 GameScene.PickedUpGold = false;
                 return;
             }
@@ -754,12 +761,12 @@ namespace Client
         {
             if (CMain.Time < GameScene.LogTime && !Settings.UseTestConfig && !GameScene.Observing)
             {
-                GameScene.Scene.ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.CannotLeaveGame) , (GameScene.LogTime - CMain.Time) / 1000), ChatType.System);
+                GameScene.Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.CannotLeaveGame) , (GameScene.LogTime - CMain.Time) / 1000), ChatType.System);
                 e.Cancel = true;
             }
             else
             {
-                if (!RenderTest.RenderTestRunner.Enabled && !RenderTest.RenderTestRunner.SmokeMode) Settings.Save();
+                if (!RenderTest.RenderTestRunner.Enabled && !RenderTest.RenderTestRunner.SmokeMode && !RenderTest.UiTestRunner.Enabled) Settings.Save();
 
                 DXManager.Dispose();
                 SoundManager.Dispose();

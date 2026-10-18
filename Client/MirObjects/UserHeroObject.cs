@@ -1,5 +1,6 @@
 ﻿using Client.MirScenes;
 using Client.MirScenes.Dialogs;
+using Client.MirScenes.Models;
 using S = ServerPackets;
 
 namespace Client.MirObjects
@@ -12,7 +13,7 @@ namespace Client.MirObjects
 
         public UserItem[] HPItem = new UserItem[1];
         public UserItem[] MPItem = new UserItem[1];
-        public override BuffDialog GetBuffDialog => GameScene.Scene.HeroBuffsDialog;
+        public override BuffList GetBuffs => GameScene.Models.HeroBuffs;
         public UserHeroObject(uint objectID)
         {
             ObjectID = objectID;

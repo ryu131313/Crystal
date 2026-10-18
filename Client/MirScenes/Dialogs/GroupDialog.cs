@@ -9,9 +9,10 @@ namespace Client.MirScenes.Dialogs
 {
     public sealed class GroupDialog : MirImageControl
     {
-        public static bool AllowGroup;
-        public static List<string> GroupList = new List<string>();
-        public static Dictionary<string, string> GroupMembersMap = new Dictionary<string, string>();
+        // The group lives in GameScene.Models.Group (Desktop-Modern-UI-Plan seam step 1); these forward to it.
+        public static bool AllowGroup { get => GameScene.Models.Group.AllowGroup; set => GameScene.Models.Group.AllowGroup = value; }
+        public static List<string> GroupList => GameScene.Models.Group.Members;
+        public static Dictionary<string, string> GroupMembersMap => GameScene.Models.Group.MemberMaps;
 
         public MirImageControl TitleLabel;
         public MirButton SwitchButton, CloseButton, AddButton, DelButton;

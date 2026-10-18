@@ -141,7 +141,7 @@ namespace Client.MirScenes.Dialogs
             };
             GoldLabel.Click += (o, e) =>
             {
-                if (GameScene.SelectedCell == null)
+                if (ItemMoves.Selected == null)
                     GameScene.PickedUpGold = !GameScene.PickedUpGold && GameScene.Gold > 0;
             };
 
@@ -212,7 +212,7 @@ namespace Client.MirScenes.Dialogs
         void Button_Click(object sender, EventArgs e)
         {
             // Ctrl + Left-click: move selected item to the tab's bag without switching tabs.
-            if (GameScene.SelectedCell != null &&
+            if (ItemMoves.Selected != null &&
                 e is MouseEventArgs me &&
                 me.Button == MouseButtons.Left &&
                 (Control.ModifierKeys & Keys.Control) == Keys.Control)
@@ -272,7 +272,7 @@ namespace Client.MirScenes.Dialogs
         private bool TryMoveSelectedInventoryItem(bool toSecondBag)
         {
             // Allow dragging an item (inventory or belt) onto a bag tab to move it to that bag page.
-            var selected = GameScene.SelectedCell;
+            var selected = ItemMoves.Selected;
             if (selected == null || selected.Item == null || selected.Locked || selected.GridType != MirGridType.Inventory)
                 return false;
 
@@ -299,7 +299,7 @@ namespace Client.MirScenes.Dialogs
             if (targetCell != null)
                 targetCell.Locked = true;
 
-            GameScene.SelectedCell = null;
+            ItemMoves.Selected = null;
             return true;
         }
 
@@ -485,11 +485,11 @@ namespace Client.MirScenes.Dialogs
 
         private void DelItemButton_Click(object sender, EventArgs e)
         {
-            if (GameScene.SelectedCell != null &&
-                GameScene.SelectedCell.GridType == MirGridType.Inventory &&
-                GameScene.SelectedCell.Item != null)
+            if (ItemMoves.Selected != null &&
+                ItemMoves.Selected.GridType == MirGridType.Inventory &&
+                ItemMoves.Selected.Item != null)
             {
-                PromptDelete(GameScene.SelectedCell);
+                PromptDelete(ItemMoves.Selected);
                 return;
             }
             ToggleDeleteMode(!_deleteMode);
@@ -544,6 +544,15 @@ namespace Client.MirScenes.Dialogs
             _deleteCursorIcon.BringToFront();
         }
 
+        /// <summary>PromptDelete for an inventory slot (ItemMoves.Selected or a clicked slot): the classic cell showing it.</summary>
+        public void PromptDelete(ItemSlotRef slot)
+        {
+            if (slot == null) return;
+
+            MirItemCell cell = slot.ItemSlot < GameScene.User.BeltIdx ? GameScene.Scene.BeltDialog.Grid[slot.ItemSlot] : Grid[slot.ItemSlot - GameScene.User.BeltIdx];
+            PromptDelete(cell);
+        }
+
         public void PromptDelete(MirItemCell cell)
         {
             if (cell == null || cell.Item == null) return;
@@ -553,7 +562,7 @@ namespace Client.MirScenes.Dialogs
 
             void CancelDelete()
             {
-                GameScene.SelectedCell = null;
+                ItemMoves.Selected = null;
                 cell.Locked = false;
                 cell.Opacity = 1F;
                 cell.Redraw();

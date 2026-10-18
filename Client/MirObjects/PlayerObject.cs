@@ -181,7 +181,7 @@ namespace Client.MirObjects
 
         public override bool ShouldDrawHealth()
         {
-            if (GroupDialog.GroupList.Contains(Name) || this == User)
+            if (GameScene.Models.Group.Contains(Name) || this == User)
             {
                 return true;
             }
@@ -210,7 +210,7 @@ namespace Client.MirObjects
             MountTime = CMain.Time;
 
             if (MountType < 0)
-                GameScene.Scene.MountDialog.Hide();
+                GameScene.Ui?.CloseMountWindow();
 
             SetLibraries();
             SetEffects();
@@ -241,7 +241,7 @@ namespace Client.MirObjects
 
             if (!HasFishingRod)
             {
-                GameScene.Scene.FishingDialog.Hide();
+                GameScene.Ui?.CloseFishingWindow();
             }          
 
             FishingPoint = p.FishingPoint;
@@ -2450,7 +2450,7 @@ namespace Client.MirObjects
                                     {
                                         case MirAction.FishingCast:
                                             SoundManager.PlaySound(SoundList.FishingThrow);
-                                            ((MirAnimatedButton)GameScene.Scene.FishingStatusDialog.FishButton).Visible = false;
+                                            GameScene.Ui?.FishingCast();
                                             break;
                                         case MirAction.FishingReel:
                                             SoundManager.PlaySound(SoundList.FishingPull);
@@ -2463,17 +2463,15 @@ namespace Client.MirObjects
 
                                                 SoundManager.PlaySound(SoundList.Fishing);
                                                 Effects.Add(new Effect(Libraries.Prguse, 1350, 2, 720, this) { Light = 0, Blend = false });
-
-                                                ((MirAnimatedButton)GameScene.Scene.FishingStatusDialog.FishButton).Visible = true;
                                             }
                                             else
                                             {
                                                 MapControl.Effects.Add(new Effect(Libraries.Effect, 650, 6, 720, FishingPoint) { Light = 0 });
                                                 MapControl.Effects.Add(new Effect(Libraries.Effect, 640, 6, 720, FishingPoint) { Light = 0 });
-                                                ((MirAnimatedButton)GameScene.Scene.FishingStatusDialog.FishButton).Visible = false;
                                             }
 
-                                            ((MirAnimatedButton)GameScene.Scene.FishingStatusDialog.FishButton).AnimationCount = FoundFish ? 10 : 1;
+                                            // The fish button was the last step of each branch above, then its animation count.
+                                            GameScene.Ui?.FishingWait(FoundFish);
                                             break;
                                     }
                                     break;
@@ -2732,8 +2730,8 @@ namespace Client.MirObjects
                                                             int exIdx = 0;
                                                             if (this == User)
                                                             {
-                                                                if (GameScene.Scene.BuffsDialog.Buffs.Any(x => x.Type == BuffType.VampireShot)) exIdx = 20;
-                                                                if (GameScene.Scene.BuffsDialog.Buffs.Any(x => x.Type == BuffType.PoisonShot)) exIdx = 10;
+                                                                if (GameScene.Models.Buffs.Has(BuffType.VampireShot)) exIdx = 20;
+                                                                if (GameScene.Models.Buffs.Has(BuffType.PoisonShot)) exIdx = 10;
                                                             }
                                                             else
                                                             {

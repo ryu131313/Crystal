@@ -1435,11 +1435,11 @@ namespace Client.MirScenes.Dialogs
 
         public readonly MirButton ConfirmButton, HoldButton;
         public readonly MirItemCell ItemCell;
-        public MirItemCell OldCell;
+        public ItemSlotRef OldCell;
         public readonly MirLabel InfoLabel;
         public PanelType PType;
 
-        public static UserItem TargetItem;
+        public static UserItem TargetItem { get => GameScene.Models.Npc.DropTarget; set => GameScene.Models.Npc.DropTarget = value; } // seam step 1: lives in GameScene.Models
         public bool Hold;
 
 
@@ -1651,68 +1651,68 @@ namespace Client.MirScenes.Dialogs
                 OldCell = null;
             }
 
-            if (GameScene.SelectedCell != null && PType == PanelType.Disassemble)
+            if (ItemMoves.Selected != null && PType == PanelType.Disassemble)
             {
-                if (GameScene.SelectedCell.Item.Info.Grade != ItemGrade.None &&
-                    GameScene.SelectedCell.Item.Info.Type != ItemType.Awakening)
+                if (ItemMoves.Selected.Item.Info.Grade != ItemGrade.None &&
+                    ItemMoves.Selected.Item.Info.Type != ItemType.Awakening)
                 {
-                    TargetItem = GameScene.SelectedCell.Item;
-                    OldCell = GameScene.SelectedCell;
+                    TargetItem = ItemMoves.Selected.Item;
+                    OldCell = ItemMoves.Selected;
                     OldCell.Locked = true;
-                    GameScene.SelectedCell = null;
+                    ItemMoves.Selected = null;
                     return;
                 }
             }
 
-            if (GameScene.SelectedCell != null && PType == PanelType.Downgrade)
+            if (ItemMoves.Selected != null && PType == PanelType.Downgrade)
             {
-                if (GameScene.SelectedCell.Item.Awake.GetAwakeLevel() != 0)
+                if (ItemMoves.Selected.Item.Awake.GetAwakeLevel() != 0)
                 {
-                    TargetItem = GameScene.SelectedCell.Item;
-                    OldCell = GameScene.SelectedCell;
+                    TargetItem = ItemMoves.Selected.Item;
+                    OldCell = ItemMoves.Selected;
                     OldCell.Locked = true;
-                    GameScene.SelectedCell = null;
+                    ItemMoves.Selected = null;
                     return;
                 }
             }
 
-            if (GameScene.SelectedCell != null && PType == PanelType.Reset)
+            if (ItemMoves.Selected != null && PType == PanelType.Reset)
             {
-                if (GameScene.SelectedCell.Item.IsAdded)
+                if (ItemMoves.Selected.Item.IsAdded)
                 {
-                    TargetItem = GameScene.SelectedCell.Item;
-                    OldCell = GameScene.SelectedCell;
+                    TargetItem = ItemMoves.Selected.Item;
+                    OldCell = ItemMoves.Selected;
                     OldCell.Locked = true;
-                    GameScene.SelectedCell = null;
+                    ItemMoves.Selected = null;
                     return;
                 }
             }
 
-            if (GameScene.SelectedCell != null && (PType == PanelType.Disassemble || PType == PanelType.Downgrade || PType == PanelType.Reset))
+            if (ItemMoves.Selected != null && (PType == PanelType.Disassemble || PType == PanelType.Downgrade || PType == PanelType.Reset))
             {
-                GameScene.SelectedCell.Locked = false;
-                GameScene.SelectedCell = null;
+                ItemMoves.Selected.Locked = false;
+                ItemMoves.Selected = null;
                 return;
             }
 
             //////////////////////////////////////
 
-            if (GameScene.SelectedCell == null || GameScene.SelectedCell.GridType != MirGridType.Inventory ||
-                (PType != PanelType.Sell && PType != PanelType.Consign && GameScene.SelectedCell.Item != null && GameScene.SelectedCell.Item.Info.Durability == 0))
+            if (ItemMoves.Selected == null || ItemMoves.Selected.GridType != MirGridType.Inventory ||
+                (PType != PanelType.Sell && PType != PanelType.Consign && ItemMoves.Selected.Item != null && ItemMoves.Selected.Item.Info.Durability == 0))
                 return;
             /*
-            if (GameScene.SelectedCell.Item != null && (GameScene.SelectedCell.Item.Info.StackSize > 1 && GameScene.SelectedCell.Item.Count > 1))
+            if (ItemMoves.Selected.Item != null && (ItemMoves.Selected.Item.Info.StackSize > 1 && ItemMoves.Selected.Item.Count > 1))
             {
-                MirAmountBox amountBox = new MirAmountBox("Sell Amount:", GameScene.SelectedCell.Item.Image, GameScene.SelectedCell.Item.Count);
+                MirAmountBox amountBox = new MirAmountBox("Sell Amount:", ItemMoves.Selected.Item.Image, ItemMoves.Selected.Item.Count);
 
                 amountBox.OKButton.Click += (o, a) =>
                 {
-                    TargetItem = GameScene.SelectedCell.Item.Clone();
+                    TargetItem = ItemMoves.Selected.Item.Clone();
                     TargetItem.Count = amountBox.Amount;
 
-                    OldCell = GameScene.SelectedCell;
+                    OldCell = ItemMoves.Selected;
                     OldCell.Locked = true;
-                    GameScene.SelectedCell = null;
+                    ItemMoves.Selected = null;
                     if (Hold) Confirm();
                 };
 
@@ -1720,17 +1720,17 @@ namespace Client.MirScenes.Dialogs
             }
             else
             {
-                TargetItem = GameScene.SelectedCell.Item;
-                OldCell = GameScene.SelectedCell;
+                TargetItem = ItemMoves.Selected.Item;
+                OldCell = ItemMoves.Selected;
                 OldCell.Locked = true;
-                GameScene.SelectedCell = null;
+                ItemMoves.Selected = null;
                 if (Hold) Confirm();
             }
             */
-            TargetItem = GameScene.SelectedCell.Item;
-            OldCell = GameScene.SelectedCell;
+            TargetItem = ItemMoves.Selected.Item;
+            OldCell = ItemMoves.Selected;
             OldCell.Locked = true;
-            GameScene.SelectedCell = null;
+            ItemMoves.Selected = null;
             if (Hold) Confirm();
         }
 
@@ -1873,8 +1873,8 @@ namespace Client.MirScenes.Dialogs
         public AwakeType CurrentAwakeType = AwakeType.None;
         public MirLabel GoldLabel, NeedItemLabel1, NeedItemLabel2;
 
-        public static UserItem[] Items = new UserItem[7];
-        public static int[] ItemsIdx = new int[7];
+        public static UserItem[] Items => GameScene.Models.Npc.AwakeItems; // seam step 1: lives in GameScene.Models
+        public static int[] ItemsIdx => GameScene.Models.Npc.AwakeItemsIdx;
 
         public NPCAwakeDialog()
         {
@@ -2262,10 +2262,10 @@ namespace Client.MirScenes.Dialogs
         private const int _ingredientCount = 6;
         private static int _totalCount { get { return _toolCount + _ingredientCount; } }
 
-        public static UserItem[] Slots = new UserItem[_totalCount];
-        public static UserItem[] ShadowItems = new UserItem[_totalCount];
+        public static UserItem[] Slots => GameScene.Models.Npc.CraftItems; // seam step 1: lives in GameScene.Models
+        public static UserItem[] ShadowItems => GameScene.Models.Npc.CraftShadowItems;
 
-        public Dictionary<MirItemCell, ulong> Selected = new Dictionary<MirItemCell, ulong>();
+        public Dictionary<ItemSlotRef, ulong> Selected = new Dictionary<ItemSlotRef, ulong>();
 
         public MirItemCell[] Grid;
 
@@ -2407,31 +2407,31 @@ namespace Client.MirScenes.Dialogs
             if (cell == null || cell.ShadowItem == null)
                 return;
 
-            if (GameScene.SelectedCell == null || GameScene.SelectedCell.GridType != MirGridType.Inventory || GameScene.SelectedCell.Locked)
+            if (ItemMoves.Selected == null || ItemMoves.Selected.GridType != MirGridType.Inventory || ItemMoves.Selected.Locked)
                 return;
 
-            if (GameScene.SelectedCell.Item.Info != cell.ShadowItem.Info || cell.Item != null)
+            if (ItemMoves.Selected.Item.Info != cell.ShadowItem.Info || cell.Item != null)
                 return;
 
             if (cell.ItemSlot >= _toolCount)
             {
-                if (GameScene.SelectedCell.Item.Count < cell.ShadowItem.Count)
+                if (ItemMoves.Selected.Item.Count < cell.ShadowItem.Count)
                     return;
 
-                if (cell.ShadowItem.CurrentDura < cell.ShadowItem.MaxDura && GameScene.SelectedCell.Item.CurrentDura < cell.ShadowItem.CurrentDura)
+                if (cell.ShadowItem.CurrentDura < cell.ShadowItem.MaxDura && ItemMoves.Selected.Item.CurrentDura < cell.ShadowItem.CurrentDura)
                     return;
             }
             else
             {
-                if (GameScene.SelectedCell.Item.CurrentDura < 1000M)
+                if (ItemMoves.Selected.Item.CurrentDura < 1000M)
                     return;
             }
 
-            cell.Item = GameScene.SelectedCell.Item;
+            cell.Item = ItemMoves.Selected.Item;
 
-            Selected.Add(GameScene.SelectedCell, GameScene.SelectedCell.Item.UniqueID);
-            GameScene.SelectedCell.Locked = true;
-            GameScene.SelectedCell = null;
+            Selected.Add(ItemMoves.Selected, ItemMoves.Selected.Item.UniqueID);
+            ItemMoves.Selected.Locked = true;
+            ItemMoves.Selected = null;
 
             RefreshCraftCells(RecipeItem);
         }
@@ -2475,7 +2475,7 @@ namespace Client.MirScenes.Dialogs
 
                     if (cell.Locked) continue;
 
-                    Selected.Add(cell, cell.Item.UniqueID);
+                    Selected.Add(cell.Slot, cell.Item.UniqueID);
                     cell.Locked = true;
 
                     Grid[j].Item = cell.Item;
@@ -2502,7 +2502,7 @@ namespace Client.MirScenes.Dialogs
 
                     if (cell.Locked) continue;
 
-                    Selected.Add(cell, cell.Item.UniqueID);
+                    Selected.Add(cell.Slot, cell.Item.UniqueID);
                     cell.Locked = true;
 
                     Grid[j].Item = cell.Item;
@@ -2654,11 +2654,11 @@ namespace Client.MirScenes.Dialogs
 
         public void UpdateCraftCells()
         {
-            List<MirItemCell> invalidCells = new List<MirItemCell>();
+            List<ItemSlotRef> invalidCells = new List<ItemSlotRef>();
 
             foreach (var key in Selected.Keys)
             {
-                MirItemCell cell = key;
+                ItemSlotRef cell = key;
                 ulong oldItem = Selected[key];
 
                 if (cell.Item == null || cell.Item.UniqueID != oldItem || (cell.Item.MaxDura > 1000M && cell.Item.CurrentDura < 1000M))

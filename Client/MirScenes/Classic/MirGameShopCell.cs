@@ -202,7 +202,7 @@ namespace Client.MirControls
             }
             if (pType == -1)
             {
-                GameScene.Scene.ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.YouMustSelectPaymentType), ChatType.System);
+                GameScene.Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.YouMustSelectPaymentType), ChatType.System);
                 return;
             }
             switch (pType)
@@ -217,7 +217,7 @@ namespace Client.MirControls
                         messageBox.Show();
                     }
                     else
-                        GameScene.Scene.ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.YouCantAffordSelectedItem), ChatType.System);
+                        GameScene.Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.YouCantAffordSelectedItem), ChatType.System);
                     break;
                 case 1: //  Gold
                     if (Item.GoldPrice * Quantity <= GameScene.Gold)
@@ -229,7 +229,7 @@ namespace Client.MirControls
                         messageBox.Show();
                     }
                     else
-                        GameScene.Scene.ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.YouCantAffordSelectedItem), ChatType.System);
+                        GameScene.Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.YouCantAffordSelectedItem), ChatType.System);
                     break;
                 default:
 

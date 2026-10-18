@@ -9,7 +9,7 @@ namespace Client.MirScenes.Dialogs
 {
     public sealed class ItemRentingDialog : MirImageControl
     {
-        public static UserItem RentalItem;
+        public static UserItem RentalItem { get => GameScene.Models.Rental.RentalItem; set => GameScene.Models.Rental.RentalItem = value; } // seam step 1: lives in GameScene.Models
 
         public readonly MirItemCell ItemCell;
         public uint RentalPeriod;
@@ -220,7 +220,7 @@ namespace Client.MirScenes.Dialogs
 
     public sealed class GuestItemRentingDialog : MirImageControl
     {
-        public static UserItem GuestLoanItem;
+        public static UserItem GuestLoanItem { get => GameScene.Models.Rental.GuestLoanItem; set => GameScene.Models.Rental.GuestLoanItem = value; } // seam step 1: lives in GameScene.Models
 
         public uint GuestRentalPeriod;
 

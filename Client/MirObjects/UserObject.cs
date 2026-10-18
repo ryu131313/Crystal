@@ -1,5 +1,6 @@
 ﻿using Client.MirScenes;
 using Client.MirScenes.Dialogs;
+using Client.MirScenes.Models;
 using S = ServerPackets;
 
 namespace Client.MirObjects
@@ -32,7 +33,8 @@ namespace Client.MirObjects
 
         public BaseStats CoreStats = new BaseStats(0);
 
-        public virtual BuffDialog GetBuffDialog => GameScene.Scene.BuffsDialog;
+        /// <summary>This actor's own buffs (GameScene.Models.Buffs; the hero overrides it with HeroBuffs).</summary>
+        public virtual BuffList GetBuffs => GameScene.Models.Buffs;
 
         public UserItem[] Inventory = new UserItem[48], Equipment = new UserItem[14], Trade = new UserItem[10], QuestInventory = new UserItem[40];
         public int BeltIdx = BeltSize, HeroBeltIdx = 2;
@@ -636,11 +638,11 @@ namespace Client.MirObjects
         private void RefreshBuffs()
         {
             TransformType = -1;
-            BuffDialog dialog = GetBuffDialog;
+            List<ClientBuff> buffs = GetBuffs.Items;
 
-            for (int i = 0; i < dialog.Buffs.Count; i++)
+            for (int i = 0; i < buffs.Count; i++)
             {
-                ClientBuff buff = dialog.Buffs[i];
+                ClientBuff buff = buffs[i];
 
                 Stats.Add(buff.Stats);
 
@@ -661,16 +663,17 @@ namespace Client.MirObjects
         public void RefreshGuildBuffs()
         {
             if (User != this) return;
-            if (GameScene.Scene.GuildDialog == null) return;
-            for (int i = 0; i < GameScene.Scene.GuildDialog.EnabledBuffs.Count; i++)
+            if (GameScene.Models == null) return;
+            GuildState guild = GameScene.Models.Guild;
+            for (int i = 0; i < guild.EnabledBuffs.Count; i++)
             {
-                GuildBuff buff = GameScene.Scene.GuildDialog.EnabledBuffs[i];
+                GuildBuff buff = guild.EnabledBuffs[i];
                 if (buff == null) continue;
                 if (!buff.Active) continue;
 
                 if (buff.Info == null)
                 {
-                    buff.Info = GameScene.Scene.GuildDialog.FindGuildBuffInfo(buff.Id);
+                    buff.Info = guild.FindBuffInfo(buff.Id);
                 }
 
                 if (buff.Info == null) continue;

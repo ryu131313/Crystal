@@ -177,7 +177,7 @@ namespace Client.MirObjects
             if (ObjectID != GameScene.NPCID) return;
 
             GameScene.NPCID = 0;
-            GameScene.Scene.NPCDialog.Hide();
+            GameScene.Ui?.CloseNpcDialog();
         }
 
         public abstract void Process();
@@ -505,13 +505,13 @@ namespace Client.MirObjects
             {
                 case ObjectType.Player:
                     index = 12;
-                    if (GroupDialog.GroupList.Contains(name) && name != User.Name) index = 10;
+                    if (GameScene.Models.Group.Contains(name) && name != User.Name) index = 10;
                     break;
                 case ObjectType.Monster:
-                    if (GroupDialog.GroupList.Contains(name) || name == User.Name) index = 11;
+                    if (GameScene.Models.Group.Contains(name) || name == User.Name) index = 11;
                     break;
                 case ObjectType.Hero:
-                    if (GroupDialog.GroupList.Contains(MapObject.HeroObject?.OwnerName)) // Fails but not game breaking
+                    if (GameScene.Models.Group.Contains(MapObject.HeroObject?.OwnerName)) // Fails but not game breaking
                     {
                         index = 11;
                     }

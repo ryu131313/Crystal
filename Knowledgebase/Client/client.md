@@ -401,9 +401,10 @@ Hot path = anything reached from `UpdateEnviroment` (every spin) or `RenderEnvir
 - **ALWAYS** ship Client and Server built from the same commit after any `Shared\` change.
 - **ALWAYS** set `Library` + `Index` (or `Size`) before using `Center`/`Right`/`Bottom`... for `Location` (helpers read the current `Size`).
 - **ALWAYS** drive per-frame dialog logic from `GameScene.Process()` explicitly — `MirControl` has **no** `Process()`.
-- **ALWAYS** register new dialogs in the `GameScene()` ctor (`Parent = this, Visible = false`), null them in `GameScene.Dispose`, add them to the `KeybindOptions.Closeall` hide list.
+- **ALWAYS** register new classic dialogs in `GameScene.ClassicBuild()` (`Client/MirScenes/Classic/GameScene.Classic.cs`; `Parent = this, Visible = false`), declare the field there, null it in `GameScene.ClassicDispose()` (`Classic/GameScene.ClassicFrame.cs`), add it to the `KeybindOptions.Closeall` case in `ClassicKeyBind`, and add the field / class name to `tools\modern-ui-gate.txt`.
+- **NEVER** reach a classic dialog (any `GameScene` dialog field or `Dialogs\` class) from code outside `MirScenes\Dialogs\` and `MirScenes\Classic\` (UI seam, Desktop-Modern-UI-Plan phase 1a, 2026-10-18). In modern mode (`[Interface] UiStyle=Modern`) no classic dialog exists. Game state goes into `GameScene.Models` (`MirScenes\Models\`, change `Emitter`s); window work goes through `GameScene.Ui` (`IGameUi`: add the member, `ClassicUi` forwards to an `internal void ClassicX()` in a `Classic\GameScene.Classic*.cs` partial, `ModernUi` calls `NotPorted` until ported). Chat lines: `GameScene.Models.Chat.Add(text, type)`. Check with `powershell -ExecutionPolicy Bypass -File tools\modern-ui-gate.ps1` (must print `clean`).
 - **ALWAYS** create map objects via `new XObject(objectID)` + `Load(p)` (the `MapObject(uint)` ctor self-registers in `MapControl.Objects`/`ObjectsList`); remove via `ob.Remove()`.
-- **ALWAYS** clear `MirItemCell.Locked` in the server-reply handler of any new item operation, and add every new `MirGridType` to `MirItemCell.ItemArray` (its `default:` throws `NotImplementedException`).
+- **ALWAYS** clear the slot lock (`ItemMoves.SetLocked(grid, slot, false)` / `ItemSlotRef.Locked = false`) in the server-reply handler of any new item operation, and add every new `MirGridType` to `ItemMoves.GetArray` (`Client/MirScenes/ItemMoves.cs`; its `default:` throws `NotImplementedException`). Item pick / drop / use logic lives in `ItemMoves` (grid + slot, `ItemSlotRef`); the picked-up item is `ItemMoves.Selected` (was `GameScene.SelectedCell`); `MirItemCell` is a view that redraws on `ItemMoves.SlotChanged`.
 - **ALWAYS** dispose `MirAnimatedControl`/`MirAnimatedButton` instances — they register in a static `Animations` list removed only in `Dispose`.
 
 #### Known debt — existing breaches (do not copy; do not drive-by fix)
@@ -526,10 +527,10 @@ box.Show();   // parents to MirScene.ActiveScene; the box is already disposed wh
        }
    }
    ```
-2. `GameScene.cs`: field `public MyDialog MyDialog;` with the others; in the `GameScene()` ctor `MyDialog = new MyDialog { Parent = this, Visible = false };` — **construction order = z-order**, and after any dialog it references via `GameScene.Scene.X`. Null it in `GameScene.Dispose` (~L10199).
-3. If it ticks: add `MyDialog.Process();` to `GameScene.Process()` (~L1183). It runs whether visible or not — guard on `Visible` yourself.
+2. `Classic/GameScene.Classic.cs`: field `public MyDialog MyDialog;` with the others; in `ClassicBuild()` `MyDialog = new MyDialog { Parent = this, Visible = false };` — **construction order = z-order**, and after any dialog it references via `GameScene.Scene.X`. Null it in `ClassicDispose()` (`Classic/GameScene.ClassicFrame.cs`). Add `MyDialog` to `tools\modern-ui-gate.txt`. Packets that feed it: data into `GameScene.Models`, then an `IGameUi` member (rule in §3.5).
+3. If it ticks: add `MyDialog.Process();` to `ClassicProcess()` / `ClassicProcessBeforeMap()` (`Classic/GameScene.ClassicFrame.cs`). It runs whether visible or not — guard on `Visible` yourself.
 4. Open-side effects: override `Show()`/`Hide()` (`if (Visible) return; Visible = true; Network.Enqueue(...)`).
-5. Open via keybind (recipe below) or a `MenuDialog` button (`MainDialogs.cs`); add `MyDialog.Hide()` to the `KeybindOptions.Closeall` case (`GameScene.cs` ~L668).
+5. Open via keybind (recipe below) or a `MenuDialog` button (`MainDialogs.cs`); add `MyDialog.Hide()` to the `KeybindOptions.Closeall` case (`ClassicKeyBind`, `Classic/GameScene.ClassicFrame.cs`).
 6. Strings via `ClientTextKeys`; text input via `MirTextBox`; fonts via `new Font(Settings.FontName, 9F)`.
 7. Position persistence only if required: new `Settings` fields + Read/Write in `Load/Save` (the `SkillbarLocation` pattern).
 
@@ -671,6 +672,7 @@ No profiler, perf log, packet monitor, ILogger or telemetry exists.
 ### 5.2.1 Golden render tests (roadmap C1/C3/C4)
 - `tools\rendertest.ps1 -Mode Compare -Backend D3D9` (exact, must be IDENTICAL x15) and `-Mode Parity -Backend D3D11` after **any** change under `Client/MirGraphics`, `MirControls` texture code, `MapControl` drawing or the backends. `-Mode Smoke [-FullScreen]` runs the real loop for N seconds. Goldens live in `%USERPROFILE%\Mir2RenderGoldens\D3D9` (outside git). Details and the list of proven D3DX behaviours: `Knowledgebase/Client/D3D11-Parity.md`.
 - D3D11-only features with no D3D9 reference (enhanced lighting) get a **self-checked** scenario instead of a golden: `X01_enhanced_lights` runs in every D3D11 run, checks its image against `S02_objects` (ambient multiply, brightening, ≤ 2x under stacked lights) and fails the run (exit 1) on a mismatch; D3D9 runs log it as skipped. The classic paths keep their goldens.
+- **Offline UI test** (Desktop-Modern-UI-Plan phase 1a, 2026-10-18): `tools\uitest.ps1 [-UiStyle Modern] [-Label x] [-DiffWith y] [-Source <Client dir>]` runs `Client.exe --uitest`: a real `GameScene` with no server, fed synthetic packets (`Client/RenderTest/UiTestRunner.cs` script: items, belt, equip, split, buffs, chat, group, guild, trade, mail, NPC shop / sell, storage, refine, logout / relog), keybinds and item-cell clicks; it records every packet the client tries to send and writes one screenshot + state dump per step to `%TEMP%\mir2-uitest\<label>\out`. Run it after changing GameScene, the UI seam, `ItemMoves` or a classic dialog; for a "Classic unchanged" check, build a worktree of the previous commit with the same `UiTestRunner.cs` + hooks and diff (`-DiffWith`). Exit 1 = a step threw.
 - **NEVER** re-record goldens to make a failing compare pass; record only after an intended D3D9 change has been reviewed.
 - **NEVER** add `using SlimDX.Direct3D9` or any `Vortice` namespace outside `Client/MirGraphics/Rendering/`; new device features go into `IRenderBackend` (both backends) plus a DXManager helper, and get a golden scenario.
 

@@ -79,7 +79,7 @@ namespace Client.MirScenes.Dialogs
             };
             GoldLabel.Click += (o, e) =>
             {
-                if (GameScene.SelectedCell == null && GameScene.Gold > 0)
+                if (ItemMoves.Selected == null && GameScene.Gold > 0)
                 {
                     MirAmountBox amountBox = new MirAmountBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.TradeAmount), 116, GameScene.Gold);
 
@@ -194,9 +194,9 @@ namespace Client.MirScenes.Dialogs
     public sealed class GuestTradeDialog : MirImageControl
     {
         public MirItemCell[] GuestGrid;
-        public static UserItem[] GuestItems = new UserItem[10];
-        public string GuestName;
-        public uint GuestGold;
+        public static UserItem[] GuestItems { get => GameScene.Models.Trade.GuestItems; set => GameScene.Models.Trade.GuestItems = value; } // seam step 1: lives in GameScene.Models
+        public string GuestName { get => GameScene.Models.Trade.GuestName; set => GameScene.Models.Trade.GuestName = value; }
+        public uint GuestGold { get => GameScene.Models.Trade.GuestGold; set => GameScene.Models.Trade.GuestGold = value; }
 
         public MirLabel GuestNameLabel, GuestGoldLabel;
 

@@ -62,6 +62,10 @@ namespace Client.RenderTest
                         break;
                     case "--fullscreen": SmokeFullScreen = true; break;
                     case "--qa": QaMode = true; break;
+                    case "--uitest":
+                    case "--uistyle":
+                        UiTestRunner.ParseArg(args[i].ToLowerInvariant(), args, ref i);
+                        break;
                     case "--waive":
                         if (i + 1 < args.Length)
                         {
@@ -71,7 +75,7 @@ namespace Client.RenderTest
                         break;
                 }
             }
-            return Enabled || CompareMode || SmokeMode;
+            return Enabled || CompareMode || SmokeMode || UiTestRunner.Enabled;
         }
 
         /// <summary>Test-mode settings: applied after Settings.Load, never saved.</summary>
@@ -91,6 +95,7 @@ namespace Client.RenderTest
             Settings.Volume = 0;
             Settings.MusicVolume = 0;
             Settings.P_Patcher = false;
+            if (UiTestRunner.Enabled) UiTestRunner.ApplySettings();
         }
 
         private static void Log(string line)

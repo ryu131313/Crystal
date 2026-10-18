@@ -1,4 +1,5 @@
 ﻿using Client.MirGraphics.Rendering;
+using Client.MirScenes;
 using Client.MirSounds;
 
 namespace Client
@@ -77,6 +78,9 @@ namespace Client
         public static bool FPSCap = true;
         public static int MaxFPS = 100;
         public static RendererType Renderer = RendererType.D3D11; // [Graphics] Renderer: D3D11 (default since roadmap C4 QA, falls back to D3D9 if it cannot start) or D3D9
+        // [Interface] UiStyle: Default / Modern / Classic (Desktop-Modern-UI-Plan D6). Default resolves to Classic until phase 5;
+        // a saved Classic always wins. Read once per GameScene (UiStyles.IsModern), so a change takes effect on the next log in.
+        public static UiStyle UiStyle = UiStyle.Default;
         public static int Resolution = 1024;
         public static bool DebugMode = false;
         // [Graphics] RebuildOptimisations: fewer UI/map render-target rebuilds (live skill-bar/minimap overlays, no blind 100 ms map
@@ -229,6 +233,9 @@ namespace Client
             Lighting = Enum.TryParse(Reader.ReadString("Graphics", "Lighting", Lighting.ToString()), true, out LightingMode lighting) ? lighting : LightingMode.Classic;
             UseMouseCursors = Reader.ReadBoolean("Graphics", "UseMouseCursors", UseMouseCursors);
 
+            //Interface
+            UiStyle = Enum.TryParse(Reader.ReadString("Interface", "UiStyle", UiStyle.ToString()), true, out UiStyle uiStyle) && Enum.IsDefined(uiStyle) ? uiStyle : UiStyle.Default;
+
             //Network
             UseConfig = Reader.ReadBoolean("Network", "UseConfig", UseConfig);
             if (UseConfig)
@@ -353,6 +360,7 @@ namespace Client
             Reader.Write("Graphics", "FPSCap", FPSCap);
             Reader.Write("Graphics", "MaxFPS", MaxFPS);
             Reader.Write("Graphics", "Renderer", Renderer.ToString());
+            Reader.Write("Interface", "UiStyle", UiStyle.ToString());
             Reader.Write("Logs", "LogErrors", LogErrors); // roadmap C1: [Logs] was load-only
             Reader.Write("Logs", "LogChat", LogChat);
             Reader.Write("Graphics", "Resolution", Resolution);

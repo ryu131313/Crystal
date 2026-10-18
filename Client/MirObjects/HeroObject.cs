@@ -1,5 +1,5 @@
 ﻿using Client.MirControls;
-using Client.MirScenes.Dialogs;
+using Client.MirScenes;
 using S = ServerPackets;
 
 namespace Client.MirObjects
@@ -16,7 +16,7 @@ namespace Client.MirObjects
 
         public override bool ShouldDrawHealth()
         {
-            if (GroupDialog.GroupList.Contains(OwnerName) || OwnerName == User.Name)
+            if (GameScene.Models.Group.Contains(OwnerName) || OwnerName == User.Name)
             {
                 return true;
             }

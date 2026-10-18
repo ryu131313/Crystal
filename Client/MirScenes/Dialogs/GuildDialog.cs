@@ -28,9 +28,10 @@ namespace Client.MirScenes.Dialogs
         public MirImageControl BuffPage, StatusPage, StatusPageBase;
 
         public GuildBuffButton[] Buffs;
-        private bool RequestedList = false;
-        public List<GuildBuffInfo> GuildBuffInfos = new List<GuildBuffInfo>();
-        public List<GuildBuff> EnabledBuffs = new List<GuildBuff>();
+        // The guild data lives in GameScene.Models.Guild (Desktop-Modern-UI-Plan seam step 1); these forward to it.
+        private bool RequestedList { get => GameScene.Models.Guild.BuffListRequested; set => GameScene.Models.Guild.BuffListRequested = value; }
+        public List<GuildBuffInfo> GuildBuffInfos => GameScene.Models.Guild.BuffInfos;
+        public List<GuildBuff> EnabledBuffs => GameScene.Models.Guild.EnabledBuffs;
         public int StartIndex = 0;
         private long LastRequest = 0;
 
@@ -38,19 +39,19 @@ namespace Client.MirScenes.Dialogs
         #endregion
 
         #region DataValues
-        public byte Level;
-        public long Experience;
-        public long MaxExperience;
-        public uint Gold;
-        public byte SparePoints;
-        public int MemberCount;
-        public int MaxMembers;
-        public bool Voting;
-        public byte ItemCount;
-        public byte BuffCount;
-        public static int MyRankId;
-        public static GuildRankOptions MyOptions;
-        public List<GuildRank> Ranks = new List<GuildRank>();
+        public byte Level { get => GameScene.Models.Guild.Level; set => GameScene.Models.Guild.Level = value; }
+        public long Experience { get => GameScene.Models.Guild.Experience; set => GameScene.Models.Guild.Experience = value; }
+        public long MaxExperience { get => GameScene.Models.Guild.MaxExperience; set => GameScene.Models.Guild.MaxExperience = value; }
+        public uint Gold { get => GameScene.Models.Guild.Gold; set => GameScene.Models.Guild.Gold = value; }
+        public byte SparePoints { get => GameScene.Models.Guild.SparePoints; set => GameScene.Models.Guild.SparePoints = value; }
+        public int MemberCount { get => GameScene.Models.Guild.MemberCount; set => GameScene.Models.Guild.MemberCount = value; }
+        public int MaxMembers { get => GameScene.Models.Guild.MaxMembers; set => GameScene.Models.Guild.MaxMembers = value; }
+        public bool Voting { get => GameScene.Models.Guild.Voting; set => GameScene.Models.Guild.Voting = value; }
+        public byte ItemCount { get => GameScene.Models.Guild.ItemCount; set => GameScene.Models.Guild.ItemCount = value; }
+        public byte BuffCount { get => GameScene.Models.Guild.BuffCount; set => GameScene.Models.Guild.BuffCount = value; }
+        public static int MyRankId { get => GameScene.Models.Guild.MyRankId; set => GameScene.Models.Guild.MyRankId = value; }
+        public static GuildRankOptions MyOptions { get => GameScene.Models.Guild.MyOptions; set => GameScene.Models.Guild.MyOptions = value; }
+        public List<GuildRank> Ranks { get => GameScene.Models.Guild.Ranks; set => GameScene.Models.Guild.Ranks = value; }
         public bool MembersChanged = true;
         public long LastMemberRequest = 0;
         public long LastGuildMsg = 0;

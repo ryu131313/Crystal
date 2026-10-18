@@ -12,12 +12,22 @@ using Effect = Client.MirObjects.Effect;
 using Client.MirScenes.Dialogs;
 using Client.Utils;
 using Client.MirGraphics.Particles;
+using Client.MirScenes.Classic;
+using Client.MirScenes.Models;
+using Client.MirScenes.Modern;
 
 namespace Client.MirScenes
 {
-    public sealed class GameScene : MirScene
+    public sealed partial class GameScene : MirScene
     {
         public static GameScene Scene;
+        /// <summary>The model layer of this game (seam step 1); built before the UI, nulled in Dispose.</summary>
+        public static GameModels Models;
+        /// <summary>The UI of this game: ClassicUi or ModernUi (seam step 2); everything classic goes through it.</summary>
+        public static IGameUi Ui;
+        /// <summary>This scene's own Models / Ui, so Dispose clears the statics only while they are still this scene's.</summary>
+        private GameModels _models;
+        private IGameUi _ui;
         public static bool Observing;
         public static bool AllowObserve;
 
@@ -50,100 +60,12 @@ namespace Client.MirScenes
                 if (hasHero == value) return;
 
                 hasHero = value;
-                MainDialog.HeroSummonButton.Visible = value;
+                Ui.HasHeroChanged(value);
             }
         }
         public HeroSpawnState HeroSpawnState;
         public List<ParticleEngine> ParticleEngines = new List<ParticleEngine>();
         public MapControl MapControl;
-        public MainDialog MainDialog;
-        public ChatDialog ChatDialog;
-        public ChatControlBar ChatControl;
-        public InventoryDialog InventoryDialog;
-        public CharacterDialog CharacterDialog;
-        public CharacterDialog HeroDialog;
-        public HeroInventoryDialog HeroInventoryDialog;
-        public HeroManageDialog HeroManageDialog;
-        public CraftDialog CraftDialog;
-        public StorageDialog StorageDialog;
-        public BeltDialog BeltDialog;
-        public MiniMapDialog MiniMapDialog;
-        public InspectDialog InspectDialog;
-        public OptionDialog OptionDialog;
-        public MenuDialog MenuDialog;
-        public NPCDialog NPCDialog;
-        public NPCGoodsDialog NPCGoodsDialog;
-        public NPCGoodsDialog NPCSubGoodsDialog;
-        public NPCGoodsDialog NPCCraftGoodsDialog;
-        public NPCDropDialog NPCDropDialog;
-        public NPCAwakeDialog NPCAwakeDialog;
-        public HelpDialog HelpDialog;
-        public MountDialog MountDialog;
-        public FishingDialog FishingDialog;
-        public FishingStatusDialog FishingStatusDialog;
-        public RefineDialog RefineDialog;
-
-        public GroupDialog GroupDialog;
-        public GuildDialog GuildDialog;
-        public GuildTerritoryDialog GuildTerritoryDialog;
-        public NewCharacterDialog NewHeroDialog;
-        public HeroBeltDialog HeroBeltDialog;
-
-        public BigMapDialog BigMapDialog;
-        public TrustMerchantDialog TrustMerchantDialog;
-        public CharacterDuraPanel CharacterDuraPanel;
-        public DuraStatusDialog DuraStatusPanel;
-        public TradeDialog TradeDialog;
-        public GuestTradeDialog GuestTradeDialog;
-
-        public HeroMenuPanel HeroMenuPanel;
-        public HeroBehaviourPanel HeroBehaviourPanel;
-        public SocketDialog SocketDialog;
-
-        public List<SkillBarDialog> SkillBarDialogs = new List<SkillBarDialog>();
-        public ChatOptionDialog ChatOptionDialog;
-        public ChatNoticeDialog ChatNoticeDialog;
-
-        public QuestListDialog QuestListDialog;
-        public QuestDetailDialog QuestDetailDialog;
-        public QuestDiaryDialog QuestLogDialog;
-        public QuestTrackingDialog QuestTrackingDialog;
-
-        public RankingDialog RankingDialog;
-
-        public MailListDialog MailListDialog;
-        public MailComposeLetterDialog MailComposeLetterDialog;
-        public MailComposeParcelDialog MailComposeParcelDialog;
-        public MailReadLetterDialog MailReadLetterDialog;
-        public MailReadParcelDialog MailReadParcelDialog;
-
-        public IntelligentCreatureDialog IntelligentCreatureDialog;
-        public IntelligentCreatureOptionsDialog IntelligentCreatureOptionsDialog;
-        public IntelligentCreatureOptionsGradeDialog IntelligentCreatureOptionsGradeDialog;
-
-        public FriendDialog FriendDialog;
-        public MemoDialog MemoDialog;
-        public RelationshipDialog RelationshipDialog;
-        public MentorDialog MentorDialog;
-        public GameShopDialog GameShopDialog;
-
-        public ReportDialog ReportDialog;
-
-        public ItemRentingDialog ItemRentingDialog;
-        public ItemRentDialog ItemRentDialog;
-        public GuestItemRentingDialog GuestItemRentingDialog;
-        public GuestItemRentDialog GuestItemRentDialog;
-        public ItemRentalDialog ItemRentalDialog;
-
-        public BuffDialog BuffsDialog;
-        public BuffDialog HeroBuffsDialog;
-
-        public KeyboardLayoutDialog KeyboardLayoutDialog;
-        public NoticeDialog NoticeDialog;
-
-        public TimerDialog TimerControl;
-        public CompassDialog CompassControl;
-        public RollDialog RollControl;
 
 
         public static List<ItemInfo> ItemInfoList = new List<ItemInfo>();
@@ -152,7 +74,6 @@ namespace Client.MirScenes
         public static List<ClientQuestInfo> QuestInfoList = new List<ClientQuestInfo>();
         public static List<GameShopItem> GameShopInfoList = new List<GameShopItem>();
         public static List<ClientRecipeInfo> RecipeInfoList = new List<ClientRecipeInfo>();
-        public static Dictionary<int, BigMapRecord> MapInfoList = new Dictionary<int, BigMapRecord>();
         public static List<ClientHeroInformation> HeroInfoList = new List<ClientHeroInformation>();
         public static ClientHeroInformation[] HeroStorage = new ClientHeroInformation[8];
         public static Dictionary<long, RankCharacterInfo> RankingList = new Dictionary<long, RankCharacterInfo>();
@@ -303,10 +224,8 @@ namespace Client.MirScenes
         public static UserItem[] GuildStorage = new UserItem[112];
         public static UserItem[] Refine = new UserItem[16];
         public static UserItem HoverItem, SelectedItem;
-        public static MirItemCell SelectedCell;
 
         public static bool PickedUpGold;
-        public MirControl ItemLabel, MailLabel, MemoLabel, GuildBuffLabel;
         public static long UseItemTime, PickUpTime, DropViewTime, TargetDeadTime;
         public static uint Gold, Credit;
         public static long InspectTime;
@@ -331,7 +250,6 @@ namespace Client.MirScenes
         public long ToggleTime;
         public static long SpellTime;
 
-        public MirLabel[] OutputLines = new MirLabel[10];
         public List<OutPutMessage> OutputMessages = new List<OutPutMessage>();
 
         public long OutputDelay;
@@ -350,131 +268,10 @@ namespace Client.MirScenes
 
             KeyDown += GameScene_KeyDown;
 
-            MainDialog = new MainDialog { Parent = this };
-            ChatDialog = new ChatDialog { Parent = this };
-            ChatControl = new ChatControlBar { Parent = this };
-            InventoryDialog = new InventoryDialog { Parent = this };
-            BeltDialog = new BeltDialog { Parent = this };
-            StorageDialog = new StorageDialog { Parent = this, Visible = false };
-            CraftDialog = new CraftDialog { Parent = this, Visible = false };
-            MiniMapDialog = new MiniMapDialog { Parent = this };
-            InspectDialog = new InspectDialog { Parent = this, Visible = false };
-            OptionDialog = new OptionDialog { Parent = this, Visible = false };
-            MenuDialog = new MenuDialog { Parent = this, Visible = false };
-            NPCDialog = new NPCDialog { Parent = this, Visible = false };
-            NPCGoodsDialog = new NPCGoodsDialog(PanelType.Buy) { Parent = this, Visible = false };
-            NPCSubGoodsDialog = new NPCGoodsDialog(PanelType.BuySub) { Parent = this, Visible = false };
-            NPCCraftGoodsDialog = new NPCGoodsDialog(PanelType.Craft) { Parent = this, Visible = false };
-            NPCDropDialog = new NPCDropDialog { Parent = this, Visible = false };
-            NPCAwakeDialog = new NPCAwakeDialog { Parent = this, Visible = false, Location = new Point(0, GameScene.Scene.NPCDialog.Size.Height) };
-
-            HelpDialog = new HelpDialog { Parent = this, Visible = false };
-            KeyboardLayoutDialog = new KeyboardLayoutDialog { Parent = this, Visible = false };
-            NoticeDialog = new NoticeDialog { Parent = this, Visible = false };
-
-            MountDialog = new MountDialog { Parent = this, Visible = false };
-            FishingDialog = new FishingDialog { Parent = this, Visible = false };
-            FishingStatusDialog = new FishingStatusDialog { Parent = this, Visible = false };
-
-            GroupDialog = new GroupDialog { Parent = this, Visible = false };
-            GuildDialog = new GuildDialog { Parent = this, Visible = false };
-            GuildTerritoryDialog = new GuildTerritoryDialog { Parent = this, Visible = false };
-            NewHeroDialog = new NewCharacterDialog { Parent = this, Visible = false };
-            NewHeroDialog.TitleLabel.Index = 847;
-            NewHeroDialog.TitleLabel.Location = new Point(246, 11);
-            NewHeroDialog.OnCreateCharacter += (o, e) =>
-            {
-                Network.Enqueue(new C.NewHero
-                {
-                    Name = NewHeroDialog.NameTextBox.Text,
-                    Class = NewHeroDialog.Class,
-                    Gender = NewHeroDialog.Gender
-                });
-            };
-
-            HeroMenuPanel = new HeroMenuPanel(this) { Visible = false };
-            HeroBehaviourPanel = new HeroBehaviourPanel { Parent = this, Visible = false };
-            HeroManageDialog = new HeroManageDialog { Parent = this, Visible = false };
-
-            BigMapDialog = new BigMapDialog { Parent = this, Visible = false };
-            TrustMerchantDialog = new TrustMerchantDialog { Parent = this, Visible = false };
-            CharacterDuraPanel = new CharacterDuraPanel { Parent = this, Visible = false };
-            DuraStatusPanel = new DuraStatusDialog { Parent = this, Visible = true };
-            TradeDialog = new TradeDialog { Parent = this, Visible = false };
-            GuestTradeDialog = new GuestTradeDialog { Parent = this, Visible = false };
-
-            SocketDialog = new SocketDialog { Parent = this, Visible = false };
-
-            SkillBarDialog Bar1 = new SkillBarDialog { Parent = this, Visible = false, BarIndex = 0 };
-            SkillBarDialogs.Add(Bar1);
-            SkillBarDialog Bar2 = new SkillBarDialog { Parent = this, Visible = false, BarIndex = 1 };
-            SkillBarDialogs.Add(Bar2);
-
-            // Cooldown sweeps and minimap dots change many times a second; as live overlays they re-render only themselves.
-            AddLiveOverlay(Bar1);
-            AddLiveOverlay(Bar2);
-            AddLiveOverlay(MiniMapDialog);
-            ChatOptionDialog = new ChatOptionDialog { Parent = this, Visible = false };
-            ChatNoticeDialog = new ChatNoticeDialog { Parent = this, Visible = false };
-
-            QuestListDialog = new QuestListDialog { Parent = this, Visible = false };
-            QuestDetailDialog = new QuestDetailDialog { Parent = this, Visible = false };
-            QuestTrackingDialog = new QuestTrackingDialog { Parent = this, Visible = false };
-            QuestLogDialog = new QuestDiaryDialog { Parent = this, Visible = false };
-
-            RankingDialog = new RankingDialog { Parent = this, Visible = false };
-
-            MailListDialog = new MailListDialog { Parent = this, Visible = false };
-            MailComposeLetterDialog = new MailComposeLetterDialog { Parent = this, Visible = false };
-            MailComposeParcelDialog = new MailComposeParcelDialog { Parent = this, Visible = false };
-            MailReadLetterDialog = new MailReadLetterDialog { Parent = this, Visible = false };
-            MailReadParcelDialog = new MailReadParcelDialog { Parent = this, Visible = false };
-
-            IntelligentCreatureDialog = new IntelligentCreatureDialog { Parent = this, Visible = false };
-            IntelligentCreatureOptionsDialog = new IntelligentCreatureOptionsDialog { Parent = this, Visible = false };
-            IntelligentCreatureOptionsGradeDialog = new IntelligentCreatureOptionsGradeDialog { Parent = this, Visible = false };
-
-            RefineDialog = new RefineDialog { Parent = this, Visible = false };
-            RelationshipDialog = new RelationshipDialog { Parent = this, Visible = false };
-            FriendDialog = new FriendDialog { Parent = this, Visible = false };
-            MemoDialog = new MemoDialog { Parent = this, Visible = false };
-            MentorDialog = new MentorDialog { Parent = this, Visible = false };
-            GameShopDialog = new GameShopDialog { Parent = this, Visible = false };
-            ReportDialog = new ReportDialog { Parent = this, Visible = false };
-
-            ItemRentingDialog = new ItemRentingDialog { Parent = this, Visible = false };
-            ItemRentDialog = new ItemRentDialog { Parent = this, Visible = false };
-            GuestItemRentingDialog = new GuestItemRentingDialog { Parent = this, Visible = false };
-            GuestItemRentDialog = new GuestItemRentDialog { Parent = this, Visible = false };
-            ItemRentalDialog = new ItemRentalDialog { Parent = this, Visible = false };
-
-            BuffsDialog = new BuffDialog
-            {
-                Parent = this,
-                Visible = true,
-                GetExpandedParameter = () => { return Settings.ExpandedBuffWindow; },
-                SetExpandedParameter = (value) => { Settings.ExpandedBuffWindow = value; }
-            };
-
-            KeyboardLayoutDialog = new KeyboardLayoutDialog { Parent = this, Visible = false };
-
-            TimerControl = new TimerDialog { Parent = this, Visible = false };
-            CompassControl = new CompassDialog { Parent = this, Visible = false };
-            RollControl = new RollDialog { Parent = this, Visible = false };
-
-            for (int i = 0; i < OutputLines.Length; i++)
-                OutputLines[i] = new MirLabel
-                {
-                    AutoSize = true,
-                    BackColour = Color.Transparent,
-                    Font = new Font(Settings.FontName, 10F),
-                    ForeColour = Color.LimeGreen,
-                    Location = new Point(20, 25 + i * 13),
-                    OutLine = true,
-                };
-
-            if (MapInfoList.Count > 0)
-                RecreateBigMapButtons();
+            ItemMoves.Reset();
+            Models = _models = new GameModels();
+            Ui = _ui = UiStyles.IsModern ? new ModernUi(this) : new ClassicUi(this);
+            Ui.Build();
         }
 
         private void UpdateMouseCursor()
@@ -483,7 +280,7 @@ namespace Client.MirScenes
 
             if (GameScene.HoverItem != null)
             {
-                if (GameScene.SelectedCell != null && GameScene.SelectedCell.Item != null && GameScene.SelectedCell.Item.Info.Type == ItemType.Gem && CMain.Ctrl)
+                if (ItemMoves.Selected != null && ItemMoves.Selected.Item != null && ItemMoves.Selected.Item.Info.Type == ItemType.Gem && CMain.Ctrl)
                 {
                     CMain.SetMouseCursor(MouseCursor.Upgrade);
                 }
@@ -539,42 +336,12 @@ namespace Client.MirScenes
                     OutputMessages.RemoveAt(i);
             }
 
-            for (int i = 0; i < OutputLines.Length; i++)
-            {
-                if (OutputMessages.Count > i)
-                {
-                    Color color;
-                    switch (OutputMessages[i].Type)
-                    {
-                        case OutputMessageType.Quest:
-                            color = Color.Gold;
-                            break;
-                        case OutputMessageType.Guild:
-                            color = Color.DeepPink;
-                            break;
-                        default:
-                            color = Color.LimeGreen;
-                            break;
-                    }
-
-                    OutputLines[i].Text = OutputMessages[i].Message;
-                    OutputLines[i].ForeColour = color;
-                    OutputLines[i].Visible = true;
-                }
-                else
-                {
-                    OutputLines[i].Text = string.Empty;
-                    OutputLines[i].Visible = false;
-                }
-            }
+            Ui.ProcessOutput();
         }
         private void GameScene_KeyDown(object sender, KeyEventArgs e)
         {
-            if (GameScene.Scene.KeyboardLayoutDialog.WaitingForBind != null)
-            {
-                GameScene.Scene.KeyboardLayoutDialog.CheckNewInput(e);
+            if (Ui.CapturesKey(e))
                 return;
-            }
 
             foreach (KeyBind KeyCheck in CMain.InputKeys.Keylist)
             {
@@ -622,176 +389,10 @@ namespace Client.MirScenes
                     case KeybindOptions.HeroSkill6: UseSpell(22); break;
                     case KeybindOptions.HeroSkill7: UseSpell(23); break;
                     case KeybindOptions.HeroSkill8: UseSpell(24); break;
-                    case KeybindOptions.Inventory:
-                    case KeybindOptions.Inventory2:
-                        if (!InventoryDialog.Visible) InventoryDialog.Show();
-                        else InventoryDialog.Hide();
-                        break;
-                    case KeybindOptions.Equipment:
-                    case KeybindOptions.Equipment2:
-                        if (!CharacterDialog.Visible || !CharacterDialog.CharacterPage.Visible)
-                        {
-                            CharacterDialog.Show();
-                            CharacterDialog.ShowCharacterPage();
-                        }
-                        else CharacterDialog.Hide();
-                        break;
-                    case KeybindOptions.Skills:
-                    case KeybindOptions.Skills2:
-                        if (!CharacterDialog.Visible || !CharacterDialog.SkillPage.Visible)
-                        {
-                            CharacterDialog.Show();
-                            CharacterDialog.ShowSkillPage();
-                        }
-                        else CharacterDialog.Hide();
-                        break;
-                    case KeybindOptions.HeroInventory:
-                        if (Hero == null)
-                            break;
-                        if (!HeroInventoryDialog.Visible) HeroInventoryDialog.Show();
-                        else HeroInventoryDialog.Hide();
-                        break;
-                    case KeybindOptions.HeroEquipment:
-                        if (Hero == null)
-                            break;
-                        if (!HeroDialog.Visible || !HeroDialog.CharacterPage.Visible)
-                        {
-                            HeroDialog.Show();
-                            HeroDialog.ShowCharacterPage();
-                        }
-                        else HeroDialog.Hide();
-                        break;
-                    case KeybindOptions.HeroSkills:
-                        if (Hero == null)
-                            break;
-                        if (!HeroDialog.Visible || !HeroDialog.SkillPage.Visible)
-                        {
-                            HeroDialog.Show();
-                            HeroDialog.ShowSkillPage();
-                        }
-                        else HeroDialog.Hide();
-                        break;
-                    case KeybindOptions.Creature:
-                        if (!IntelligentCreatureDialog.Visible) IntelligentCreatureDialog.Show();
-                        else IntelligentCreatureDialog.Hide();
-                        break;
-                    case KeybindOptions.MountWindow:
-                        if (!MountDialog.Visible) MountDialog.Show();
-                        else MountDialog.Hide();
-                        break;
-
-                    case KeybindOptions.GameShop:
-                        if (!GameShopDialog.Visible) GameShopDialog.Show();
-                        else GameShopDialog.Hide();
-                        break;
-                    case KeybindOptions.Fishing:
-                        if (!FishingDialog.Visible) FishingDialog.Show();
-                        else FishingDialog.Hide();
-                        break;
-                    case KeybindOptions.Skillbar:
-                        if (!Settings.SkillBar)
-                            foreach (SkillBarDialog Bar in SkillBarDialogs)
-                                Bar.Show();
-                        else
-                            foreach (SkillBarDialog Bar in SkillBarDialogs)
-                                Bar.Hide();
-                        break;
-                    case KeybindOptions.Mount:
-                        if (GameScene.Scene.MountDialog.CanRide())
-                            GameScene.Scene.MountDialog.Ride();
-                        break;
-                    case KeybindOptions.Mentor:
-                        if (!MentorDialog.Visible) MentorDialog.Show();
-                        else MentorDialog.Hide();
-                        break;
-                    case KeybindOptions.Relationship:
-                        if (!RelationshipDialog.Visible) RelationshipDialog.Show();
-                        else RelationshipDialog.Hide();
-                        break;
-                    case KeybindOptions.Friends:
-                        if (!FriendDialog.Visible) FriendDialog.Show();
-                        else FriendDialog.Hide();
-                        break;
-                    case KeybindOptions.Guilds:
-                        if (!GuildDialog.Visible) GuildDialog.Show();
-                        else
-                        {
-                            GuildDialog.Hide();
-                        }
-                        break;
-
-                    case KeybindOptions.Ranking:
-                        if (!RankingDialog.Visible) RankingDialog.Show();
-                        else RankingDialog.Hide();
-                        break;
-                    case KeybindOptions.Quests:
-                        if (!QuestLogDialog.Visible) QuestLogDialog.Show();
-                        else QuestLogDialog.Hide();
-                        break;
                     case KeybindOptions.Exit:
                         QuitGame();
                         return;
 
-                    case KeybindOptions.Closeall:
-                        InventoryDialog.Hide();
-                        CharacterDialog.Hide();
-                        OptionDialog.Hide();
-                        MenuDialog.Hide();
-                        if (NPCDialog.Visible) NPCDialog.Hide();
-                        HelpDialog.Hide();
-                        KeyboardLayoutDialog.Hide();
-                        RankingDialog.Hide();
-                        IntelligentCreatureDialog.Hide();
-                        IntelligentCreatureOptionsDialog.Hide();
-                        IntelligentCreatureOptionsGradeDialog.Hide();
-                        MountDialog.Hide();
-                        FishingDialog.Hide();
-                        FriendDialog.Hide();
-                        RelationshipDialog.Hide();
-                        MentorDialog.Hide();
-                        GameShopDialog.Hide();
-                        GroupDialog.Hide();
-                        GuildDialog.Hide();
-                        InspectDialog.Hide();
-                        StorageDialog.Hide();
-                        TrustMerchantDialog.Hide();
-                        //CharacterDuraPanel.Hide();
-                        QuestListDialog.Hide();
-                        QuestDetailDialog.Hide();
-                        QuestLogDialog.Hide();
-                        NPCAwakeDialog.Hide();
-                        RefineDialog.Hide();
-                        BigMapDialog.Hide();
-                        if (FishingStatusDialog.bEscExit) FishingStatusDialog.Cancel();
-                        MailComposeLetterDialog.Hide();
-                        MailComposeParcelDialog.Hide();
-                        MailListDialog.Hide();
-                        MailReadLetterDialog.Hide();
-                        MailReadParcelDialog.Hide();
-                        ItemRentalDialog.Hide();
-                        NoticeDialog.Hide();
-                        HeroInventoryDialog?.Hide();
-                        HeroManageDialog?.Hide();
-                        HeroDialog?.Hide();
-
-                        GameScene.Scene.DisposeItemLabel();
-                        break;
-                    case KeybindOptions.Options:
-                    case KeybindOptions.Options2:
-                        if (!OptionDialog.Visible) OptionDialog.Show();
-                        else OptionDialog.Hide();
-                        break;
-                    case KeybindOptions.Group:
-                        if (!GroupDialog.Visible) GroupDialog.Show();
-                        else GroupDialog.Hide();
-                        break;
-                    case KeybindOptions.Belt:
-                        if (!BeltDialog.Visible) BeltDialog.Show();
-                        else BeltDialog.Hide();
-                        break;
-                    case KeybindOptions.BeltFlip:
-                        BeltDialog.Flip();
-                        break;
                     case KeybindOptions.Pickup:
                         if (CMain.Time > PickUpTime)
                         {
@@ -801,50 +402,33 @@ namespace Client.MirScenes
                         break;
                     case KeybindOptions.Belt1:
                     case KeybindOptions.Belt1Alt:
-                        BeltDialog.Grid[0].UseItem();
+                        ItemMoves.Use(MirGridType.Inventory, 0);
                         break;
                     case KeybindOptions.Belt2:
                     case KeybindOptions.Belt2Alt:
-                        BeltDialog.Grid[1].UseItem();
+                        ItemMoves.Use(MirGridType.Inventory, 1);
                         break;
                     case KeybindOptions.Belt3:
                     case KeybindOptions.Belt3Alt:
-                        BeltDialog.Grid[2].UseItem();
+                        ItemMoves.Use(MirGridType.Inventory, 2);
                         break;
                     case KeybindOptions.Belt4:
                     case KeybindOptions.Belt4Alt:
-                        BeltDialog.Grid[3].UseItem();
+                        ItemMoves.Use(MirGridType.Inventory, 3);
                         break;
                     case KeybindOptions.Belt5:
                     case KeybindOptions.Belt5Alt:
-                        BeltDialog.Grid[4].UseItem();
+                        ItemMoves.Use(MirGridType.Inventory, 4);
                         break;
                     case KeybindOptions.Belt6:
                     case KeybindOptions.Belt6Alt:
-                        BeltDialog.Grid[5].UseItem();
-                        break;
-                    case KeybindOptions.Belt7:
-                    case KeybindOptions.Belt7Alt:
-                        HeroBeltDialog?.Grid[0].UseItem();
-                        break;
-                    case KeybindOptions.Belt8:
-                    case KeybindOptions.Belt8Alt:
-                        HeroBeltDialog?.Grid[1].UseItem();
+                        ItemMoves.Use(MirGridType.Inventory, 5);
                         break;
                     case KeybindOptions.Logout:
                         LogOut();
                         break;
-                    case KeybindOptions.Minimap:
-                        MiniMapDialog.Toggle();
-                        break;
-                    case KeybindOptions.Bigmap:
-                        BigMapDialog.Toggle();
-                        break;
                     case KeybindOptions.Trade:
                         Network.Enqueue(new C.TradeRequest());
-                        break;
-                    case KeybindOptions.Rental:
-                        ItemRentalDialog.Toggle();
                         break;
                     case KeybindOptions.ChangePetmode:
                         ChangePetMode();
@@ -900,41 +484,8 @@ namespace Client.MirScenes
                         Network.Enqueue(new C.ChangeAMode { Mode = AttackMode.All });
                         return;
 
-                    case KeybindOptions.Help:
-                        if (!HelpDialog.Visible) HelpDialog.Show();
-                        else HelpDialog.Hide();
-                        break;
-                    case KeybindOptions.Keybind:
-                        if (!KeyboardLayoutDialog.Visible) KeyboardLayoutDialog.Show();
-                        else KeyboardLayoutDialog.Hide();
-                        break;
                     case KeybindOptions.Autorun:
                         MapControl.AutoRun = !MapControl.AutoRun;
-                        break;
-                    case KeybindOptions.Cameramode:
-
-                        if (!MainDialog.Visible)
-                        {
-                            MainDialog.Show();
-                            ChatDialog.Show();
-                            BeltDialog.Show();
-                            ChatControl.Show();
-                            MiniMapDialog.Show();
-                            CharacterDuraPanel.Show();
-                            DuraStatusPanel.Show();
-                            BuffsDialog.Show();
-                        }
-                        else
-                        {
-                            MainDialog.Hide();
-                            ChatDialog.Hide();
-                            BeltDialog.Hide();
-                            ChatControl.Hide();
-                            MiniMapDialog.Hide();
-                            CharacterDuraPanel.Hide();
-                            DuraStatusPanel.Hide();
-                            BuffsDialog.Hide();
-                        }
                         break;
                     case KeybindOptions.DropView:
                         if (CMain.Time > DropViewTime)
@@ -945,11 +496,8 @@ namespace Client.MirScenes
                         if (CMain.Time > TargetDeadTime)
                             TargetDeadTime = CMain.Time + 5000;
                         break;
-                    case KeybindOptions.AddGroupMember:
-                        if (MapObject.MouseObject == null) break;
-                        if (MapObject.MouseObject.Race != ObjectType.Player) break;
-
-                        GameScene.Scene.GroupDialog.AddMember(MapObject.MouseObject.Name);
+                    default:
+                        Ui.KeyBind(KeyCheck.function);
                         break;
                 }
             }
@@ -960,14 +508,14 @@ namespace Client.MirScenes
             if (Settings.SkillMode || ctrl == true)
             {
                 Settings.SkillMode = false;
-                GameScene.Scene.ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.SkillModeCtrl), ChatType.Hint);
-                GameScene.Scene.OptionDialog.ToggleSkillButtons(true);
+                GameScene.Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.SkillModeCtrl), ChatType.Hint);
+                Ui.SkillModeChanged(true);
             }
             else if (!Settings.SkillMode || ctrl == false)
             {
                 Settings.SkillMode = true;
-                GameScene.Scene.ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.SkillModeTilde), ChatType.Hint);
-                GameScene.Scene.OptionDialog.ToggleSkillButtons(false);
+                GameScene.Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.SkillModeTilde), ChatType.Hint);
+                Ui.SkillModeChanged(false);
             }
         }
 
@@ -1043,7 +591,7 @@ namespace Client.MirScenes
 
             if (!actor.HasClassWeapon && actor.Weapon >= 0)
             {
-                ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.MustWearSuitableWeapon), ChatType.System);
+                Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.MustWearSuitableWeapon), ChatType.System);
                 return;
             }
 
@@ -1094,7 +642,7 @@ namespace Client.MirScenes
                 case Spell.Thrusting:
                     if (CMain.Time < ToggleTime) return;
                     actor.Thrusting = !actor.Thrusting;
-                    ChatDialog.ReceiveChat(
+                    Models.Chat.Add(
                         prefix + (actor.Thrusting ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.UseThrusting) : GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.DoNotUseThrusting)),
                         ChatType.Hint);
                     ToggleTime = CMain.Time + 1000;
@@ -1103,7 +651,7 @@ namespace Client.MirScenes
                 case Spell.HalfMoon:
                     if (CMain.Time < ToggleTime) return;
                     actor.HalfMoon = !actor.HalfMoon;
-                    ChatDialog.ReceiveChat(
+                    Models.Chat.Add(
                         prefix + (actor.HalfMoon ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.UseHalfMoon) : GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.DoNotUseHalfMoon)),
                         ChatType.Hint);
                     ToggleTime = CMain.Time + 1000;
@@ -1112,7 +660,7 @@ namespace Client.MirScenes
                 case Spell.CrossHalfMoon:
                     if (CMain.Time < ToggleTime) return;
                     actor.CrossHalfMoon = !actor.CrossHalfMoon;
-                    ChatDialog.ReceiveChat(
+                    Models.Chat.Add(
                         prefix + (actor.CrossHalfMoon ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.UseCrossHalfMoon) : GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.DoNotUseCrossHalfMoon)),
                         ChatType.Hint);
                     ToggleTime = CMain.Time + 1000;
@@ -1121,7 +669,7 @@ namespace Client.MirScenes
                 case Spell.DoubleSlash:
                     if (CMain.Time < ToggleTime) return;
                     actor.DoubleSlash = !actor.DoubleSlash;
-                    ChatDialog.ReceiveChat(
+                    Models.Chat.Add(
                         prefix + (actor.DoubleSlash ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.UseDoubleSlash) : GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.DoNotUseDoubleSlash)),
                         ChatType.Hint);
                     ToggleTime = CMain.Time + 1000;
@@ -1201,7 +749,7 @@ namespace Client.MirScenes
             }
             else
             {
-                ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.CannotLeaveGame), (LogTime - CMain.Time) / 1000), ChatType.System);
+                Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.CannotLeaveGame), (LogTime - CMain.Time) / 1000), ChatType.System);
             }
         }
         public void LogOut()
@@ -1219,7 +767,7 @@ namespace Client.MirScenes
             }
             else
             {
-                ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.CannotLeaveGame), (LogTime - CMain.Time) / 1000), ChatType.System);
+                Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.CannotLeaveGame), (LogTime - CMain.Time) / 1000), ChatType.System);
             }
         }
 
@@ -1230,9 +778,9 @@ namespace Client.MirScenes
             base.DrawControl();
 
 
-            if (PickedUpGold || (SelectedCell != null && SelectedCell.Item != null))
+            if (PickedUpGold || (ItemMoves.Selected != null && ItemMoves.Selected.Item != null))
             {
-                int image = PickedUpGold ? 116 : SelectedCell.Item.Image;
+                int image = PickedUpGold ? 116 : ItemMoves.Selected.Item.Image;
                 Size imgSize = Libraries.Items.GetTrueSize(image);
                 Point p = CMain.MPoint.Add(-imgSize.Width / 2, -imgSize.Height / 2);
 
@@ -1245,8 +793,7 @@ namespace Client.MirScenes
                 Libraries.Items.Draw(image, p.X, p.Y);
             }
 
-            for (int i = 0; i < OutputLines.Length; i++)
-                OutputLines[i].Draw();
+            Ui?.DrawOutputLines();
         }
         /// <summary>
         /// An object moved or died. Its dot on the minimap and the big map moves; nothing else in the UI depends on it. With
@@ -1261,8 +808,7 @@ namespace Client.MirScenes
                 return;
             }
 
-            if (MiniMapDialog != null && MiniMapDialog.Visible && MapControl != null && MapControl.MiniMap > 0) MiniMapDialog.Redraw();
-            if (BigMapDialog != null && BigMapDialog.Visible) BigMapDialog.Redraw();
+            Ui.ObjectPositionsChanged();
         }
 
         public override void Process()
@@ -1287,102 +833,10 @@ namespace Client.MirScenes
                 Network.Enqueue(new C.KeepAlive() { Time = CMain.Time });
             }
 
-            TimerControl.Process();
-            CompassControl.Process();
-            RankingDialog.Process();
-
-            MirItemCell cell = MouseControl as MirItemCell;
-
-            if (cell != null && HoverItem != cell.Item && HoverItem != cell.ShadowItem)
-            {
-                DisposeItemLabel();
-                HoverItem = null;
-                CreateItemLabel(cell.Item);
-            }
-
-            if (ItemLabel != null && !ItemLabel.IsDisposed)
-            {
-                ItemLabel.BringToFront();
-
-                int x = CMain.MPoint.X + 28, y = CMain.MPoint.Y + 28;
-                if (x + ItemLabel.Size.Width > Settings.ScreenWidth)
-                    x = Settings.ScreenWidth - ItemLabel.Size.Width;
-
-                if (y + ItemLabel.Size.Height > Settings.ScreenHeight)
-                    y = Settings.ScreenHeight - ItemLabel.Size.Height;
-                ItemLabel.Location = new Point(x, y);
-            }
-
-            if (MailLabel != null && !MailLabel.IsDisposed)
-            {
-                MailLabel.BringToFront();
-
-                int x = CMain.MPoint.X + 15, y = CMain.MPoint.Y;
-                if (x + MailLabel.Size.Width > Settings.ScreenWidth)
-                    x = Settings.ScreenWidth - MailLabel.Size.Width;
-
-                if (y + MailLabel.Size.Height > Settings.ScreenHeight)
-                    y = Settings.ScreenHeight - MailLabel.Size.Height;
-                MailLabel.Location = new Point(x, y);
-            }
-
-            if (MemoLabel != null && !MemoLabel.IsDisposed)
-            {
-                MemoLabel.BringToFront();
-
-                int x = CMain.MPoint.X + 15, y = CMain.MPoint.Y;
-                if (x + MemoLabel.Size.Width > Settings.ScreenWidth)
-                    x = Settings.ScreenWidth - MemoLabel.Size.Width;
-
-                if (y + MemoLabel.Size.Height > Settings.ScreenHeight)
-                    y = Settings.ScreenHeight - MemoLabel.Size.Height;
-                MemoLabel.Location = new Point(x, y);
-            }
-
-            if (GuildBuffLabel != null && !GuildBuffLabel.IsDisposed)
-            {
-                GuildBuffLabel.BringToFront();
-
-                int x = CMain.MPoint.X + 15, y = CMain.MPoint.Y;
-                if (x + GuildBuffLabel.Size.Width > Settings.ScreenWidth)
-                    x = Settings.ScreenWidth - GuildBuffLabel.Size.Width;
-
-                if (y + GuildBuffLabel.Size.Height > Settings.ScreenHeight)
-                    y = Settings.ScreenHeight - GuildBuffLabel.Size.Height;
-                GuildBuffLabel.Location = new Point(x, y);
-            }
-
-            if (!User.Dead) ShowReviveMessage = false;
-
-            if (ShowReviveMessage && CMain.Time > User.DeadTime && User.CurrentAction == MirAction.Dead)
-            {
-                ShowReviveMessage = false;
-                MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.DiedTip), MirMessageBoxButtons.YesNo, false);
-
-                messageBox.YesButton.Click += (o, e) =>
-                {
-                    if (User.Dead) Network.Enqueue(new C.TownRevive());
-                };
-
-                messageBox.AfterDraw += (o, e) =>
-                {
-                    if (!User.Dead) messageBox.Dispose();
-                };
-
-                messageBox.Show();
-            }
-
-            BuffsDialog.Process();
-            HeroBuffsDialog?.Process();
+            Ui.ProcessBeforeMap();
 
             MapControl.Process();
-            MainDialog.Process();
-            InventoryDialog.Process();
-            GameShopDialog.Process();
-            MiniMapDialog.Process();
-
-            foreach (SkillBarDialog Bar in Scene.SkillBarDialogs)
-                Bar.Process();
+            Ui.Process();
 
             foreach (ParticleEngine pe in ParticleEngines)
                 pe.Process();
@@ -1398,29 +852,7 @@ namespace Client.MirScenes
 
         public void DialogProcess()
         {
-            if (Settings.SkillBar)
-            {
-                foreach (SkillBarDialog Bar in Scene.SkillBarDialogs)
-                    Bar.Show();
-            }
-            else
-            {
-                foreach (SkillBarDialog Bar in Scene.SkillBarDialogs)
-                    Bar.Hide();
-            }
-
-            for (int i = 0; i < Scene.SkillBarDialogs.Count; i++)
-            {
-                if (i * 2 > Settings.SkillbarLocation.Length) break;
-                if ((Settings.SkillbarLocation[i, 0] > Settings.Resolution - 100) || (Settings.SkillbarLocation[i, 1] > 700))
-                    continue; //in theory you'd want the y coord to be validated based on resolution, but since client only allows for wider screens and not higher :(
-                Scene.SkillBarDialogs[i].Location = new Point(Settings.SkillbarLocation[i, 0], Settings.SkillbarLocation[i, 1]);
-            }
-
-            if (Settings.DuraView)
-                CharacterDuraPanel.Show();
-            else
-                CharacterDuraPanel.Hide();
+            Ui.DialogProcess();
         }
 
         public override void ProcessPacket(Packet p)
@@ -2263,7 +1695,7 @@ namespace Client.MirScenes
                     _gameDataShopChanged = true;
                 }
 
-                for (int i = 0; i < p.MapInfoInvalidated.Count; i++) InvalidateMapInfo(p.MapInfoInvalidated[i]);
+                for (int i = 0; i < p.MapInfoInvalidated.Count; i++) Ui.MapInfoInvalidated(p.MapInfoInvalidated[i]);
             }
             catch (Exception ex)
             {
@@ -2277,13 +1709,7 @@ namespace Client.MirScenes
                 if (User != null) User.RefreshStats();
                 if (Hero != null) Hero.RefreshStats();
 
-                if (_gameDataMagicsChanged)
-                    for (int i = 0; i < SkillBarDialogs.Count; i++) SkillBarDialogs[i].Update();
-
-                if (_gameDataShopChanged && GameShopDialog != null && GameShopDialog.Visible) GameShopDialog.UpdateShop();
-
-                // The open tooltip was built from the old values; the next hover builds a new one.
-                if (_gameDataHoverChanged) DisposeItemLabel();
+                Ui.GameDataRefreshed(_gameDataMagicsChanged, _gameDataShopChanged, _gameDataHoverChanged);
             }
             catch (Exception ex)
             {
@@ -2337,26 +1763,6 @@ namespace Client.MirScenes
             return removed;
         }
 
-        /// <summary>Drops a cached big-map record (and its controls); it is requested again when the big map or a dialog needs it.</summary>
-        private void InvalidateMapInfo(int mapIndex)
-        {
-            if (!MapInfoList.TryGetValue(mapIndex, out BigMapRecord record)) return;
-
-            // Unhook the dialog first: its CurrentRecord setter hides the old record's buttons, which must still exist then.
-            if (BigMapDialog != null && BigMapDialog.CurrentRecord == record) BigMapDialog.CurrentRecord = null;
-
-            MapInfoList.Remove(mapIndex);
-            foreach (MirButton button in record.MovementButtons.Values)
-                if (button != null && !button.IsDisposed) button.Dispose();
-            record.MovementButtons.Clear();
-            for (int i = 0; i < record.NPCButtons.Count; i++)
-                if (record.NPCButtons[i] != null && !record.NPCButtons[i].IsDisposed) record.NPCButtons[i].Dispose();
-            record.NPCButtons.Clear();
-
-            if (BigMapDialog != null && BigMapDialog.Visible && BigMapDialog.TargetMapIndex == mapIndex)
-                Network.Enqueue(new C.RequestMapInfo { MapIndex = mapIndex });
-        }
-
         #endregion
 
         private void KeepAlive(S.KeepAlive p)
@@ -2388,87 +1794,30 @@ namespace Client.MirScenes
 
         private void WorldMapSetup(S.WorldMapSetupInfo info)
         {
-            BigMapDialog.WorldMapSetup(info.Setup);
+            Ui.WorldMapSetup(info.Setup);
             TeleportToNPCCost = info.TeleportToNPCCost;
         }
 
         private void NewMapInfo(S.NewMapInfo info)
         {
-            BigMapRecord newRecord = new BigMapRecord() { Index = info.MapIndex, MapInfo = info.Info };
-            CreateBigMapButtons(newRecord);
-            MapInfoList.Add(info.MapIndex, newRecord);
-        }
-
-        private void CreateBigMapButtons(BigMapRecord record)
-        {
-            record.MovementButtons.Clear();
-            record.NPCButtons.Clear();
-
-            foreach (ClientMovementInfo mInfo in record.MapInfo.Movements)
-            {
-                MirButton button = new MirButton()
-                {
-                    Library = Libraries.MapLinkIcon,
-                    Index = mInfo.Icon,
-                    PressedIndex = mInfo.Icon,
-                    Sound = SoundList.ButtonA,
-                    Parent = BigMapDialog.ViewPort,
-                    Location = new Point(20, 38),
-                    Hint = mInfo.Title,
-                    Visible = false
-                };
-                button.MouseEnter += (o, e) =>
-                {
-                    BigMapDialog.MouseLocation = mInfo.Location;
-                };
-
-                button.Click += (o, e) =>
-                {
-                    BigMapDialog.SetTargetMap(mInfo.Destination);
-                };
-                record.MovementButtons.Add(mInfo, button);
-            }
-
-            foreach (ClientNPCInfo npcInfo in record.MapInfo.NPCs)
-            {
-                BigMapNPCRow row = new BigMapNPCRow(npcInfo) { Parent = BigMapDialog };
-                record.NPCButtons.Add(row);
-            }
-        }
-
-        private void RecreateBigMapButtons()
-        {
-            foreach (var record in MapInfoList.Values)
-                CreateBigMapButtons(record);
+            Ui.MapInfoReceived(info);
         }
 
         private void SearchMapResult(S.SearchMapResult info)
         {
-            if (info.MapIndex == -1 && info.NPCIndex == 0)
-            {
-                MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.NothingFound), MirMessageBoxButtons.OK);
-                messageBox.OKButton.Click += (o, a) => { BigMapDialog.SearchTextBox.SetFocus(); };
-                messageBox.Show();
-                return;
-            }
-
-            BigMapDialog.SetTargetMap(info.MapIndex);
-            BigMapDialog.SetTargetNPC(info.NPCIndex);
+            Ui.SearchMapResult(info);
         }
         private void UserInformation(S.UserInformation p)
         {
             User = new UserObject(p.ObjectID);
             User.Load(p);
-            MainDialog.PModeLabel.Visible = User.Class == MirClass.Wizard || User.Class == MirClass.Taoist;
+            Ui.UserLoaded();
             HasHero = p.HasHero;
-            HeroBehaviourPanel.UpdateBehaviour(p.HeroBehaviour);
+            Ui.HeroBehaviourChanged(p.HeroBehaviour);
             Gold = p.Gold;
             Credit = p.Credit;
 
-            CharacterDialog = new CharacterDialog(MirGridType.Equipment, User) { Parent = this, Visible = false };
-            InventoryDialog.RefreshInventory();
-            foreach (SkillBarDialog Bar in SkillBarDialogs)
-                Bar.Update();
+            Ui.UserInformationReceived();
             AllowObserve = p.AllowObserve;
             Observing = p.Observer;
         }
@@ -2506,7 +1855,7 @@ namespace Client.MirScenes
         }
         private void ReceiveChat(S.Chat p)
         {
-            ChatDialog.ReceiveChat(p.Message, p.Type);
+            Models.Chat.Add(p.Message, p.Type);
         }
         private void ObjectPlayer(S.ObjectPlayer p)
         {
@@ -2562,7 +1911,7 @@ namespace Client.MirScenes
 
         private void ObjectChat(S.ObjectChat p)
         {
-            ChatDialog.ReceiveChat(p.Text, p.Type);
+            Models.Chat.Add(p.Text, p.Type);
 
             if (MapControl.Objects.TryGetValue(p.ObjectID, out MapObject ob))
                 ob.Chat(RegexFunctions.CleanChatString(p.Text));
@@ -2584,45 +1933,17 @@ namespace Client.MirScenes
 
         private void MoveItem(S.MoveItem p)
         {
-            MirItemCell toCell, fromCell;
+            ItemSlotRef toCell, fromCell;
 
             switch (p.Grid)
             {
                 case MirGridType.Inventory:
-                    fromCell = p.From < User.BeltIdx ? BeltDialog.Grid[p.From] : InventoryDialog.Grid[p.From - User.BeltIdx];
-                    break;
                 case MirGridType.Storage:
-                    fromCell = StorageDialog.Grid[p.From];
-                    break;
                 case MirGridType.Trade:
-                    fromCell = TradeDialog.Grid[p.From];
-                    break;
                 case MirGridType.Refine:
-                    fromCell = RefineDialog.Grid[p.From];
-                    break;
                 case MirGridType.HeroInventory:
-                    fromCell = p.From < User.HeroBeltIdx ? HeroBeltDialog.Grid[p.From] : HeroInventoryDialog.Grid[p.From - User.HeroBeltIdx];
-                    break;
-                default:
-                    return;
-            }
-
-            switch (p.Grid)
-            {
-                case MirGridType.Inventory:
-                    toCell = p.To < User.BeltIdx ? BeltDialog.Grid[p.To] : InventoryDialog.Grid[p.To - User.BeltIdx];
-                    break;
-                case MirGridType.Storage:
-                    toCell = StorageDialog.Grid[p.To];
-                    break;
-                case MirGridType.Trade:
-                    toCell = TradeDialog.Grid[p.To];
-                    break;
-                case MirGridType.Refine:
-                    toCell = RefineDialog.Grid[p.To];
-                    break;
-                case MirGridType.HeroInventory:
-                    toCell = p.To < User.HeroBeltIdx ? HeroBeltDialog.Grid[p.To] : HeroInventoryDialog.Grid[p.To - User.HeroBeltIdx];
+                    fromCell = ItemMoves.Slot(p.Grid, p.From);
+                    toCell = ItemMoves.Slot(p.Grid, p.To);
                     break;
                 default:
                     return;
@@ -2634,7 +1955,7 @@ namespace Client.MirScenes
             fromCell.Locked = false;
 
             if (p.Grid == MirGridType.Trade)
-                TradeDialog.ChangeLockState(false);
+                Ui.ItemTradeUnlocked();
 
             if (!p.Success) return;
 
@@ -2643,32 +1964,32 @@ namespace Client.MirScenes
             toCell.Item = i;
 
             User.RefreshStats();
-            CharacterDuraPanel.GetCharacterDura();
+            Ui.ItemDuraRefresh();
         }
         private void EquipItem(S.EquipItem p)
         {
-            MirItemCell fromCell, toCell;
+            ItemSlotRef fromCell, toCell;
 
             switch (p.Grid)
             {
                 case MirGridType.HeroInventory:
-                    toCell = HeroDialog.Grid[p.To];
+                    toCell = ItemMoves.Slot(MirGridType.HeroEquipment, p.To);
                     break;
                 default:
-                    toCell = CharacterDialog.Grid[p.To];
+                    toCell = ItemMoves.Slot(MirGridType.Equipment, p.To);
                     break;
             }
 
             switch (p.Grid)
             {
                 case MirGridType.Inventory:
-                    fromCell = InventoryDialog.GetCell(p.UniqueID) ?? BeltDialog.GetCell(p.UniqueID);
+                    fromCell = ItemMoves.Find(MirGridType.Inventory, p.UniqueID);
                     break;
                 case MirGridType.Storage:
-                    fromCell = StorageDialog.GetCell(p.UniqueID) ?? BeltDialog.GetCell(p.UniqueID);
+                    fromCell = ItemMoves.Find(MirGridType.Storage, p.UniqueID) ?? ItemMoves.FindBelt(p.UniqueID);
                     break;
                 case MirGridType.HeroInventory:
-                    fromCell = HeroInventoryDialog.GetCell(p.UniqueID) ?? HeroBeltDialog.GetCell(p.UniqueID);
+                    fromCell = ItemMoves.Find(MirGridType.HeroInventory, p.UniqueID);
                     break;
                 default:
                     return;
@@ -2684,7 +2005,7 @@ namespace Client.MirScenes
             UserItem i = fromCell.Item;
             fromCell.Item = toCell.Item;
             toCell.Item = i;
-            CharacterDuraPanel.UpdateCharacterDura(i);
+            Ui.ItemDuraUpdate(i);
             if (p.Grid == MirGridType.HeroInventory)
                 Hero.RefreshStats();
             else
@@ -2692,19 +2013,17 @@ namespace Client.MirScenes
         }
         private void EquipSlotItem(S.EquipSlotItem p)
         {
-            MirItemCell fromCell;
-            MirItemCell toCell;
+            ItemSlotRef fromCell;
+            ItemSlotRef toCell;
 
             switch (p.GridTo)
             {
                 case MirGridType.Socket:
-                    toCell = SocketDialog.Grid[p.To];
-                    break;
                 case MirGridType.Mount:
-                    toCell = MountDialog.Grid[p.To];
-                    break;
                 case MirGridType.Fishing:
-                    toCell = FishingDialog.Grid[p.To];
+                    // No range check: the classic cells were a fixed grid, so a reply for a slot past the current item's
+                    // array (the socketed item changed meanwhile) still found a cell; SetItem ignores the out-of-range write.
+                    toCell = new ItemSlotRef(p.GridTo, p.To);
                     break;
                 default:
                     return;
@@ -2713,10 +2032,10 @@ namespace Client.MirScenes
             switch (p.Grid)
             {
                 case MirGridType.Inventory:
-                    fromCell = InventoryDialog.GetCell(p.UniqueID) ?? BeltDialog.GetCell(p.UniqueID);
+                    fromCell = ItemMoves.Find(MirGridType.Inventory, p.UniqueID);
                     break;
                 case MirGridType.Storage:
-                    fromCell = StorageDialog.GetCell(p.UniqueID) ?? BeltDialog.GetCell(p.UniqueID);
+                    fromCell = ItemMoves.Find(MirGridType.Storage, p.UniqueID) ?? ItemMoves.FindBelt(p.UniqueID);
                     break;
                 default:
                     return;
@@ -2737,17 +2056,14 @@ namespace Client.MirScenes
 
         private void CombineItem(S.CombineItem p)
         {
-            MirItemCell fromCell = null;
-            MirItemCell toCell = null;
+            ItemSlotRef fromCell = null;
+            ItemSlotRef toCell = null;
             switch (p.Grid)
             {
                 case MirGridType.Inventory:
-                    fromCell = InventoryDialog.GetCell(p.IDFrom) ?? BeltDialog.GetCell(p.IDFrom);
-                    toCell = InventoryDialog.GetCell(p.IDTo) ?? BeltDialog.GetCell(p.IDTo);
-                    break;
                 case MirGridType.HeroInventory:
-                    fromCell = HeroInventoryDialog.GetCell(p.IDFrom) ?? HeroBeltDialog.GetCell(p.IDFrom);
-                    toCell = HeroInventoryDialog.GetCell(p.IDTo) ?? HeroBeltDialog.GetCell(p.IDTo);
+                    fromCell = ItemMoves.Find(p.Grid, p.IDFrom);
+                    toCell = ItemMoves.Find(p.Grid, p.IDTo);
                     break;
             }
 
@@ -2778,30 +2094,18 @@ namespace Client.MirScenes
 
         private void MergeItem(S.MergeItem p)
         {
-            MirItemCell toCell, fromCell;
+            ItemSlotRef toCell, fromCell;
 
             switch (p.GridFrom)
             {
                 case MirGridType.Inventory:
-                    fromCell = InventoryDialog.GetCell(p.IDFrom) ?? BeltDialog.GetCell(p.IDFrom);
-                    break;
                 case MirGridType.Storage:
-                    fromCell = StorageDialog.GetCell(p.IDFrom);
-                    break;
                 case MirGridType.Equipment:
-                    fromCell = CharacterDialog.GetCell(p.IDFrom);
-                    break;
                 case MirGridType.Trade:
-                    fromCell = TradeDialog.GetCell(p.IDFrom);
-                    break;
                 case MirGridType.Fishing:
-                    fromCell = FishingDialog.GetCell(p.IDFrom);
-                    break;
                 case MirGridType.HeroEquipment:
-                    fromCell = HeroDialog.GetCell(p.IDFrom);
-                    break;
                 case MirGridType.HeroInventory:
-                    fromCell = HeroInventoryDialog.GetCell(p.IDFrom) ?? HeroBeltDialog.GetCell(p.IDFrom);
+                    fromCell = ItemMoves.Find(p.GridFrom, p.IDFrom);
                     break;
                 default:
                     return;
@@ -2810,25 +2114,13 @@ namespace Client.MirScenes
             switch (p.GridTo)
             {
                 case MirGridType.Inventory:
-                    toCell = InventoryDialog.GetCell(p.IDTo) ?? BeltDialog.GetCell(p.IDTo);
-                    break;
                 case MirGridType.Storage:
-                    toCell = StorageDialog.GetCell(p.IDTo);
-                    break;
                 case MirGridType.Equipment:
-                    toCell = CharacterDialog.GetCell(p.IDTo);
-                    break;
                 case MirGridType.Trade:
-                    toCell = TradeDialog.GetCell(p.IDTo);
-                    break;
                 case MirGridType.Fishing:
-                    toCell = FishingDialog.GetCell(p.IDTo);
-                    break;
                 case MirGridType.HeroEquipment:
-                    toCell = HeroDialog.GetCell(p.IDTo);
-                    break;
                 case MirGridType.HeroInventory:
-                    toCell = HeroInventoryDialog.GetCell(p.IDTo) ?? HeroBeltDialog.GetCell(p.IDTo);
+                    toCell = ItemMoves.Find(p.GridTo, p.IDTo);
                     break;
                 default:
                     return;
@@ -2840,7 +2132,7 @@ namespace Client.MirScenes
             fromCell.Locked = false;
 
             if (p.GridFrom == MirGridType.Trade || p.GridTo == MirGridType.Trade)
-                TradeDialog.ChangeLockState(false);
+                Ui.ItemTradeUnlocked();
 
             if (!p.Success) return;
             if (fromCell.Item.Count <= toCell.Item.Info.StackSize - toCell.Item.Count)
@@ -2858,15 +2150,15 @@ namespace Client.MirScenes
         }
         private void RemoveItem(S.RemoveItem p)
         {
-            MirItemCell toCell;
+            ItemSlotRef toCell;
 
             int index = -1;
-            MirItemCell fromCell = null;
+            ItemSlotRef fromCell = null;
             for (int i = 0; i < MapObject.User.Equipment.Length; i++)
             {
                 if (MapObject.User.Equipment[i] == null || MapObject.User.Equipment[i].UniqueID != p.UniqueID) continue;
                 index = i;
-                fromCell = CharacterDialog.Grid[index];
+                fromCell = ItemMoves.Slot(MirGridType.Equipment, index);
                 break;
             }
 
@@ -2876,7 +2168,7 @@ namespace Client.MirScenes
                 {
                     if (MapObject.Hero.Equipment[i] == null || MapObject.Hero.Equipment[i].UniqueID != p.UniqueID) continue;
                     index = i;
-                    fromCell = HeroDialog.Grid[index];
+                    fromCell = ItemMoves.Slot(MirGridType.HeroEquipment, index);
                     break;
                 }
             }
@@ -2884,13 +2176,9 @@ namespace Client.MirScenes
             switch (p.Grid)
             {
                 case MirGridType.Inventory:
-                    toCell = p.To < User.BeltIdx ? BeltDialog.Grid[p.To] : InventoryDialog.Grid[p.To - User.BeltIdx];
-                    break;
                 case MirGridType.Storage:
-                    toCell = StorageDialog.Grid[p.To];
-                    break;
                 case MirGridType.HeroInventory:
-                    toCell = p.To < User.HeroBeltIdx ? HeroBeltDialog.Grid[p.To] : HeroInventoryDialog.Grid[p.To - User.HeroBeltIdx];
+                    toCell = ItemMoves.Slot(p.Grid, p.To);
                     break;
                 default:
                     return;
@@ -2904,7 +2192,7 @@ namespace Client.MirScenes
             if (!p.Success) return;
             toCell.Item = fromCell.Item;
             fromCell.Item = null;
-            CharacterDuraPanel.GetCharacterDura();
+            Ui.ItemDuraRefresh();
             if (p.Grid == MirGridType.HeroInventory)
                 Hero.RefreshStats();
             else
@@ -2913,19 +2201,15 @@ namespace Client.MirScenes
         }
         private void RemoveSlotItem(S.RemoveSlotItem p)
         {
-            MirItemCell fromCell;
-            MirItemCell toCell;
+            ItemSlotRef fromCell;
+            ItemSlotRef toCell;
 
             switch (p.Grid)
             {
                 case MirGridType.Socket:
-                    fromCell = SocketDialog.GetCell(p.UniqueID);
-                    break;
                 case MirGridType.Mount:
-                    fromCell = MountDialog.GetCell(p.UniqueID);
-                    break;
                 case MirGridType.Fishing:
-                    fromCell = FishingDialog.GetCell(p.UniqueID);
+                    fromCell = ItemMoves.Find(p.Grid, p.UniqueID);
                     break;
                 default:
                     return;
@@ -2934,10 +2218,8 @@ namespace Client.MirScenes
             switch (p.GridTo)
             {
                 case MirGridType.Inventory:
-                    toCell = p.To < User.BeltIdx ? BeltDialog.Grid[p.To] : InventoryDialog.Grid[p.To - User.BeltIdx];
-                    break;
                 case MirGridType.Storage:
-                    toCell = StorageDialog.Grid[p.To];
+                    toCell = ItemMoves.Slot(p.GridTo, p.To);
                     break;
                 default:
                     return;
@@ -2951,14 +2233,14 @@ namespace Client.MirScenes
             if (!p.Success) return;
             toCell.Item = fromCell.Item;
             fromCell.Item = null;
-            CharacterDuraPanel.GetCharacterDura();
+            Ui.ItemDuraRefresh();
             User.RefreshStats();
         }
         private void TakeBackItem(S.TakeBackItem p)
         {
-            MirItemCell fromCell = StorageDialog.Grid[p.From];
+            ItemSlotRef fromCell = ItemMoves.Slot(MirGridType.Storage, p.From);
 
-            MirItemCell toCell = p.To < User.BeltIdx ? BeltDialog.Grid[p.To] : InventoryDialog.Grid[p.To - User.BeltIdx];
+            ItemSlotRef toCell = ItemMoves.Slot(MirGridType.Inventory, p.To);
 
             if (toCell == null || fromCell == null) return;
 
@@ -2969,13 +2251,13 @@ namespace Client.MirScenes
             toCell.Item = fromCell.Item;
             fromCell.Item = null;
             User.RefreshStats();
-            CharacterDuraPanel.GetCharacterDura();
+            Ui.ItemDuraRefresh();
         }
         private void StoreItem(S.StoreItem p)
         {
-            MirItemCell fromCell = p.From < User.BeltIdx ? BeltDialog.Grid[p.From] : InventoryDialog.Grid[p.From - User.BeltIdx];
+            ItemSlotRef fromCell = ItemMoves.Slot(MirGridType.Inventory, p.From);
 
-            MirItemCell toCell = StorageDialog.Grid[p.To];
+            ItemSlotRef toCell = ItemMoves.Slot(MirGridType.Storage, p.To);
 
             if (toCell == null || fromCell == null) return;
 
@@ -2989,9 +2271,9 @@ namespace Client.MirScenes
         }
         private void DepositRefineItem(S.DepositRefineItem p)
         {
-            MirItemCell fromCell = p.From < User.BeltIdx ? BeltDialog.Grid[p.From] : InventoryDialog.Grid[p.From - User.BeltIdx];
+            ItemSlotRef fromCell = ItemMoves.Slot(MirGridType.Inventory, p.From);
 
-            MirItemCell toCell = RefineDialog.Grid[p.To];
+            ItemSlotRef toCell = ItemMoves.Slot(MirGridType.Refine, p.To);
 
             if (toCell == null || fromCell == null) return;
 
@@ -3006,8 +2288,8 @@ namespace Client.MirScenes
 
         private void RetrieveRefineItem(S.RetrieveRefineItem p)
         {
-            MirItemCell fromCell = RefineDialog.Grid[p.From];
-            MirItemCell toCell = p.To < User.BeltIdx ? BeltDialog.Grid[p.To] : InventoryDialog.Grid[p.To - User.BeltIdx];
+            ItemSlotRef fromCell = ItemMoves.Slot(MirGridType.Refine, p.From);
+            ItemSlotRef toCell = ItemMoves.Slot(MirGridType.Inventory, p.To);
 
             if (toCell == null || fromCell == null) return;
 
@@ -3022,12 +2304,12 @@ namespace Client.MirScenes
 
         private void RefineCancel(S.RefineCancel p)
         {
-            RefineDialog.RefineReset();
+            RefineReset();
         }
 
         private void RefineItem(S.RefineItem p)
         {
-            RefineDialog.RefineReset();
+            RefineReset();
             for (int i = 0; i < User.Inventory.Length; i++)
             {
                 if (User.Inventory[i] != null && User.Inventory[i].UniqueID == p.UniqueID)
@@ -3036,19 +2318,26 @@ namespace Client.MirScenes
                     break;
                 }
             }
-            NPCDialog.Hide();
+            Ui.CloseNpcDialog();
+        }
+
+        /// <summary>Empties the refine slots (was RefineDialog.RefineReset: its 4 x 4 grid shows GameScene.Refine slot for slot).</summary>
+        private static void RefineReset()
+        {
+            for (int i = 0; i < Refine.Length; i++)
+                ItemMoves.SetItem(MirGridType.Refine, i, null);
         }
         private void DepositTradeItem(S.DepositTradeItem p)
         {
-            MirItemCell fromCell = p.From < User.BeltIdx ? BeltDialog.Grid[p.From] : InventoryDialog.Grid[p.From - User.BeltIdx];
+            ItemSlotRef fromCell = ItemMoves.Slot(MirGridType.Inventory, p.From);
 
-            MirItemCell toCell = TradeDialog.Grid[p.To];
+            ItemSlotRef toCell = ItemMoves.Slot(MirGridType.Trade, p.To);
 
             if (toCell == null || fromCell == null) return;
 
             toCell.Locked = false;
             fromCell.Locked = false;
-            TradeDialog.ChangeLockState(false);
+            Ui.ItemTradeUnlocked();
 
             if (!p.Success) return;
             toCell.Item = fromCell.Item;
@@ -3057,14 +2346,14 @@ namespace Client.MirScenes
         }
         private void RetrieveTradeItem(S.RetrieveTradeItem p)
         {
-            MirItemCell fromCell = TradeDialog.Grid[p.From];
-            MirItemCell toCell = p.To < User.BeltIdx ? BeltDialog.Grid[p.To] : InventoryDialog.Grid[p.To - User.BeltIdx];
+            ItemSlotRef fromCell = ItemMoves.Slot(MirGridType.Trade, p.From);
+            ItemSlotRef toCell = ItemMoves.Slot(MirGridType.Inventory, p.To);
 
             if (toCell == null || fromCell == null) return;
 
             toCell.Locked = false;
             fromCell.Locked = false;
-            TradeDialog.ChangeLockState(false);
+            Ui.ItemTradeUnlocked();
 
             if (!p.Success) return;
             toCell.Item = fromCell.Item;
@@ -3131,15 +2420,13 @@ namespace Client.MirScenes
 
         private void SplitItem1(S.SplitItem1 p)
         {
-            MirItemCell cell;
+            ItemSlotRef cell;
 
             switch (p.Grid)
             {
                 case MirGridType.Inventory:
-                    cell = InventoryDialog.GetCell(p.UniqueID) ?? BeltDialog.GetCell(p.UniqueID);
-                    break;
                 case MirGridType.Storage:
-                    cell = StorageDialog.GetCell(p.UniqueID);
+                    cell = ItemMoves.Find(p.Grid, p.UniqueID);
                     break;
                 default:
                     return;
@@ -3155,16 +2442,16 @@ namespace Client.MirScenes
         }
         private void UseItem(S.UseItem p)
         {
-            MirItemCell cell = null;
+            ItemSlotRef cell = null;
             bool hero = false;
 
             switch (p.Grid)
             {
                 case MirGridType.Inventory:
-                    cell = InventoryDialog.GetCell(p.UniqueID) ?? BeltDialog.GetCell(p.UniqueID);
+                    cell = ItemMoves.Find(MirGridType.Inventory, p.UniqueID);
                     break;
                 case MirGridType.HeroInventory:
-                    cell = HeroInventoryDialog.GetCell(p.UniqueID) ?? HeroBeltDialog.GetCell(p.UniqueID);
+                    cell = ItemMoves.Find(MirGridType.HeroInventory, p.UniqueID);
                     hero = true;
                     break;
             }
@@ -3183,14 +2470,14 @@ namespace Client.MirScenes
         }
         private void DropItem(S.DropItem p)
         {
-            MirItemCell cell;
+            ItemSlotRef cell;
             if (p.HeroItem)
             {
-                cell = HeroInventoryDialog.GetCell(p.UniqueID) ?? HeroBeltDialog.GetCell(p.UniqueID);
+                cell = ItemMoves.Find(MirGridType.HeroInventory, p.UniqueID);
             }
             else
             {
-                cell = InventoryDialog.GetCell(p.UniqueID) ?? BeltDialog.GetCell(p.UniqueID);
+                cell = ItemMoves.Find(MirGridType.Inventory, p.UniqueID);
             }
 
 
@@ -3218,9 +2505,9 @@ namespace Client.MirScenes
 
         private void TakeBackHeroItem(S.TakeBackHeroItem p)
         {
-            MirItemCell fromCell = p.From < User.HeroBeltIdx ? HeroBeltDialog.Grid[p.From] : HeroInventoryDialog.Grid[p.From - User.HeroBeltIdx];
+            ItemSlotRef fromCell = ItemMoves.Slot(MirGridType.HeroInventory, p.From);
 
-            MirItemCell toCell = p.To < User.BeltIdx ? BeltDialog.Grid[p.To] : InventoryDialog.Grid[p.To - User.BeltIdx];
+            ItemSlotRef toCell = ItemMoves.Slot(MirGridType.Inventory, p.To);
 
             if (toCell == null || fromCell == null) return;
 
@@ -3232,14 +2519,14 @@ namespace Client.MirScenes
             fromCell.Item = null;
             User.RefreshStats();
             Hero.RefreshStats();
-            CharacterDuraPanel.GetCharacterDura();
+            Ui.ItemDuraRefresh();
         }
 
         private void TransferHeroItem(S.TransferHeroItem p)
         {
-            MirItemCell fromCell = p.From < User.BeltIdx ? BeltDialog.Grid[p.From] : InventoryDialog.Grid[p.From - User.BeltIdx];
+            ItemSlotRef fromCell = ItemMoves.Slot(MirGridType.Inventory, p.From);
 
-            MirItemCell toCell = p.To < User.HeroBeltIdx ? HeroBeltDialog.Grid[p.To] : HeroInventoryDialog.Grid[p.To - User.HeroBeltIdx];
+            ItemSlotRef toCell = ItemMoves.Slot(MirGridType.HeroInventory, p.To);
 
             if (toCell == null || fromCell == null) return;
 
@@ -3251,7 +2538,7 @@ namespace Client.MirScenes
             fromCell.Item = null;
             User.RefreshStats();
             Hero.RefreshStats();
-            CharacterDuraPanel.GetCharacterDura();
+            Ui.ItemDuraRefresh();
         }
 
         private void MountUpdate(S.MountUpdate p)
@@ -3268,7 +2555,7 @@ namespace Client.MirScenes
 
             User.RefreshStats();
 
-            MountDialog.RefreshDialog();
+            Ui.MountChanged();
             Redraw();
         }
 
@@ -3286,14 +2573,7 @@ namespace Client.MirScenes
 
             if (p.ObjectID != User.ObjectID) return;
 
-            FishingStatusDialog.ProgressPercent = p.ProgressPercent;
-            FishingStatusDialog.ChancePercent = p.ChancePercent;
-            FishingStatusDialog.ChanceLabel.Text = string.Format("{0}%", FishingStatusDialog.ChancePercent);
-
-            if (p.Fishing)
-                FishingStatusDialog.Show();
-            else
-                FishingStatusDialog.Hide();
+            Ui.FishingUpdated(p);
 
             Redraw();
         }
@@ -3325,15 +2605,7 @@ namespace Client.MirScenes
 
                     foreach (ClientQuestProgress quest in User.CurrentQuests)
                         BindQuest(quest);
-                    if (Settings.TrackedQuests.Contains(p.Quest.Id))
-                    {
-                        GameScene.Scene.QuestTrackingDialog.AddQuest(p.Quest, true);
-                    }
-
-                    if (p.TrackQuest)
-                    {
-                        GameScene.Scene.QuestTrackingDialog.AddQuest(p.Quest);
-                    }
+                    Ui.QuestAdded(p.Quest, p.TrackQuest);
 
                     break;
                 case QuestState.Update:
@@ -3357,22 +2629,12 @@ namespace Client.MirScenes
                         User.CurrentQuests.RemoveAt(i);
                     }
 
-                    GameScene.Scene.QuestTrackingDialog.RemoveQuest(p.Quest);
+                    Ui.QuestRemoved(p.Quest);
 
                     break;
             }
 
-            GameScene.Scene.QuestTrackingDialog.DisplayQuests();
-
-            if (Scene.QuestListDialog.Visible)
-            {
-                Scene.QuestListDialog.DisplayInfo();
-            }
-
-            if (Scene.QuestLogDialog.Visible)
-            {
-                Scene.QuestLogDialog.DisplayQuests();
-            }
+            Ui.QuestsChanged();
         }
 
         private void PlayerUpdate(S.PlayerUpdate p)
@@ -3383,20 +2645,20 @@ namespace Client.MirScenes
 
         private void PlayerInspect(S.PlayerInspect p)
         {
-            InspectDialog.Items = p.Equipment;
+            Models.Inspect.Items = p.Equipment;
 
-            InspectDialog.Name = p.Name;
-            InspectDialog.GuildName = p.GuildName;
-            InspectDialog.GuildRank = p.GuildRank;
-            InspectDialog.Class = p.Class;
-            InspectDialog.Gender = p.Gender;
-            InspectDialog.Hair = p.Hair;
-            InspectDialog.Level = p.Level;
-            InspectDialog.LoverName = p.LoverName;
-            InspectDialog.AllowObserve = p.AllowObserve;
+            Models.Inspect.Name = p.Name;
+            Models.Inspect.GuildName = p.GuildName;
+            Models.Inspect.GuildRank = p.GuildRank;
+            Models.Inspect.Class = p.Class;
+            Models.Inspect.Gender = p.Gender;
+            Models.Inspect.Hair = p.Hair;
+            Models.Inspect.Level = p.Level;
+            Models.Inspect.LoverName = p.LoverName;
+            Models.Inspect.AllowObserve = p.AllowObserve;
+            Models.Inspect.Changed.Emit();
 
-            InspectDialog.RefreshInferface(p.IsHero);
-            InspectDialog.Show();
+            Ui.PlayerInspected(p.IsHero);
         }
         private void LogOutSuccess(S.LogOutSuccess p)
         {
@@ -3432,22 +2694,7 @@ namespace Client.MirScenes
         private void TimeOfDay(S.TimeOfDay p)
         {
             Lights = p.Lights;
-            switch (Lights)
-            {
-                case LightSetting.Day:
-                case LightSetting.Normal:
-                    MiniMapDialog.LightSetting.Index = 2093;
-                    break;
-                case LightSetting.Dawn:
-                    MiniMapDialog.LightSetting.Index = 2095;
-                    break;
-                case LightSetting.Evening:
-                    MiniMapDialog.LightSetting.Index = 2094;
-                    break;
-                case LightSetting.Night:
-                    MiniMapDialog.LightSetting.Index = 2092;
-                    break;
-            }
+            Ui.LightsChanged();
         }
         private void ChangeAMode(S.ChangeAMode p)
         {
@@ -3456,22 +2703,22 @@ namespace Client.MirScenes
             switch (p.Mode)
             {
                 case AttackMode.Peace:
-                    ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AttackMode_Peace), ChatType.Hint);
+                    Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AttackMode_Peace), ChatType.Hint);
                     break;
                 case AttackMode.Group:
-                    ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AttackMode_Group), ChatType.Hint);
+                    Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AttackMode_Group), ChatType.Hint);
                     break;
                 case AttackMode.Guild:
-                    ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AttackMode_Guild), ChatType.Hint);
+                    Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AttackMode_Guild), ChatType.Hint);
                     break;
                 case AttackMode.EnemyGuild:
-                    ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AttackMode_EnemyGuild), ChatType.Hint);
+                    Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AttackMode_EnemyGuild), ChatType.Hint);
                     break;
                 case AttackMode.RedBrown:
-                    ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AttackMode_RedBrown), ChatType.Hint);
+                    Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AttackMode_RedBrown), ChatType.Hint);
                     break;
                 case AttackMode.All:
-                    ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AttackMode_All), ChatType.Hint);
+                    Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AttackMode_All), ChatType.Hint);
                     break;
             }
         }
@@ -3481,19 +2728,19 @@ namespace Client.MirScenes
             switch (p.Mode)
             {
                 case PetMode.Both:
-                    ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PetMode_Both), ChatType.Hint);
+                    Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PetMode_Both), ChatType.Hint);
                     break;
                 case PetMode.MoveOnly:
-                    ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PetMode_MoveOnly), ChatType.Hint);
+                    Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PetMode_MoveOnly), ChatType.Hint);
                     break;
                 case PetMode.AttackOnly:
-                    ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PetMode_AttackOnly), ChatType.Hint);
+                    Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PetMode_AttackOnly), ChatType.Hint);
                     break;
                 case PetMode.None:
-                    ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PetMode_None), ChatType.Hint);
+                    Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PetMode_None), ChatType.Hint);
                     break;
                 case PetMode.FocusMasterTarget:
-                    ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PetMode_FocusMasterTarget), ChatType.Hint);
+                    Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PetMode_FocusMasterTarget), ChatType.Hint);
                     break;
             }
         }
@@ -3506,7 +2753,7 @@ namespace Client.MirScenes
             string[] Warnings = new string[] {"HeroNecklace","AdamantineNecklace","8TrigramWheel","HangMaWheel","BaekTaGlove","SpiritReformer","BokMaWheel","BoundlessRing","ThunderRing","TaeGukRing","OmaSpiritRing","NobleRing"};
             if (Warnings.Contains(p.Name))
             {
-                ChatDialog.ReceiveChat(string.Format("{0} at {1}", p.Name, p.Location), ChatType.Hint);
+                Models.Chat.Add(string.Format("{0} at {1}", p.Name, p.Location), ChatType.Hint);
             }
             */
         }
@@ -3815,22 +3062,16 @@ namespace Client.MirScenes
                 switch (item.Info.Type)
                 {
                     case ItemType.Mount:
-                        ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.FriendlyNoLongerLoyal), item.Info.FriendlyName), ChatType.System);
+                        Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.FriendlyNoLongerLoyal), item.Info.FriendlyName), ChatType.System);
                         break;
                     default:
-                        ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.FriendlyDuraDroppedToZero), item.Info.FriendlyName), ChatType.System);
+                        Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.FriendlyDuraDroppedToZero), item.Info.FriendlyName), ChatType.System);
                         break;
                 }
 
             }
 
-            if (HoverItem == item)
-            {
-                DisposeItemLabel();
-                CreateItemLabel(item);
-            }
-
-            CharacterDuraPanel.UpdateCharacterDura(item);
+            Ui.UserItemDuraChanged(item);
         }
         private void HealthChanged(S.HealthChanged p)
         {
@@ -4095,7 +3336,7 @@ namespace Client.MirScenes
             OutputMessage(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.LevelUp));
             User.Effects.Add(new Effect(Libraries.Magic2, 1200, 20, 2000, User));
             SoundManager.PlaySound(SoundList.LevelUp);
-            ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.LevelUp), ChatType.LevelUp);
+            Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.LevelUp), ChatType.LevelUp);
         }
         private void HeroLevelChanged(S.HeroLevelChanged p)
         {
@@ -4105,7 +3346,7 @@ namespace Client.MirScenes
             Hero.RefreshStats();
             Hero.Effects.Add(new Effect(Libraries.Magic2, 1200, 20, 2000, User));
             SoundManager.PlaySound(SoundList.LevelUp);
-            MainDialog.HeroInfoPanel.Update();
+            Ui.HeroInfoChanged();
         }
         private void ObjectLeveled(S.ObjectLeveled p)
         {
@@ -4135,25 +3376,8 @@ namespace Client.MirScenes
         private void NPCResponse(S.NPCResponse p)
         {
             NPCTime = 0;
-            NPCDialog.BigButtons.Clear();
-            NPCDialog.BigButtonDialog.Hide();
-            NPCDialog.NewText(p.Page);
-
-            if (p.Page.Count > 0 || NPCDialog.BigButtons.Count > 0)
-                NPCDialog.Show();
-            else
-                NPCDialog.Hide();
-
-            NPCGoodsDialog.Hide();
-            NPCSubGoodsDialog.Hide();
-            NPCCraftGoodsDialog.Hide();
-            NPCDropDialog.Hide();
-            StorageDialog.Hide();
-            NPCAwakeDialog.Hide();
-            RefineDialog.Hide();
-            StorageDialog.Hide();
-            TrustMerchantDialog.Hide();
-            QuestListDialog.Hide();
+            Models.Npc.SetPage(p.Page);
+            Ui.NpcResponse(p);
         }
 
         private void NPCUpdate(S.NPCUpdate p)
@@ -4459,27 +3683,7 @@ namespace Client.MirScenes
             NPCPanelType = p.Type;
             HideAddedStoreStats = p.HideAddedStats;
 
-            if (!NPCDialog.Visible) return;
-
-            switch (NPCPanelType)
-            {
-                case PanelType.Buy:
-                    NPCGoodsDialog.UsePearls = false;
-                    NPCGoodsDialog.NewGoods(p.List);
-                    NPCGoodsDialog.Show();
-                    break;
-                case PanelType.BuySub:
-                    NPCSubGoodsDialog.UsePearls = false;
-                    NPCSubGoodsDialog.NewGoods(p.List);
-                    NPCSubGoodsDialog.Show();
-                    break;
-                case PanelType.Craft:
-                    NPCCraftGoodsDialog.UsePearls = false;
-                    NPCCraftGoodsDialog.NewGoods(p.List);
-                    NPCCraftGoodsDialog.Show();
-                    CraftDialog.Show();
-                    break;
-            }
+            Ui.NpcGoods(p);
         }
         private void NPCPearlGoods(S.NPCPearlGoods p)
         {
@@ -4491,38 +3695,29 @@ namespace Client.MirScenes
             NPCRate = p.Rate;
             NPCPanelType = p.Type;
 
-            if (!NPCDialog.Visible) return;
-
-            NPCGoodsDialog.UsePearls = true;
-            NPCGoodsDialog.NewGoods(p.List);
-            NPCGoodsDialog.Show();
+            Ui.NpcPearlGoods(p);
         }
 
         private void NPCSell()
         {
-            if (!NPCDialog.Visible) return;
-            NPCDropDialog.PType = PanelType.Sell;
-            NPCDropDialog.Show();
+            Ui.NpcDropPanel(PanelType.Sell);
         }
         private void NPCRepair(S.NPCRepair p)
         {
             NPCRate = p.Rate;
-            if (!NPCDialog.Visible) return;
-            NPCDropDialog.PType = PanelType.Repair;
-            NPCDropDialog.Show();
+            Ui.NpcDropPanel(PanelType.Repair);
         }
         private void NPCStorage()
         {
-            if (NPCDialog.Visible)
-                StorageDialog.Show();
+            Ui.NpcStorage();
         }
         private void StorageUnlockResult(S.StorageUnlockResult p)
         {
-            StorageDialog?.HandleStorageUnlockResult(p);
+            Ui.StorageUnlockResult(p);
         }
         private void StoragePasswordResult(S.StoragePasswordResult p)
         {
-            StorageDialog?.HandleStoragePasswordResult(p);
+            Ui.StoragePasswordResult(p);
         }
         private void NPCRequestInput(S.NPCRequestInput p)
         {
@@ -4539,50 +3734,36 @@ namespace Client.MirScenes
         private void NPCSRepair(S.NPCSRepair p)
         {
             NPCRate = p.Rate;
-            if (!NPCDialog.Visible) return;
-            NPCDropDialog.PType = PanelType.SpecialRepair;
-            NPCDropDialog.Show();
+            Ui.NpcDropPanel(PanelType.SpecialRepair);
         }
 
         private void NPCRefine(S.NPCRefine p)
         {
             NPCRate = p.Rate;
-            if (!NPCDialog.Visible) return;
-            NPCDropDialog.PType = PanelType.Refine;
-            if (p.Refining)
-            {
-                NPCDropDialog.Hide();
-                NPCDialog.Hide();
-            }
-            else
-                NPCDropDialog.Show();
+            Ui.NpcRefine(p.Refining);
         }
 
         private void NPCCheckRefine(S.NPCCheckRefine p)
         {
-            if (!NPCDialog.Visible) return;
-            NPCDropDialog.PType = PanelType.CheckRefine;
-            NPCDropDialog.Show();
+            Ui.NpcDropPanel(PanelType.CheckRefine);
         }
 
         private void NPCCollectRefine(S.NPCCollectRefine p)
         {
-            if (!NPCDialog.Visible) return;
-            NPCDialog.Hide();
+            Ui.NpcCollectRefine();
         }
 
         private void NPCReplaceWedRing(S.NPCReplaceWedRing p)
         {
-            if (!NPCDialog.Visible) return;
+            if (!Ui.IsNpcDialogOpen()) return;
             NPCRate = p.Rate;
-            NPCDropDialog.PType = PanelType.ReplaceWedRing;
-            NPCDropDialog.Show();
+            Ui.NpcDropPanel(PanelType.ReplaceWedRing);
         }
 
 
         private void SellItem(S.SellItem p)
         {
-            MirItemCell cell = InventoryDialog.GetCell(p.UniqueID) ?? BeltDialog.GetCell(p.UniqueID);
+            ItemSlotRef cell = ItemMoves.Find(MirGridType.Inventory, p.UniqueID);
 
             if (cell == null) return;
 
@@ -4599,7 +3780,7 @@ namespace Client.MirScenes
         }
         private void RepairItem(S.RepairItem p)
         {
-            MirItemCell cell = InventoryDialog.GetCell(p.UniqueID) ?? BeltDialog.GetCell(p.UniqueID);
+            ItemSlotRef cell = ItemMoves.Find(MirGridType.Inventory, p.UniqueID);
 
             if (cell == null) return;
 
@@ -4609,7 +3790,7 @@ namespace Client.MirScenes
         {
             if (!p.Success) return;
 
-            CraftDialog.UpdateCraftCells();
+            Ui.CraftItemDone();
             User.RefreshStats();
         }
         private void ItemRepaired(S.ItemRepaired p)
@@ -4668,11 +3849,7 @@ namespace Client.MirScenes
             item.MaxDura = p.MaxDura;
             item.CurrentDura = p.CurrentDura;
 
-            if (HoverItem == item)
-            {
-                DisposeItemLabel();
-                CreateItemLabel(item);
-            }
+            Ui.ItemInfoChanged(item);
         }
 
         private void ItemSlotSizeChanged(S.ItemSlotSizeChanged p)
@@ -4786,11 +3963,7 @@ namespace Client.MirScenes
 
             item.SealedInfo = new SealedInfo { ExpiryDate = p.ExpiryDate };
 
-            if (HoverItem == item)
-            {
-                DisposeItemLabel();
-                CreateItemLabel(item);
-            }
+            Ui.ItemInfoChanged(item);
         }
 
         private void ItemUpgraded(S.ItemUpgraded p)
@@ -4827,22 +4000,7 @@ namespace Client.MirScenes
             item.MaxDura = p.Item.MaxDura;
             item.RefineAdded = p.Item.RefineAdded;
 
-            switch (grid)
-            {
-                case MirGridType.Inventory:
-                    InventoryDialog.DisplayItemGridEffect(item.UniqueID, 0);
-                    break;
-                case MirGridType.HeroInventory:
-                    HeroInventoryDialog.DisplayItemGridEffect(item.UniqueID, 0);
-                    break;
-            }
-
-
-            if (HoverItem == item)
-            {
-                DisposeItemLabel();
-                CreateItemLabel(item);
-            }
+            Ui.ItemUpgraded(grid, item);
         }
 
         private void NewMagic(S.NewMagic p)
@@ -4855,20 +4013,14 @@ namespace Client.MirScenes
 
             actor.Magics.Add(magic);
             actor.RefreshStats();
-            foreach (SkillBarDialog Bar in SkillBarDialogs)
-            {
-                Bar.Update();
-            }
+            Ui.SkillBarsChanged();
         }
 
         private void RemoveMagic(S.RemoveMagic p)
         {
             User.Magics.RemoveAt(p.PlaceId);
             User.RefreshStats();
-            foreach (SkillBarDialog Bar in SkillBarDialogs)
-            {
-                Bar.Update();
-            }
+            Ui.SkillBarsChanged();
         }
 
         private void MagicLeveled(S.MagicLeveled p)
@@ -5233,64 +4385,64 @@ namespace Client.MirScenes
         }
         private void SwitchGroup(S.SwitchGroup p)
         {
-            GroupDialog.AllowGroup = p.AllowGroup;
+            Models.Group.AllowGroup = p.AllowGroup;
+            Models.Group.Changed.Emit();
 
-            if (!p.AllowGroup && GroupDialog.GroupList.Count > 0)
+            if (!p.AllowGroup && Models.Group.Members.Count > 0)
                 DeleteGroup();
         }
 
         private void DeleteGroup()
         {
-            GroupDialog.GroupList.Clear();
-            GroupDialog.GroupMembersMap.Clear();
-            BigMapViewPort.PlayerLocations.Clear();
-            ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.YouHaveLeftGroup), ChatType.Group);
+            Models.Group.Members.Clear();
+            Models.Group.MemberMaps.Clear();
+            Models.Group.MemberLocations.Clear();
+            Models.Group.Changed.Emit();
+            Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.YouHaveLeftGroup), ChatType.Group);
         }
 
         private void DeleteMember(S.DeleteMember p)
         {
-            GroupDialog.GroupList.Remove(p.Name);
-            GroupDialog.GroupMembersMap.Remove(p.Name);
-            BigMapViewPort.PlayerLocations.Remove(p.Name);
-            ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerHasLeftGroup), p.Name), ChatType.Group);
+            Models.Group.Members.Remove(p.Name);
+            Models.Group.MemberMaps.Remove(p.Name);
+            Models.Group.MemberLocations.Remove(p.Name);
+            Models.Group.Changed.Emit();
+            Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerHasLeftGroup), p.Name), ChatType.Group);
         }
 
         private void GroupInvite(S.GroupInvite p)
         {
-            MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.DoYouWantGroupWithPlayer), p.Name), MirMessageBoxButtons.YesNo);
-
-            messageBox.YesButton.Click += (o, e) =>
-            {
-                Network.Enqueue(new C.GroupInvite { AcceptInvite = true });
-                GroupDialog.Show();
-            };
-            messageBox.NoButton.Click += (o, e) => Network.Enqueue(new C.GroupInvite { AcceptInvite = false });
-            messageBox.Show();
+            Ui.GroupInvite(p);
         }
         private void AddMember(S.AddMember p)
         {
-            GroupDialog.GroupList.Add(p.Name);
-            ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerHasJoinedGroup), p.Name), ChatType.Group);
+            Models.Group.Members.Add(p.Name);
+            Models.Group.Changed.Emit();
+            Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerHasJoinedGroup), p.Name), ChatType.Group);
         }
         private void GroupMembersMap(S.GroupMembersMap p)
         {
-            if (!GroupDialog.GroupMembersMap.ContainsKey(p.PlayerName))
-                GroupDialog.GroupMembersMap.Add(p.PlayerName, p.PlayerMap);
+            Dictionary<string, string> memberMaps = Models.Group.MemberMaps;
+            if (!memberMaps.ContainsKey(p.PlayerName))
+                memberMaps.Add(p.PlayerName, p.PlayerMap);
             else
             {
-                GroupDialog.GroupMembersMap.Remove(p.PlayerName);
-                GroupDialog.GroupMembersMap.Add(p.PlayerName, p.PlayerMap);
+                memberMaps.Remove(p.PlayerName);
+                memberMaps.Add(p.PlayerName, p.PlayerMap);
             }
+            Models.Group.Changed.Emit();
         }
         private void SendMemberLocation(S.SendMemberLocation p)
         {
-            if (!BigMapViewPort.PlayerLocations.ContainsKey(p.MemberName))
-                BigMapViewPort.PlayerLocations.Add(p.MemberName, p.MemberLocation);
+            Dictionary<string, Point> memberLocations = Models.Group.MemberLocations;
+            if (!memberLocations.ContainsKey(p.MemberName))
+                memberLocations.Add(p.MemberName, p.MemberLocation);
             else
             {
-                BigMapViewPort.PlayerLocations.Remove(p.MemberName);
-                BigMapViewPort.PlayerLocations.Add(p.MemberName, p.MemberLocation);
+                memberLocations.Remove(p.MemberName);
+                memberLocations.Add(p.MemberName, p.MemberLocation);
             }
+            Models.Group.Changed.Emit();
         }
         private void Revived()
         {
@@ -5332,34 +4484,34 @@ namespace Client.MirScenes
                     break;
                 case Spell.Thrusting:
                     actor.Thrusting = p.CanUse;
-                    ChatDialog.ReceiveChat(
+                    Models.Chat.Add(
                         prefix + (actor.Thrusting ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.UseThrusting) : GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.DoNotUseThrusting)),
                         ChatType.Hint);
                     break;
                 case Spell.HalfMoon:
                     actor.HalfMoon = p.CanUse;
-                    ChatDialog.ReceiveChat(
+                    Models.Chat.Add(
                         prefix + (actor.HalfMoon ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.UseHalfMoon) : GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.DoNotUseHalfMoon)),
                         ChatType.Hint);
                     break;
                 case Spell.CrossHalfMoon:
                     actor.CrossHalfMoon = p.CanUse;
-                    ChatDialog.ReceiveChat(
+                    Models.Chat.Add(
                         prefix + (actor.CrossHalfMoon ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.UseCrossHalfMoon) : GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.DoNotUseCrossHalfMoon)),
                         ChatType.Hint);
                     break;
                 case Spell.DoubleSlash:
                     actor.DoubleSlash = p.CanUse;
-                    ChatDialog.ReceiveChat(
+                    Models.Chat.Add(
                         prefix + (actor.DoubleSlash ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.UseDoubleSlash) : GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.DoNotUseDoubleSlash)),
                         ChatType.Hint);
                     break;
                 case Spell.FlamingSword:
                     actor.FlamingSword = p.CanUse;
                     if (actor.FlamingSword)
-                        ChatDialog.ReceiveChat(prefix + GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.WeaponSpiritFire), ChatType.Hint);
+                        Models.Chat.Add(prefix + GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.WeaponSpiritFire), ChatType.Hint);
                     else
-                        ChatDialog.ReceiveChat(prefix + GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.SpiritsFireDisappeared), ChatType.System);
+                        Models.Chat.Add(prefix + GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.SpiritsFireDisappeared), ChatType.System);
                     break;
             }
         }
@@ -5448,34 +4600,40 @@ namespace Client.MirScenes
 
             if (buff.ObjectID == User.ObjectID)
             {
-                for (int i = 0; i < BuffsDialog.Buffs.Count; i++)
+                List<ClientBuff> buffs = Models.Buffs.Items;
+                for (int i = 0; i < buffs.Count; i++)
                 {
-                    if (BuffsDialog.Buffs[i].Type != buff.Type) continue;
+                    if (buffs[i].Type != buff.Type) continue;
 
-                    BuffsDialog.Buffs[i] = buff;
+                    buffs[i] = buff;
+                    Models.Buffs.Changed.Emit();
                     User.RefreshStats();
                     return;
                 }
 
-                BuffsDialog.Buffs.Add(buff);
-                BuffsDialog.CreateBuff(buff);
+                buffs.Add(buff);
+                Models.Buffs.Changed.Emit();
+                Ui.BuffAdded(false, buff);
 
                 User.RefreshStats();
             }
 
             if (Hero != null && buff.ObjectID == Hero.ObjectID)
             {
-                for (int i = 0; i < HeroBuffsDialog.Buffs.Count; i++)
+                List<ClientBuff> buffs = Models.HeroBuffs.Items;
+                for (int i = 0; i < buffs.Count; i++)
                 {
-                    if (HeroBuffsDialog.Buffs[i].Type != buff.Type) continue;
+                    if (buffs[i].Type != buff.Type) continue;
 
-                    HeroBuffsDialog.Buffs[i] = buff;
+                    buffs[i] = buff;
+                    Models.HeroBuffs.Changed.Emit();
                     Hero.RefreshStats();
                     return;
                 }
 
-                HeroBuffsDialog.Buffs.Add(buff);
-                HeroBuffsDialog.CreateBuff(buff);
+                buffs.Add(buff);
+                Models.HeroBuffs.Changed.Emit();
+                Ui.BuffAdded(true, buff);
 
                 Hero.RefreshStats();
             }
@@ -5494,11 +4652,12 @@ namespace Client.MirScenes
         {
             if (User.ObjectID == p.ObjectID)
             {
-                for (int i = 0; i < BuffsDialog.Buffs.Count; i++)
+                List<ClientBuff> buffs = Models.Buffs.Items;
+                for (int i = 0; i < buffs.Count; i++)
                 {
-                    if (BuffsDialog.Buffs[i].Type != p.Type) continue;
+                    if (buffs[i].Type != p.Type) continue;
 
-                    switch (BuffsDialog.Buffs[i].Type)
+                    switch (buffs[i].Type)
                     {
                         case BuffType.SwiftFeet:
                             User.Sprint = false;
@@ -5508,19 +4667,21 @@ namespace Client.MirScenes
                             break;
                     }
 
-                    BuffsDialog.RemoveBuff(i);
-                    BuffsDialog.Buffs.RemoveAt(i);
+                    Ui.BuffRemoved(false, i);
+                    buffs.RemoveAt(i);
+                    Models.Buffs.Changed.Emit();
                 }
                 User.RefreshStats();
             }
 
             if (Hero != null && Hero.ObjectID == p.ObjectID)
             {
-                for (int i = 0; i < HeroBuffsDialog.Buffs.Count; i++)
+                List<ClientBuff> buffs = Models.HeroBuffs.Items;
+                for (int i = 0; i < buffs.Count; i++)
                 {
-                    if (HeroBuffsDialog.Buffs[i].Type != p.Type) continue;
+                    if (buffs[i].Type != p.Type) continue;
 
-                    switch (HeroBuffsDialog.Buffs[i].Type)
+                    switch (buffs[i].Type)
                     {
                         case BuffType.SwiftFeet:
                             Hero.Sprint = false;
@@ -5530,8 +4691,9 @@ namespace Client.MirScenes
                             break;
                     }
 
-                    HeroBuffsDialog.RemoveBuff(i);
-                    HeroBuffsDialog.Buffs.RemoveAt(i);
+                    Ui.BuffRemoved(true, i);
+                    buffs.RemoveAt(i);
+                    Models.HeroBuffs.Changed.Emit();
                 }
                 Hero.RefreshStats();
             }
@@ -5549,47 +4711,51 @@ namespace Client.MirScenes
         {
             if (User.ObjectID == p.ObjectID)
             {
-                for (int i = 0; i < BuffsDialog.Buffs.Count; i++)
+                List<ClientBuff> buffs = Models.Buffs.Items;
+                for (int i = 0; i < buffs.Count; i++)
                 {
-                    if (BuffsDialog.Buffs[i].Type != p.Type) continue;
+                    if (buffs[i].Type != p.Type) continue;
 
                     User.RefreshStats();
 
-                    if (BuffsDialog.Buffs[i].Paused == p.Paused) return;
+                    if (buffs[i].Paused == p.Paused) return;
 
-                    BuffsDialog.Buffs[i].Paused = p.Paused;
+                    buffs[i].Paused = p.Paused;
 
                     if (p.Paused)
                     {
-                        BuffsDialog.Buffs[i].ExpireTime -= CMain.Time;
+                        buffs[i].ExpireTime -= CMain.Time;
                     }
                     else
                     {
-                        BuffsDialog.Buffs[i].ExpireTime += CMain.Time;
+                        buffs[i].ExpireTime += CMain.Time;
                     }
+                    Models.Buffs.Changed.Emit();
                 }
             }
 
             if (Hero != null && Hero.ObjectID == p.ObjectID)
             {
-                for (int i = 0; i < HeroBuffsDialog.Buffs.Count; i++)
+                List<ClientBuff> buffs = Models.HeroBuffs.Items;
+                for (int i = 0; i < buffs.Count; i++)
                 {
-                    if (HeroBuffsDialog.Buffs[i].Type != p.Type) continue;
+                    if (buffs[i].Type != p.Type) continue;
 
                     Hero.RefreshStats();
 
-                    if (HeroBuffsDialog.Buffs[i].Paused == p.Paused) return;
+                    if (buffs[i].Paused == p.Paused) return;
 
-                    HeroBuffsDialog.Buffs[i].Paused = p.Paused;
+                    buffs[i].Paused = p.Paused;
 
                     if (p.Paused)
                     {
-                        HeroBuffsDialog.Buffs[i].ExpireTime -= CMain.Time;
+                        buffs[i].ExpireTime -= CMain.Time;
                     }
                     else
                     {
-                        HeroBuffsDialog.Buffs[i].ExpireTime += CMain.Time;
+                        buffs[i].ExpireTime += CMain.Time;
                     }
+                    Models.HeroBuffs.Changed.Emit();
                 }
             }
         }
@@ -5624,8 +4790,8 @@ namespace Client.MirScenes
         {
             Bind(p.Item);
 
-            if (SelectedCell != null && SelectedCell.Item.UniqueID == p.Item.UniqueID)
-                SelectedCell = null;
+            if (ItemMoves.Selected != null && ItemMoves.Selected.Item.UniqueID == p.Item.UniqueID)
+                ItemMoves.Selected = null;
 
             if (HoverItem != null && HoverItem.UniqueID == p.Item.UniqueID)
             {
@@ -5894,36 +5060,33 @@ namespace Client.MirScenes
 
         private void NPCConsign()
         {
-            if (!NPCDialog.Visible) return;
-            NPCDropDialog.PType = PanelType.Consign;
-            NPCDropDialog.Show();
+            Ui.NpcDropPanel(PanelType.Consign);
         }
         private void NPCMarket(S.NPCMarket p)
         {
             for (int i = 0; i < p.Listings.Count; i++)
                 Bind(p.Listings[i].Item);
 
-            TrustMerchantDialog.Show();
-            TrustMerchantDialog.UserMode = p.UserMode;
-            TrustMerchantDialog.Listings = p.Listings;
-            TrustMerchantDialog.Page = 0;
-            TrustMerchantDialog.PageCount = p.Pages;
-            TrustMerchantDialog.UpdateInterface();
+            Ui.MarketOpening();
+            Models.Market.UserMode = p.UserMode;
+            Models.Market.Listings = p.Listings;
+            Models.Market.Changed.Emit();
+            Ui.MarketListed(p.Pages);
         }
         private void NPCMarketPage(S.NPCMarketPage p)
         {
-            if (!TrustMerchantDialog.Visible) return;
+            if (!Ui.IsMarketOpen()) return;
 
             for (int i = 0; i < p.Listings.Count; i++)
                 Bind(p.Listings[i].Item);
 
-            TrustMerchantDialog.Listings.AddRange(p.Listings);
-            TrustMerchantDialog.Page = (TrustMerchantDialog.Listings.Count - 1) / 10;
-            TrustMerchantDialog.UpdateInterface();
+            Models.Market.Listings.AddRange(p.Listings);
+            Models.Market.Changed.Emit();
+            Ui.MarketPageAdded();
         }
         private void ConsignItem(S.ConsignItem p)
         {
-            MirItemCell cell = InventoryDialog.GetCell(p.UniqueID) ?? BeltDialog.GetCell(p.UniqueID);
+            ItemSlotRef cell = ItemMoves.Find(MirGridType.Inventory, p.UniqueID);
 
             if (cell == null) return;
 
@@ -5937,7 +5100,7 @@ namespace Client.MirScenes
         }
         private void MarketFail(S.MarketFail p)
         {
-            TrustMerchantDialog.MarketTime = 0;
+            Models.Market.MarketTime = 0;
             switch (p.Reason)
             {
                 case 0:
@@ -5978,7 +5141,7 @@ namespace Client.MirScenes
         }
         private void MarketSuccess(S.MarketSuccess p)
         {
-            TrustMerchantDialog.MarketTime = 0;
+            Models.Market.MarketTime = 0;
             MirMessageBox.Show(p.Message);
         }
         private void ObjectSitDown(S.ObjectSitDown p)
@@ -6051,7 +5214,7 @@ namespace Client.MirScenes
             {
                 if (inputBox.InputTextBox.Text.Contains('\\'))
                 {
-                    ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CannotUseBackslashInGuildName), ChatType.System);
+                    Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CannotUseBackslashInGuildName), ChatType.System);
                     inputBox.InputTextBox.Text = "";
                 }
                 Network.Enqueue(new C.GuildNameReturn { Name = inputBox.InputTextBox.Text });
@@ -6074,95 +5237,64 @@ namespace Client.MirScenes
 
         private void GuildNoticeChange(S.GuildNoticeChange p)
         {
-            if (p.update == -1)
-                GuildDialog.NoticeChanged = true;
-            else
-                GuildDialog.NoticeChange(p.notice);
+            Ui.GuildNoticeChange(p);
         }
         private void GuildMemberChange(S.GuildMemberChange p)
         {
             switch (p.Status)
             {
-                case 0: // logged of
-                    GuildDialog.MemberStatusChange(p.Name, false);
-                    break;
                 case 1: // logged on
-                    ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerLoggedOn), p.Name), ChatType.Guild);
-                    GuildDialog.MemberStatusChange(p.Name, true);
+                    Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerLoggedOn), p.Name), ChatType.Guild);
                     break;
                 case 2: //new member
-                    ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerJoinedGuild), p.Name), ChatType.Guild);
-                    GuildDialog.MemberCount++;
-                    GuildDialog.MembersChanged = true;
+                    Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerJoinedGuild), p.Name), ChatType.Guild);
+                    Models.Guild.MemberCount++;
+                    Models.Guild.Changed.Emit();
                     break;
                 case 3: //kicked member
-                    ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerRemovedFromGuild), p.Name), ChatType.Guild);
-                    GuildDialog.MemberCount = Math.Max(0, GuildDialog.MemberCount - 1);
-                    GuildDialog.MembersChanged = true;
+                    Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerRemovedFromGuild), p.Name), ChatType.Guild);
+                    Models.Guild.MemberCount = Math.Max(0, Models.Guild.MemberCount - 1);
+                    Models.Guild.Changed.Emit();
                     break;
                 case 4: //member left
-                    ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerLeftGuild), p.Name), ChatType.Guild);
-                    GuildDialog.MemberCount = Math.Max(0, GuildDialog.MemberCount - 1);
-                    GuildDialog.MembersChanged = true;
-                    break;
-                case 5://rank change (name or different rank)
-                    GuildDialog.MembersChanged = true;
-                    break;
-                case 6: //new rank
-                    if (p.Ranks.Count > 0)
-                        GuildDialog.NewRankRecieved(p.Ranks[0]);
-                    break;
-                case 7: //rank option changed
-                    if (p.Ranks.Count > 0)
-                        GuildDialog.RankChangeRecieved(p.Ranks[0]);
-                    break;
-                case 8: //my rank changed
-                    if (p.Ranks.Count > 0)
-                        GuildDialog.MyRankChanged(p.Ranks[0]);
-                    break;
-                case 255:
-                    GuildDialog.NewMembersList(p.Ranks);
+                    Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerLeftGuild), p.Name), ChatType.Guild);
+                    Models.Guild.MemberCount = Math.Max(0, Models.Guild.MemberCount - 1);
+                    Models.Guild.Changed.Emit();
                     break;
             }
+
+            Ui.GuildMemberChange(p);
         }
 
         private void GuildStatus(S.GuildStatus p)
         {
-            if ((User.GuildName == "") && (p.GuildName != ""))
-            {
-                GuildDialog.NoticeChanged = true;
-                GuildDialog.MembersChanged = true;
-            }
-            if (p.GuildName == "")
-            {
-                GuildDialog.Hide();
-            }
+            Ui.GuildStatusChanging(p, (User.GuildName == "") && (p.GuildName != ""));
 
-            if ((User.GuildName == p.GuildName) && (GuildDialog.Level < p.Level))
-            {
-                //guild leveled
-            }
+            GuildState guild = Models.Guild;
             bool GuildChange = User.GuildName != p.GuildName;
             User.GuildName = p.GuildName;
             User.GuildRankName = p.GuildRankName;
-            GuildDialog.Level = p.Level;
-            GuildDialog.Experience = p.Experience;
-            GuildDialog.MaxExperience = p.MaxExperience;
-            GuildDialog.Gold = p.Gold;
-            GuildDialog.SparePoints = p.SparePoints;
-            GuildDialog.MemberCount = p.MemberCount;
-            GuildDialog.MaxMembers = p.MaxMembers;
-            GuildDialog.Voting = p.Voting;
-            GuildDialog.ItemCount = p.ItemCount;
-            GuildDialog.BuffCount = p.BuffCount;
-            GuildDialog.StatusChanged(p.MyOptions);
-            GuildDialog.MyRankId = p.MyRankId;
-            GuildDialog.UpdateMembers();
+            guild.Level = p.Level;
+            guild.Experience = p.Experience;
+            guild.MaxExperience = p.MaxExperience;
+            guild.Gold = p.Gold;
+            guild.SparePoints = p.SparePoints;
+            guild.MemberCount = p.MemberCount;
+            guild.MaxMembers = p.MaxMembers;
+            guild.Voting = p.Voting;
+            guild.ItemCount = p.ItemCount;
+            guild.BuffCount = p.BuffCount;
+            guild.MyOptions = p.MyOptions;
+            Ui.GuildStatusChanged(p);
+            guild.MyRankId = p.MyRankId;
+            guild.Changed.Emit();
+            Ui.GuildMembersChanged();
             //reset guildbuffs
             if (GuildChange)
             {
-                GuildDialog.EnabledBuffs.Clear();
-                GuildDialog.UpdateActiveStats();
+                guild.EnabledBuffs.Clear();
+                guild.BuffsChanged.Emit();
+                Ui.GuildActiveStatsChanged();
                 RemoveBuff(new S.RemoveBuff { ObjectID = User.ObjectID, Type = BuffType.Guild });
                 User.RefreshStats();
             }
@@ -6171,7 +5303,8 @@ namespace Client.MirScenes
         private void GuildExpGain(S.GuildExpGain p)
         {
             //OutputMessage(string.Format("Guild Experience Gained {0}.", p.Amount));
-            GuildDialog.Experience += p.Amount;
+            Models.Guild.Experience += p.Amount;
+            Models.Guild.Changed.Emit();
         }
 
         private void GuildStorageGoldChange(S.GuildStorageGoldChange p)
@@ -6179,36 +5312,37 @@ namespace Client.MirScenes
             switch (p.Type)
             {
                 case 0:
-                    ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerDonatedGoldToGuildFunds), p.Name, p.Amount), ChatType.Guild);
-                    GuildDialog.Gold += p.Amount;
+                    Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerDonatedGoldToGuildFunds), p.Name, p.Amount), ChatType.Guild);
+                    Models.Guild.Gold += p.Amount;
                     break;
                 case 1:
-                    ChatDialog.ReceiveChat(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerRetrievedGoldFromGuildFunds), p.Name, p.Amount), ChatType.Guild);
-                    if (GuildDialog.Gold > p.Amount)
-                        GuildDialog.Gold -= p.Amount;
+                    Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerRetrievedGoldFromGuildFunds), p.Name, p.Amount), ChatType.Guild);
+                    if (Models.Guild.Gold > p.Amount)
+                        Models.Guild.Gold -= p.Amount;
                     else
-                        GuildDialog.Gold = 0;
+                        Models.Guild.Gold = 0;
                     break;
                 case 2:
-                    if (GuildDialog.Gold > p.Amount)
-                        GuildDialog.Gold -= p.Amount;
+                    if (Models.Guild.Gold > p.Amount)
+                        Models.Guild.Gold -= p.Amount;
                     else
-                        GuildDialog.Gold = 0;
+                        Models.Guild.Gold = 0;
                     break;
                 case 3:
-                    GuildDialog.Gold += p.Amount;
+                    Models.Guild.Gold += p.Amount;
                     break;
             }
+            Models.Guild.Changed.Emit();
         }
 
         private void GuildStorageItemChange(S.GuildStorageItemChange p)
         {
-            MirItemCell fromCell = null;
-            MirItemCell toCell = null;
+            ItemSlotRef fromCell = null;
+            ItemSlotRef toCell = null;
             switch (p.Type)
             {
                 case 0://store
-                    toCell = GuildDialog.StorageGrid[p.To];
+                    toCell = ItemMoves.Slot(MirGridType.GuildStorage, p.To);
 
                     if (toCell == null) return;
 
@@ -6216,14 +5350,14 @@ namespace Client.MirScenes
                     toCell.Item = p.Item.Item;
                     Bind(toCell.Item);
                     if (p.User != User.Id) return;
-                    fromCell = p.From < User.BeltIdx ? BeltDialog.Grid[p.From] : InventoryDialog.Grid[p.From - User.BeltIdx];
+                    fromCell = ItemMoves.Slot(MirGridType.Inventory, p.From);
                     fromCell.Locked = false;
                     if (fromCell != null)
                         fromCell.Item = null;
                     User.RefreshStats();
                     break;
                 case 1://retrieve
-                    fromCell = GuildDialog.StorageGrid[p.From];
+                    fromCell = ItemMoves.Slot(MirGridType.GuildStorage, p.From);
 
                     if (fromCell == null) return;
                     fromCell.Locked = false;
@@ -6233,7 +5367,7 @@ namespace Client.MirScenes
                         fromCell.Item = null;
                         return;
                     }
-                    toCell = p.To < User.BeltIdx ? BeltDialog.Grid[p.To] : InventoryDialog.Grid[p.To - User.BeltIdx];
+                    toCell = ItemMoves.Slot(MirGridType.Inventory, p.To);
                     if (toCell == null) return;
                     toCell.Locked = false;
                     toCell.Item = fromCell.Item;
@@ -6241,8 +5375,8 @@ namespace Client.MirScenes
                     break;
 
                 case 2:
-                    toCell = GuildDialog.StorageGrid[p.To];
-                    fromCell = GuildDialog.StorageGrid[p.From];
+                    toCell = ItemMoves.Slot(MirGridType.GuildStorage, p.To);
+                    fromCell = ItemMoves.Slot(MirGridType.GuildStorage, p.From);
 
                     if (toCell == null || fromCell == null) return;
 
@@ -6256,8 +5390,8 @@ namespace Client.MirScenes
                         Bind(fromCell.Item);
                     break;
                 case 3://failstore
-                    fromCell = p.From < User.BeltIdx ? BeltDialog.Grid[p.From] : InventoryDialog.Grid[p.From - User.BeltIdx];
-                    toCell = GuildDialog.StorageGrid[p.To];
+                    fromCell = ItemMoves.Slot(MirGridType.Inventory, p.From);
+                    toCell = ItemMoves.Slot(MirGridType.GuildStorage, p.To);
 
                     if (toCell == null || fromCell == null) return;
 
@@ -6265,8 +5399,8 @@ namespace Client.MirScenes
                     fromCell.Locked = false;
                     break;
                 case 4://failretrieve
-                    toCell = p.To < User.BeltIdx ? BeltDialog.Grid[p.To] : InventoryDialog.Grid[p.To - User.BeltIdx];
-                    fromCell = GuildDialog.StorageGrid[p.From];
+                    toCell = ItemMoves.Slot(MirGridType.Inventory, p.To);
+                    fromCell = ItemMoves.Slot(MirGridType.GuildStorage, p.From);
 
                     if (toCell == null || fromCell == null) return;
 
@@ -6274,51 +5408,39 @@ namespace Client.MirScenes
                     fromCell.Locked = false;
                     break;
                 case 5://failmove
-                    fromCell = GuildDialog.StorageGrid[p.To];
-                    toCell = GuildDialog.StorageGrid[p.From];
+                    fromCell = ItemMoves.Slot(MirGridType.GuildStorage, p.To);
+                    toCell = ItemMoves.Slot(MirGridType.GuildStorage, p.From);
 
                     if (toCell == null || fromCell == null) return;
 
-                    GuildDialog.StorageGrid[p.From].Locked = false;
-                    GuildDialog.StorageGrid[p.To].Locked = false;
+                    ItemMoves.SetLocked(MirGridType.GuildStorage, p.From, false);
+                    ItemMoves.SetLocked(MirGridType.GuildStorage, p.To, false);
                     break;
             }
         }
         private void GuildStorageList(S.GuildStorageList p)
         {
+            // The guild storage grid shows GuildStorage slot for slot (was GuildDialog.StorageGrid[i].Item, 8 x 14 = GuildStorage.Length).
             for (int i = 0; i < p.Items.Length; i++)
             {
-                if (i >= GuildDialog.StorageGrid.Length) break;
+                if (i >= GuildStorage.Length) break;
                 if (p.Items[i] == null)
                 {
-                    GuildDialog.StorageGrid[i].Item = null;
+                    ItemMoves.SetItem(MirGridType.GuildStorage, i, null);
                     continue;
                 }
-                GuildDialog.StorageGrid[i].Item = p.Items[i].Item;
-                Bind(GuildDialog.StorageGrid[i].Item);
+                ItemMoves.SetItem(MirGridType.GuildStorage, i, p.Items[i].Item);
+                Bind(ItemMoves.GetItem(MirGridType.GuildStorage, i));
             }
         }
         private void GuildTerritoryPage(S.GuildTerritoryPage p)
         {
-            if (!GuildTerritoryDialog.Visible)
-            {
-                GuildTerritoryDialog.Show();
-            }
-
-            GuildTerritoryDialog.GTMapList = p.Listings;
-            GuildTerritoryDialog.Lenght = p.length;
-            GuildTerritoryDialog.UpdateInterface();
+            Ui.GuildTerritoryPage(p);
         }
 
         private void HeroCreateRequest(S.HeroCreateRequest p)
         {
-            NewHeroDialog.WarriorButton.Visible = p.CanCreateClass[(int)MirClass.Warrior];
-            NewHeroDialog.WizardButton.Visible = p.CanCreateClass[(int)MirClass.Wizard];
-            NewHeroDialog.TaoistButton.Visible = p.CanCreateClass[(int)MirClass.Taoist];
-            NewHeroDialog.AssassinButton.Visible = p.CanCreateClass[(int)MirClass.Assassin];
-            NewHeroDialog.ArcherButton.Visible = p.CanCreateClass[(int)MirClass.Archer];
-
-            NewHeroDialog.Show();
+            Ui.HeroCreateRequest(p);
         }
 
         private void ManageHeroes(S.ManageHeroes p)
@@ -6330,16 +5452,12 @@ namespace Client.MirScenes
             }
 
             MaximumHeroCount = p.MaximumCount;
-            HeroManageDialog.SetCurrentHero(p.CurrentHero);
-            HeroManageDialog.Show();
+            Ui.ManageHeroes(p.CurrentHero);
         }
 
         private void ChangeHero(S.ChangeHero p)
         {
-            ClientHeroInformation temp = HeroStorage[p.FromIndex];
-            HeroStorage[p.FromIndex] = HeroManageDialog.CurrentAvatar.Info;
-            HeroManageDialog.SetCurrentHero(temp);
-            HeroManageDialog.RefreshInterface();
+            Ui.ChangeHero(p);
         }
 
         public int HeroAvatar(MirClass job, MirGender gender) => 1400 + (byte)job + 10 * (byte)gender;
@@ -6349,7 +5467,7 @@ namespace Client.MirScenes
             if (Hero == null) return;
 
             Hero.AutoPot = value;
-            HeroInventoryDialog.RefreshInterface();
+            Ui.HeroAutoPotChanged();
         }
 
         private void SetAutoPotValue(S.SetAutoPotValue p)
@@ -6361,7 +5479,7 @@ namespace Client.MirScenes
             else
                 Hero.AutoMPPercent = p.Value;
 
-            HeroInventoryDialog.RefreshInterface();
+            Ui.HeroAutoPotChanged();
         }
 
         private void SetAutoPotItem(S.SetAutoPotItem p)
@@ -6377,46 +5495,12 @@ namespace Client.MirScenes
         private void SetHeroBehaviour(S.SetHeroBehaviour p)
         {
             if (Hero == null) return;
-            HeroBehaviourPanel.UpdateBehaviour(p.Behaviour);
+            Ui.HeroBehaviourChanged(p.Behaviour);
         }
 
         private void NewHero(S.NewHero p)
         {
-            NewHeroDialog.OKButton.Enabled = true;
-
-            switch (p.Result)
-            {
-                case 0:
-                    MirMessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CreatingNewHeroesDisabled));
-                    NewHeroDialog.Hide();
-                    break;
-                case 1:
-                    MirMessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.YourHeroNameNotAcceptable));
-                    NewHeroDialog.NameTextBox.SetFocus();
-                    break;
-                case 2:
-                    MirMessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.SelectedGenderNotExist));
-                    break;
-                case 3:
-                    MirMessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.SelectedClassNotExist));
-                    break;
-                case 4:
-                    MirMessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CannotMakeMoreHeroes));
-                    NewHeroDialog.Hide();
-                    break;
-                case 5:
-                    MirMessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CharacterNameAlreadyExists));
-                    NewHeroDialog.NameTextBox.SetFocus();
-                    break;
-                case 6:
-                    MirMessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.NoBagSpace));
-                    NewHeroDialog.Hide();
-                    break;
-                case 10:
-                    MirMessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.HeroCreatedSuccessfully));
-                    NewHeroDialog.Hide();
-                    break;
-            }
+            Ui.NewHeroResult(p);
         }
 
         private void HeroInformation(S.HeroInformation p)
@@ -6433,18 +5517,12 @@ namespace Client.MirScenes
             if (p.MPItemIndex > 0)
                 Hero.MPItem[0] = new UserItem(GetItemInfo(p.MPItemIndex));
 
-            HeroDialog = new CharacterDialog(MirGridType.HeroEquipment, Hero) { Parent = this, Visible = false };
-            HeroInventoryDialog = new HeroInventoryDialog { Parent = this };
-            HeroBeltDialog = new HeroBeltDialog { Parent = this };
-            HeroBuffsDialog = new BuffDialog
-            {
-                Parent = this,
-                Visible = true,
-                Location = new Point(Settings.ScreenWidth - 170, 80),
-                GetExpandedParameter = () => { return Settings.ExpandedHeroBuffWindow; },
-                SetExpandedParameter = (value) => { Settings.ExpandedHeroBuffWindow = value; }
-            };
-            MainDialog.HeroInfoPanel.Update();
+            // A new hero starts with no buffs and no slot locks (the old code got a fresh list with the new HeroBuffsDialog and
+            // fresh unlocked cells with the new hero dialogs).
+            Models.HeroBuffs.Items.Clear();
+            Models.HeroBuffs.Changed.Emit();
+            ItemMoves.ClearHeroLocks();
+            Ui.HeroInformationReceived();
 
             Hero.RefreshStats();
         }
@@ -6454,18 +5532,9 @@ namespace Client.MirScenes
             HeroSpawnState = p.State;
 
             HasHero = p.State > HeroSpawnState.None;
-            MainDialog.HeroInfoPanel.Visible = p.State > HeroSpawnState.Unsummoned;
-            MainDialog.HeroMenuButton.Visible = p.State > HeroSpawnState.Unsummoned;
-            HeroBehaviourPanel.Visible = p.State > HeroSpawnState.Unsummoned;
-            HeroMenuPanel.Visible = HeroMenuPanel.Visible && MainDialog.HeroMenuButton.Visible;
-
             if (p.State < HeroSpawnState.Summoned)
-            {
-                HeroInventoryDialog.Dispose();
-                HeroDialog.Dispose();
-                HeroBeltDialog.Dispose();
-                HeroBuffsDialog.Dispose();
-            }
+                ItemMoves.ClearHeroLocks(); // the classic hero cells (and their locks) were disposed here
+            Ui.HeroSpawnStateChanged(p.State);
         }
 
         private void MarriageRequest(S.MarriageRequest p)
@@ -6501,16 +5570,17 @@ namespace Client.MirScenes
 
         private bool UpdateGuildBuff(GuildBuff buff, bool Remove = false)
         {
-            for (int i = 0; i < GuildDialog.EnabledBuffs.Count; i++)
+            List<GuildBuff> enabledBuffs = Models.Guild.EnabledBuffs;
+            for (int i = 0; i < enabledBuffs.Count; i++)
             {
-                if (GuildDialog.EnabledBuffs[i].Id == buff.Id)
+                if (enabledBuffs[i].Id == buff.Id)
                 {
                     if (Remove)
                     {
-                        GuildDialog.EnabledBuffs.RemoveAt(i);
+                        enabledBuffs.RemoveAt(i);
                     }
                     else
-                        GuildDialog.EnabledBuffs[i] = buff;
+                        enabledBuffs[i] = buff;
                     return true;
                 }
             }
@@ -6520,11 +5590,12 @@ namespace Client.MirScenes
         private void GuildBuffList(S.GuildBuffList p)
         {
             //getting the list of all guildbuffs on server?
+            GuildState guild = Models.Guild;
             if (p.GuildBuffs.Count > 0)
-                GuildDialog.GuildBuffInfos.Clear();
+                guild.BuffInfos.Clear();
             for (int i = 0; i < p.GuildBuffs.Count; i++)
             {
-                GuildDialog.GuildBuffInfos.Add(p.GuildBuffs[i]);
+                guild.BuffInfos.Add(p.GuildBuffs[i]);
             }
             //getting the list of all active/removedbuffs?
             for (int i = 0; i < p.ActiveBuffs.Count; i++)
@@ -6534,32 +5605,34 @@ namespace Client.MirScenes
                 if (UpdateGuildBuff(p.ActiveBuffs[i], p.Remove == 1)) continue;
                 if (!(p.Remove == 1))
                 {
-                    GuildDialog.EnabledBuffs.Add(p.ActiveBuffs[i]);
+                    guild.EnabledBuffs.Add(p.ActiveBuffs[i]);
                     //CreateGuildBuff(p.ActiveBuffs[i]);
                 }
             }
 
-            for (int i = 0; i < GuildDialog.EnabledBuffs.Count; i++)
+            for (int i = 0; i < guild.EnabledBuffs.Count; i++)
             {
-                if (GuildDialog.EnabledBuffs[i].Info == null)
+                if (guild.EnabledBuffs[i].Info == null)
                 {
-                    GuildDialog.EnabledBuffs[i].Info = GuildDialog.FindGuildBuffInfo(GuildDialog.EnabledBuffs[i].Id);
+                    guild.EnabledBuffs[i].Info = guild.FindBuffInfo(guild.EnabledBuffs[i].Id);
                 }
             }
+            guild.BuffsChanged.Emit();
 
-            ClientBuff buff = BuffsDialog.Buffs.FirstOrDefault(e => e.Type == BuffType.Guild);
+            ClientBuff buff = Models.Buffs.Items.FirstOrDefault(e => e.Type == BuffType.Guild);
 
-            if (GuildDialog.EnabledBuffs.Any(e => e.Active))
+            if (guild.EnabledBuffs.Any(e => e.Active))
             {
                 if (buff == null)
                 {
                     buff = new ClientBuff { Type = BuffType.Guild, ObjectID = User.ObjectID, Caster = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.Guild), Infinite = true, Values = new int[0] };
 
-                    BuffsDialog.Buffs.Add(buff);
-                    BuffsDialog.CreateBuff(buff);
+                    Models.Buffs.Items.Add(buff);
+                    Models.Buffs.Changed.Emit();
+                    Ui.BuffAdded(false, buff);
                 }
 
-                GuildDialog.UpdateActiveStats();
+                Ui.GuildActiveStatsChanged();
             }
             else
             {
@@ -6580,93 +5653,73 @@ namespace Client.MirScenes
         }
         private void TradeAccept(S.TradeAccept p)
         {
-            GuestTradeDialog.GuestName = p.Name;
-            TradeDialog.TradeAccept();
+            Models.Trade.GuestName = p.Name;
+            Models.Trade.Changed.Emit();
+            Ui.TradeAccepted();
         }
         private void TradeGold(S.TradeGold p)
         {
-            GuestTradeDialog.GuestGold = p.Amount;
-            TradeDialog.ChangeLockState(false);
-            TradeDialog.RefreshInterface();
+            Models.Trade.GuestGold = p.Amount;
+            Models.Trade.Changed.Emit();
+            Ui.TradeGuestChanged();
         }
         private void TradeItem(S.TradeItem p)
         {
-            GuestTradeDialog.GuestItems = p.TradeItems;
-            TradeDialog.ChangeLockState(false);
-            TradeDialog.RefreshInterface();
+            Models.Trade.GuestItems = p.TradeItems;
+            Models.Trade.Changed.Emit();
+            Ui.TradeGuestChanged();
         }
         private void TradeConfirm()
         {
-            TradeDialog.TradeReset();
+            Ui.TradeConfirmed();
         }
         private void TradeCancel(S.TradeCancel p)
         {
-            if (p.Unlock)
-            {
-                TradeDialog.ChangeLockState(false);
-            }
-            else
-            {
-                TradeDialog.TradeReset();
-
-                MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.DealCancelledMustFace), MirMessageBoxButtons.OK);
-                messageBox.Show();
-            }
+            Ui.TradeCancelled(p.Unlock);
         }
         private void NPCAwakening()
         {
-            if (NPCAwakeDialog.Visible != true)
-                NPCAwakeDialog.Show();
+            Ui.NpcAwakening();
         }
         private void NPCDisassemble()
         {
-            if (!NPCDialog.Visible) return;
-            NPCDropDialog.PType = PanelType.Disassemble;
-            NPCDropDialog.Show();
+            Ui.NpcDropPanel(PanelType.Disassemble);
         }
         private void NPCDowngrade()
         {
-            if (!NPCDialog.Visible) return;
-            NPCDropDialog.PType = PanelType.Downgrade;
-            NPCDropDialog.Show();
+            Ui.NpcDropPanel(PanelType.Downgrade);
         }
         private void NPCReset()
         {
-            if (!NPCDialog.Visible) return;
-            NPCDropDialog.PType = PanelType.Reset;
-            NPCDropDialog.Show();
+            Ui.NpcDropPanel(PanelType.Reset);
         }
         private void AwakeningNeedMaterials(S.AwakeningNeedMaterials p)
         {
-            NPCAwakeDialog.setNeedItems(p.Materials, p.MaterialsCount);
+            Ui.AwakeningNeedMaterials(p);
         }
         private void AwakeningLockedItem(S.AwakeningLockedItem p)
         {
-            MirItemCell cell = InventoryDialog.GetCell(p.UniqueID);
+            ItemSlotRef cell = ItemMoves.FindBag(p.UniqueID);
             if (cell != null)
                 cell.Locked = p.Locked;
         }
         private void Awakening(S.Awakening p)
         {
-            if (NPCAwakeDialog.Visible)
-                NPCAwakeDialog.Hide();
-            if (InventoryDialog.Visible)
-                InventoryDialog.Hide();
+            Ui.ItemAwakeningClosing();
 
-            InventoryDialog.Location = new Point(0, 0);
-
-            MirItemCell cell = InventoryDialog.GetCell((ulong)p.removeID);
+            ItemSlotRef cell = ItemMoves.FindBag((ulong)p.removeID);
             if (cell != null)
             {
                 cell.Locked = false;
                 cell.Item = null;
             }
 
-            for (int i = 0; i < InventoryDialog.Grid.Length; i++)
+            //The bag slots (was InventoryDialog.Grid: Inventory[BeltSize..]).
+            for (int i = UserObject.BeltSize; i < User.Inventory.Length; i++)
             {
-                if (InventoryDialog.Grid[i].Locked == true)
+                if (ItemMoves.IsLocked(MirGridType.Inventory, i) == true)
                 {
-                    InventoryDialog.Grid[i].Locked = false;
+                    ItemMoves.SetLocked(MirGridType.Inventory, i, false);
 
                     //if (InventoryDialog.Grid[i].Item.UniqueID == (ulong)p.removeID)
                     //{
@@ -6675,41 +5728,22 @@ namespace Client.MirScenes
                 }
             }
 
-            for (int i = 0; i < NPCAwakeDialog.ItemsIdx.Length; i++)
+            for (int i = 0; i < Models.Npc.AwakeItemsIdx.Length; i++)
             {
-                NPCAwakeDialog.ItemsIdx[i] = 0;
+                Models.Npc.AwakeItemsIdx[i] = 0;
             }
-
-            MirMessageBox messageBox = null;
 
             switch (p.result)
             {
                 case -4:
-                    messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.NotEnoughMaterials), MirMessageBoxButtons.OK);
-                    MapControl.AwakeningAction = false;
-                    break;
                 case -3:
-                    messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.LowGold), MirMessageBoxButtons.OK);
-                    MapControl.AwakeningAction = false;
-                    break;
                 case -2:
-                    messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AwakeningMaxLevel), MirMessageBoxButtons.OK);
-                    MapControl.AwakeningAction = false;
-                    break;
                 case -1:
-                    messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CannotAwakenItem), MirMessageBoxButtons.OK);
                     MapControl.AwakeningAction = false;
                     break;
-                case 0:
-                    //messageBox = new MirMessageBox("Upgrade Failed.", MirMessageBoxButtons.OK);
-                    break;
-                case 1:
-                    //messageBox = new MirMessageBox("Upgrade Success.", MirMessageBoxButtons.OK);
-                    break;
-
             }
 
-            if (messageBox != null) messageBox.Show();
+            Ui.ItemAwakeningResult(p.result);
         }
 
         private void ReceiveMail(S.ReceiveMail p)
@@ -6734,75 +5768,52 @@ namespace Client.MirScenes
                 NewMail = true;
             }
 
-            GameScene.Scene.MailListDialog.UpdateInterface();
+            Ui.MailReceived();
         }
 
         private void MailLockedItem(S.MailLockedItem p)
         {
-            MirItemCell cell = InventoryDialog.GetCell(p.UniqueID);
+            ItemSlotRef cell = ItemMoves.FindBag(p.UniqueID);
             if (cell != null)
                 cell.Locked = p.Locked;
         }
 
         private void MailSendRequest(S.MailSendRequest p)
         {
-            MirInputBox inputBox = new MirInputBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.EnterMailRecipientName));
-
-            inputBox.OKButton.Click += (o1, e1) =>
-            {
-                GameScene.Scene.MailComposeParcelDialog.ComposeMail(inputBox.InputTextBox.Text);
-                GameScene.Scene.InventoryDialog.Show();
-
-                //open letter dialog, pass in name
-                inputBox.Dispose();
-            };
-
-            inputBox.Show();
+            Ui.MailSendRequest();
         }
 
         private void MailSent(S.MailSent p)
         {
-            for (int i = 0; i < InventoryDialog.Grid.Length; i++)
+            //The bag slots, then the belt slots (were InventoryDialog.Grid and BeltDialog.Grid).
+            for (int i = UserObject.BeltSize; i < User.Inventory.Length; i++)
             {
-                if (InventoryDialog.Grid[i].Locked == true)
+                if (ItemMoves.IsLocked(MirGridType.Inventory, i) == true)
                 {
-                    InventoryDialog.Grid[i].Locked = false;
+                    ItemMoves.SetLocked(MirGridType.Inventory, i, false);
                 }
             }
 
-            for (int i = 0; i < BeltDialog.Grid.Length; i++)
+            for (int i = 0; i < UserObject.BeltSize; i++)
             {
-                if (BeltDialog.Grid[i].Locked == true)
+                if (ItemMoves.IsLocked(MirGridType.Inventory, i) == true)
                 {
-                    BeltDialog.Grid[i].Locked = false;
+                    ItemMoves.SetLocked(MirGridType.Inventory, i, false);
                 }
             }
 
-            GameScene.Scene.MailComposeParcelDialog.Hide();
+            Ui.ItemMailSent();
         }
 
         private void ParcelCollected(S.ParcelCollected p)
         {
-            switch (p.Result)
-            {
-                case -1:
-                    MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.NoParcelsToCollect), MirMessageBoxButtons.OK);
-                    messageBox.Show();
-                    break;
-                case 0:
-                    messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AllParcelsCollected), MirMessageBoxButtons.OK);
-                    messageBox.Show();
-                    break;
-                case 1:
-                    GameScene.Scene.MailReadParcelDialog.Hide();
-                    break;
-            }
+            Ui.ParcelCollected(p.Result);
         }
 
         private void ResizeInventory(S.ResizeInventory p)
         {
             Array.Resize(ref User.Inventory, p.Size);
-            InventoryDialog.RefreshInventory2();
+            Ui.InventoryResized();
         }
 
         private void ResizeStorage(S.ResizeStorage p)
@@ -6811,18 +5822,12 @@ namespace Client.MirScenes
             User.HasExpandedStorage = p.HasExpandedStorage;
             User.ExpandedStorageExpiryTime = p.ExpiryTime;
 
-            StorageDialog.RefreshStorage2();
+            Ui.StorageResized();
         }
 
         private void MailCost(S.MailCost p)
         {
-            if (GameScene.Scene.MailComposeParcelDialog.Visible)
-            {
-                if (p.Cost > 0)
-                    SoundManager.PlaySound(SoundList.Gold);
-
-                GameScene.Scene.MailComposeParcelDialog.ParcelCostLabel.Text = p.Cost.ToString();
-            }
+            Ui.MailCost(p.Cost);
         }
 
         public void AddQuestItem(UserItem item)
@@ -6870,16 +5875,7 @@ namespace Client.MirScenes
         {
             User.IntelligentCreatures.Add(p.Creature);
 
-            MirInputBox inputBox = new MirInputBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PleaseGiveYourCreatureName));
-            inputBox.InputTextBox.Text = GameScene.User.IntelligentCreatures[User.IntelligentCreatures.Count - 1].CustomName;
-            inputBox.OKButton.Click += (o1, e1) =>
-            {
-                if (IntelligentCreatureDialog.Visible) IntelligentCreatureDialog.Update();//refresh changes
-                GameScene.User.IntelligentCreatures[User.IntelligentCreatures.Count - 1].CustomName = inputBox.InputTextBox.Text;
-                Network.Enqueue(new C.UpdateIntelligentCreature { Creature = GameScene.User.IntelligentCreatures[User.IntelligentCreatures.Count - 1] });
-                inputBox.Dispose();
-            };
-            inputBox.Show();
+            Ui.NewIntelligentCreature();
         }
 
         private void UpdateIntelligentCreatureList(S.UpdateIntelligentCreatureList p)
@@ -6893,23 +5889,19 @@ namespace Client.MirScenes
                 for (int i = 0; i < p.CreatureList.Count; i++)
                     User.IntelligentCreatures.Add(p.CreatureList[i]);
 
-                for (int i = 0; i < IntelligentCreatureDialog.CreatureButtons.Length; i++)
-                    IntelligentCreatureDialog.CreatureButtons[i].Clear();
-
-                IntelligentCreatureDialog.Hide();
+                Ui.IntelligentCreaturesChanged(true);
             }
             else
             {
                 for (int i = 0; i < p.CreatureList.Count; i++)
                     User.IntelligentCreatures[i] = p.CreatureList[i];
-                if (IntelligentCreatureDialog.Visible) IntelligentCreatureDialog.Update();
+                Ui.IntelligentCreaturesChanged(false);
             }
         }
 
         private void IntelligentCreatureEnableRename(S.IntelligentCreatureEnableRename p)
         {
-            IntelligentCreatureDialog.CreatureRenameButton.Visible = true;
-            if (IntelligentCreatureDialog.Visible) IntelligentCreatureDialog.Update();
+            Ui.IntelligentCreatureEnableRename();
         }
 
         private void IntelligentCreaturePickup(S.IntelligentCreaturePickup p)
@@ -6921,35 +5913,26 @@ namespace Client.MirScenes
 
         private void FriendUpdate(S.FriendUpdate p)
         {
-            FriendDialog.Friends = p.Friends;
+            Models.Friends.Set(p.Friends);
 
-            if (FriendDialog.Visible)
-                FriendDialog.Update(false);
+            Ui.FriendsChanged();
         }
 
         private void LoverUpdate(S.LoverUpdate p)
         {
-            RelationshipDialog.LoverName = p.Name;
-            RelationshipDialog.Date = p.Date;
-            RelationshipDialog.MapName = p.MapName;
-            RelationshipDialog.MarriedDays = p.MarriedDays;
-            RelationshipDialog.UpdateInterface();
+            Ui.LoverUpdate(p);
         }
 
         private void MentorUpdate(S.MentorUpdate p)
         {
-            MentorDialog.MentorName = p.Name;
-            MentorDialog.MentorLevel = p.Level;
-            MentorDialog.MentorOnline = p.Online;
-            MentorDialog.MenteeEXP = p.MenteeEXP;
-            MentorDialog.UpdateInterface();
+            Ui.MentorUpdate(p);
         }
 
         private void GameShopUpdate(S.GameShopInfo p)
         {
             p.Item.Stock = p.StockLevel;
             GameShopInfoList.Add(p.Item);
-            if (p.Item.Date > CMain.Now.AddDays(-7)) GameShopDialog.New.Visible = true;
+            if (p.Item.Date > CMain.Now.AddDays(-7)) Ui.GameShopNewItems();
         }
 
         private void GameShopStock(S.GameShopStock p)
@@ -6961,7 +5944,7 @@ namespace Client.MirScenes
                     if (p.StockLevel == 0) GameShopInfoList.Remove(GameShopInfoList[i]);
                     else GameShopInfoList[i].Stock = p.StockLevel;
 
-                    if (GameShopDialog.Visible) GameShopDialog.UpdateShop();
+                    Ui.GameShopStockChanged();
                 }
             }
         }
@@ -7076,3184 +6059,6 @@ namespace Client.MirScenes
             }
         }
 
-        public void DisposeItemLabel()
-        {
-            if (ItemLabel != null && !ItemLabel.IsDisposed)
-                ItemLabel.Dispose();
-            ItemLabel = null;
-        }
-        public void DisposeMailLabel()
-        {
-            if (MailLabel != null && !MailLabel.IsDisposed)
-                MailLabel.Dispose();
-            MailLabel = null;
-        }
-        public void DisposeMemoLabel()
-        {
-            if (MemoLabel != null && !MemoLabel.IsDisposed)
-                MemoLabel.Dispose();
-            MemoLabel = null;
-        }
-        public void DisposeGuildBuffLabel()
-        {
-            if (GuildBuffLabel != null && !GuildBuffLabel.IsDisposed)
-                GuildBuffLabel.Dispose();
-            GuildBuffLabel = null;
-        }
-
-        public MirControl NameInfoLabel(UserItem item, bool inspect = false, bool hideDura = false)
-        {
-            ushort level = inspect ? InspectDialog.Level : MapObject.User.Level;
-            MirClass job = inspect ? InspectDialog.Class : MapObject.User.Class;
-            HoverItem = item;
-            ItemInfo realItem = Functions.GetRealItem(item.Info, level, job, ItemInfoList);
-
-            string GradeString = "";
-            switch (HoverItem.Info.Grade)
-            {
-                case ItemGrade.None:
-                    break;
-                case ItemGrade.Common:
-                    GradeString = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemGradeCommon);
-                    break;
-                case ItemGrade.Rare:
-                    GradeString = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemGradeRare);
-                    break;
-                case ItemGrade.Legendary:
-                    GradeString = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemGradeLegendary);
-                    break;
-                case ItemGrade.Mythical:
-                    GradeString = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemGradeMythical);
-                    break;
-                case ItemGrade.Heroic:
-                    GradeString = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemGradeHeroic);
-                    break;
-            }
-            MirLabel nameLabel = new MirLabel
-            {
-                AutoSize = true,
-                ForeColour = GradeNameColor(HoverItem.Info.Grade),
-                Location = new Point(4, 4),
-                OutLine = true,
-                Parent = ItemLabel,
-                Text = HoverItem.Info.Grade != ItemGrade.None ? string.Format("{0}{1}{2}", HoverItem.Info.FriendlyName, "\n", GradeString) : HoverItem.Info.FriendlyName,
-            };
-
-            if (HoverItem.RefineAdded > 0)
-                nameLabel.Text = "(*)" + nameLabel.Text;
-
-            ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, nameLabel.DisplayRectangle.Right + 4),
-                Math.Max(ItemLabel.Size.Height, nameLabel.DisplayRectangle.Bottom));
-
-            string text = "";
-
-            if (HoverItem.Info.Durability > 0 && !hideDura)
-            {
-                switch (HoverItem.Info.Type)
-                {
-                    case ItemType.Amulet:
-                        if (HoverItem.CurrentDura > 0 || HoverItem.MaxDura > 0)
-                            text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.UsageCurrentMax, HoverItem.CurrentDura, HoverItem.MaxDura);
-                        break;
-                    case ItemType.Ore:
-                        if (HoverItem.CurrentDura > 0)
-                            text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PurityValue, Math.Floor(HoverItem.CurrentDura / 1000M));
-                        break;
-                    case ItemType.Meat:
-                        if (HoverItem.CurrentDura > 0)
-                            text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.QualityValue, Math.Floor(HoverItem.CurrentDura / 1000M));
-                        break;
-                    case ItemType.Mount:
-                        if (HoverItem.CurrentDura > 0 || HoverItem.MaxDura > 0)
-                            text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.LoyaltyValues, HoverItem.CurrentDura, HoverItem.MaxDura);
-                        break;
-                    case ItemType.Food:
-                        if (HoverItem.CurrentDura > 0)
-                            text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.NutritionValue, HoverItem.CurrentDura);
-                        break;
-                    case ItemType.Gem:
-                    case ItemType.Potion:
-                    case ItemType.Transform:
-                    case ItemType.SealedHero:
-                        break;
-                    case ItemType.Pets:
-                        if ((HoverItem.Info.Shape == 26 || HoverItem.Info.Shape == 28) && HoverItem.CurrentDura > 0)//WonderDrug, Knapsack
-                        {
-                            string strTime = Functions.PrintTimeSpanFromSeconds((HoverItem.CurrentDura * 3600), false);
-                            text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.DurationValue, strTime);
-                        }
-                        break;
-                    default:
-                        int current = (int)Math.Floor(HoverItem.CurrentDura / 1000M);
-                        int maximum = (int)Math.Floor(HoverItem.MaxDura / 1000M);
-                        if (current > 0 || maximum > 0)
-                            text = string.Format("{0} {1}/{2}", GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.Durability), current, maximum);
-                        break;
-                }
-            }
-
-            string baseText = string.Empty;
-            switch (HoverItem.Info.Type)
-            {
-                case ItemType.Nothing:
-                    break;
-                case ItemType.Weapon:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeWeapon);
-                    break;
-                case ItemType.Armour:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeArmour);
-                    break;
-                case ItemType.Helmet:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeHelmet);
-                    break;
-                case ItemType.Necklace:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeNecklace);
-                    break;
-                case ItemType.Bracelet:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeBracelet);
-                    break;
-                case ItemType.Ring:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeRing);
-                    break;
-                case ItemType.Amulet:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeAmulet);
-                    break;
-                case ItemType.Belt:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeBelt);
-                    break;
-                case ItemType.Boots:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeBoots);
-                    break;
-                case ItemType.Stone:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeStone);
-                    break;
-                case ItemType.Torch:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeTorch);
-                    break;
-                case ItemType.Potion:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypePotion);
-                    break;
-                case ItemType.Ore:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeOre);
-                    break;
-                case ItemType.Meat:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeMeat);
-                    break;
-                case ItemType.CraftingMaterial:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeCraftingMaterial);
-                    break;
-                case ItemType.Scroll:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeScroll);
-                    break;
-                case ItemType.Gem:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeGem);
-                    break;
-                case ItemType.Mount:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeMount);
-                    break;
-                case ItemType.Book:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeBook);
-                    break;
-                case ItemType.Script:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeScript);
-                    break;
-                case ItemType.Reins:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeReins);
-                    break;
-                case ItemType.Bells:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeBells);
-                    break;
-                case ItemType.Saddle:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeSaddle);
-                    break;
-                case ItemType.Ribbon:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeRibbon);
-                    break;
-                case ItemType.Mask:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeMask);
-                    break;
-                case ItemType.Food:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeFood);
-                    break;
-                case ItemType.Hook:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeHook);
-                    break;
-                case ItemType.Float:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeFloat);
-                    break;
-                case ItemType.Bait:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeBait);
-                    break;
-                case ItemType.Finder:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeFinder);
-                    break;
-                case ItemType.Reel:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeReel);
-                    break;
-                case ItemType.Fish:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeFish);
-                    break;
-                case ItemType.Quest:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeQuest);
-                    break;
-                case ItemType.Awakening:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeAwakening);
-                    break;
-                case ItemType.Pets:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypePets);
-                    break;
-                case ItemType.Transform:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeTransform);
-                    break;
-                case ItemType.Deco:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeDeco);
-                    break;
-                case ItemType.MonsterSpawn:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeMonsterSpawn);
-                    break;
-                case ItemType.SealedHero:
-                    baseText = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemTypeSealedHero);
-                    break;
-            }
-
-            if (HoverItem.WeddingRing != -1)
-            {
-                baseText += GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.WeddingRing);
-            }
-
-            List<string> tailParts = new List<string>();
-            if (HoverItem.Weight > 0)
-                tailParts.Add(string.Format("{0} {1}", GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.Weight), HoverItem.Weight));
-            if (!string.IsNullOrEmpty(text))
-                tailParts.Add(text);
-
-            if (tailParts.Count > 0)
-            {
-                string tailText = string.Join("  ", tailParts.ToArray());
-                baseText = string.IsNullOrEmpty(baseText)
-                    ? tailText
-                    : string.Format("{0}\n{1}", baseText, tailText);
-            }
-
-            MirLabel etcLabel = new MirLabel
-            {
-                AutoSize = true,
-                ForeColour = Color.White,
-                Location = new Point(4, nameLabel.DisplayRectangle.Bottom),
-                OutLine = true,
-                Parent = ItemLabel,
-                Text = baseText
-            };
-
-            ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, etcLabel.DisplayRectangle.Right + 4),
-                Math.Max(ItemLabel.Size.Height, etcLabel.DisplayRectangle.Bottom + 4));
-
-            #region OUTLINE
-            MirControl outLine = new MirControl
-            {
-                BackColour = Color.FromArgb(255, 50, 50, 50),
-                Border = true,
-                BorderColour = Color.Gray,
-                NotControl = true,
-                Parent = ItemLabel,
-                Opacity = 0.4F,
-                Location = new Point(0, 0)
-            };
-            outLine.Size = ItemLabel.Size;
-            #endregion
-
-            return outLine;
-        }
-
-        private Stats GetTotalAddedStats(UserItem item, ushort level, MirClass job)
-        {
-            Stats total = new Stats();
-
-            if (item == null) return total;
-
-            total.Add(item.AddedStats);
-
-            if (item.Slots == null || item.Slots.Length == 0) return total;
-
-            for (int i = 0; i < item.Slots.Length; i++)
-            {
-                UserItem socketItem = item.Slots[i];
-                if (socketItem == null) continue;
-
-                ItemInfo socketInfo = Functions.GetRealItem(socketItem.Info, level, job, ItemInfoList);
-
-                if (socketItem.CurrentDura == 0 && socketInfo.Durability > 0) continue;
-
-                total.Add(socketInfo.Stats);
-                total.Add(socketItem.AddedStats);
-            }
-
-            return total;
-        }
-        public MirControl AttackInfoLabel(UserItem item, bool Inspect = false, bool hideAdded = false)
-        {
-            ushort level = Inspect ? InspectDialog.Level : MapObject.User.Level;
-            MirClass job = Inspect ? InspectDialog.Class : MapObject.User.Class;
-            HoverItem = item;
-            ItemInfo realItem = Functions.GetRealItem(item.Info, level, job, ItemInfoList);
-            Stats addedStats = GetTotalAddedStats(item, level, job);
-
-            ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height + 4);
-
-            bool fishingItem = false;
-
-            switch (HoverItem.Info.Type)
-            {
-                case ItemType.Hook:
-                case ItemType.Float:
-                case ItemType.Bait:
-                case ItemType.Finder:
-                case ItemType.Reel:
-                    fishingItem = true;
-                    break;
-                case ItemType.Weapon:
-                    if (Globals.FishingRodShapes.Contains(HoverItem.Info.Shape))
-                        fishingItem = true;
-                    break;
-                default:
-                    fishingItem = false;
-                    break;
-            }
-
-            int count = 0;
-            int minValue = 0;
-            int maxValue = 0;
-            int addValue = 0;
-            string text = "";
-
-            #region Dura gem
-            minValue = realItem.Durability;
-
-            if (minValue > 0 && realItem.Type == ItemType.Gem)
-            {
-                switch (realItem.Shape)
-                {
-                    default:
-                        text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AddsDurability, minValue / 1000);
-                        break;
-                    case 8:
-                        text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.SealsFor, Functions.PrintTimeSpanFromSeconds(minValue * 60));
-                        break;
-                }
-
-                count++;
-                MirLabel DuraLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = text
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, DuraLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, DuraLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region DC
-            minValue = realItem.Stats[Stat.MinDC];
-            maxValue = realItem.Stats[Stat.MaxDC];
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.MaxDC] : 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                if (HoverItem.Info.Type != ItemType.Gem)
-                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.DC, minValue, maxValue + addValue) + (addValue > 0 ? $" (+{addValue})" : string.Empty);
-                else
-                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AddsDC, minValue + maxValue + addValue);
-                MirLabel DCLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = text
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, DCLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, DCLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region MC
-
-            minValue = realItem.Stats[Stat.MinMC];
-            maxValue = realItem.Stats[Stat.MaxMC];
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.MaxMC] : 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                if (HoverItem.Info.Type != ItemType.Gem)
-                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.MC, minValue, maxValue + addValue) + (addValue > 0 ? $" (+{addValue})" : string.Empty);
-                else
-                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AddsMC, minValue + maxValue + addValue);
-                MirLabel MCLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = text
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, MCLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, MCLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region SC
-
-            minValue = realItem.Stats[Stat.MinSC];
-            maxValue = realItem.Stats[Stat.MaxSC];
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.MaxSC] : 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                if (HoverItem.Info.Type != ItemType.Gem)
-                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.SC, minValue, maxValue + addValue) + (addValue > 0 ? $" (+{addValue})" : string.Empty);
-                else
-                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AddsSC, minValue + maxValue + addValue);
-                MirLabel SCLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    //Text = string.Format("SC + {0}~{1}", minValue, maxValue + addValue)
-                    Text = text
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, SCLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, SCLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region LUCK / SUCCESS
-
-            minValue = realItem.Stats[Stat.Luck];
-            maxValue = 0;
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.Luck] : 0;
-
-            if (minValue != 0 || addValue != 0)
-            {
-                count++;
-
-                if (realItem.Type == ItemType.Pets && realItem.Shape == 28)
-                {
-                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.BagWeightPercent, minValue + addValue);
-                }
-                else if (realItem.Type == ItemType.Potion && realItem.Shape == 4)
-                {
-                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ExpPercent, minValue + addValue);
-                }
-                else if (realItem.Type == ItemType.Potion && realItem.Shape == 5)
-                {
-                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.DropPercent, minValue + addValue);
-                }
-                else
-                {
-                    text = string.Format(minValue + addValue > 0 ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.Luck) : GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CursePlusValue),
-                        Math.Abs(minValue + addValue));
-                }
-
-                MirLabel LUCKLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = text
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, LUCKLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, LUCKLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-
-
-            #region ACC
-
-            minValue = realItem.Stats[Stat.Accuracy];
-            maxValue = 0;
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.Accuracy] : 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                if (HoverItem.Info.Type != ItemType.Gem)
-                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.Accuracy, minValue + addValue) + (addValue > 0 ? $" (+{addValue})" : string.Empty);
-                else
-                    text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AddsAccuracyValue, minValue + maxValue + addValue);
-                MirLabel ACCLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    //Text = string.Format("Accuracy + {0}", minValue + addValue)
-                    Text = text
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, ACCLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, ACCLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region HOLY
-
-            minValue = realItem.Stats[Stat.Holy];
-            maxValue = 0;
-            addValue = 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                MirLabel HOLYLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    //Text = string.Format("Holy + {0}", minValue + addValue)
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.Holy, minValue + addValue) + (addValue > 0 ? $" (+{addValue})" : string.Empty)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, HOLYLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, HOLYLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region ASPEED
-
-            minValue = realItem.Stats[Stat.AttackSpeed];
-            maxValue = 0;
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.AttackSpeed] : 0;
-
-            if (minValue != 0 || maxValue != 0 || addValue != 0)
-            {
-                string plus = (addValue + minValue < 0) ? String.Empty : "+";
-
-                count++;
-                if (HoverItem.Info.Type != ItemType.Gem)
-                {
-                    string negative = "+";
-                    if (addValue < 0) negative = String.Empty;
-
-                    text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.AttackSpeedValue), plus, minValue + addValue) + (addValue != 0 ? $" ({negative}{addValue})" : string.Empty);
-                    //text = string.Format(addValue != 0 ? "A.Speed: " + plus + "{0} ({2}{1})" : "A.Speed: " + plus + "{0}", minValue + addValue, addValue, negative);
-                    //text = string.Format(addValue > 0 ? "A.Speed: + {0} (+{1})" : "A.Speed: + {0}", minValue + addValue, addValue);
-                }
-                else
-                    text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.AddAttackSpeed), minValue + maxValue + addValue);
-
-                MirLabel ASPEEDLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    //Text = string.Format("A.Speed + {0}", minValue + addValue)
-                    Text = text
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, ASPEEDLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, ASPEEDLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region FREEZING
-
-            minValue = realItem.Stats[Stat.Freezing];
-            maxValue = 0;
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.Freezing] : 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                if (HoverItem.Info.Type != ItemType.Gem)
-                {
-                    text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.FreezingPlus), minValue + addValue) + (addValue > 0 ? $" (+{addValue})" : string.Empty);
-                }
-                else text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.AddsFreezingPlus), minValue + maxValue + addValue);
-
-                MirLabel FREEZINGLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    //Text = string.Format("Freezing + {0}", minValue + addValue)
-                    Text = text
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, FREEZINGLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, FREEZINGLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region POISON
-
-            minValue = realItem.Stats[Stat.PoisonAttack];
-            maxValue = 0;
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.PoisonAttack] : 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                if (HoverItem.Info.Type != ItemType.Gem)
-                {
-                    text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PoisonPlus), minValue + addValue) + (addValue > 0 ? $" (+{addValue})" : string.Empty);
-                }
-                else
-                    text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.AddsPoisonPlus), minValue + maxValue + addValue);
-
-                MirLabel POISONLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    //Text = string.Format("Poison + {0}", minValue + addValue)
-                    Text = text
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, POISONLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, POISONLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region CRITICALRATE / FLEXIBILITY
-
-            minValue = realItem.Stats[Stat.CriticalRate];
-            maxValue = 0;
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.CriticalRate] : 0;
-
-            if ((minValue > 0 || maxValue > 0 || addValue > 0) && (realItem.Type != ItemType.Gem))
-            {
-                count++;
-                MirLabel CRITICALRATELabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    //Text = string.Format("Critical Chance + {0}", minValue + addValue)
-                    //Text = string.Format(addValue > 0 ? "Critical Chance: + {0} (+{1})" : "Critical Chance: + {0}", minValue + addValue, addValue)
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.CriticalChancePlus), minValue + addValue) + (addValue > 0 ? $" (+{addValue})" : string.Empty)
-                };
-
-                if (fishingItem)
-                {
-                    CRITICALRATELabel.Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.FlexibilityPlus), minValue + addValue) + (addValue > 0 ? $" (+{addValue})" : string.Empty);
-                }
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, CRITICALRATELabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, CRITICALRATELabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region CRITICALDAMAGE
-
-            minValue = realItem.Stats[Stat.CriticalDamage];
-            maxValue = 0;
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.CriticalDamage] : 0;
-
-            if ((minValue > 0 || maxValue > 0 || addValue > 0) && (realItem.Type != ItemType.Gem))
-            {
-                count++;
-                MirLabel CRITICALDAMAGELabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    //Text = string.Format("Critical Damage + {0}", minValue + addValue)
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.CriticalDamagePlus), minValue + addValue) + (addValue > 0 ? $" (+{addValue})" : string.Empty)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, CRITICALDAMAGELabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, CRITICALDAMAGELabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region Reflect
-
-            minValue = realItem.Stats[Stat.Reflect];
-            maxValue = 0;
-            addValue = 0;
-
-            if ((minValue > 0 || maxValue > 0 || addValue > 0) && (realItem.Type != ItemType.Gem))
-            {
-                count++;
-                MirLabel ReflectLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.ReflectChance), minValue)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, ReflectLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, ReflectLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region Hpdrain
-
-            minValue = realItem.Stats[Stat.HPDrainRatePercent];
-            maxValue = 0;
-            addValue = 0;
-
-            if ((minValue > 0 || maxValue > 0 || addValue > 0) && (realItem.Type != ItemType.Gem))
-            {
-                count++;
-                MirLabel HPdrainLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.HPDrainRate), minValue)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, HPdrainLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, HPdrainLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region Exp Rate
-
-            minValue = realItem.Stats[Stat.ExpRatePercent];
-            maxValue = 0;
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.ExpRatePercent] : 0;
-
-            if (minValue != 0 || maxValue != 0 || addValue != 0)
-            {
-                string plus = (addValue + minValue < 0) ? string.Empty : "+";
-
-                count++;
-                string negative = "+";
-                if (addValue < 0) negative = String.Empty;
-                text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.ExpRate), plus, minValue + addValue) + (addValue != 0 ? $" ({negative}{addValue}%)" : String.Empty);
-
-                MirLabel expRateLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = text
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, expRateLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, expRateLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region Drop Rate
-
-            minValue = realItem.Stats[Stat.ItemDropRatePercent];
-            maxValue = 0;
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.ItemDropRatePercent] : 0;
-
-            if (minValue != 0 || maxValue != 0 || addValue != 0)
-            {
-                string plus = (addValue + minValue < 0) ? String.Empty : "+";
-
-                count++;
-                string negative = "+";
-                if (addValue < 0) negative = String.Empty;
-                text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.DropRate), plus, minValue + addValue) + (addValue != 0 ? $" ({negative}{addValue}%)" : string.Empty);
-
-                MirLabel dropRateLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = text
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, dropRateLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, dropRateLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region Gold Rate
-
-            minValue = realItem.Stats[Stat.GoldDropRatePercent];
-            maxValue = 0;
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.GoldDropRatePercent] : 0;
-
-            if (minValue != 0 || maxValue != 0 || addValue != 0)
-            {
-                string plus = (addValue + minValue < 0) ? String.Empty : "+";
-
-                count++;
-                string negative = "+";
-                if (addValue < 0) negative = "";
-                text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.GoldRate), plus, minValue + addValue) + (addValue != 0 ? $" ({negative}{addValue}%)" : String.Empty);
-
-                MirLabel goldRateLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = text
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, goldRateLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, goldRateLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region Hero
-
-            if (addedStats[Stat.Hero] > 0)
-            {
-                ClientHeroInformation heroInfo = HeroInfoList.FirstOrDefault(x => x.Index == addedStats[Stat.Hero]);
-                if (heroInfo != null)
-                {
-                    count++;
-                    text = heroInfo.ToString();
-
-                    MirLabel heroLabel = new MirLabel
-                    {
-                        AutoSize = true,
-                        ForeColour = Color.White,
-                        Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                        OutLine = true,
-                        Parent = ItemLabel,
-                        Text = text
-                    };
-
-                    ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, heroLabel.DisplayRectangle.Right + 4),
-                        Math.Max(ItemLabel.Size.Height, heroLabel.DisplayRectangle.Bottom));
-                }
-            }
-
-            #endregion
-
-            if (count > 0)
-            {
-                ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height + 4);
-
-                #region OUTLINE
-                MirControl outLine = new MirControl
-                {
-                    BackColour = Color.FromArgb(255, 50, 50, 50),
-                    Border = true,
-                    BorderColour = Color.Gray,
-                    NotControl = true,
-                    Parent = ItemLabel,
-                    Opacity = 0.4F,
-                    Location = new Point(0, 0)
-                };
-                outLine.Size = ItemLabel.Size;
-                #endregion
-
-                return outLine;
-            }
-            else
-            {
-                ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height - 4);
-            }
-            return null;
-        }
-        public MirControl DefenceInfoLabel(UserItem item, bool Inspect = false, bool hideAdded = false)
-        {
-            ushort level = Inspect ? InspectDialog.Level : MapObject.User.Level;
-            MirClass job = Inspect ? InspectDialog.Class : MapObject.User.Class;
-            HoverItem = item;
-            ItemInfo realItem = Functions.GetRealItem(item.Info, level, job, ItemInfoList);
-            Stats addedStats = GetTotalAddedStats(item, level, job);
-
-            ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height + 4);
-
-            bool fishingItem = false;
-
-            switch (HoverItem.Info.Type)
-            {
-                case ItemType.Hook:
-                case ItemType.Float:
-                case ItemType.Bait:
-                case ItemType.Finder:
-                case ItemType.Reel:
-                    fishingItem = true;
-                    break;
-                case ItemType.Weapon:
-                    if (HoverItem.Info.Shape == 49 || HoverItem.Info.Shape == 50)
-                        fishingItem = true;
-                    break;
-                default:
-                    fishingItem = false;
-                    break;
-            }
-
-            int count = 0;
-            int minValue = 0;
-            int maxValue = 0;
-            int addValue = 0;
-
-            string text = "";
-            #region AC
-
-            minValue = realItem.Stats[Stat.MinAC];
-            maxValue = realItem.Stats[Stat.MaxAC];
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.MaxAC] : 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                if (HoverItem.Info.Type != ItemType.Gem)
-                    text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.AC), minValue, maxValue + addValue) + (addValue > 0 ? $" (+{addValue})" : string.Empty);
-                else
-                    text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.AddsAC), minValue + maxValue + addValue);
-                MirLabel ACLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    //Text = string.Format("AC + {0}~{1}", minValue, maxValue + addValue)
-                    Text = text
-                };
-
-                if (fishingItem)
-                {
-                    if (HoverItem.Info.Type == ItemType.Float)
-                    {
-                        ACLabel.Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.NibbleChance), minValue, maxValue + addValue) +
-                                       (addValue > 0 ? $" (+{addValue})" : String.Empty);
-                    }
-                    else if (HoverItem.Info.Type == ItemType.Finder)
-                    {
-                        ACLabel.Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.FinderIncrease), minValue, maxValue + addValue) +
-                                       (addValue > 0 ? $" (+{addValue})" : String.Empty);
-                    }
-                    else
-                    {
-                        ACLabel.Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.SuccessChance), maxValue + addValue) + (addValue > 0 ? $" (+{addValue})" : String.Empty);
-                    }
-                }
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, ACLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, ACLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region MAC
-
-            minValue = realItem.Stats[Stat.MinMAC];
-            maxValue = realItem.Stats[Stat.MaxMAC];
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.MaxMAC] : 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                if (HoverItem.Info.Type != ItemType.Gem)
-                    text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.MAC), minValue, maxValue + addValue) + (addValue > 0 ? $" (+{addValue})" : string.Empty);
-                else
-                    text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.AddsMAC), minValue + maxValue + addValue);
-                MirLabel MACLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    //Text = string.Format("MAC + {0}~{1}", minValue, maxValue + addValue)
-                    Text = text
-                };
-
-                if (fishingItem)
-                {
-                    MACLabel.Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.AutoReelChance), maxValue + addValue);
-                }
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, MACLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, MACLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region MAXHP
-
-            if (HoverItem.Info.Type != ItemType.MonsterSpawn)
-            {
-                minValue = realItem.Stats[Stat.HP];
-                maxValue = 0;
-                addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.HP] : 0;
-
-                if (minValue > 0 || maxValue > 0 || addValue > 0)
-                {
-                    count++;
-                    MirLabel MAXHPLabel = new MirLabel
-                    {
-                        AutoSize = true,
-                        ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                        Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                        OutLine = true,
-                        Parent = ItemLabel,
-                        //Text = string.Format(realItem.Type == ItemType.Potion ? "HP + {0} Recovery" : "MAXHP + {0}", minValue + addValue)
-                        Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.MaxHpPlus), minValue + addValue) + (addValue > 0 ? $" (+{addValue})" : String.Empty)
-                    };
-
-                    ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, MAXHPLabel.DisplayRectangle.Right + 4),
-                        Math.Max(ItemLabel.Size.Height, MAXHPLabel.DisplayRectangle.Bottom));
-                }
-            }
-
-            #endregion
-
-            #region MAXMP
-
-            minValue = realItem.Stats[Stat.MP];
-            maxValue = 0;
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.MP] : 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                MirLabel MAXMPLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    //Text = string.Format(realItem.Type == ItemType.Potion ? "MP + {0} Recovery" : "MAXMP + {0}", minValue + addValue)
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.MaxMpPlus), minValue + addValue) + (addValue > 0 ? $" (+{addValue})" : String.Empty)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, MAXMPLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, MAXMPLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region MAXHPRATE
-
-            minValue = realItem.Stats[Stat.HPRatePercent];
-            maxValue = 0;
-            addValue = 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                MirLabel MAXHPRATELabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.MaxHpPlusPercent), minValue + addValue)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, MAXHPRATELabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, MAXHPRATELabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region MAXMPRATE
-
-            minValue = realItem.Stats[Stat.MPRatePercent];
-            maxValue = 0;
-            addValue = 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                MirLabel MAXMPRATELabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.MaxMpPlusPercent), minValue + addValue)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, MAXMPRATELabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, MAXMPRATELabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region MAXACRATE
-
-            minValue = realItem.Stats[Stat.MaxACRatePercent];
-            maxValue = 0;
-            addValue = 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                MirLabel MAXACRATE = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.MaxAcPlusPercent), minValue + addValue)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, MAXACRATE.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, MAXACRATE.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region MAXMACRATE
-
-            minValue = realItem.Stats[Stat.MaxMACRatePercent];
-            maxValue = 0;
-            addValue = 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                MirLabel MAXMACRATELabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.MaxMacPlusPercent), minValue + addValue)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, MAXMACRATELabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, MAXMACRATELabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region HEALTH_RECOVERY
-
-            minValue = realItem.Stats[Stat.HealthRecovery];
-            maxValue = 0;
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.HealthRecovery] : 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                MirLabel HEALTH_RECOVERYLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.HealthRecoveryPlus), minValue + addValue) + (addValue > 0 ? $" (+{addValue})" : String.Empty)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, HEALTH_RECOVERYLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, HEALTH_RECOVERYLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region MANA_RECOVERY
-
-            minValue = realItem.Stats[Stat.SpellRecovery];
-            maxValue = 0;
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.SpellRecovery] : 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                MirLabel MANA_RECOVERYLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    //Text = string.Format("ManaRecovery + {0}", minValue + addValue)
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.ManaRecoveryPlus), minValue + addValue) + (addValue > 0 ? $" (+{addValue})" : String.Empty)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, MANA_RECOVERYLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, MANA_RECOVERYLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region POISON_RECOVERY
-
-            minValue = realItem.Stats[Stat.PoisonRecovery];
-            maxValue = 0;
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.PoisonRecovery] : 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                MirLabel POISON_RECOVERYabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    //Text = string.Format("Poison Recovery + {0}", minValue + addValue)
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PoisonRecoveryPlus), minValue + addValue) + (addValue > 0 ? $" (+{addValue})" : String.Empty)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, POISON_RECOVERYabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, POISON_RECOVERYabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region AGILITY
-
-            minValue = realItem.Stats[Stat.Agility];
-            maxValue = 0;
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.Agility] : 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                if (HoverItem.Info.Type != ItemType.Gem)
-                    text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.Agility), minValue + addValue) + (addValue > 0 ? $" (+{addValue})" : string.Empty);
-                else
-                    text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.AddsAgilityPlus), minValue + maxValue + addValue);
-
-                MirLabel AGILITYLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = text
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, AGILITYLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, AGILITYLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region STRONG
-
-            minValue = realItem.Stats[Stat.Strong];
-            maxValue = 0;
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.Strong] : 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                MirLabel STRONGLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    //Text = string.Format("Strong + {0}", minValue + addValue)
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.StrongPlus), minValue + addValue) + (addValue > 0 ? $" (+{addValue})" : String.Empty)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, STRONGLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, STRONGLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region POISON_RESIST
-
-            minValue = realItem.Stats[Stat.PoisonResist];
-            maxValue = 0;
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.PoisonResist] : 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                if (HoverItem.Info.Type != ItemType.Gem)
-                    text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PoisonResistPlus), minValue + addValue) + (addValue > 0 ? $" (+{addValue})" : String.Empty);
-                else
-                    text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.AddPoisonResistPlus), minValue + maxValue + addValue);
-                MirLabel POISON_RESISTLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = text
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, POISON_RESISTLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, POISON_RESISTLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region MAGIC_RESIST
-
-            minValue = realItem.Stats[Stat.MagicResist];
-            maxValue = 0;
-            addValue = (!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) ? addedStats[Stat.MagicResist] : 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                if (HoverItem.Info.Type != ItemType.Gem)
-                    text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.MagicResistPlus), minValue + addValue) + (addValue > 0 ? $" (+{addValue})" : String.Empty);
-                else
-                    text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.AddMagicResistPlus), minValue + maxValue + addValue);
-                MirLabel MAGIC_RESISTLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    //Text = string.Format("Magic Resist + {0}", minValue + addValue)
-                    Text = text
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, MAGIC_RESISTLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, MAGIC_RESISTLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region MAX_DC_RATE
-
-            minValue = realItem.Stats[Stat.MaxDCRatePercent];
-            maxValue = 0;
-            addValue = 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                MirLabel MAXDCRATE = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.MaxDcPlusPercent), minValue + addValue)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, MAXDCRATE.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, MAXDCRATE.DisplayRectangle.Bottom));
-            }
-            #endregion
-
-            #region MAX_MC_RATE
-
-            minValue = realItem.Stats[Stat.MaxMCRatePercent];
-            maxValue = 0;
-            addValue = 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                MirLabel MAXMCRATE = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.MaxMcPlusPercent), minValue + addValue)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, MAXMCRATE.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, MAXMCRATE.DisplayRectangle.Bottom));
-            }
-            #endregion
-
-            #region MAX_SC_RATE
-
-            minValue = realItem.Stats[Stat.MaxSCRatePercent];
-            maxValue = 0;
-            addValue = 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                MirLabel MAXSCRATE = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.MaxScPlusPercent), minValue + addValue)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, MAXSCRATE.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, MAXSCRATE.DisplayRectangle.Bottom));
-            }
-            #endregion
-
-            #region DAMAGE_REDUCTION
-
-            minValue = realItem.Stats[Stat.DamageReductionPercent];
-            maxValue = 0;
-            addValue = 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                MirLabel DAMAGEREDUC = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.AllDamageReductionPlusPercent), minValue + addValue)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, DAMAGEREDUC.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, DAMAGEREDUC.DisplayRectangle.Bottom));
-            }
-            #endregion
-            if (count > 0)
-            {
-                ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height + 4);
-
-                #region OUTLINE
-                MirControl outLine = new MirControl
-                {
-                    BackColour = Color.FromArgb(255, 50, 50, 50),
-                    Border = true,
-                    BorderColour = Color.Gray,
-                    NotControl = true,
-                    Parent = ItemLabel,
-                    Opacity = 0.4F,
-                    Location = new Point(0, 0)
-                };
-                outLine.Size = ItemLabel.Size;
-                #endregion
-
-                return outLine;
-            }
-            else
-            {
-                ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height - 4);
-            }
-            return null;
-        }
-        public MirControl WeightInfoLabel(UserItem item, bool Inspect = false)
-        {
-            ushort level = Inspect ? InspectDialog.Level : MapObject.User.Level;
-            MirClass job = Inspect ? InspectDialog.Class : MapObject.User.Class;
-            HoverItem = item;
-            ItemInfo realItem = Functions.GetRealItem(item.Info, level, job, ItemInfoList);
-
-            ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height + 4);
-
-            int count = 0;
-            int minValue = 0;
-            int maxValue = 0;
-            int addValue = 0;
-
-            #region HANDWEIGHT
-
-            minValue = realItem.Stats[Stat.HandWeight];
-            maxValue = 0;
-            addValue = 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                MirLabel HANDWEIGHTLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    //Text = string.Format("Hand Weight + {0}", minValue + addValue)
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.HandWeightPlus), minValue + addValue) + (addValue > 0 ? $" (+{addValue})" : String.Empty)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, HANDWEIGHTLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, HANDWEIGHTLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region WEARWEIGHT
-
-            minValue = realItem.Stats[Stat.WearWeight];
-            maxValue = 0;
-            addValue = 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                MirLabel WEARWEIGHTLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    //Text = string.Format("Wear Weight + {0}", minValue + addValue)
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.WearWeightPlus), minValue + addValue) + (addValue > 0 ? $" (+{addValue})" : String.Empty)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, WEARWEIGHTLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, WEARWEIGHTLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region BAGWEIGHT
-
-            minValue = realItem.Stats[Stat.BagWeight];
-            maxValue = 0;
-            addValue = 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                MirLabel BAGWEIGHTLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    //Text = string.Format("Bag Weight + {0}", minValue + addValue)
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.BagWeightPlus), minValue + addValue) + (addValue > 0 ? $" (+{addValue})" : String.Empty)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, BAGWEIGHTLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, BAGWEIGHTLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region FASTRUN
-
-            minValue = realItem.CanFastRun == true ? 1 : 0;
-            maxValue = 0;
-            addValue = 0;
-
-            if (minValue > 0 || maxValue > 0 || addValue > 0)
-            {
-                count++;
-                MirLabel BAGWEIGHTLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.InstantRun)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, BAGWEIGHTLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, BAGWEIGHTLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region TIME & RANGE
-            minValue = 0;
-            maxValue = 0;
-            addValue = 0;
-
-            if (HoverItem.Info.Type == ItemType.Potion && HoverItem.Info.Durability > 0)
-            {
-                count++;
-                MirLabel TNRLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.TimeValue), Functions.PrintTimeSpanFromSeconds(HoverItem.Info.Durability * 60))
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, TNRLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, TNRLabel.DisplayRectangle.Bottom));
-            }
-
-            if (HoverItem.Info.Type == ItemType.Transform && HoverItem.Info.Durability > 0)
-            {
-                count++;
-                MirLabel TNRLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = addValue > 0 ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.TimeValue), Functions.PrintTimeSpanFromSeconds(HoverItem.Info.Durability, false))
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, TNRLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, TNRLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            if (count > 0)
-            {
-                ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height + 4);
-
-                #region OUTLINE
-                MirControl outLine = new MirControl
-                {
-                    BackColour = Color.FromArgb(255, 50, 50, 50),
-                    Border = true,
-                    BorderColour = Color.Gray,
-                    NotControl = true,
-                    Parent = ItemLabel,
-                    Opacity = 0.4F,
-                    Location = new Point(0, 0)
-                };
-                outLine.Size = ItemLabel.Size;
-                #endregion
-
-                return outLine;
-            }
-            else
-            {
-                ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height - 4);
-            }
-            return null;
-        }
-        public MirControl AwakeInfoLabel(UserItem item, bool Inspect = false)
-        {
-            ushort level = Inspect ? InspectDialog.Level : MapObject.User.Level;
-            MirClass job = Inspect ? InspectDialog.Class : MapObject.User.Class;
-            HoverItem = item;
-            ItemInfo realItem = Functions.GetRealItem(item.Info, level, job, ItemInfoList);
-
-            ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height + 4);
-
-            int count = 0;
-
-            #region AWAKENAME
-            if (HoverItem.Awake.GetAwakeLevel() > 0)
-            {
-                count++;
-                MirLabel AWAKENAMELabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = GradeNameColor(HoverItem.Info.Grade),
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.AwakeningWithValue), HoverItem.Awake.Type.ToLocalizedString(), HoverItem.Awake.GetAwakeLevel())
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, AWAKENAMELabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, AWAKENAMELabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region AWAKE_TOTAL_VALUE
-            if (HoverItem.Awake.GetAwakeValue() > 0)
-            {
-                count++;
-                MirLabel AWAKE_TOTAL_VALUELabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = string.Format(realItem.Type != ItemType.Armour ? "{0} + {1}~{2}" : "MAX {0} + {1}", HoverItem.Awake.Type.ToLocalizedString(), HoverItem.Awake.GetAwakeValue(), HoverItem.Awake.GetAwakeValue())
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, AWAKE_TOTAL_VALUELabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, AWAKE_TOTAL_VALUELabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region AWAKE_LEVEL_VALUE
-            if (HoverItem.Awake.GetAwakeLevel() > 0)
-            {
-                count++;
-                for (int i = 0; i < HoverItem.Awake.GetAwakeLevel(); i++)
-                {
-                    MirLabel AWAKE_LEVEL_VALUELabel = new MirLabel
-                    {
-                        AutoSize = true,
-                        ForeColour = Color.White,
-                        Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                        OutLine = true,
-                        Parent = ItemLabel,
-                        Text = string.Format(realItem.Type != ItemType.Armour ? "Level {0} : {1} + {2}~{3}" : "Level {0} : MAX {1} + {2}~{3}", i + 1, HoverItem.Awake.Type.ToLocalizedString(), HoverItem.Awake.GetAwakeLevelValue(i), HoverItem.Awake.GetAwakeLevelValue(i))
-                    };
-
-                    ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, AWAKE_LEVEL_VALUELabel.DisplayRectangle.Right + 4),
-                        Math.Max(ItemLabel.Size.Height, AWAKE_LEVEL_VALUELabel.DisplayRectangle.Bottom));
-                }
-            }
-
-            #endregion
-
-            if (count > 0)
-            {
-                ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height + 4);
-
-                #region OUTLINE
-                MirControl outLine = new MirControl
-                {
-                    BackColour = Color.FromArgb(255, 50, 50, 50),
-                    Border = true,
-                    BorderColour = Color.Gray,
-                    NotControl = true,
-                    Parent = ItemLabel,
-                    Opacity = 0.4F,
-                    Location = new Point(0, 0)
-                };
-                outLine.Size = ItemLabel.Size;
-                #endregion
-
-                return outLine;
-            }
-            else
-            {
-                ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height - 4);
-            }
-            return null;
-        }
-        public MirControl SocketInfoLabel(UserItem item, bool Inspect = false)
-        {
-            ushort level = Inspect ? InspectDialog.Level : MapObject.User.Level;
-            MirClass job = Inspect ? InspectDialog.Class : MapObject.User.Class;
-            HoverItem = item;
-            ItemInfo realItem = Functions.GetRealItem(item.Info, level, job, ItemInfoList);
-
-            ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height + 4);
-
-
-            int count = 0;
-
-            #region SOCKET
-
-            for (int i = 0; i < item.Slots.Length; i++)
-            {
-                count++;
-                MirLabel SOCKETLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = (count > realItem.Slots && !realItem.IsFishingRod && realItem.Type != ItemType.Mount) ? Color.Cyan : Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.SocketWithValue),
-                        item.Slots[i] == null ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.Empty) : item.Slots[i].FriendlyName)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, SOCKETLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, SOCKETLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            if (count > 0)
-            {
-                #region SOCKET
-
-                count++;
-                MirLabel SOCKETLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.OpenSocketsTips)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, SOCKETLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, SOCKETLabel.DisplayRectangle.Bottom));
-
-                #endregion
-
-                ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height + 4);
-
-                #region OUTLINE
-                MirControl outLine = new MirControl
-                {
-                    BackColour = Color.FromArgb(255, 50, 50, 50),
-                    Border = true,
-                    BorderColour = Color.Gray,
-                    NotControl = true,
-                    Parent = ItemLabel,
-                    Opacity = 0.4F,
-                    Location = new Point(0, 0)
-                };
-                outLine.Size = ItemLabel.Size;
-                #endregion
-
-                return outLine;
-            }
-            else
-            {
-                ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height - 4);
-            }
-            return null;
-        }
-        public MirControl NeedInfoLabel(UserItem item, bool Inspect = false)
-        {
-            ushort level = Inspect ? InspectDialog.Level : MapObject.User.Level;
-            MirClass job = Inspect ? InspectDialog.Class : MapObject.User.Class;
-            HoverItem = item;
-            ItemInfo realItem = Functions.GetRealItem(item.Info, level, job, ItemInfoList);
-
-            ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height + 4);
-
-            int count = 0;
-
-            #region LEVEL
-            if (realItem.RequiredAmount > 0)
-            {
-                count++;
-                string text;
-                Color colour = Color.White;
-                switch (realItem.RequiredType)
-                {
-                    case RequiredType.Level:
-                        text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.RequiredLevel), realItem.RequiredAmount);
-                        if (MapObject.User.Level < realItem.RequiredAmount)
-                            colour = Color.Red;
-                        break;
-                    case RequiredType.MaxAC:
-                        text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.RequiredAC), realItem.RequiredAmount);
-                        if (MapObject.User.Stats[Stat.MaxAC] < realItem.RequiredAmount)
-                            colour = Color.Red;
-                        break;
-                    case RequiredType.MaxMAC:
-                        text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.RequiredMAC), realItem.RequiredAmount);
-                        if (MapObject.User.Stats[Stat.MaxMAC] < realItem.RequiredAmount)
-                            colour = Color.Red;
-                        break;
-                    case RequiredType.MaxDC:
-                        text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.RequiredDC), realItem.RequiredAmount);
-                        if (MapObject.User.Stats[Stat.MaxDC] < realItem.RequiredAmount)
-                            colour = Color.Red;
-                        break;
-                    case RequiredType.MaxMC:
-                        text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.RequiredMC), realItem.RequiredAmount);
-                        if (MapObject.User.Stats[Stat.MaxMC] < realItem.RequiredAmount)
-                            colour = Color.Red;
-                        break;
-                    case RequiredType.MaxSC:
-                        text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.RequiredSC), realItem.RequiredAmount);
-                        if (MapObject.User.Stats[Stat.MaxSC] < realItem.RequiredAmount)
-                            colour = Color.Red;
-                        break;
-                    case RequiredType.MaxLevel:
-                        text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.MaximumLevel), realItem.RequiredAmount);
-                        if (MapObject.User.Level > realItem.RequiredAmount)
-                            colour = Color.Red;
-                        break;
-                    case RequiredType.MinAC:
-                        text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.RequiredBaseAC), realItem.RequiredAmount);
-                        if (MapObject.User.Stats[Stat.MinAC] < realItem.RequiredAmount)
-                            colour = Color.Red;
-                        break;
-                    case RequiredType.MinMAC:
-                        text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.RequiredBaseMAC), realItem.RequiredAmount);
-                        if (MapObject.User.Stats[Stat.MinMAC] < realItem.RequiredAmount)
-                            colour = Color.Red;
-                        break;
-                    case RequiredType.MinDC:
-                        text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.RequiredBaseDC), realItem.RequiredAmount);
-                        if (MapObject.User.Stats[Stat.MinDC] < realItem.RequiredAmount)
-                            colour = Color.Red;
-                        break;
-                    case RequiredType.MinMC:
-                        text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.RequiredBaseMC), realItem.RequiredAmount);
-                        if (MapObject.User.Stats[Stat.MinMC] < realItem.RequiredAmount)
-                            colour = Color.Red;
-                        break;
-                    case RequiredType.MinSC:
-                        text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.RequiredBaseSC), realItem.RequiredAmount);
-                        if (MapObject.User.Stats[Stat.MinSC] < realItem.RequiredAmount)
-                            colour = Color.Red;
-                        break;
-                    default:
-                        text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.UnknownTypeRequired);
-                        break;
-                }
-
-                MirLabel LEVELLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = colour,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = text
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, LEVELLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, LEVELLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region CLASS
-            if (realItem.RequiredClass != RequiredClass.None)
-            {
-                count++;
-                Color colour = Color.White;
-
-                switch (MapObject.User.Class)
-                {
-                    case MirClass.Warrior:
-                        if (!realItem.RequiredClass.HasFlag(RequiredClass.Warrior))
-                            colour = Color.Red;
-                        break;
-                    case MirClass.Wizard:
-                        if (!realItem.RequiredClass.HasFlag(RequiredClass.Wizard))
-                            colour = Color.Red;
-                        break;
-                    case MirClass.Taoist:
-                        if (!realItem.RequiredClass.HasFlag(RequiredClass.Taoist))
-                            colour = Color.Red;
-                        break;
-                    case MirClass.Assassin:
-                        if (!realItem.RequiredClass.HasFlag(RequiredClass.Assassin))
-                            colour = Color.Red;
-                        break;
-                    case MirClass.Archer:
-                        if (!realItem.RequiredClass.HasFlag(RequiredClass.Archer))
-                            colour = Color.Red;
-                        break;
-                }
-
-                MirLabel CLASSLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = colour,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.ClassRequired), realItem.RequiredClass.ToLocalizedString())
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, CLASSLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, CLASSLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region BUYING - SELLING PRICE
-            if (item.Price() > 0)
-            {
-                count++;
-                string text;
-                var colour = Color.White;
-
-                text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.SellingPriceGold), ((long)(item.Price() / 2)).ToString("###,###,##0"));
-
-                var costLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = colour,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = text
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, costLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, costLabel.DisplayRectangle.Bottom));
-            }
-
-
-            #endregion
-
-            if (count > 0)
-            {
-                ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height + 4);
-
-                #region OUTLINE
-                MirControl outLine = new MirControl
-                {
-                    BackColour = Color.FromArgb(255, 50, 50, 50),
-                    Border = true,
-                    BorderColour = Color.Gray,
-                    NotControl = true,
-                    Parent = ItemLabel,
-                    Opacity = 0.4F,
-                    Location = new Point(0, 0)
-                };
-                outLine.Size = ItemLabel.Size;
-                #endregion
-
-                return outLine;
-            }
-            else
-            {
-                ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height - 4);
-            }
-            return null;
-        }
-        public MirControl BindInfoLabel(UserItem item, bool Inspect = false, bool hideAdded = false)
-        {
-            ushort level = Inspect ? InspectDialog.Level : MapObject.User.Level;
-            MirClass job = Inspect ? InspectDialog.Class : MapObject.User.Class;
-            HoverItem = item;
-            ItemInfo realItem = Functions.GetRealItem(item.Info, level, job, ItemInfoList);
-
-            ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height + 4);
-
-            int count = 0;
-
-            #region DONT_DEATH_DROP
-
-            if (HoverItem.Info.Bind != BindMode.None && HoverItem.Info.Bind.HasFlag(BindMode.DontDeathdrop))
-            {
-                count++;
-                MirLabel DONT_DEATH_DROPLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.Yellow,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CantDropOnDeath)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, DONT_DEATH_DROPLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, DONT_DEATH_DROPLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region DONT_DROP
-
-            if (HoverItem.Info.Bind != BindMode.None && HoverItem.Info.Bind.HasFlag(BindMode.DontDrop))
-            {
-                count++;
-                MirLabel DONT_DROPLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.Yellow,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CantDrop)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, DONT_DROPLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, DONT_DROPLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region DONT_UPGRADE
-
-            if (HoverItem.Info.Bind != BindMode.None && HoverItem.Info.Bind.HasFlag(BindMode.DontUpgrade))
-            {
-                count++;
-                MirLabel DONT_UPGRADELabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.Yellow,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CantUpgrade)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, DONT_UPGRADELabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, DONT_UPGRADELabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region DONT_SELL
-
-            if (HoverItem.Info.Bind != BindMode.None && HoverItem.Info.Bind.HasFlag(BindMode.DontSell))
-            {
-                count++;
-                MirLabel DONT_SELLLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.Yellow,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CantSell)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, DONT_SELLLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, DONT_SELLLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region DONT_TRADE
-
-            if (HoverItem.Info.Bind != BindMode.None && HoverItem.Info.Bind.HasFlag(BindMode.DontTrade))
-            {
-                count++;
-                MirLabel DONT_TRADELabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.Yellow,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CantTrade)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, DONT_TRADELabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, DONT_TRADELabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region DONT_STORE
-
-            if (HoverItem.Info.Bind != BindMode.None && HoverItem.Info.Bind.HasFlag(BindMode.DontStore))
-            {
-                count++;
-                MirLabel DONT_STORELabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.Yellow,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CantStore)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, DONT_STORELabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, DONT_STORELabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region DONT_REPAIR
-
-            if (HoverItem.Info.Bind != BindMode.None && HoverItem.Info.Bind.HasFlag(BindMode.DontRepair))
-            {
-                count++;
-                MirLabel DONT_REPAIRLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.Yellow,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CantRepair)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, DONT_REPAIRLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, DONT_REPAIRLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region DONT_SPECIALREPAIR
-
-            if (HoverItem.Info.Bind != BindMode.None && HoverItem.Info.Bind.HasFlag(BindMode.NoSRepair))
-            {
-                count++;
-                MirLabel DONT_REPAIRLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.Yellow,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CantSpecialRepair)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, DONT_REPAIRLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, DONT_REPAIRLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region BREAK_ON_DEATH
-
-            if (HoverItem.Info.Bind != BindMode.None && HoverItem.Info.Bind.HasFlag(BindMode.BreakOnDeath))
-            {
-                count++;
-                MirLabel DONT_REPAIRLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.Yellow,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.BreaksOnDeath)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, DONT_REPAIRLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, DONT_REPAIRLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region DONT_DESTROY_ON_DROP
-
-            if (HoverItem.Info.Bind != BindMode.None && HoverItem.Info.Bind.HasFlag(BindMode.DestroyOnDrop))
-            {
-                count++;
-                MirLabel DONT_DODLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.Yellow,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.DestroyedWhenDropped)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, DONT_DODLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, DONT_DODLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region NoWeddingRing
-
-            if (HoverItem.Info.Bind != BindMode.None && HoverItem.Info.Bind.HasFlag(BindMode.NoWeddingRing))
-            {
-                count++;
-                MirLabel No_WedLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.Yellow,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CannotBeWeddingRing)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, No_WedLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, No_WedLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region NoHero
-
-            if (HoverItem.Info.Bind != BindMode.None && HoverItem.Info.Bind.HasFlag(BindMode.NoHero))
-            {
-                count++;
-                MirLabel No_HeroLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.Yellow,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CannotBeUsedByHero)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, No_HeroLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, No_HeroLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region BIND_ON_EQUIP
-
-            if ((HoverItem.Info.Bind.HasFlag(BindMode.BindOnEquip)) & HoverItem.SoulBoundId == -1)
-            {
-                count++;
-                MirLabel BOELabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.Yellow,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.SoulBindsOnEquip)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, BOELabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, BOELabel.DisplayRectangle.Bottom));
-            }
-            else if (HoverItem.SoulBoundId != -1)
-            {
-                count++;
-                MirLabel BOELabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.Yellow,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.SoulboundTo) + GetUserName((uint)HoverItem.SoulBoundId)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, BOELabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, BOELabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region CURSED
-
-            if ((!hideAdded && (!HoverItem.Info.NeedIdentify || HoverItem.Identified)) && HoverItem.Cursed)
-            {
-                count++;
-                MirLabel CURSEDLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.Yellow,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.Cursed)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, CURSEDLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, CURSEDLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region Gems
-
-            if (HoverItem.Info.Type == ItemType.Gem)
-            {
-                #region UseOn text
-                count++;
-                string Text = "";
-                if (HoverItem.Info.Unique == SpecialItemMode.None)
-                {
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CannotBeUsedOnAnyItem);
-                }
-                else
-                {
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CanBeUsedOn);
-                }
-                MirLabel GemUseOn = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.Yellow,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = Text
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, GemUseOn.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, GemUseOn.DisplayRectangle.Bottom));
-                #endregion
-                #region Weapon text
-                count++;
-                if (HoverItem.Info.Unique.HasFlag(SpecialItemMode.Paralize))
-                {
-                    MirLabel GemWeapon = new MirLabel
-                    {
-                        AutoSize = true,
-                        ForeColour = Color.White,
-                        Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                        OutLine = true,
-                        Parent = ItemLabel,
-                        Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AfterWeapon)
-                    };
-
-                    ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, GemWeapon.DisplayRectangle.Right + 4),
-                        Math.Max(ItemLabel.Size.Height, GemWeapon.DisplayRectangle.Bottom));
-                }
-                #endregion
-                #region Armour text
-                count++;
-                if (HoverItem.Info.Unique.HasFlag(SpecialItemMode.Teleport))
-                {
-                    MirLabel GemArmour = new MirLabel
-                    {
-                        AutoSize = true,
-                        ForeColour = Color.White,
-                        Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                        OutLine = true,
-                        Parent = ItemLabel,
-                        Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AfterArmour)
-                    };
-
-                    ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, GemArmour.DisplayRectangle.Right + 4),
-                        Math.Max(ItemLabel.Size.Height, GemArmour.DisplayRectangle.Bottom));
-                }
-                #endregion
-                #region Helmet text
-                count++;
-                if (HoverItem.Info.Unique.HasFlag(SpecialItemMode.ClearRing))
-                {
-                    MirLabel Gemhelmet = new MirLabel
-                    {
-                        AutoSize = true,
-                        ForeColour = Color.White,
-                        Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                        OutLine = true,
-                        Parent = ItemLabel,
-                        Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AfterHelmet)
-                    };
-
-                    ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, Gemhelmet.DisplayRectangle.Right + 4),
-                        Math.Max(ItemLabel.Size.Height, Gemhelmet.DisplayRectangle.Bottom));
-                }
-                #endregion
-                #region Necklace text
-                count++;
-                if (HoverItem.Info.Unique.HasFlag(SpecialItemMode.Protection))
-                {
-                    MirLabel Gemnecklace = new MirLabel
-                    {
-                        AutoSize = true,
-                        ForeColour = Color.White,
-                        Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                        OutLine = true,
-                        Parent = ItemLabel,
-                        Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AfterNecklace)
-                    };
-
-                    ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, Gemnecklace.DisplayRectangle.Right + 4),
-                        Math.Max(ItemLabel.Size.Height, Gemnecklace.DisplayRectangle.Bottom));
-                }
-                #endregion
-                #region Bracelet text
-                count++;
-                if (HoverItem.Info.Unique.HasFlag(SpecialItemMode.Revival))
-                {
-                    MirLabel GemBracelet = new MirLabel
-                    {
-                        AutoSize = true,
-                        ForeColour = Color.White,
-                        Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                        OutLine = true,
-                        Parent = ItemLabel,
-                        Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AfterBracelet)
-                    };
-
-                    ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, GemBracelet.DisplayRectangle.Right + 4),
-                        Math.Max(ItemLabel.Size.Height, GemBracelet.DisplayRectangle.Bottom));
-                }
-                #endregion
-                #region Ring text
-                count++;
-                if (HoverItem.Info.Unique.HasFlag(SpecialItemMode.Muscle))
-                {
-                    MirLabel GemRing = new MirLabel
-                    {
-                        AutoSize = true,
-                        ForeColour = Color.White,
-                        Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                        OutLine = true,
-                        Parent = ItemLabel,
-                        Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AfterRing)
-                    };
-
-                    ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, GemRing.DisplayRectangle.Right + 4),
-                        Math.Max(ItemLabel.Size.Height, GemRing.DisplayRectangle.Bottom));
-                }
-                #endregion
-                #region Amulet text
-                count++;
-                if (HoverItem.Info.Unique.HasFlag(SpecialItemMode.Flame))
-                {
-                    MirLabel Gemamulet = new MirLabel
-                    {
-                        AutoSize = true,
-                        ForeColour = Color.White,
-                        Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                        OutLine = true,
-                        Parent = ItemLabel,
-                        Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AfterAmulet)
-                    };
-
-                    ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, Gemamulet.DisplayRectangle.Right + 4),
-                        Math.Max(ItemLabel.Size.Height, Gemamulet.DisplayRectangle.Bottom));
-                }
-                #endregion
-                #region Belt text
-                count++;
-                if (HoverItem.Info.Unique.HasFlag(SpecialItemMode.Healing))
-                {
-                    MirLabel Gembelt = new MirLabel
-                    {
-                        AutoSize = true,
-                        ForeColour = Color.White,
-                        Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                        OutLine = true,
-                        Parent = ItemLabel,
-                        Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AfterBelt)
-                    };
-
-                    ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, Gembelt.DisplayRectangle.Right + 4),
-                        Math.Max(ItemLabel.Size.Height, Gembelt.DisplayRectangle.Bottom));
-                }
-                #endregion
-                #region Boots text
-                count++;
-                if (HoverItem.Info.Unique.HasFlag(SpecialItemMode.Probe))
-                {
-                    MirLabel Gemboots = new MirLabel
-                    {
-                        AutoSize = true,
-                        ForeColour = Color.White,
-                        Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                        OutLine = true,
-                        Parent = ItemLabel,
-                        Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AfterBoots)
-                    };
-
-                    ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, Gemboots.DisplayRectangle.Right + 4),
-                        Math.Max(ItemLabel.Size.Height, Gemboots.DisplayRectangle.Bottom));
-                }
-                #endregion
-                #region Stone text
-                count++;
-                if (HoverItem.Info.Unique.HasFlag(SpecialItemMode.Skill))
-                {
-                    MirLabel Gemstone = new MirLabel
-                    {
-                        AutoSize = true,
-                        ForeColour = Color.White,
-                        Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                        OutLine = true,
-                        Parent = ItemLabel,
-                        Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.Stone)
-                    };
-
-                    ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, Gemstone.DisplayRectangle.Right + 4),
-                        Math.Max(ItemLabel.Size.Height, Gemstone.DisplayRectangle.Bottom));
-                }
-                #endregion
-                #region Torch text
-                count++;
-                if (HoverItem.Info.Unique.HasFlag(SpecialItemMode.NoDuraLoss))
-                {
-                    MirLabel Gemtorch = new MirLabel
-                    {
-                        AutoSize = true,
-                        ForeColour = Color.White,
-                        Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                        OutLine = true,
-                        Parent = ItemLabel,
-                        Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AfterCandle)
-                    };
-
-                    ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, Gemtorch.DisplayRectangle.Right + 4),
-                        Math.Max(ItemLabel.Size.Height, Gemtorch.DisplayRectangle.Bottom));
-                }
-                #endregion
-            }
-
-            #endregion
-
-            #region CANTAWAKEN
-
-            //if ((HoverItem.Info.CanAwakening != true) && (HoverItem.Info.Type != ItemType.Gem))
-            //{
-            //    count++;
-            //    MirLabel CANTAWAKENINGLabel = new MirLabel
-            //    {
-            //        AutoSize = true,
-            //        ForeColour = Color.Yellow,
-            //        Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-            //        OutLine = true,
-            //        Parent = ItemLabel,
-            //        Text = string.Format("Can't awaken")
-            //    };
-
-            //    ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, CANTAWAKENINGLabel.DisplayRectangle.Right + 4),
-            //        Math.Max(ItemLabel.Size.Height, CANTAWAKENINGLabel.DisplayRectangle.Bottom));
-            //}
-
-            #endregion
-
-            #region EXPIRE
-
-            if (HoverItem.ExpireInfo != null)
-            {
-                double remainingSeconds = (HoverItem.ExpireInfo.ExpiryDate - CMain.Now).TotalSeconds;
-
-                count++;
-                MirLabel EXPIRELabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.Yellow,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = remainingSeconds > 0 ? GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.ExpiresIn), Functions.PrintTimeSpanFromSeconds(remainingSeconds)) : GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.Expired)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, EXPIRELabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, EXPIRELabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region SEALED
-
-            if (HoverItem.SealedInfo != null)
-            {
-                double remainingSeconds = (HoverItem.SealedInfo.ExpiryDate - CMain.Now).TotalSeconds;
-
-                if (remainingSeconds > 0)
-                {
-                    count++;
-                    MirLabel SEALEDLabel = new MirLabel
-                    {
-                        AutoSize = true,
-                        ForeColour = Color.Red,
-                        Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                        OutLine = true,
-                        Parent = ItemLabel,
-                        Text = remainingSeconds > 0 ? GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.SealedFor), Functions.PrintTimeSpanFromSeconds(remainingSeconds)) : string.Empty
-                    };
-
-                    ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, SEALEDLabel.DisplayRectangle.Right + 4),
-                        Math.Max(ItemLabel.Size.Height, SEALEDLabel.DisplayRectangle.Bottom));
-                }
-            }
-
-            #endregion
-
-            if (HoverItem.RentalInformation?.RentalLocked == false)
-            {
-                count++;
-                MirLabel OWNERLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.DarkKhaki,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemRentedFrom) + HoverItem.RentalInformation.OwnerName
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, OWNERLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, OWNERLabel.DisplayRectangle.Bottom));
-
-                double remainingTime = (HoverItem.RentalInformation.ExpiryDate - CMain.Now).TotalSeconds;
-
-                count++;
-                MirLabel RENTALLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.Khaki,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = remainingTime > 0 ? GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.RentalExpiresIn), Functions.PrintTimeSpanFromSeconds(remainingTime)) : "Rental expired"
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, RENTALLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, RENTALLabel.DisplayRectangle.Bottom));
-            }
-            else if (HoverItem.RentalInformation?.RentalLocked == true && HoverItem.RentalInformation.ExpiryDate > CMain.Now)
-            {
-                count++;
-                var remainingTime = (HoverItem.RentalInformation.ExpiryDate - CMain.Now).TotalSeconds;
-                var RentalLockLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.DarkKhaki,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = remainingTime > 0
-                        ? GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.RentalLockExpiresIn), Functions.PrintTimeSpanFromSeconds(remainingTime))
-                        : "Rental lock expired"
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, RentalLockLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, RentalLockLabel.DisplayRectangle.Bottom));
-            }
-
-            if (count > 0)
-            {
-                ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height + 4);
-
-                #region OUTLINE
-                MirControl outLine = new MirControl
-                {
-                    BackColour = Color.FromArgb(255, 50, 50, 50),
-                    Border = true,
-                    BorderColour = Color.Gray,
-                    NotControl = true,
-                    Parent = ItemLabel,
-                    Opacity = 0.4F,
-                    Location = new Point(0, 0)
-                };
-                outLine.Size = ItemLabel.Size;
-                #endregion
-
-                return outLine;
-            }
-            else
-            {
-                ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height - 4);
-            }
-            return null;
-        }
-        public MirControl OverlapInfoLabel(UserItem item, bool Inspect = false)
-        {
-            ushort level = Inspect ? InspectDialog.Level : MapObject.User.Level;
-            MirClass job = Inspect ? InspectDialog.Class : MapObject.User.Class;
-            HoverItem = item;
-            ItemInfo realItem = Functions.GetRealItem(item.Info, level, job, ItemInfoList);
-
-            ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height + 4);
-
-            int count = 0;
-
-
-            #region GEM
-
-            if (realItem.Type == ItemType.Gem)
-            {
-                string text = "";
-
-                switch (realItem.Shape)
-                {
-                    case 1:
-                        text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.HoldCtrlPartialRepairWeaponsAccessories);
-                        break;
-                    case 2:
-                        text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.HoldCtrlPartialRepairArmourDrapery);
-                        break;
-                    case 3:
-                        text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.HoldCtrlCombineDestroyChance);
-                        break;
-                    case 4:
-                        text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.HoldCtrlCombineNoDestroy);
-                        break;
-                    case 5:
-                        text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.HoldCtrlFullRepairWeaponsAccessories);
-                        break;
-                    case 6:
-                        text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.HoldCtrlFullRepairArmourDrapery);
-                        break;
-                    case 8:
-                        text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.HoldCtrlSealItem);
-                        break;
-                }
-                count++;
-                MirLabel GEMLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = text
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, GEMLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, GEMLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            #region SPLITUP
-
-            if (realItem.StackSize > 1 && realItem.Type != ItemType.Gem)
-            {
-                count++;
-                MirLabel SPLITUPLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.White,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.MaxCombine), realItem.StackSize, "\n")
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, SPLITUPLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, SPLITUPLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            if (count > 0)
-            {
-                ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height + 4);
-
-                #region OUTLINE
-                MirControl outLine = new MirControl
-                {
-                    BackColour = Color.FromArgb(255, 50, 50, 50),
-                    Border = true,
-                    BorderColour = Color.Gray,
-                    NotControl = true,
-                    Parent = ItemLabel,
-                    Opacity = 0.4F,
-                    Location = new Point(0, 0)
-                };
-                outLine.Size = ItemLabel.Size;
-                #endregion
-
-                return outLine;
-            }
-            else
-            {
-                ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height - 4);
-            }
-            return null;
-        }
-        public MirControl StoryInfoLabel(UserItem item, bool Inspect = false)
-        {
-            ushort level = Inspect ? InspectDialog.Level : MapObject.User.Level;
-            MirClass job = Inspect ? InspectDialog.Class : MapObject.User.Class;
-            HoverItem = item;
-            ItemInfo realItem = Functions.GetRealItem(item.Info, level, job, ItemInfoList);
-
-            ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height + 4);
-
-            int count = 0;
-
-            #region TOOLTIP
-
-            if (realItem.Type == ItemType.Scroll && realItem.Shape == 7)//Credit Scroll
-            {
-                HoverItem.Info.ToolTip = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.AddsCreditsToAccount), HoverItem.Info.Price);
-            }
-
-            if (!string.IsNullOrEmpty(HoverItem.Info.ToolTip))
-            {
-                count++;
-
-                MirLabel IDLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.DarkKhaki,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemDescription)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, IDLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, IDLabel.DisplayRectangle.Bottom));
-
-                MirLabel TOOLTIPLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.Khaki,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = HoverItem.Info.ToolTip
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, TOOLTIPLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height, TOOLTIPLabel.DisplayRectangle.Bottom));
-            }
-
-            #endregion
-
-            if (count > 0)
-            {
-                ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height + 4);
-
-                #region OUTLINE
-                MirControl outLine = new MirControl
-                {
-                    BackColour = Color.FromArgb(255, 50, 50, 50),
-                    Border = true,
-                    BorderColour = Color.Gray,
-                    NotControl = true,
-                    Parent = ItemLabel,
-                    Opacity = 0.4F,
-                    Location = new Point(0, 0)
-                };
-                outLine.Size = ItemLabel.Size;
-                #endregion
-
-                return outLine;
-            }
-            else
-            {
-                ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height - 4);
-            }
-            return null;
-        }
-
-        public MirControl GMMadeLabel(UserItem item)
-        {
-            if (item.GMMade)
-            {
-
-
-                ItemLabel.Size = new Size(ItemLabel.Size.Width, ItemLabel.Size.Height + 4);
-
-                MirLabel GMLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.Orchid,
-                    Location = new Point(4, ItemLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = ItemLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CreatedByGameMaster)
-                };
-
-                ItemLabel.Size = new Size(Math.Max(ItemLabel.Size.Width, GMLabel.DisplayRectangle.Right + 4),
-                    Math.Max(ItemLabel.Size.Height + 4, GMLabel.DisplayRectangle.Bottom + 4));
-
-                MirControl outLine = new MirControl
-                {
-                    BackColour = Color.FromArgb(255, 50, 50, 50),
-                    Border = true,
-                    BorderColour = Color.Gray,
-                    NotControl = true,
-                    Parent = ItemLabel,
-                    Opacity = 0.4F,
-                    Location = new Point(0, 0)
-                };
-                outLine.Size = ItemLabel.Size;
-
-                return outLine;
-            }
-            else
-            {
-                return null;
-            }
-        }
-
-        public void CreateItemLabel(UserItem item, bool inspect = false, bool hideDura = false, bool hideAdded = false)
-        {
-            CMain.DebugText = CMain.Random.Next(1, 100).ToString();
-
-            if (item == null || HoverItem != item)
-            {
-                DisposeItemLabel();
-
-                if (item == null)
-                {
-                    HoverItem = null;
-                    return;
-                }
-            }
-
-            if (item == HoverItem && ItemLabel != null && !ItemLabel.IsDisposed) return;
-            ushort level = inspect ? InspectDialog.Level : MapObject.User.Level;
-            MirClass job = inspect ? InspectDialog.Class : MapObject.User.Class;
-            HoverItem = item;
-            ItemInfo realItem = Functions.GetRealItem(item.Info, level, job, ItemInfoList);
-
-            ItemLabel = new MirControl
-            {
-                BackColour = Color.FromArgb(255, 0, 0, 0),
-                Border = true,
-                BorderColour = ((HoverItem.CurrentDura == 0 && HoverItem.MaxDura != 0) ? Color.Red : Color.FromArgb(255, 148, 146, 148)),
-                DrawControlTexture = true,
-                NotControl = true,
-                Parent = this,
-                Opacity = 0.8F
-            };
-
-            //Name Info Label
-            MirControl[] outlines = new MirControl[11];
-            outlines[0] = NameInfoLabel(item, inspect, hideDura);
-            //Attribute Info1 Label - Attack Info
-            outlines[1] = AttackInfoLabel(item, inspect, hideAdded);
-            //Attribute Info2 Label - Defence Info
-            outlines[2] = DefenceInfoLabel(item, inspect, hideAdded);
-            //Attribute Info3 Label - Weight Info
-            outlines[3] = WeightInfoLabel(item, inspect);
-            //Awake Info Label
-            outlines[4] = AwakeInfoLabel(item, inspect);
-            //Socket Info Label
-            outlines[5] = SocketInfoLabel(item, inspect);
-            //need Info Label
-            outlines[6] = NeedInfoLabel(item, inspect);
-            //Bind Info Label
-            outlines[7] = BindInfoLabel(item, inspect, hideAdded);
-            //Overlap Info Label
-            outlines[8] = OverlapInfoLabel(item, inspect);
-            //Story Label
-            outlines[9] = StoryInfoLabel(item, inspect);
-            //GM Made
-            outlines[10] = GMMadeLabel(item);
-
-            foreach (var outline in outlines)
-            {
-                if (outline != null)
-                {
-                    outline.Size = new Size(ItemLabel.Size.Width, outline.Size.Height);
-                }
-            }
-
-            //ItemLabel.Visible = true;
-        }
-        public void CreateMailLabel(ClientMail mail)
-        {
-            if (mail == null)
-            {
-                DisposeMailLabel();
-                return;
-            }
-
-            if (MailLabel != null && !MailLabel.IsDisposed) return;
-
-            MailLabel = new MirControl
-            {
-                BackColour = Color.FromArgb(255, 50, 50, 50),
-                Border = true,
-                BorderColour = Color.Gray,
-                DrawControlTexture = true,
-                NotControl = true,
-                Parent = this,
-                Opacity = 0.7F
-            };
-
-            MirLabel nameLabel = new MirLabel
-            {
-                AutoSize = true,
-                ForeColour = Color.Yellow,
-                Location = new Point(4, 4),
-                OutLine = true,
-                Parent = MailLabel,
-                Text = mail.SenderName
-            };
-
-            MailLabel.Size = new Size(Math.Max(MailLabel.Size.Width, nameLabel.DisplayRectangle.Right + 4),
-                Math.Max(MailLabel.Size.Height, nameLabel.DisplayRectangle.Bottom));
-
-            MirLabel dateLabel = new MirLabel
-            {
-                AutoSize = true,
-                ForeColour = Color.White,
-                Location = new Point(4, MailLabel.DisplayRectangle.Bottom),
-                OutLine = true,
-                Parent = MailLabel,
-                Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.DateSent), mail.DateSent.ToString("dd/MM/yy H:mm:ss"))
-            };
-
-            MailLabel.Size = new Size(Math.Max(MailLabel.Size.Width, dateLabel.DisplayRectangle.Right + 4),
-                Math.Max(MailLabel.Size.Height, dateLabel.DisplayRectangle.Bottom));
-
-            if (mail.Gold > 0)
-            {
-                MirLabel goldLabel = new MirLabel
-                {
-                    AutoSize = true,
-                    ForeColour = Color.White,
-                    Location = new Point(4, MailLabel.DisplayRectangle.Bottom),
-                    OutLine = true,
-                    Parent = MailLabel,
-                    Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.MailGoldLabel) + mail.Gold
-                };
-
-                MailLabel.Size = new Size(Math.Max(MailLabel.Size.Width, goldLabel.DisplayRectangle.Right + 4),
-                Math.Max(MailLabel.Size.Height, goldLabel.DisplayRectangle.Bottom));
-            }
-
-            MirLabel openedLabel = new MirLabel
-            {
-                AutoSize = true,
-                ForeColour = Color.Red,
-                Location = new Point(4, MailLabel.DisplayRectangle.Bottom),
-                OutLine = true,
-                Parent = MailLabel,
-                Text = mail.Opened ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.MailHeaderOld) : GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.MailHeaderNew)
-            };
-
-            MailLabel.Size = new Size(Math.Max(MailLabel.Size.Width, openedLabel.DisplayRectangle.Right + 4),
-            Math.Max(MailLabel.Size.Height, openedLabel.DisplayRectangle.Bottom));
-        }
-        public void CreateMemoLabel(ClientFriend friend)
-        {
-            if (friend == null)
-            {
-                DisposeMemoLabel();
-                return;
-            }
-
-            if (MemoLabel != null && !MemoLabel.IsDisposed) return;
-
-            MemoLabel = new MirControl
-            {
-                BackColour = Color.FromArgb(255, 50, 50, 50),
-                Border = true,
-                BorderColour = Color.Gray,
-                DrawControlTexture = true,
-                NotControl = true,
-                Parent = this,
-                Opacity = 0.7F
-            };
-
-            MirLabel memoLabel = new MirLabel
-            {
-                AutoSize = true,
-                ForeColour = Color.White,
-                Location = new Point(4, 4),
-                OutLine = true,
-                Parent = MemoLabel,
-                Text = Functions.StringOverLines(friend.Memo, 5, 20)
-            };
-
-            MemoLabel.Size = new Size(Math.Max(MemoLabel.Size.Width, memoLabel.DisplayRectangle.Right + 4),
-                Math.Max(MemoLabel.Size.Height, memoLabel.DisplayRectangle.Bottom + 4));
-        }
-
         public string GetUserName(uint id)
         {
             for (int i = 0; i < UserIdList.Count; i++)
@@ -10293,7 +6098,7 @@ namespace Client.MirScenes
             foreach (long id in p.Listings)
                 listings.Add(RankingList[id]);
 
-            RankingDialog.RecieveRanks(listings, p.RankType, p.MyRank, p.Count);
+            Ui.RankingsReceived(listings, p);
         }
 
         public void Opendoor(S.Opendoor p)
@@ -10303,41 +6108,28 @@ namespace Client.MirScenes
 
         private void RentedItems(S.GetRentedItems p)
         {
-            ItemRentalDialog.ReceiveRentedItems(p.RentedItems);
+            Ui.RentedItems(p);
         }
 
         private void ItemRentalRequest(S.ItemRentalRequest p)
         {
-            if (!p.Renting)
-            {
-                GuestItemRentDialog.SetGuestName(p.Name);
-                ItemRentingDialog.OpenItemRentalDialog();
-            }
-            else
-            {
-                GuestItemRentingDialog.SetGuestName(p.Name);
-                ItemRentDialog.OpenItemRentDialog();
-            }
-
-            ItemRentalDialog.Visible = false;
+            Ui.ItemRentalRequest(p);
         }
 
         private void ItemRentalFee(S.ItemRentalFee p)
         {
-            GuestItemRentDialog.SetGuestFee(p.Amount);
-            ItemRentDialog.RefreshInterface();
+            Ui.ItemRentalFee(p);
         }
 
         private void ItemRentalPeriod(S.ItemRentalPeriod p)
         {
-            GuestItemRentingDialog.GuestRentalPeriod = p.Days;
-            ItemRentingDialog.RefreshInterface();
+            Ui.ItemRentalPeriod(p);
         }
 
         private void DepositRentalItem(S.DepositRentalItem p)
         {
-            var fromCell = p.From < User.BeltIdx ? BeltDialog.Grid[p.From] : InventoryDialog.Grid[p.From - User.BeltIdx];
-            var toCell = ItemRentingDialog.ItemCell;
+            var fromCell = ItemMoves.Slot(MirGridType.Inventory, p.From);
+            var toCell = new ItemSlotRef(MirGridType.Renting, 0);
 
             if (toCell == null || fromCell == null)
                 return;
@@ -10352,14 +6144,13 @@ namespace Client.MirScenes
             fromCell.Item = null;
             User.RefreshStats();
 
-            if (ItemRentingDialog.RentalPeriod == 0)
-                ItemRentingDialog.InputRentalPeroid();
+            Ui.ItemRentalDeposited();
         }
 
         private void RetrieveRentalItem(S.RetrieveRentalItem p)
         {
-            var fromCell = ItemRentingDialog.ItemCell;
-            var toCell = p.To < User.BeltIdx ? BeltDialog.Grid[p.To] : InventoryDialog.Grid[p.To - User.BeltIdx];
+            var fromCell = new ItemSlotRef(MirGridType.Renting, 0);
+            var toCell = ItemMoves.Slot(MirGridType.Inventory, p.To);
 
             if (toCell == null || fromCell == null)
                 return;
@@ -10377,8 +6168,9 @@ namespace Client.MirScenes
 
         private void UpdateRentalItem(S.UpdateRentalItem p)
         {
-            GuestItemRentingDialog.GuestLoanItem = p.LoanItem;
-            ItemRentDialog.RefreshInterface();
+            Models.Rental.GuestLoanItem = p.LoanItem;
+            Models.Rental.Changed.Emit();
+            Ui.RentalGuestItemChanged();
         }
 
         private void CancelItemRental(S.CancelItemRental p)
@@ -10386,11 +6178,7 @@ namespace Client.MirScenes
             User.RentalGoldLocked = false;
             User.RentalItemLocked = false;
 
-            ItemRentingDialog.Reset();
-            ItemRentDialog.Reset();
-
-            var messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ItemRentalCancelledFaceOtherParty));
-            messageBox.Show();
+            Ui.ItemRentalReset(true);
         }
 
         private void ItemRentalLock(S.ItemRentalLock p)
@@ -10401,23 +6189,17 @@ namespace Client.MirScenes
             User.RentalGoldLocked = p.GoldLocked;
             User.RentalItemLocked = p.ItemLocked;
 
-            if (User.RentalGoldLocked)
-                ItemRentDialog.Lock();
-            else if (User.RentalItemLocked)
-                ItemRentingDialog.Lock();
+            Ui.ItemRentalLocked();
         }
 
         private void ItemRentalPartnerLock(S.ItemRentalPartnerLock p)
         {
-            if (p.GoldLocked)
-                GuestItemRentDialog.Lock();
-            else if (p.ItemLocked)
-                GuestItemRentingDialog.Lock();
+            Ui.ItemRentalPartnerLock(p);
         }
 
         private void CanConfirmItemRental(S.CanConfirmItemRental p)
         {
-            ItemRentingDialog.EnableConfirmButton();
+            Ui.CanConfirmItemRental();
         }
 
         private void ConfirmItemRental(S.ConfirmItemRental p)
@@ -10425,8 +6207,7 @@ namespace Client.MirScenes
             User.RentalGoldLocked = false;
             User.RentalItemLocked = false;
 
-            ItemRentingDialog.Reset();
-            ItemRentDialog.Reset();
+            Ui.ItemRentalReset(false);
         }
 
         private void OpenBrowser(S.OpenBrowser p)
@@ -10440,27 +6221,27 @@ namespace Client.MirScenes
         }
         private void SetTimer(S.SetTimer p)
         {
-            GameScene.Scene.TimerControl.AddTimer(p);
+            Ui.SetTimer(p);
         }
 
         private void ExpireTimer(S.ExpireTimer p)
         {
-            GameScene.Scene.TimerControl.ExpireTimer(p.Key);
+            Ui.ExpireTimer(p.Key);
         }
 
         private void SetCompass(S.SetCompass p)
         {
-            GameScene.Scene.CompassControl.SetPoint(p.Location);
+            Ui.SetCompass(p.Location);
         }
 
         private void Roll(S.Roll p)
         {
-            GameScene.Scene.RollControl.Setup(p.Type, p.Page, p.Result, p.AutoRoll);
+            Ui.Roll(p);
         }
 
         public void ShowNotice(S.UpdateNotice p)
         {
-            NoticeDialog.Update(p.Notice);
+            Ui.ShowNotice(p);
         }
 
         #region Disposable
@@ -10480,36 +6261,10 @@ namespace Client.MirScenes
                 CanRun = false;
 
                 MapControl = null;
-                MainDialog = null;
-                ChatDialog = null;
-                ChatControl = null;
-                InventoryDialog = null;
-                CharacterDialog = null;
-                StorageDialog = null;
-                BeltDialog = null;
-                MiniMapDialog = null;
-                InspectDialog = null;
-                OptionDialog = null;
-                MenuDialog = null;
-                NPCDialog = null;
-                QuestDetailDialog = null;
-                QuestListDialog = null;
-                QuestLogDialog = null;
-                QuestTrackingDialog = null;
-                GameShopDialog = null;
-                MentorDialog = null;
-
-                NewHeroDialog = null;
-                HeroInventoryDialog = null;
-                HeroDialog = null;
-                HeroBeltDialog = null;
-
-                RelationshipDialog = null;
-                CharacterDuraPanel = null;
-                DuraStatusPanel = null;
+                _ui?.Dispose();
 
                 HoverItem = null;
-                SelectedCell = null;
+                ItemMoves.Reset();
                 PickedUpGold = false;
 
                 UseItemTime = 0;
@@ -10526,15 +6281,20 @@ namespace Client.MirScenes
                 NPCID = 0;
                 DefaultNPCID = 0;
 
-                for (int i = 0; i < OutputLines.Length; i++)
-                    if (OutputLines[i] != null && OutputLines[i].IsDisposed)
-                        OutputLines[i].Dispose();
-
                 OutputMessages.Clear();
                 OutputMessages = null;
             }
 
             base.Dispose(disposing);
+
+            if (disposing)
+            {
+                // Only this scene's own UI and models: a newer GameScene may already have set the statics.
+                if (Ui == _ui) Ui = null;
+                if (Models == _models) Models = null;
+                _ui = null;
+                _models = null;
+            }
         }
 
         #endregion
@@ -10811,7 +6571,7 @@ namespace Client.MirScenes
                 if (_autoRun == value) return;
                 _autoRun = value;
                 if (GameScene.Scene != null)
-                    GameScene.Scene.ChatDialog.ReceiveChat(value ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AutoRunOn) : GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AutoRunOff),
+                    GameScene.Models.Chat.Add(value ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AutoRunOn) : GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AutoRunOff),
                         ChatType.Hint);
             }
 
@@ -10847,7 +6607,7 @@ namespace Client.MirScenes
 
         public void ResetMap()
         {
-            GameScene.Scene.NPCDialog.Hide();
+            GameScene.Ui.CloseNpcDialog();
 
             MapObject.MouseObjectID = 0;
             MapObject.TargetObjectID = 0;
@@ -11734,7 +7494,7 @@ namespace Client.MirScenes
                         if (npc != null)
                         {
                             if (npc.ObjectID == GameScene.NPCID &&
-                                (CMain.Time <= GameScene.NPCTime || GameScene.Scene.NPCDialog.Visible))
+                                (CMain.Time <= GameScene.NPCTime || GameScene.Ui.IsNpcDialogOpen()))
                             {
                                 return;
                             }
@@ -11776,7 +7536,7 @@ namespace Client.MirScenes
                                 CMain.Time >= GameScene.InspectTime)
                             {
                                 GameScene.InspectTime = CMain.Time + 500;
-                                InspectDialog.InspectID = hero.ObjectID;
+                                GameScene.Models.Inspect.InspectID = hero.ObjectID;
                                 Network.Enqueue(new C.Inspect { ObjectID = hero.ObjectID, Hero = true });
                                 return;
                             }
@@ -11788,7 +7548,7 @@ namespace Client.MirScenes
                                 CMain.Time >= GameScene.InspectTime)
                             {
                                 GameScene.InspectTime = CMain.Time + 500;
-                                InspectDialog.InspectID = player.ObjectID;
+                                GameScene.Models.Inspect.InspectID = player.ObjectID;
                                 Network.Enqueue(new C.Inspect { ObjectID = player.ObjectID });
                                 return;
                             }
@@ -11811,27 +7571,24 @@ namespace Client.MirScenes
 
             if (e.Button != MouseButtons.Left) return;
 
-            if (GameScene.SelectedCell != null)
+            if (ItemMoves.Selected != null)
             {
-                if (GameScene.SelectedCell.GridType != MirGridType.Inventory && GameScene.SelectedCell.GridType != MirGridType.HeroInventory)
+                if (ItemMoves.Selected.GridType != MirGridType.Inventory && ItemMoves.Selected.GridType != MirGridType.HeroInventory)
                 {
-                    GameScene.SelectedCell = null;
+                    ItemMoves.Selected = null;
                     return;
                 }
 
-                MirItemCell cell = GameScene.SelectedCell;
+                ItemSlotRef cell = ItemMoves.Selected;
                 if (cell.Item.Info.Bind.HasFlag(BindMode.DontDrop))
                 {
-                    MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.YouCannotDrop), cell.Item.FriendlyName), MirMessageBoxButtons.OK);
-                    messageBox.Show();
-                    GameScene.SelectedCell = null;
+                    GameScene.Ui.ItemMessage(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.YouCannotDrop), cell.Item.FriendlyName));
+                    ItemMoves.Selected = null;
                     return;
                 }
                 if (cell.Item.Count == 1)
                 {
-                    MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.DropTip), cell.Item.FriendlyName), MirMessageBoxButtons.YesNo);
-
-                    messageBox.YesButton.Click += (o, a) =>
+                    GameScene.Ui.ItemAskYesNo(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.DropTip), cell.Item.FriendlyName), () =>
                     {
                         Network.Enqueue(new C.DropItem
                         {
@@ -11841,46 +7598,38 @@ namespace Client.MirScenes
                         });
 
                         cell.Locked = true;
-                    };
-                    messageBox.Show();
+                    });
                 }
                 else
                 {
-                    MirAmountBox amountBox = new MirAmountBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.DropAmount), cell.Item.Info.Image, cell.Item.Count);
-
-                    amountBox.OKButton.Click += (o, a) =>
+                    GameScene.Ui.ItemAskAmount(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.DropAmount), cell.Item.Info.Image, cell.Item.Count, amount =>
                     {
-                        if (amountBox.Amount <= 0) return;
+                        if (amount <= 0) return;
                         Network.Enqueue(new C.DropItem
                         {
                             UniqueID = cell.Item.UniqueID,
-                            Count = (ushort)amountBox.Amount,
+                            Count = (ushort)amount,
                             HeroInventory = cell.GridType == MirGridType.HeroInventory
                         });
 
                         cell.Locked = true;
-                    };
-
-                    amountBox.Show();
+                    });
                 }
-                GameScene.SelectedCell = null;
+                ItemMoves.Selected = null;
 
                 return;
             }
 
             if (GameScene.PickedUpGold)
             {
-                MirAmountBox amountBox = new MirAmountBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.DropAmount), 116, GameScene.Gold);
-
-                amountBox.OKButton.Click += (o, a) =>
+                GameScene.Ui.ItemAskAmount(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.DropAmount), 116, GameScene.Gold, amount =>
                 {
-                    if (amountBox.Amount > 0)
+                    if (amount > 0)
                     {
-                        Network.Enqueue(new C.DropGold { Amount = amountBox.Amount });
+                        Network.Enqueue(new C.DropGold { Amount = amount });
                     }
-                };
+                });
 
-                amountBox.Show();
                 GameScene.PickedUpGold = false;
             }
 
@@ -12651,7 +8400,7 @@ namespace Client.MirScenes
 
         public bool ValidPoint(Point p)
         {
-            //GameScene.Scene.ChatDialog.ReceiveChat(string.Format("cell: {0}", (M2CellInfo[p.X, p.Y].BackImage & 0x20000000)), ChatType.Hint);
+            //GameScene.Models.Chat.Add(string.Format("cell: {0}", (M2CellInfo[p.X, p.Y].BackImage & 0x20000000)), ChatType.Hint);
             return (M2CellInfo[p.X, p.Y].BackImage & 0x20000000) == 0;
         }
         public bool HasTarget(Point p)

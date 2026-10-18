@@ -551,7 +551,7 @@ namespace Client.MirScenes.Dialogs
         int BigMap_MouseCoordsProcessing_OffsetX, BigMap_MouseCoordsProcessing_OffsetY;
 
         public MirImageControl[] Players;
-        public static Dictionary<string, Point> PlayerLocations = new Dictionary<string, Point>();
+        public static Dictionary<string, Point> PlayerLocations => GameScene.Models.Group.MemberLocations; // seam step 1: lives in the group model
 
         public BigMapViewPort()
         {

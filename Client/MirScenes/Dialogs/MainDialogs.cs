@@ -282,7 +282,7 @@ namespace Client.MirScenes.Dialogs
             };
             GoldLabel.Click += (o, e) =>
             {
-                if (GameScene.SelectedCell == null)
+                if (ItemMoves.Selected == null)
                     GameScene.PickedUpGold = !GameScene.PickedUpGold && GameScene.Gold > 0;
             };
 
@@ -591,6 +591,7 @@ namespace Client.MirScenes.Dialogs
             KeyPress += ChatPanel_KeyPress;
             KeyDown += ChatPanel_KeyDown;
             MouseWheel += ChatPanel_MouseWheel;
+            GameScene.Models.Chat.Added.On(ShowChat);
 
             ChatTextBox = new MirTextBox
             {
@@ -819,8 +820,17 @@ namespace Client.MirScenes.Dialogs
             PositionBar.Location = new Point(x, y);
         }
 
+        /// <summary>Adds a line to the chat log (GameScene.Models.Chat); <see cref="ShowChat"/> renders it.</summary>
         public void ReceiveChat(string text, ChatType type)
         {
+            GameScene.Models.Chat.Add(text, type);
+        }
+
+        /// <summary>Was the body of ReceiveChat: renders a line the chat log announced (subscribed in the constructor).</summary>
+        private void ShowChat(Models.ChatLine line)
+        {
+            string text = line.Text;
+            ChatType type = line.Type;
             Color foreColour, backColour;
 
             switch (type)
@@ -1284,6 +1294,14 @@ namespace Client.MirScenes.Dialogs
             }
 
             Index -= offset;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && GameScene.Models != null)
+                GameScene.Models.Chat.Added.Off(ShowChat);
+
+            base.Dispose(disposing);
         }
 
         public class ChatHistory
@@ -2182,18 +2200,18 @@ namespace Client.MirScenes.Dialogs
     }
     public sealed class InspectDialog : MirImageControl
     {
-        public static UserItem[] Items = new UserItem[14];
-        public static uint InspectID;
+        public static UserItem[] Items { get => GameScene.Models.Inspect.Items; set => GameScene.Models.Inspect.Items = value; } // seam step 1: lives in GameScene.Models
+        public static uint InspectID { get => GameScene.Models.Inspect.InspectID; set => GameScene.Models.Inspect.InspectID = value; }
 
-        public string Name;
-        public string GuildName;
-        public string GuildRank;
-        public MirClass Class;
-        public MirGender Gender;
-        public byte Hair;
-        public ushort Level;
-        public string LoverName;
-        public bool AllowObserve;
+        public string Name { get => GameScene.Models.Inspect.Name; set => GameScene.Models.Inspect.Name = value; } // seam step 4: lives in GameScene.Models
+        public string GuildName { get => GameScene.Models.Inspect.GuildName; set => GameScene.Models.Inspect.GuildName = value; }
+        public string GuildRank { get => GameScene.Models.Inspect.GuildRank; set => GameScene.Models.Inspect.GuildRank = value; }
+        public MirClass Class { get => GameScene.Models.Inspect.Class; set => GameScene.Models.Inspect.Class = value; }
+        public MirGender Gender { get => GameScene.Models.Inspect.Gender; set => GameScene.Models.Inspect.Gender = value; }
+        public byte Hair { get => GameScene.Models.Inspect.Hair; set => GameScene.Models.Inspect.Hair = value; }
+        public ushort Level { get => GameScene.Models.Inspect.Level; set => GameScene.Models.Inspect.Level = value; }
+        public string LoverName { get => GameScene.Models.Inspect.LoverName; set => GameScene.Models.Inspect.LoverName = value; }
+        public bool AllowObserve { get => GameScene.Models.Inspect.AllowObserve; set => GameScene.Models.Inspect.AllowObserve = value; }
 
         public MirButton CloseButton, GroupButton, FriendButton, MailButton, TradeButton, LoverButton, ObserveButton;
         public MirImageControl CharacterPage, ClassImage;

@@ -695,8 +695,8 @@ namespace Client.MirScenes.Dialogs
 
         public MirItemCell[] Cells = new MirItemCell[_cellCount];
 
-        public static UserItem[] Items = new UserItem[_cellCount];
-        public static ulong[] ItemsIdx = new ulong[_cellCount];
+        public static UserItem[] Items => GameScene.Models.Mail.ParcelItems; // seam step 1: lives in GameScene.Models
+        public static ulong[] ItemsIdx => GameScene.Models.Mail.ParcelItemsIdx;
 
         public uint GiftGoldAmount = 0;
         public bool Stamped = false;
@@ -807,7 +807,7 @@ namespace Client.MirScenes.Dialogs
             };
             GoldSendLabel.Click += (o, e) =>
             {
-                if (GameScene.SelectedCell == null && GameScene.Gold > 0)
+                if (ItemMoves.Selected == null && GameScene.Gold > 0)
                 {
                     MirAmountBox amountBox = new MirAmountBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.SendAmount), 116, GameScene.Gold);
 

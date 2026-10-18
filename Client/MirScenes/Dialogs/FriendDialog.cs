@@ -14,7 +14,7 @@ namespace Client.MirScenes.Dialogs
         public MirButton AddButton, RemoveButton, MemoButton, EmailButton, WhisperButton;
         public FriendRow[] Rows = new FriendRow[12];
 
-        public List<ClientFriend> Friends = new List<ClientFriend>();
+        public List<ClientFriend> Friends => GameScene.Models.Friends.Friends; // seam step 1: lives in GameScene.Models
         private ClientFriend SelectedFriend = null;
         private bool _tempBlockedTab = false;
         private bool _blockedTab = false;
