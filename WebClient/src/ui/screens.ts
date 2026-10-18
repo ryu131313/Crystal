@@ -99,16 +99,23 @@ export class Screens {
     return uiStyle() === "Modern" ? modernLoaded : null;
   }
 
-  /** A message over the account screens: the classic MirMessageBox, or the modern box while Modern. Closed on hide. */
+  /** A message over the account screens: the classic MirMessageBox, or the modern box while Modern (once its module is in;
+   *  dropped if the scenes change first, classic box if the module fails). Closed on hide. */
   private notice(text: string): void {
     const m = this.modernNow();
-    if (m) this.track(m.showNotice(text));
-    else this.host.box(text);
+    if (m) { this.track(m.showNotice(text)); return; }
+    if (uiStyle() !== "Modern") { this.host.box(text); return; }
+    const gen = this.gen;
+    void loadModernScreens().then((mod) => { if (gen === this.gen) this.track(mod.showNotice(text)); },
+      () => { if (gen === this.gen) this.host.box(text); });
   }
 
   /** LoginScene ctor + Shown (+ showLogin once the version is known), classic or modern by uiStyle(). */
   private showLoginScene(): void {
-    preloadUi(uiStyle()); // the active game UI tree downloads while the player logs in (uiLoader.ts)
+    // the account screens module first (nothing paints until it is in; PageBuild preloads only main.js's static graph),
+    // then the active game UI tree, which downloads while the player logs in (uiLoader.ts)
+    if (uiStyle() === "Modern" && !modernLoaded) void loadModernScreens().catch(() => { /* handled below */ });
+    preloadUi(uiStyle());
     const gen = ++this.gen;
     if (uiStyle() === "Modern") {
       const build = (m: ModernScreens) => {
@@ -159,6 +166,7 @@ export class Screens {
             this.select?.dispose();
             this.select = null;
             root().replaceChildren();
+            preloadUi(uiStyle()); // the classic game UI tree now (the login's link does this through showLoginScene)
             this.showSelectScene(characters);
           },
         });
@@ -207,12 +215,16 @@ export class Screens {
   fatal(text: string): void {
     if (this.fatalShown) return;
     this.fatalShown = true;
+    this.gen++; // a modern scene still loading is not built behind the box
     this.closeBoxes();
     this.connectBox?.();
     this.connectBox = null;
+    const classic = () => { messageBox(document.body, text, [{ label: "OK", onClick: () => location.reload() }]); };
+    const modern = (m: ModernScreens) => { m.showNotice(text, { title: "Disconnected", kind: "warning", onOk: () => location.reload() }); };
     const m = this.modernNow();
-    if (m) m.showNotice(text, { title: "Disconnected", kind: "warning", onOk: () => location.reload() });
-    else messageBox(document.body, text, [{ label: "OK", onClick: () => location.reload() }]);
+    if (m) modern(m);
+    else if (uiStyle() === "Modern") void loadModernScreens().then(modern, classic);
+    else classic();
   }
 
   /** SelectScene.StartGame(S.StartGame) Result 4: the game scene takes over. */

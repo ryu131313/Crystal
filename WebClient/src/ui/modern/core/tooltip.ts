@@ -54,6 +54,7 @@ const COMPARE: readonly [number, string][] = [
 const CSS = `
 .hudm .itip { position: absolute; left: 0; top: 0; pointer-events: none; display: flex; gap: 6px; align-items: flex-start; will-change: transform; }
 .hudm .itip.in { animation: hudm-tipin .12s ease-out; }
+.hudm .itip.ipin { position: static; justify-content: center; will-change: auto; max-height: 260px; overflow-y: auto; pointer-events: auto; touch-action: pan-y; }
 @keyframes hudm-tipin { from { opacity: 0; } }
 .hudm .itip .tc { position: relative; width: 304px; border-radius: var(--rad); overflow: hidden; color: var(--tx); font-size: 12px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--pb) 94%, #000), color-mix(in srgb, var(--pb) 70%, #000)); border: 1px solid color-mix(in srgb, var(--gc) 70%, var(--fr));
@@ -163,6 +164,13 @@ export class ItemTooltip {
     if (!isEl) { this.px = anchor.x; this.py = anchor.y; }
     this.cur = { item, ctx, opts, anchor: isEl ? anchor : null };
     this.draw(!wasShown);
+  }
+
+  /** A standalone copy of the item's card (the touch layout's long-press sheet), not following anything. */
+  pinnedCard(item: UserItem, ctx: ItemLabelContext, opts: ItemTooltipOptions = {}): HTMLElement {
+    const d = itemLabelSections(item, ctx, opts);
+    this.need(item, ctx, opts.info !== undefined);
+    return h("div", "itip ipin", this.card(d, { item, ctx, opts, anchor: null }, null, false));
   }
 
   /** Redraws the current item (its UserItem changed: durability, added stats, sockets ...). */

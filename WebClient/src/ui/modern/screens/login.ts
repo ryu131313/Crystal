@@ -26,13 +26,14 @@ import type { ServerPacket, SelectInfo } from "../../../protocol/server.ts";
 import { ClientPackets } from "../../../protocol/client.ts";
 import type { Session } from "../../../game/session.ts";
 import { accountDetails } from "../../../game/accountDetails.ts";
-import { setSetting } from "../../../game/settings.ts";
+import { isMobileUi, setSetting } from "../../../game/settings.ts";
+import { THEME_PRESETS, applyTheme, themePreset } from "../core/theme.ts";
 import { Lib, libPicture, libPictureNow } from "../../mir/controls.ts";
 import { Globals, Text, binaryFromWallMs, expiryClock, type SceneHost } from "../../accountCommon.ts";
 import { asButton, h, injectCss, later, reducedMotion, restartAnim, setText, windowInterval } from "../core/dom.ts";
 import { svg, ICONS } from "../core/icons.ts";
 import { plural } from "../core/format.ts";
-import { AccountRoot } from "./accountRoot.ts";
+import { AccountRoot, accountThemeSettings } from "./accountRoot.ts";
 
 type P<T extends ServerPacket["type"]> = Extract<ServerPacket, { type: T }>;
 
@@ -150,6 +151,19 @@ const CSS = `
 .hudm .lgscr .kbd .k { height: 30px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-weight: 700; border-radius: calc(var(--rad) * .6); border: 1px solid var(--fr); background: rgba(3,5,10,.6); color: var(--tx); }
 .hudm .lgscr .kbd .k:hover { border-color: var(--ac); color: #fff; }
 .hudm .lgscr .kbd .acts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; } .hudm .lgscr .kbd .acts .k { font-size: 11px; font-weight: 600; }
+/* theme picker (touch layout only) */
+.hudm .lgscr .tpick { right: 24px; bottom: 52px; padding: 10px; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; z-index: 3; max-width: 640px; }
+.hudm .lgscr .tpbtn { display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 18px; border-radius: 26px; cursor: pointer; font-size: 18px; font-weight: 700;
+  border: 1px solid var(--fr); background: rgba(3,5,10,.5); }
+.hudm .lgscr .tpbtn > span:last-child { color: var(--ac); font-weight: 600; }
+.hudm .lgscr .tpbtn .dot { width: 22px; height: 22px; border-radius: 50%; background: var(--ac); box-shadow: 0 0 10px var(--glow); }
+.hudm .lgscr .tpgrid { display: grid; grid-template-columns: repeat(6, 92px); gap: 8px; }
+.hudm .lgscr .tpsw { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 6px 2px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; }
+.hudm .lgscr .tpsw i { width: 46px; height: 46px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--sa) 70%, #fff), var(--sa) 55%, var(--sf));
+  border: 3px solid var(--sf); box-shadow: 0 0 10px color-mix(in srgb, var(--sa) 50%, transparent); }
+.hudm .lgscr .tpsw span { font-size: 12px; text-align: center; line-height: 1.15; color: var(--dim); }
+.hudm .lgscr:has(.tpgrid:not([hidden])) .logo { opacity: 0; }
+.hudm .lgscr .tpsw.on { border-color: var(--ac); background: color-mix(in srgb, var(--ac) 16%, transparent); } .hudm .lgscr .tpsw.on span { color: #fff; }
 .hudm .lgscr .foot { position: absolute; left: 0; right: 0; bottom: 0; height: 40px; display: flex; align-items: center; gap: 16px; padding: 0 24px; font-size: 11px; color: var(--dim); background: linear-gradient(0deg, rgba(0,0,0,.7), transparent); }
 .hudm .lgscr .foot .sp { flex: 1; } .hudm .lgscr .foot a { color: var(--tx); } .hudm .lgscr .foot a:hover { color: var(--ac); }
 .hudm .lgscr.leave .card, .hudm .lgscr.leave .srv, .hudm .lgscr.leave .kbd, .hudm .lgscr.leave .logo { transition: opacity .4s, transform .4s; opacity: 0; transform: translateY(-20px); pointer-events: none; }
@@ -267,6 +281,7 @@ export class ModernLoginScene implements LoginUi {
     this.card = h("div", "glass card");
     this.el = h("div", "lgscr", h("div", "bg", this.bgImg), h("div", "shade"), h("div", "fog"), ...embers, logo, this.card, srv, foot,
       h("div", "fade"), h("div", "welcome"));
+    if (isMobileUi()) this.el.append(this.themePicker()); // the touch layout: no Options window before the game
     this.acct.scene.append(this.el);
 
     // S.LoginFailed (consumed by Screens into the store, right after S.Login): tries left / connection / lock lines.
@@ -277,6 +292,36 @@ export class ModernLoginScene implements LoginUi {
     windowInterval(() => this.tick(), 1000, this.signal).on();
     this.tick();
     this.render();
+  }
+
+  /** The touch layout's theme picker: a "Theme" button opening a swatch grid; a pick applies at once (this screen,
+   *  then every later screen and the game) and clears the custom colours, like the Options window's Theme row. */
+  private themePicker(): HTMLElement {
+    const sig = { signal: this.signal };
+    const label = h("span", "", themePreset(accountThemeSettings().theme).name);
+    const toggle = asButton(h("div", "tpbtn", h("i", "dot"), h("span", "", "Theme"), label), "Change the colour theme");
+    const grid = h("div", "tpgrid");
+    grid.hidden = true;
+    const swatches: HTMLElement[] = [];
+    const mark = () => { const cur = themePreset(accountThemeSettings().theme).name; for (const s of swatches) s.classList.toggle("on", s.dataset.name === cur); setText(label, cur); };
+    for (const t of THEME_PRESETS) {
+      const sw = asButton(h("div", "tpsw", h("i"), h("span", "", t.name)), t.name);
+      sw.dataset.name = t.name;
+      sw.style.setProperty("--sa", t.accent);
+      sw.style.setProperty("--sf", t.frame);
+      sw.addEventListener("click", () => {
+        for (const [k, none] of [["UiAccent", ""], ["UiFrame", ""], ["UiText", ""], ["UiHue", -1], ["UiSat", -1], ["UiLit", -1], ["UiGlow", -1], ["UiRadius", -1]] as const)
+          setSetting(k, none as never);
+        setSetting("UiTheme", t.name);
+        applyTheme(this.acct.root, accountThemeSettings());
+        mark();
+      }, sig);
+      swatches.push(sw);
+      grid.append(sw);
+    }
+    toggle.addEventListener("click", () => { grid.hidden = !grid.hidden; }, sig);
+    mark();
+    return h("div", "glass tpick", toggle, grid);
   }
 
   // — LoginUi —
@@ -616,7 +661,7 @@ export class ModernLoginScene implements LoginUi {
     const create = this.altButton("Create a new account", () => { this.setView("create"); this.form = {}; this.render(); this.focusFirst(); });
     return [h("h2", "", "Welcome back", h("small", "", "Log in to your account")), this.messageEl(),
       this.field("id", "Account ID", { max: ID_MAX, check: this.checkId, describe: `Letters and digits, ${ID_MIN}-${ID_MAX} characters` }),
-      this.field("pw", "Password", { password: true, max: PW_MAX, describe: `Letters and digits, ${PW_MIN}-${PW_MAX} characters` }),
+      this.field("pw", "Password", { password: true, max: PW_MAX, check: this.checkPw, describe: `Letters and digits, ${PW_MIN}-${PW_MAX} characters` }),
       caps, h("div", "line", h("label", "", rem, "Remember account"), change), this.goButton("LOG IN"), h("div", "row", create, kbd)].filter((k): k is HTMLElement => !!k);
   }
 

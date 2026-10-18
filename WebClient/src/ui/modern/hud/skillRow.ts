@@ -125,6 +125,8 @@ export class SkillRow {
   private readonly slots: SkillSlot[] = [];
   private _view: SkillView = 0;
   private dirty = true;
+  /** Set by the touch pad (mobile/mobileUi.ts): a slot tap casts magic key 1-24 through TouchControl, not the binding. */
+  onCast: ((key: number) => void) | null = null;
 
   constructor(private readonly ctx: GameUiContext, rt: UiRuntime) {
     injectCss("hud-skills", CSS);
@@ -146,6 +148,18 @@ export class SkillRow {
   }
 
   get view(): SkillView { return this._view; }
+
+  /** Slot i's element (0-7: left row, then right). */
+  slotEl(i: number): HTMLElement | undefined { return this.slots[i]?.el; }
+
+  /** The magic key slot i casts in the current view (1-16, hero 17-24). */
+  keyFor(i: number): number { return this._view === 2 ? 17 + i : this._view * 8 + i + 1; }
+
+  /** Whether a tap on slot i can cast now (as last drawn by frame()). */
+  slotState(i: number): "empty" | "cooldown" | "nomp" | "ok" {
+    const s = this.slots[i];
+    return !s?.magic ? "empty" : s.cdOn ? "cooldown" : s.nomp ? "nomp" : "ok";
+  }
 
   /** Shows bar 1, bar 2 or the hero's skills (the HUD calls it from the held Ctrl / Shift state). */
   setView(v: SkillView): void {
@@ -226,6 +240,7 @@ export class SkillRow {
   private cast(i: number): void {
     const s = this.slots[i]!;
     if (!s.magic) return;
+    if (this.onCast) { this.onCast(this._view === 2 ? 17 + i : this._view * 8 + i + 1); restartAnim(s.el, "flash"); return; }
     if (replayBinding(slotOption(this._view, i))) restartAnim(s.el, "flash");
   }
 }

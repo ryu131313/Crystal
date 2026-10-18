@@ -39,6 +39,8 @@ const BOW_TARGET = new Set<number>([
   Spell.CrippleShot, Spell.NapalmShot, Spell.SummonVampire, Spell.SummonToad, Spell.SummonSnakes,
 ]);
 const FRIEND_TARGET = new Set<number>([Spell.Purification, Spell.Healing, Spell.UltimateEnhancer, Spell.EnergyShield, Spell.PetEnhancer]);
+/** Friendly spells cast on a location (the party around it): the touch pad centres them on the caster (targetKind). */
+const FRIENDLY_AREA = new Set<number>([Spell.SoulShield, Spell.BlessedArmour, Spell.MassHealing]);
 const OPTIONAL_TARGET = new Set<number>([
   Spell.FireBang, Spell.MassHiding, Spell.FireWall, Spell.TrapHexagon, Spell.HealingCircle, Spell.CatTongue, Spell.PoisonCloud, Spell.Blizzard,
   Spell.MeteorStrike, Spell.Trap, Spell.Stonetrap,
@@ -98,6 +100,13 @@ export class Magic {
 
   get(spell: number): UserMagic | undefined {
     return this.magics.find((m) => m.Spell === spell);
+  }
+
+  /** The touch pad's targeting class of magic key 1-24 (hero keys over HERO_KEY_OFFSET): "friend" = FRIEND_TARGET (a
+   *  friendly object, else the caster), "area" = FRIENDLY_AREA (about the caster), else "enemy". */
+  targetKind(key: number): "friend" | "area" | "enemy" {
+    const m = (key > HERO_KEY_OFFSET ? this.heroMagics : this.magics).find((x) => x.Key === key);
+    return !m ? "enemy" : FRIEND_TARGET.has(m.Spell) ? "friend" : FRIENDLY_AREA.has(m.Spell) ? "area" : "enemy";
   }
 
   /** Hero.GetMagic. */

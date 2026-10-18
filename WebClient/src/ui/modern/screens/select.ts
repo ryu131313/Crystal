@@ -27,8 +27,7 @@ import type { ServerPacket, SelectInfo } from "../../../protocol/server.ts";
 import { ClientPackets } from "../../../protocol/client.ts";
 import { MirClass, MirGender } from "../../../protocol/enums.generated.ts";
 import { Lib, libPicture } from "../../mir/controls.ts";
-import { heroAvatar } from "../../heroPanels.ts";
-import { Globals, Text, format, banText, chrSelIndex, wallMs, isMinValue, formatDateTime, type SceneHost } from "../../accountCommon.ts";
+import { Globals, Text, format, chrSelIndex, wallMs, isMinValue, expiryClock, type SceneHost } from "../../accountCommon.ts";
 import { warmCharacter, setPlayingCharacter } from "../../../game/mapFiles.ts";
 import { setSetting } from "../../../game/settings.ts";
 import type { AccountDetailsStore } from "../../../game/accountDetails.ts";
@@ -73,6 +72,13 @@ function classDescription(cls: number): string {
     case MirClass.Archer: return Text.ArchersDescription;
     default: return Text.WarriorsDescription;
   }
+}
+
+/** S.StartGameBanned text (accountCommon.ts banText) with the expiry read by its DateTime Kind (expiryClock, as login.ts). */
+function bannedText(reason: string, expiry: bigint): string {
+  const exp = expiryClock(expiry);
+  const d = Math.max(0, exp.leftMs()) / 1000;
+  return format(Text.BannedDuration, reason, exp.label, Math.floor(d / 3600).toLocaleString("en-US"), Math.floor((d % 3600) / 60), Math.floor(d % 60));
 }
 
 
@@ -292,7 +298,7 @@ export class ModernSelectScene implements SelectUi {
       case "StartGameBanned":
         this.entering = null;
         this.updateStart();
-        void this.popups.confirm({ title: "Banned", text: banText(p.Reason, p.ExpiryDate), kind: "warning" });
+        void this.popups.confirm({ title: "Banned", text: bannedText(p.Reason, p.ExpiryDate), kind: "warning" });
         return true;
       case "StartGameDelay": this.startGameDelay(Number(p.Milliseconds)); return true;
       default: return false;
@@ -364,7 +370,9 @@ export class ModernSelectScene implements SelectUi {
 
   private portrait(el: HTMLElement, cls: number, gender: number): void {
     const sig = this.scope.signal;
-    void libPicture(Lib.Prguse, heroAvatar(cls, gender) + 370).then((p) => { if (p && !sig.aborted) el.style.backgroundImage = `url(${p.url})`; });
+    // GameScene.HeroAvatar (heroPanels.ts heroAvatar, inlined like hud/heroFrame.ts: importing it would pull classic HUD modules
+    // into the account screens) + 370 = the HeroManage portrait
+    void libPicture(Lib.Prguse, 1400 + cls + 10 * gender + 370).then((p) => { if (p && !sig.aborted) el.style.backgroundImage = `url(${p.url})`; });
   }
 
   private roster(): HTMLElement {
@@ -405,7 +413,7 @@ export class ModernSelectScene implements SelectUi {
         ["Level", String(c.Level)],
       ];
       if (d) rows.push(["Guild", d.GuildName || "—"], ["Location", d.MapTitle || "—"]);
-      rows.push(["Last played", isMinValue(c.LastAccess) ? Text.Never : formatDateTime(wallMs(c.LastAccess))]);
+      rows.push(["Last played", isMinValue(c.LastAccess) ? Text.Never : expiryClock(c.LastAccess).label]); // Utc ticks: local time
       if (d) rows.push(["Played", fmtDuration(Number(d.PlayTime))]);
       if (this.deps.details?.characters.size) rows.push(["Account gold", fmt(this.deps.details.accountGold), "gold"]);
       for (const [k, v, cls] of rows) p.append(h("div", "kv", h("span", "", k), h("b", cls ?? "", v)));

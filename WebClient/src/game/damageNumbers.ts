@@ -125,8 +125,9 @@ export function processDamageList(list: DamageNumber[], now: number): void {
 export const DAMAGE_FONT_STACK = "'Source Sans 3','Source Sans Pro','Segoe UI',sans-serif";
 
 /** DrawNew + the rasteriser: a box of the text's size + 6 (text at (3, 3), a 190-alpha black shadow at (4, 4)), scaled about
- *  its top-left and centred on (drawX + 24 + offsetX, drawY - DrawY - 34). (drawX, drawY) = the object's draw location. */
-export function drawDamageNumber(g: CanvasRenderingContext2D, d: DamageNumber, drawX: number, drawY: number): void {
+ *  its top-left and centred on (drawX + 24 + offsetX, drawY - DrawY - 34). (drawX, drawY) = the object's draw location.
+ *  `k` scales the whole number (web: 1.5 in the touch layout, where the screen is drawn at about half size). */
+export function drawDamageNumber(g: CanvasRenderingContext2D, d: DamageNumber, drawX: number, drawY: number, k = 1): void {
   const text = damageText(d);
   if (!text || d.opacity <= 0) return;
   g.save();
@@ -136,7 +137,7 @@ export function drawDamageNumber(g: CanvasRenderingContext2D, d: DamageNumber, d
   const m = g.measureText(text);
   const w = Math.ceil(m.width) + 6;
   const h = Math.ceil(m.fontBoundingBoxAscent + m.fontBoundingBoxDescent) + 6;
-  const s = d.drawScale;
+  const s = d.drawScale * k;
   const x = drawX + 24 + Math.trunc(d.drawOffsetX) - Math.trunc((w * s) / 2);
   const y = drawY - d.drawY - 34 - Math.trunc((h * s) / 2);
   g.globalAlpha = d.opacity;

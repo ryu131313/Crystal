@@ -108,6 +108,13 @@ const CSS = `
 .hudm .hpop .b span { position: relative; }
 .hudm .hpop .cd { position: absolute; left: 0; bottom: 0; height: 2px; width: 100%; transform-origin: 0 50%; background: var(--kc); }
 .hudm .hpop .more { position: absolute; right: 12px; top: 10px; font-size: 10px; color: var(--dim); }
+/* choose (action list) */
+.hudm .hpop.choose .tx:empty { display: none; }
+.hudm .hpop .acts { display: flex; flex-direction: column; gap: 8px; padding: 12px 18px 16px; }
+.hudm .hpop .acts .b { height: 44px; font-size: 15px; }
+.hudm.mobile .hpop .bt .b { height: 46px; min-width: 110px; font-size: 15px; }
+.hudm.mobile .hpop input.in { height: 46px; font-size: 16px; }
+.hudm.mobile .hpop .amt .pm { width: 50px; height: 50px; }
 /* input */
 .hudm .hpop .fldw { position: relative; }
 .hudm .hpop input.in { width: 100%; height: 34px; padding: 0 44px 0 12px; border-radius: var(--rad); font: inherit; font-size: 13px; color: #fff; outline: none;
@@ -335,6 +342,30 @@ export class Popups {
     const q = p.then((r) => r?.answer === "yes" || r?.answer === "ok") as PopupPromise<boolean>;
     q.close = p.close;
     return q;
+  }
+
+  /** An action list (the touch layout's long-press item sheet): one big button per choice and Cancel. Resolves with the
+   *  chosen value, or null when cancelled. `head` is shown above the buttons (an item card). */
+  choose<T>(o: { title: string; text?: string; head?: Node; choices: readonly { label: string; value: T; main?: boolean }[] }): PopupPromise<T | null> {
+    return this.push<T | null>(null, (done) => {
+      const { box } = this.shell("question", o.title, o.text ?? "");
+      box.classList.add("choose");
+      const list = h("div", "acts");
+      for (const c of o.choices) {
+        const b = asButton(h("div", "b" + (c.main ? " main" : ""), h("span", "", c.label)));
+        b.addEventListener("click", () => done(c.value));
+        list.append(b);
+      }
+      const no = asButton(h("div", "b", h("span", "", "Cancel")));
+      no.addEventListener("click", () => done(null));
+      list.append(no);
+      if (o.head) box.append(h("div", "body", o.head));
+      box.append(list);
+      return box;
+    }, () => (e) => {
+      if (e.key === "Escape") { this.current?.done?.(null); return true; }
+      return false;
+    });
   }
 
   /** MirInputBox. Resolves with the text (trimmed), or null when cancelled. */

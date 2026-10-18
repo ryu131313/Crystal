@@ -436,6 +436,33 @@ export function routeUse(d: RouteDeps, r: CellRef): Verdict {
   return NONE;
 }
 
+/** Right-click quick move (web-only): a bag item goes to the open guild storage page or NPC storage, a storage item goes
+ *  back to the bag. Picks the target cell (a stack with room, else the first free cell) and runs the drag route, so the
+ *  rank rights and refusals are the same as a drop. `open(grid)`: whether that grid's cells are on screen. null = no
+ *  quick move here (the caller falls back to routeUse). */
+export function routeQuickMove(d: RouteDeps, r: CellRef, open: (grid: Grid) => boolean): Verdict | null {
+  const inv = d.models.inventory, item = itemAt(d, r);
+  if (!item) return null;
+  // A stack with room first (not for the guild: its routes never stack), else the first free cell.
+  const target = (list: readonly (UserItem | null)[], from: number, stack: boolean): number => {
+    if (stack) for (let i = from; i < list.length; i++) if (canStack(d, item, list[i] ?? null)) return i;
+    return firstFree(list, from);
+  };
+  const go = (grid: Grid, list: readonly (UserItem | null)[], from: number, stack: boolean, full: string): Verdict => {
+    const t = target(list, from, stack);
+    return t < 0 ? no(full) : routeDrop(d, r, { grid, index: t });
+  };
+  switch (r.grid) {
+    case "inv":
+      if (open("guild")) return go("guild", inv.guildStorage, 0, false, "The guild storage is full");
+      if (open("npcStorage")) return go("npcStorage", inv.storage, 0, true, "Storage is full");
+      return null;
+    case "guild": return go("inv", inv.inventory, BELT_IDX, false, "Your bag is full");
+    case "npcStorage": return go("inv", inv.inventory, BELT_IDX, true, "Your bag is full");
+  }
+  return null;
+}
+
 /** MirItemCell Shift+left: split a stack in the bag or NPC storage (C.SplitItem has no target: the server places the
  *  new stack in a free cell). The verdict's run is not used: the caller asks the amount and calls `split`. */
 export function routeSplit(d: RouteDeps, r: CellRef): Verdict {

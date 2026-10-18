@@ -12,6 +12,9 @@ export type SessionState = "connecting" | "open" | "closed";
 export class Session {
   private ws: WebSocket;
   private lastSend = 0;
+  /** When the last frame arrived (probe). */
+  private lastRecv = performance.now();
+  private probeTimer = 0;
   private keepAliveTimer: number;
   state: SessionState = "connecting";
   onPacket: (p: ServerPacket) => void = () => {};
@@ -54,11 +57,34 @@ export class Session {
     this.ws.close(1000, "bye");
   }
 
+  /** Web-only: checks a connection that may have died while the page slept (a phone in the background): a C.KeepAlive,
+   *  and no frame back within `ms` ends the session now (onClose) instead of waiting for TCP to notice. */
+  probe(ms = 6000): void {
+    if (this.state !== "open" || this.probeTimer) return;
+    const sent = performance.now();
+    this.send(ClientPackets.KeepAlive(this.now()));
+    this.probeTimer = window.setTimeout(() => {
+      this.probeTimer = 0;
+      if (this.state === "open" && this.lastRecv < sent) this.abandon("no reply after the page was in the background");
+    }, ms);
+  }
+
+  /** Ends the session without waiting for the close handshake (the socket may be dead). */
+  private abandon(reason: string): void {
+    this.state = "closed";
+    clearInterval(this.keepAliveTimer);
+    this.ws.onclose = null;
+    this.ws.onmessage = null;
+    try { this.ws.close(4000, "abandoned"); } catch { /* already closing */ }
+    this.onClose(reason);
+  }
+
   /** Frames that arrived while a compressed packet was inflating: delivered after it, in order. */
   private readonly backlog: Uint8Array[] = [];
   private inflating = false;
 
   private receive(frame: Uint8Array): void {
+    this.lastRecv = performance.now();
     if (this.inflating) { this.backlog.push(frame); return; }
     if (isCompressedFrame(frame)) {
       this.inflating = true;

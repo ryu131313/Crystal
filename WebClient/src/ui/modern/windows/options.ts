@@ -92,7 +92,7 @@ interface Base {
 }
 type Def = Base & (
   | { kind: "toggle"; get(): boolean; set(v: boolean): void; def?: boolean }
-  | { kind: "slider"; min: number; max: number; step: number; unit: string; get(): number; set(v: number): void; def?: number }
+  | { kind: "slider"; min: number; max: number; step: number; unit: string; get(): number; set(v: number): void; def?: number; deferred?: boolean }
   | { kind: "select"; options: readonly Choice<string>[]; get(): string; set(v: string): void; def?: string }
   | { kind: "seg"; options: readonly Choice<string>[]; get(): string; set(v: string): void; def?: string }
   | { kind: "colour"; get(): string; set(v: string): void }
@@ -140,8 +140,9 @@ const CSS = `
 .hudm .owin .ctl select.fld { min-width: 190px; cursor: pointer; }
 .hudm .owin input.orng { -webkit-appearance: none; appearance: none; width: 200px; height: 4px; border-radius: 2px; outline: none; cursor: pointer; pointer-events: auto;
   background: linear-gradient(90deg, var(--ac) 0 var(--p, 50%), color-mix(in srgb, var(--fr) 70%, #000) var(--p, 50%) 100%); }
-.hudm .owin input.orng::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 2px solid var(--ac); }
-.hudm .owin input.orng::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: #fff; border: 2px solid var(--ac); }
+.hudm .owin input.orng::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 2px solid var(--ac); cursor: pointer; }
+.hudm .owin input.orng::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: #fff; border: 2px solid var(--ac); cursor: pointer; }
+.hudm .owin input.orng:disabled, .hudm .owin input.orng:disabled::-webkit-slider-thumb { cursor: not-allowed; }
 .hudm .owin input.orng:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 6px var(--glow); }
 .hudm .owin .val { width: 48px; text-align: right; font-size: 12px; font-weight: 600; color: var(--tx); font-variant-numeric: tabular-nums; }
 .hudm .owin input.oclr { width: 46px; height: 24px; padding: 1px 2px; cursor: pointer; pointer-events: auto; border: 1px solid var(--fr); border-radius: calc(var(--rad) * .8); background: var(--field); }
@@ -373,11 +374,15 @@ export class OptionsWindow extends UiWindow {
           setStyle(r, "--p", (((n - d.min) / (d.max - d.min)) * 100).toFixed(1) + "%");
         };
         const apply = rafCoalesce((n: number) => { d.set(n); changed(); }, this.signal);
-        r.addEventListener("input", () => { const n = Number(r.value); show(n); apply(n); });
+        // A deferred slider (HUD scale) rescales this window, which moves the slider under the pointer and feeds the
+        // drag back into itself: show the number while dragging, apply on release (change also fires for keys).
+        let held = false;
+        r.addEventListener("input", () => { const n = Number(r.value); show(n); if (d.deferred) held = true; else apply(n); });
+        if (d.deferred) r.addEventListener("change", () => { held = false; d.set(Number(r.value)); changed(); });
         ctl.append(r, val);
         sync = () => {
           const v = d.get();
-          if (Number(r.value) !== v) r.value = String(v);
+          if (!held && Number(r.value) !== v) r.value = String(v);
           show(Number(r.value));
           const w = why();
           if (w !== lastWhy) { lastWhy = w; r.disabled = w !== ""; r.title = w; }
@@ -558,8 +563,26 @@ export class OptionsWindow extends UiWindow {
       { id: "UiStyle", cat: "Interface", group: "Interface style", label: "Classic interface", kind: "toggle",
         desc: "Switch back to the desktop-look interface. Applies at your next log-in.",
         get: () => uiStyle() === "Classic", set: (v) => this.setClassic(v) },
-      { id: "UiScale", cat: "Interface", group: "HUD", label: "HUD scale", kind: "slider", min: 50, max: 200, step: 5, unit: "%", def: 100,
-        desc: "Size of the HUD and windows (on top of auto scale).",
+      { id: "MobileUi", cat: "Interface", group: "Interface style", label: "Touch controls", kind: "seg",
+        desc: "The phone layout: joystick, big buttons and full-screen windows. Auto turns it on for touch screens. Applies at your next log-in.",
+        options: [{ value: "Auto", label: "Auto" }, { value: "On", label: "On" }, { value: "Off", label: "Off" }], def: DEFAULT_SETTINGS.MobileUi,
+        get: () => gameSettings.MobileUi,
+        set: (v) => { if (v === "Auto" || v === "On" || v === "Off") setSetting("MobileUi", v); } },
+      bool("Interface", "Interface style", "MobileLeftHanded", "Left-handed touch controls", "Joystick on the right, Attack and skills on the left (touch layout)."),
+      bool("Interface", "Interface style", "MobileHaptics", "Vibration", "Vibrate on hits, low HP, level ups and skills that cannot cast (touch layout; Android)."),
+      bool("Interface", "Interface style", "MobileAutoLoot", "Auto-loot", "When idle, walk to and pick up items within 2 cells (touch layout)."),
+      { id: "MobileTextSize", cat: "Interface", group: "Interface style", label: "Touch text size", kind: "seg",
+        desc: "The size of the text on the touch buttons, bars and target frame (touch layout).",
+        options: [{ value: "Small", label: "Small" }, { value: "Normal", label: "Normal" }, { value: "Large", label: "Large" }], def: DEFAULT_SETTINGS.MobileTextSize,
+        get: () => gameSettings.MobileTextSize,
+        set: (v) => { if (v === "Small" || v === "Normal" || v === "Large") setSetting("MobileTextSize", v); } },
+      bool("Interface", "Interface style", "MobileBatterySaver", "Battery saver", "30 frames a second and no atmosphere effects (touch layout)."),
+      { id: "MobileReset", cat: "Interface", group: "Interface style", label: "Touch layout", kind: "action", text: "Reset buttons and zoom",
+        desc: "Put the touch buttons back where they started and zoom out. Hold Menu in game to move and resize them.",
+        run: () => { setSetting("MobileLayout", ""); setSetting("MobileZoom", 1); },
+        lock: () => (gameSettings.MobileLayout || gameSettings.MobileZoom !== 1 ? "" : "Nothing changed") },
+      { id: "UiScale", cat: "Interface", group: "HUD", label: "HUD scale", kind: "slider", min: 50, max: 200, step: 5, unit: "%", def: 100, deferred: true,
+        desc: "Size of the HUD and windows (on top of auto scale). Applies when you let go of the slider.",
         get: () => Math.round(gameSettings.UiScale * 100), set: (v) => setSetting("UiScale", v / 100) },
       bool("Interface", "HUD", "UiAutoScale", "Auto scale", "Grow the HUD with the screen height (1 at 768 px)."),
       { id: "UiOpacity", cat: "Interface", group: "HUD", label: "HUD opacity", kind: "slider", min: 20, max: 100, step: 5, unit: "%", def: 100,
@@ -604,6 +627,13 @@ export class OptionsWindow extends UiWindow {
       bool("Gameplay", "Combat", "TargetDead", "Target dead monsters", "Allow clicking corpses, e.g. to harvest them (desktop: @TARGETDEAD)."),
       bool("Gameplay", "Movement", "NewMove", "New movement style", "The desktop's movement style option.",
         (v) => this.hint(v ? "[New Movement Style]" : "[Old Movement Style]")), // NewMovementStyle / OldMovementStyle
+      bool("Gameplay", "Auto potion", "AutoPot", "Auto potion", "Drink your best HP / MP potion from the bag or belt when you drop below the levels set here."),
+      { id: "AutoPotHP", cat: "Gameplay", group: "Auto potion", label: "HP below", kind: "slider", min: 0, max: 99, step: 1, unit: "%", def: DEFAULT_SETTINGS.AutoPotHP,
+        desc: "Drink an HP potion under this much health (0% = never).", lock: () => (gameSettings.AutoPot ? "" : "Auto potion is off"),
+        get: () => gameSettings.AutoPotHP, set: (v) => setSetting("AutoPotHP", v) },
+      { id: "AutoPotMP", cat: "Gameplay", group: "Auto potion", label: "MP below", kind: "slider", min: 0, max: 99, step: 1, unit: "%", def: DEFAULT_SETTINGS.AutoPotMP,
+        desc: "Drink an MP potion under this much mana (0% = never).", lock: () => (gameSettings.AutoPot ? "" : "Auto potion is off"),
+        get: () => gameSettings.AutoPotMP, set: (v) => setSetting("AutoPotMP", v) },
       // Audio
       { id: "volume", cat: "Audio", group: "Volume", label: "Sound", kind: "slider", min: 0, max: 100, step: 1, unit: "%", def: 70,
         desc: "Spells, hits, footsteps, monsters and the interface.", get: () => Math.round(ctx.sound.volume), set: (v) => { ctx.sound.volume = v; } },

@@ -35,7 +35,8 @@ import type { ServerPacket, UserItem } from "../../protocol/server.ts";
 import { Emitter } from "../../game/emitter.ts";
 import { KeybindOptions, matches, type KeybindOption } from "../../game/keybinds.ts";
 import { isTextTarget, type InputRouter } from "../../game/input.ts";
-import { gameSettings, onSettingChange, setSetting, type GameSettings } from "../../game/settings.ts";
+import { gameSettings, isMobileUi, onSettingChange, setSetting, type GameSettings } from "../../game/settings.ts";
+import { MobileUi } from "./mobile/mobileUi.ts";
 import { SoundList } from "../../game/audio.ts";
 import { correctSlot } from "../../game/heroItems.ts";
 import type { GameUi, GameUiContext, UiEvent, UiCommand, FramePoint } from "../gameUi.ts";
@@ -96,7 +97,7 @@ export function createModernUi(ctx: GameUiContext): GameUi {
   // — Runtime + services (order: drag before the HUD's belt cells, tooltip before the hover hook) —
   const rt = new UiRuntime({
     stage: ctx.stage, signal: ctx.signal, screen: ctx.screen,
-    scale: gameSettings.UiScale, autoScale: gameSettings.UiAutoScale, theme: themeSettings(gameSettings),
+    scale: gameSettings.UiScale, autoScale: gameSettings.UiAutoScale, theme: themeSettings(gameSettings), mobile: isMobileUi(),
   });
   const sig = rt.signal;
   const events = new Emitter<UiEvent>();
@@ -148,11 +149,14 @@ export function createModernUi(ctx: GameUiContext): GameUi {
   const party = new PartyFrames(rt, ctx);
   const heroFrame = new HeroFrame(rt, ctx);
   const tracker = new QuestTracker(rt, ctx);
+  // The touch layout (settings.ts isMobileUi): hides the rig, adds the touch surface and pad (mobile/mobileUi.ts)
+  const mobile = rt.mobile ? new MobileUi({ rt, ctx, hud, chat, mapClick: () => drag.mapClick(), openWindow: (k, show) => rt.toggleWindow(k, show) }) : null;
 
   drag.hooks = {
     onLink: (item, cell) => chat.linkItem(item, cell.grid in MIR_GRID ? MIR_GRID[cell.grid as keyof typeof MIR_GRID] ?? undefined : undefined),
     onSockets: () => { openWindow(SOCKET_KEY, true); }, // windows/socket.ts's watch hook replaces it (it also shows the item)
     onPickSound: (item) => ctx.sound.play(itemSound(m.itemInfos.get(item.ItemIndex)?.Type)),
+    itemCard: (item, cell) => { tooltip.hide(); return tooltip.pinnedCard(item, labelContext(), { compareWith: compareWith(cell, item) }); },
   };
 
   // — The window catalog (windowRegistry.ts) into this game's runtime —
@@ -386,7 +390,8 @@ export function createModernUi(ctx: GameUiContext): GameUi {
     for (const off of offs) off();
     for (const e of friendPrompts.values()) e.close();
     friendPrompts.clear();
-    for (const part of [chat, minimap, extras, party, heroFrame, tracker, hud]) {
+    for (const part of [mobile, chat, minimap, extras, party, heroFrame, tracker, hud]) {
+      if (!part) continue;
       try { part.dispose(); } catch (err) { console.error(err); }
     }
     rt.dispose(); // windows, popups, services (drag, item cells, tooltip), the UI scope, the ticker, the root
@@ -409,7 +414,7 @@ export function createModernUi(ctx: GameUiContext): GameUi {
     mapMouseDown,
     command,
     bindInput,
-    debug: { rt, hud, chat, minimap, extras, party, heroFrame, tracker, drag, cells, tooltip, windows: () => rt.windowKeys },
+    debug: { rt, hud, mobile, chat, minimap, extras, party, heroFrame, tracker, drag, cells, tooltip, windows: () => rt.windowKeys },
     dispose,
   };
 }

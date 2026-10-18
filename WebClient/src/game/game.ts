@@ -33,6 +33,7 @@ import { Doors } from "./doors.ts";
 import { setUiRoot, setScreenSize } from "../ui/mir/controls.ts";
 import { GameInfo } from "./gameInfo.ts";
 import { ItemChanges } from "./itemChanges.ts";
+import { AutoPot } from "./autoPot.ts";
 import { Hero } from "./hero.ts";
 import { Creatures } from "./creatures.ts";
 import { ChatLog } from "./chatLog.ts";
@@ -62,7 +63,7 @@ import { Shop } from "./shop.ts";
 import { Territories } from "./territories.ts";
 import { HeroItems } from "./heroItems.ts";
 import { Weather } from "./weather.ts";
-import { gameSettings } from "./settings.ts";
+import { gameSettings, isMobileUi, lowPower, setTouchActive } from "./settings.ts";
 import { monsterActionStart, setMonsterSpecialsWorld } from "./monsterSpecials.ts";
 import { applyGameDataChanged, type GameDataChanges } from "./gameData.ts";
 import { Quests, questIconImage } from "./quests.ts";
@@ -73,13 +74,13 @@ import type { BaseStats, SelectInfo } from "../protocol/server.ts";
 import { findPath } from "./pathFinder.ts";
 import { monsterSound, playerSound, fishingFrame, intelligentCreaturePickupSound, type SoundWorld } from "./sounds.ts";
 import { canFish, canRideAttack, canCastNextMagic, canUseSpell, canHarvest, canRangeAttack, isFishingAction, isIdleAction, runDistance, transformTypeFromBuffs } from "./riding.ts";
-import { PoisonType, MirClass, BuffType, AttackMode, PetMode, EquipmentSlot } from "../protocol/enums.generated.ts";
+import { PoisonType, MirClass, BuffType, AttackMode, PetMode, EquipmentSlot, Stat } from "../protocol/enums.generated.ts";
 import { KeybindOptions, matches, matchesAny, matchesAnyBinding, type KeybindOption } from "./keybinds.ts";
 import { createInputRouter, type KeyHandler } from "./input.ts";
 import { Emitter } from "./emitter.ts";
 import { mapCells, rememberMap } from "./mapFiles.ts";
 import { drawDamageNumber, makeDamageNumber, processDamageList, MAX_DAMAGE_NUMBERS, type DamageNumber } from "./damageNumbers.ts";
-import type { GameUi, GameUiContext, GameUiFactory, PlayerState } from "../ui/gameUi.ts";
+import type { GameUi, GameUiContext, GameUiFactory, PlayerState, TouchControl, TouchHit } from "../ui/gameUi.ts";
 import { AMODE_TEXT, PMODE_TEXT } from "./modeText.ts";
 
 /** The first entry's loading stages (web-only; the modern loading overlay, src/ui/modern/screens/loading.ts, follows them).
@@ -139,6 +140,16 @@ function friendlyName(name: string, count: number): string {
 const argbCss = (c: number) => `rgb(${(c >> 16) & 255},${(c >> 8) & 255},${c & 255})`;
 
 /** `createUi`: the active UI's factory (src/ui/uiLoader.ts loadUiFactory: createClassicUi or createModernUi). */
+/** The touch layout's game size: 768 high and as wide as the phone's landscape aspect (no letterbox), 1024 to the server's
+ *  [Permission] MaxResolution width (Globals.DataRange covers 1920). */
+export function mobileResolution(serverWidth: number): [number, number] {
+  // the viewport can read 0 while a phone is still loading: fall back to the screen's size
+  const vw = window.innerWidth || screen.width, vh = window.innerHeight || screen.height;
+  const w = Math.max(vw, vh), hgt = Math.min(vw, vh) || 1;
+  const cap = Math.max(1024, Math.min(1920, serverWidth || 1024));
+  return [Math.max(1024, Math.min(cap, Math.round((768 * w) / hgt / 2) * 2)), 768];
+}
+
 export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvasElement, exits: GameExits, createUi: GameUiFactory): Game {
   const signal = gameSignal();
   // SelectScene StartGame: Settings.Resolution lowered to the server's [Permission] MaxResolution, then the desktop's
@@ -146,7 +157,8 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   // (the desktop defaults to 1024); localStorage "crystal.resolution" = 1024 / 1280 / 1366 picks another.
   const preferred = (() => { try { return Number(localStorage.getItem("crystal.resolution")) || 1920; } catch { return 1920; } })();
   const resolution = start.resolution < preferred ? start.resolution : preferred;
-  const [width, height] = resolution === 1920 ? [1920, 1080] : resolution === 1366 ? [1366, 768] : resolution === 1280 ? [1280, 800] : [1024, 768];
+  const [width, height] = isMobileUi() ? mobileResolution(start.resolution)
+    : resolution === 1920 ? [1920, 1080] : resolution === 1366 ? [1366, 768] : resolution === 1280 ? [1280, 800] : [1024, 768];
   canvas.width = width;
   canvas.height = height;
   const stage = document.getElementById("stage")!;
@@ -165,7 +177,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   /** MapControl.Weather particles (weather.ts), drawn by MapView after the objects. */
   const weather = new Weather();
   view.weather = weather;
-  view.atmosphere.playSound = (id) => sound.play(id); // web atmosphere: thunder
+  view.atmosphere.playSound = (id) => sound.play(id, false, 0, 0.5); // web atmosphere: thunder, at half volume (user, 2026-10-16)
   view.atmosphere.rainAudio = (level) => sound.setRain(level); // web atmosphere: procedural rain
   view.atmosphere.splashAudio = (level) => sound.splash(level); // web atmosphere: the user's footfalls in puddles
   // Effect.cs needs the clock, the user and the painter
@@ -210,6 +222,8 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   const hero = new Hero(() => performance.now(), (text) => chat(text, ChatType.Hint));
   /** Sockets / mount and fishing slots, seal, combine, upgrade, rental items (itemChanges.ts). */
   const itemChanges = new ItemChanges(inventory, (f) => session.send(f));
+  /** Web-only auto potion (Options > Gameplay). */
+  const autoPot = new AutoPot(inventory);
   let magicObjectId = 0; // MapObject.MagicObjectID
   const magic = new Magic({
     send: (f) => session.send(f),
@@ -327,7 +341,253 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     get stats() { return userStats; }, get baseStats() { return baseStats; }, get aMode() { return aMode; }, get pMode() { return pMode; },
     get buffs() { return userBuffs; }, get guildBuffStats() { return guildBuffStats; },
   };
+  // — Touch (src/ui/modern/mobile): typed input instead of synthetic mouse / key events, read by checkInput —
+  /** The joystick's 8-way direction (-1 = released) and whether it is pushed far enough to run. */
+  let touchDir = -1, touchRun = false;
+  /** The held Attack button. */
+  let touchAttack = false;
+  /** Sticky auto-attack (TouchControl.autoAttack, double-tap Attack): checkInput fights like a held Attack until no
+   *  hostile is in range or the user moves. */
+  let touchAuto = false;
+  /** The suggested target (TouchControl.suggestedId: nearestHostile while there is no live target) and when it is
+   *  next refreshed (drawTouchMarkers, every 200 ms). */
+  let touchSuggest = 0, suggestAt = 0;
+  /** What press() changed, restored by cancelPress() (a second finger turned the press into a pinch). */
+  let pressKept = 0, pressLock = false, pressAuto = false;
+  /** An NPC under the map finger: talked to on release(tap), not on press (a pinch's first finger must not talk). */
+  let touchTalk: MapObj | null = null;
+  /** What the map finger pressed (press() -> release()). */
+  let touchHit: TouchHit = "ground";
+  /** A tapped ground item's cell: picked up once the walk there arrives (checkInput). */
+  let touchPickAt: WirePoint | null = null;
+  let touchItemAt: WirePoint | null = null;
+  /** The touch target lock (TouchControl.lockTarget). */
+  let touchLock = false;
+  /** A tapped ground cell being walked to (its marker shows until arrival); `at` = when it was set. */
+  let touchDest: { cell: WirePoint; at: number } | null = null;
+  /** The touch layout draws its world markers (drawOverlay). */
+  const touchMarkers = isMobileUi();
+  setTouchActive(touchMarkers);
+  /** A skill dragged off its slot: the aimed canvas pixel (drawTouchMarkers). */
+  let touchAim: { x: number; y: number } | null = null;
+  /** Auto-loot (Settings MobileAutoLoot): item ids already tried, with when they may be tried again. */
+  const lootTried = new Map<number, number>();
+  let lootAt = 0;
+  /** The camera zoom (TouchControl.zoom): the world canvases scale about `zoomAt` (the user's drawn centre). */
+  let zoom = 1;
+  let zoomAt = { x: width / 2, y: height / 2 };
+  const applyZoom = () => {
+    // the canvases fill the stage, which is laid out in game pixels: the origin is in game pixels too
+    for (const c of [canvas, overlay]) {
+      c.style.transformOrigin = zoom === 1 ? "" : `${zoomAt.x.toFixed(0)}px ${zoomAt.y.toFixed(0)}px`;
+      c.style.scale = zoom === 1 ? "" : zoom.toFixed(3);
+    }
+  };
+  /** A touch pixel (on the unscaled surface) to the canvas pixel under it while zoomed. */
+  const unzoom = (x: number, y: number): [number, number] =>
+    (zoom === 1 ? [x, y] : [zoomAt.x + (x - zoomAt.x) / zoom, zoomAt.y + (y - zoomAt.y) / zoom]);
+  const touchCell = (x: number, y: number) => (user ? view.mapLocation(x, y, user) : null);
+  const touch: TouchControl = {
+    stick(dir, run) {
+      touchDir = dir < 0 ? -1 : dir & 7;
+      if (touchDir >= 0) { touchPickAt = null; touchDest = null; touchAuto = false; }
+      touchRun = touchDir >= 0 && run;
+      if (touchDir < 0) canRun = false; // the right button's mouse-up
+    },
+    press(x0, y0) {
+      const [x, y] = unzoom(x0, y0);
+      mouse = { x, y };
+      ui.blurChat();
+      if (!user) return "ground";
+      const mo = mouseObject();
+      const cell = touchCell(x, y)!;
+      touchPickAt = null; touchDest = null;
+      touchItemAt = mo && mo.race === ObjectType.Item ? { ...mo.location } : null;
+      touchHit = mo && mo.race === ObjectType.Merchant ? "npc" : mo && mo.race === ObjectType.Monster && !mo.dead ? "monster"
+        : mo && mo.race === ObjectType.Player && mo !== user ? "player" : touchItemAt ? "item"
+        : cell.X === user.location.X && cell.Y === user.location.Y ? "self" : "ground";
+      const kept = attackTargetId;
+      pressKept = kept; pressLock = touchLock; pressAuto = touchAuto; touchTalk = null;
+      if (leftPress(false)) { if (mo && mo.race === ObjectType.Merchant) touchTalk = mo; return touchHit; }
+      // a locked target survives taps on the ground / items / the user's cell
+      if (touchLock && kept && (touchHit === "ground" || touchHit === "item" || touchHit === "self")) attackTargetId = kept;
+      if (attackTargetId !== kept) touchLock = false;
+      if (touchHit === "ground" || touchHit === "item" || touchHit === "self") touchAuto = false; // a walk ends auto-attack
+      autoPath = null;
+      buttons = touchHit === "ground" || touchHit === "item" ? 1 : 0; // the ground is a held walk; a target is chased by checkInput
+      shift = false;
+      return touchHit;
+    },
+    move(x0, y0) {
+      const [x, y] = unzoom(x0, y0);
+      mouse = { x, y };
+      if (!user || !buttons) return;
+      const c = touchCell(x, y)!;
+      // a finger far from the user runs (the desktop's right button), near it walks
+      buttons = Math.max(Math.abs(c.X - user.location.X), Math.abs(c.Y - user.location.Y)) > 3 ? 2 : 1;
+    },
+    release(tap) {
+      const was = buttons;
+      buttons = 0; canRun = false;
+      const talk = touchTalk;
+      touchTalk = null;
+      if (talk) { if (tap && user) ui.command({ kind: "talk", objectId: talk.id, name: talk.name }); return; }
+      if (!tap || !user || !was && touchHit !== "self") return;
+      if (touchHit === "self") { pickUp(); return; }
+      if (touchHit === "item" && touchItemAt) {
+        if (touchItemAt.X === user.location.X && touchItemAt.Y === user.location.Y) { pickUp(); return; }
+        touchPickAt = touchItemAt;
+        ctx.world.walkTo(touchItemAt);
+        return;
+      }
+      // a tap on the ground walks there (the big map's walk-to path)
+      const cell = touchCell(mouse.x, mouse.y);
+      if (cell) { ctx.world.walkTo(cell); if (autoPath) touchDest = { cell, at: now() }; }
+    },
+    cancelPress() {
+      attackTargetId = pressKept; touchLock = pressLock; touchAuto = pressAuto;
+      buttons = 0; canRun = false;
+      touchPickAt = null; touchDest = null; touchTalk = null;
+    },
+    setAttackHeld(on) {
+      touchAttack = on;
+      if (on && user) {
+        const cur = objects.get(attackTargetId);
+        // a locked live target (a player too) is kept
+        if (!(touchLock && cur && !cur.dead) && (!cur || cur.dead || cur.race !== ObjectType.Monster)) attackTargetId = nearestHostile(user);
+      }
+    },
+    cast(key) {
+      const u = user;
+      if (!u || u.dead || key < 1 || key > 24) return;
+      // heal / buff spells: a friendly target (a player, a pet "Name(Owner)") or the caster (magic.ts falls back to the
+      // user on null); the friendly area spells centre on the caster. Never the nearest hostile.
+      const kind = magic.targetKind(key);
+      if (kind !== "enemy") {
+        const t0 = objects.get(attackTargetId);
+        const friend = kind === "friend" && t0 && !t0.dead && (t0.race === ObjectType.Player || t0.name.endsWith(")")) ? t0 : null;
+        const at = friend ? friend.location : u.location;
+        const fdir = friend ? directionFromPoint(u.location, friend.location) : u.direction;
+        if (key > 16) magic.useHeroSpell(key, at, friend, fdir);
+        else if (canUseSpell(u)) magic.useSpell(key, at, friend, fdir);
+        return;
+      }
+      let tgt = objects.get(attackTargetId);
+      if (!tgt || tgt.dead) { attackTargetId = nearestHostile(u); tgt = objects.get(attackTargetId); }
+      const live = tgt && !tgt.dead ? tgt : null;
+      const loc = live ? live.location : pointMove(u.location, u.direction, 3);
+      const dir = live ? directionFromPoint(u.location, live.location) : u.direction;
+      if (key > 16) magic.useHeroSpell(key, loc, live, dir);
+      else if (canUseSpell(u)) magic.useSpell(key, loc, live, dir);
+    },
+    clearTarget() { attackTargetId = 0; touchLock = false; touchAuto = false; },
+    lockTarget(on) {
+      const t0 = objects.get(attackTargetId);
+      touchLock = (on ?? !touchLock) && !!t0 && !t0.dead;
+      return touchLock;
+    },
+    get locked() { return touchLock; },
+    get targetId() { return attackTargetId; },
+    aim(x: number | null, y?: number) {
+      if (x === null) { touchAim = null; return; }
+      const [ax, ay] = unzoom(x, y ?? 0);
+      touchAim = { x: ax, y: ay };
+    },
+    castAt(key, x0, y0) {
+      touchAim = null;
+      const u = user;
+      if (!u || u.dead || key < 1 || key > 24) return;
+      const [x, y] = unzoom(x0, y0);
+      mouse = { x, y };
+      // GameScene.UseSpell with the mouse there: MapObject.MouseObject (a live monster / player) and the mouse cell
+      const mo = mouseObject();
+      const live = mo && !mo.dead && (mo.race === ObjectType.Monster || (mo.race === ObjectType.Player && mo !== u)) ? mo : null;
+      const loc = live ? live.location : view.mapLocation(x, y, u);
+      if (live && live.race === ObjectType.Monster && !touchLock) attackTargetId = live.id;
+      const dir = directionFromPoint(u.location, loc);
+      if (key > 16) magic.useHeroSpell(key, loc, live, dir);
+      else if (canUseSpell(u)) magic.useSpell(key, loc, live, dir);
+    },
+    cycleTarget(stepBy) {
+      const u = user;
+      if (!u) return false;
+      const list: { id: number; d: number }[] = [];
+      for (const ob of objects.values()) {
+        if (!isAutoTarget(ob)) continue;
+        const dx = ob.location.X - u.location.X, dy = ob.location.Y - u.location.Y;
+        const cheb = Math.max(Math.abs(dx), Math.abs(dy));
+        if (cheb <= MAX_ATTACK_RANGE) list.push({ id: ob.id, d: cheb * 1000 + dx * dx + dy * dy });
+      }
+      if (!list.length) return false;
+      list.sort((a, b) => a.d - b.d || a.id - b.id);
+      const at = list.findIndex((e) => e.id === attackTargetId);
+      const next = at < 0 ? (stepBy > 0 ? 0 : list.length - 1) : (at + stepBy + list.length) % list.length;
+      attackTargetId = list[next]!.id;
+      touchLock = false;
+      return true;
+    },
+    get context() {
+      const u = user;
+      if (!u) return null;
+      let npc = false;
+      for (const ob of objects.values()) {
+        if (ob.race === ObjectType.Item && ob.location.X === u.location.X && ob.location.Y === u.location.Y) return "pick";
+        if (ob.race === ObjectType.Merchant && Math.max(Math.abs(ob.location.X - u.location.X), Math.abs(ob.location.Y - u.location.Y)) <= 4) npc = true;
+      }
+      return npc ? "talk" : null;
+    },
+    runContext() {
+      const u = user;
+      const c = touch.context;
+      if (!u || !c) { pickUp(); return; }
+      if (c === "pick") { pickUp(); return; }
+      // MapControl.OnMouseClick on an NPC: the nearest one in range
+      let best: MapObj | null = null, bestD = Infinity;
+      for (const ob of objects.values()) {
+        if (ob.race !== ObjectType.Merchant) continue;
+        const d = Math.max(Math.abs(ob.location.X - u.location.X), Math.abs(ob.location.Y - u.location.Y));
+        if (d <= 4 && d < bestD) { best = ob; bestD = d; }
+      }
+      if (best) ui.command({ kind: "talk", objectId: best.id, name: best.name });
+    },
+    get zoom() { return zoom; },
+    set zoom(z) {
+      const nz = Math.round(Math.min(1.6, Math.max(1, z)) * 100) / 100;
+      if (nz === zoom) return;
+      zoom = nz;
+      if (user) { const p = view.drawLocation(user, user); zoomAt = { x: p.x + CELL_W / 2, y: p.y - CELL_H }; }
+      applyZoom();
+    },
+    get autoAttack() { return touchAuto; },
+    set autoAttack(on) {
+      touchAuto = on && !!user && !user.dead;
+      if (!touchAuto || !user) return;
+      const cur = objects.get(attackTargetId);
+      if (!(touchLock && cur && !cur.dead) && (!cur || cur.dead || cur.race !== ObjectType.Monster)) attackTargetId = nearestHostile(user);
+      if (!attackTargetId) touchAuto = false; // nothing to fight
+    },
+    get suggestedId() { return touchSuggest; },
+  };
+  /** Never auto-targeted (MonsterObject.GetMonster): Guard 6 / 58, Trainer 56, TownArcher 57, ConquestArcher 80. */
+  const NO_AUTO_TARGET = new Set([6, 56, 57, 58, 80]);
+  /** A live monster worth hitting: not a pet "Name(Owner)", not AI 64 / 70, not a guard. */
+  const isAutoTarget = (ob: MapObj) =>
+    ob.race === ObjectType.Monster && !ob.dead && ob.ai !== 64 && ob.ai !== 70 && !NO_AUTO_TARGET.has(ob.ai) && !ob.name.endsWith(")");
+  /** The nearest isAutoTarget monster within MaxAttackRange; 0 = none. */
+  function nearestHostile(u: MapObj): number {
+    let best = 0, bestCheb = Infinity, bestEuc = Infinity;
+    for (const ob of objects.values()) {
+      if (!isAutoTarget(ob)) continue;
+      const dx = ob.location.X - u.location.X, dy = ob.location.Y - u.location.Y;
+      const cheb = Math.max(Math.abs(dx), Math.abs(dy)), euc = dx * dx + dy * dy;
+      if (cheb > MAX_ATTACK_RANGE || cheb > bestCheb || (cheb === bestCheb && euc >= bestEuc)) continue;
+      best = ob.id; bestCheb = cheb; bestEuc = euc;
+    }
+    return best;
+  }
+
   const ctx: GameUiContext = {
+    touch,
     stage, screen, signal, send: (f) => session.send(f), now: () => performance.now(), sound, session,
     models: {
       itemInfos, gameInfo, inventory, hero, heroItems, itemChanges, magic, quests, creatures, chatLog, hudState, account, currentMap,
@@ -421,7 +681,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   };
   spellHooks.start = (ob) => spellStart(ob, spellWorld);
   spellHooks.complete = (ob) => spellComplete(ob, spellWorld);
-  const soundWorld: SoundWorld = { play: (id, loop, delay) => sound.play(id, loop, delay), stop: (id) => sound.stop(id), user: () => user, map: () => map };
+  const soundWorld: SoundWorld = { play: (id, loop, delay, gain) => sound.play(id, loop, delay, gain), stop: (id) => sound.stop(id), user: () => user, map: () => map };
   setMonsterSpecialsWorld(spellWorld, soundWorld); // MonsterObject.SetAction / ProcessFrames per-monster specials (monsterSpecials.ts)
   // Action-start sounds (MonsterObject / PlayerObject.SetAction) and shield refresh
   spellHooks.action = (ob) => {
@@ -611,6 +871,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   function handle(p: ServerPacket): void {
     if (serverRules(session).handle(p)) return; // S.ServerRules on StartGame success (session-scoped store; no window reads it)
     if (hero.handle(p) && p.type === "HeroLevelChanged") play(SoundList.LevelUp); // GameScene.HeroLevelChanged
+    autoPot.handle(p, now(), level); // before inventory.handle: reads the used potion
     if (inventory.handle(p)) { refreshUserLooks(); statsDirty = true; }
     if (itemChanges.handle(p)) { refreshUserLooks(); statsDirty = true; } // after inventory.handle (DeleteItem, bait MergeItem)
     if (heroItems.handle(p)) { refreshUserLooks(); statsDirty = true; heroStats.invalidate(); } // TakeBack / Transfer change the user's bag too
@@ -1088,20 +1349,21 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     }
     // A picked item or gold: a click on the map drops it (GameScene: SelectedCell / PickedUpGold + map click; the UI's)
     if (ui.mapMouseDown(e)) return;
-    // MapControl.OnMouseDown (left): MapObject.TargetObject = the live mouse object, unless an item, an NPC or a
-    // monster with AI 64 / 70; anything else clears it. CheckInput melees it whenever it is adjacent.
-    if (e.button === 0 && user) {
-      const mo = mouseObject();
-      attackTargetId = mo && !mo.dead && mo.race !== ObjectType.Item && mo.race !== ObjectType.Merchant
-        && !(mo.race === ObjectType.Monster && (mo.ai === 64 || mo.ai === 70)) ? mo.id : 0;
-    }
-    // Left-click on an NPC talks to it (MapControl.OnMouseClick -> C.CallNPC "[@Main]")
-    if (e.button === 0 && user) {
-      const target = mouseObject();
-      if (target && target.race === ObjectType.Merchant) { ui.command({ kind: "talk", objectId: target.id, name: target.name }); return; }
-    }
+    if (e.button === 0 && leftPress()) return;
     buttons = e.buttons; shift = e.shiftKey;
   }, { signal });
+  /** A left press at `mouse` (mouse-down or a touch): MapControl.OnMouseDown (left) sets MapObject.TargetObject to the
+   *  live mouse object, unless an item, an NPC or a monster with AI 64 / 70 (anything else clears it; CheckInput melees
+   *  it whenever it is adjacent); an NPC is talked to (MapControl.OnMouseClick -> C.CallNPC "[@Main]"). True = talked. */
+  function leftPress(talk = true): boolean {
+    if (!user) return false;
+    const mo = mouseObject();
+    attackTargetId = mo && !mo.dead && mo.race !== ObjectType.Item && mo.race !== ObjectType.Merchant
+      && !(mo.race === ObjectType.Monster && (mo.ai === 64 || mo.ai === 70)) ? mo.id : 0;
+    // `talk` false (touch press): the caller talks on release instead
+    if (mo && mo.race === ObjectType.Merchant) { if (talk) ui.command({ kind: "talk", objectId: mo.id, name: mo.name }); return true; }
+    return false;
+  }
   window.addEventListener("mouseup", (e) => { buttons = e.buttons; if (!(buttons & 2)) canRun = false; }, { signal });
   canvas.addEventListener("mousemove", (e) => { mouse = toCanvas(e); buttons = e.buttons; shift = e.shiftKey; }, { signal });
   // One key router for the scene (input.ts), created here, after the UI's windows added their own listeners. The UI's
@@ -1260,13 +1522,64 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     const shoot = (direction: number, targetId: number, point: WirePoint) =>
       u.queue(A.AttackRange1, direction, u.location, { spell: Spell.None, targetId, targetPoint: { ...point }, cast: false, level: 0, secondaryTargetIds: [] });
 
+    if (touchPickAt && u.location.X === touchPickAt.X && u.location.Y === touchPickAt.Y) { touchPickAt = null; pickUp(); }
+    if (touchDest && ((u.location.X === touchDest.cell.X && u.location.Y === touchDest.cell.Y) || (!autoPath && t - touchDest.at > 1500))) touchDest = null;
+    if (touchLock) { const lt = objects.get(attackTargetId); if (!lt || lt.dead) touchLock = false; }
+    // Touch (TouchControl): the joystick moves (walk, then run once CanRun, like a held right button), and wins over a
+    // target chase; the held Attack button keeps a live hostile targeted (the nearest when there is none), else swings in place.
+    // Auto-attack (touchAuto) does the same without the finger, and ends instead of swinging at nothing.
+    if (touchDir >= 0) {
+      autoPath = null;
+      if (touchRun && !u.inTrapRock && tryRun(u, touchDir)) return;
+      const wd = canWalkDir(u, touchDir);
+      if (wd >= 0 && doorOk(pointMove(u.location, wd, 1))) { u.queue(A.Walking, wd, pointMove(u.location, wd, 1)); return; }
+      if (touchDir !== u.direction) u.queue(A.Standing, touchDir, u.location);
+      return;
+    }
+    // Touch auto-loot (web-only, Settings MobileAutoLoot): idle with no fight going, walk to the nearest item within 2
+    // cells and pick it up (touchPickAt). Each item is tried once per 15 s (another player's drop / a full bag fail server-side).
+    if (touchMarkers && gameSettings.MobileAutoLoot && !touchAttack && !touchAuto && !buttons && !autoPath && !touchPickAt && t >= lootAt) {
+      lootAt = t + 250;
+      const cur = objects.get(attackTargetId);
+      if (!cur || cur.dead || cur.race !== ObjectType.Monster) {
+        const bagRoom = inventory.inventory.some((it, i) => i >= BELT_IDX && !it);
+        let best: MapObj | null = null, bestD = Infinity;
+        for (const ob of objects.values()) {
+          if (ob.race !== ObjectType.Item || (lootTried.get(ob.id) ?? 0) > t) continue;
+          if (!bagRoom && !/^\d+ Gold$/.test(ob.name)) continue;
+          const d = Math.max(Math.abs(ob.location.X - u.location.X), Math.abs(ob.location.Y - u.location.Y));
+          if (d <= 2 && d < bestD) { best = ob; bestD = d; }
+        }
+        if (lootTried.size > 200) for (const [id, until] of lootTried) if (until <= t) lootTried.delete(id);
+        if (best) {
+          lootTried.set(best.id, t + 15000);
+          if (bestD === 0) pickUp();
+          else { touchPickAt = { ...best.location }; ctx.world.walkTo(best.location); }
+          return;
+        }
+      }
+    }
+    if (touchAttack || touchAuto) {
+      const cur = objects.get(attackTargetId);
+      if (!(touchLock && cur && !cur.dead) && (!cur || cur.dead || cur.race !== ObjectType.Monster)) attackTargetId = nearestHostile(u);
+      if (!attackTargetId) {
+        if (!touchAttack) { touchAuto = false; return; } // auto-attack: nothing left in range
+        if (t > attackTime && rideAttack && !dazed) {
+          if (archerBow) shoot(u.direction, 0, pointMove(u.location, u.direction, 9));
+          else u.queue(A.Attack1, u.direction, u.location);
+        }
+        return;
+      }
+    }
+
     // MapControl.CheckInput, TargetObject first (button held or not): a monster (not a pet, "Name(Owner)"), or a
     // pet / player with Shift, is shot by an Archer with a bow in range, else melee'd once adjacent.
     let tgt = objects.get(attackTargetId);
     if (tgt && tgt.race === ObjectType.Monster && tgt.ai === 64) { attackTargetId = 0; tgt = undefined; } // MapControl.Process
     if (tgt && !tgt.dead) {
       const pet = tgt.name.endsWith(")");
-      if (((pet || tgt.race === ObjectType.Player) && shiftHeld) || (!pet && tgt.race === ObjectType.Monster)) {
+      // touch: a locked pet / player is fought while Attack is held or auto-attack runs (no Shift key on a phone)
+      if (((pet || tgt.race === ObjectType.Player) && (shiftHeld || ((touchAttack || touchAuto) && touchLock))) || (!pet && tgt.race === ObjectType.Monster)) {
         logTime = t + LOG_DELAY; // MapControl.CheckInput: GameScene.LogTime = CMain.Time + Globals.LogDelay
         if (archerBow) {
           if (!inRange(tgt)) tooFar();
@@ -1350,6 +1663,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   function drawOverlay(t: number): void {
     g2.clearRect(0, 0, width, height);
     if (!user) return;
+    if (touchMarkers) drawTouchMarkers(t, user);
     g2.font = "12px 'Segoe UI', sans-serif";
     g2.textAlign = "center";
     g2.lineWidth = 3;
@@ -1411,8 +1725,12 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
       }
       // MapObject.DrawHealth: the bar at DisplayRectangle + (8, -64); past HealthTime only ShouldDrawHealth (own hero)
       if ((ob.healthExpire > t || (ob.ownerName !== "" && ob.ownerName === user.name)) && ob.healthPercent >= 0 && !ob.dead) {
-        g2.fillStyle = "#000"; g2.fillRect(x + 8, y - 64, 32, 4);
-        g2.fillStyle = ob.race === ObjectType.Monster ? "#e03030" : "#30c030"; g2.fillRect(x + 8, y - 64, (32 * ob.healthPercent) / 100, 4);
+        // the touch layout: 40 x 7 with a 1 px frame (readable at a phone's ~0.5 fit scale)
+        const [bx, by, bw, bh] = touchMarkers ? [x + 4, y - 66, 40, 7] : [x + 8, y - 64, 32, 4];
+        g2.fillStyle = "#000"; g2.fillRect(bx, by, bw, bh);
+        g2.fillStyle = ob.race === ObjectType.Monster ? "#e03030" : "#30c030";
+        if (touchMarkers) g2.fillRect(bx + 1, by + 1, ((bw - 2) * ob.healthPercent) / 100, bh - 2);
+        else g2.fillRect(bx, by, (bw * ob.healthPercent) / 100, bh);
       }
       // MapObject.DrawPoison: 4x4 dots on a 6x6 black square, 5 px apart, at DisplayRectangle + (7, -21)
       if (ob.poison && !ob.dead) {
@@ -1435,9 +1753,54 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
       if (!ob || list.length === 0) { damageNumbers.delete(id); critAt.delete(id); continue; }
       const { x, y } = view.drawLocation(ob, user);
       if (x < -200 || y < -200 || x > width + 200 || y > height + 200) continue;
-      for (const d of list) drawDamageNumber(g2, d, x, y);
+      for (const d of list) drawDamageNumber(g2, d, x, y, touchMarkers ? 1.5 : 1);
     }
     g2.textBaseline = "alphabetic";
+  }
+
+  /** The suggested target's ring dash (drawTouchMarkers). */
+  const SUGGEST_DASH = [6, 5];
+  /** The touch layout's world markers: the walk destination (accent), a tapped item (gold) and the target (red; gold
+   *  and doubled while locked), as pulsing ground ellipses on the overlay canvas; with no target, the suggested one
+   *  (touchSuggest) as a dim dashed ring. */
+  function drawTouchMarkers(t: number, u: MapObj): void {
+    const ring = (cx: number, cy: number, colour: string, pulse: number, double = false) => {
+      const k = 1 + 0.12 * Math.sin(t / 160 + pulse);
+      g2.save();
+      g2.strokeStyle = colour; g2.lineWidth = 3; g2.shadowColor = colour; g2.shadowBlur = 10; g2.globalAlpha = 0.9;
+      g2.beginPath(); g2.ellipse(cx, cy, 26 * k, 13 * k, 0, 0, Math.PI * 2); g2.stroke();
+      if (double) { g2.lineWidth = 2; g2.beginPath(); g2.ellipse(cx, cy, 34 * k, 17 * k, 0, 0, Math.PI * 2); g2.stroke(); }
+      g2.restore();
+    };
+    const cellCentre = (c: WirePoint) => ({
+      x: (c.X - u.movement.X + view.offSetX) * CELL_W + u.offsetMove.X + CELL_W / 2,
+      y: (c.Y - u.movement.Y + view.offSetY) * CELL_H + u.offsetMove.Y + CELL_H / 2,
+    });
+    if (touchDest) { const p = cellCentre(touchDest.cell); ring(p.x, p.y, "rgba(140,220,255,1)", 0); }
+    if (touchAim) { // a skill being aimed: the cell under the finger (or the body there), purple and doubled
+      const mo = view.mouseObject(touchAim.x, touchAim.y, u, objects.values(), false);
+      const p = mo && !mo.dead && mo.race !== ObjectType.Item ? (() => { const d = view.drawLocation(mo, u); return { x: d.x + CELL_W / 2, y: d.y + CELL_H / 2 }; })()
+        : cellCentre(view.mapLocation(touchAim.x, touchAim.y, u));
+      ring(p.x, p.y, "rgba(200,140,255,1)", 3, true);
+    }
+    if (touchPickAt) { const p = cellCentre(touchPickAt); ring(p.x, p.y, "rgba(242,207,91,1)", 1); }
+    const tgt = objects.get(attackTargetId);
+    if (u.dead) touchAuto = false;
+    if (tgt && !tgt.dead) {
+      touchSuggest = 0;
+      const { x, y } = view.drawLocation(tgt, u);
+      ring(x + CELL_W / 2, y + CELL_H / 2, touchLock ? "rgba(242,207,91,1)" : "rgba(255,80,64,1)", 2, touchLock);
+      return;
+    }
+    // no target: the hostile Attack / a skill tap would pick (the same nearestHostile), as a dim dashed ring
+    if (t >= suggestAt) { suggestAt = t + 200; touchSuggest = u.dead ? 0 : nearestHostile(u); }
+    const sug = touchSuggest ? objects.get(touchSuggest) : undefined;
+    if (!sug || sug.dead) return;
+    const { x, y } = view.drawLocation(sug, u);
+    g2.save();
+    g2.strokeStyle = "rgba(255,150,130,1)"; g2.lineWidth = 2; g2.globalAlpha = 0.55; g2.setLineDash(SUGGEST_DASH);
+    g2.beginPath(); g2.ellipse(x + CELL_W / 2, y + CELL_H / 2, 26, 13, 0, 0, Math.PI * 2); g2.stroke();
+    g2.restore();
   }
 
   let hoverId = -1;
@@ -1472,6 +1835,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     // MapControl: a pending magic (F-key) is cast once the user is idle
     if (user && magic.next && !user.dead && t >= nextAction && t >= inputDelay && isIdleAction(user.action) && user.feed.length === 0 && canCastNextMagic(user)) magic.useNext(user);
     if (statsDirty && user) recomputeStats();
+    if (user && userStats) autoPot.process(t, { hp, mp, maxHp: userStats.stats[Stat.HP] ?? 0, maxMp: userStats.stats[Stat.MP] ?? 0, level, dead: user.dead });
     ui.frame(t, "beforeInput"); // classic: HUD output lines / timers / compass, character window (+ bag weight)
     if (t - lastRunTime > 899) canRun = false; // PlayerObject.Process (User)
     checkInput(t);
@@ -1495,7 +1859,15 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     if (t - fpsAt >= 1000) { fps = frames; frames = 0; fpsAt = t; }
     ui.frame(t, "end"); // classic: MainDialog.Process (+ the mode labels and DuraStatusDialog under the minimap)
   }
-  const frame = () => { if (disposed) return; step(); rafId = requestAnimationFrame(frame); };
+  /** Battery saver (settings.ts lowPower, touch layout only): at most ~30 steps a second. */
+  let lastStep = 0;
+  const frame = (ts: number) => {
+    if (disposed) return;
+    rafId = requestAnimationFrame(frame);
+    if (lowPower() && ts - lastStep < 30) return;
+    lastStep = ts;
+    step();
+  };
   rafId = requestAnimationFrame(frame);
 
   /** GameScene.Dispose on LogOutSuccess / ReturnToLogin: stop the loop, drop listeners, music and the scene's DOM. */
@@ -1509,10 +1881,12 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     ui.dispose();
     gameInfo.dispose(); // queued C.RequestMapDetails timers
     renderer?.clear();
-    // GameScene.LogOutSuccess / ReturnToLogin: back to 1024 x 768 for the account screens
-    stage.style.width = "1024px";
-    stage.style.height = "768px";
-    setScreenSize(1024, 768);
+    zoom = 1; applyZoom(); // the canvas outlives the scene
+    // GameScene.LogOutSuccess / ReturnToLogin: back to 1024 x 768 for the account screens (the touch layout: as wide as the phone)
+    const [aw, ah] = isMobileUi() ? mobileResolution(1920) : [1024, 768];
+    stage.style.width = aw + "px";
+    stage.style.height = ah + "px";
+    setScreenSize(aw, ah);
   }
 
   // Debug object; classic src/ui/userRefs.ts reads `user` / `itemInfos` from it. The UI's windows keep their old keys.
@@ -1522,6 +1896,8 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     get fps() { return fps; }, get loading() { return loadingCount(); },
     /** Debug/test hook: hold a mouse button at a canvas pixel (buttons: 1 left, 2 right, 0 release). */
     mouse(x: number, y: number, b: number) { mouse = { x, y }; buttons = b; if (!(b & 2)) canRun = false; },
+    /** The touch seam (TouchControl) for console tests. */
+    touch,
   };
   return {
     handle, dispose, progress, info: gameInfo,

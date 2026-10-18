@@ -196,6 +196,54 @@ export interface GameUiContext {
   readonly player: PlayerState;
   readonly world: GameWorld;
   readonly actions: GameActions;
+  /** Touch input for the mobile layout (src/ui/modern/mobile); canvas pixels. */
+  readonly touch: TouchControl;
+}
+
+/** What a touch on the map landed on. */
+export type TouchHit = "monster" | "npc" | "player" | "item" | "self" | "ground";
+
+/** game.ts's touch seam: the mobile UI drives the same CheckInput rules as the mouse, without synthetic events. */
+export interface TouchControl {
+  /** The joystick: an 8-way direction (-1 = released) and run (pushed far). Wins over a target chase. */
+  stick(dir: number, run: boolean): void;
+  /** A map finger down at a canvas pixel: targets / talks like a left mouse-down; on the ground it holds a walk. */
+  press(x: number, y: number): TouchHit;
+  /** The map finger moved: far from the user it runs, near it walks. */
+  move(x: number, y: number): void;
+  /** The map finger lifted; `tap` = short and still (an NPC: talk, the ground: walk there, a ground item: walk there and pick it up,
+   *  the user's cell: pick up). */
+  release(tap: boolean): void;
+  /** The press became a pinch: undoes press() (the target / lock / auto-attack it changed, the held walk, a pending NPC
+   *  talk) without acting. */
+  cancelPress(): void;
+  /** The Attack button held: keep a live hostile targeted (the nearest), else swing in place. */
+  setAttackHeld(on: boolean): void;
+  /** Cast skill key 1-24 at the target (the nearest hostile when none), else ahead of the user. */
+  cast(key: number): void;
+  clearTarget(): void;
+  /** Locks the target (toggle when `on` is left out): ground / item taps keep it, until it dies. Returns the state. */
+  lockTarget(on?: boolean): boolean;
+  readonly locked: boolean;
+  /** The current target's object id (0 = none). */
+  readonly targetId: number;
+  /** A skill dragged off its slot: the aim ring at a canvas pixel (null = hidden). */
+  aim(x: number, y: number): void;
+  aim(off: null): void;
+  /** Cast skill key 1-24 at a canvas pixel: the live monster / player drawn there, else that cell. */
+  castAt(key: number, x: number, y: number): void;
+  /** Targets the next (+1) or previous (-1) live hostile by distance; false = none in range. */
+  cycleTarget(step: 1 | -1): boolean;
+  /** What the context button does now: pick up (an item on the user's cell), talk (an NPC within 4 cells), else null. */
+  readonly context: "pick" | "talk" | null;
+  runContext(): void;
+  /** The camera zoom (1-1.6): the world canvases scale about the user; touch pixels are mapped back. */
+  zoom: number;
+  /** Sticky auto-attack (double-tap Attack): fights the target / the nearest hostile like a held Attack until none is in
+   *  range, the joystick or a ground tap moves the user, or it is set false. */
+  autoAttack: boolean;
+  /** With no live target: the hostile Attack or a skill tap would pick (nearestHostile, refreshed every 200 ms); 0 = none. */
+  readonly suggestedId: number;
 }
 
 /** Notifications from the world (game.ts's big switch) that a UI may show. Leftovers until the models own the state. */

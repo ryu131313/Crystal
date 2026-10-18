@@ -12,7 +12,7 @@ import { pointMove, type MapObj } from "./objects.ts";
 import { Effect, Lib, Missile, TrackableEffect } from "./effects.ts";
 import { LibPath } from "./libraries.ts";
 import { createProjectile, type SpellWorld } from "./spellVisuals.ts";
-import { baseSound, monsterSound, type MonsterSound, type SoundWorld } from "./sounds.ts";
+import { baseSound, monsterSound, petWorld, type MonsterSound, type SoundWorld } from "./sounds.ts";
 
 /** The game seams the specials need: spellVisuals' SpellWorld (objects, map effects, user, clock) and sounds' SoundWorld. */
 let worlds: { w: SpellWorld; s: SoundWorld } | null = null;
@@ -43,7 +43,7 @@ function ctx(self: MapObj, w: SpellWorld, s: SoundWorld): Ctx {
   return {
     self, w, f: self.frameIndex, fc: self.frame?.count ?? 0, fi: self.frame?.interval ?? 0, now: w.now(), user: w.user(),
     front: pointMove(self.location, self.direction, 1), bs: baseSound(self),
-    snd: (id, loop = false, delay = 0) => s.play(id, loop, delay), ms: (k) => monsterSound(self, k, s),
+    snd: (id, loop = false, delay = 0) => petWorld(self, s).play(id, loop, delay), ms: (k) => monsterSound(self, k, s),
   };
 }
 

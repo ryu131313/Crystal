@@ -54,6 +54,19 @@ export class WindowManager {
 
   /** @internal UiWindow's constructor. */
   add(w: UiWindow): void { this.all.push(w); }
+  /** The touch layout (UiRuntime.mobile): windows dock as sheets (no drag, no saved positions). */
+  get mobile(): boolean { return this.layers.root.classList.contains("mobile"); }
+  /** @internal The touch layout's dock: a window opens on the right; next to another open right-docked window it takes
+   *  the left when both fit (the bag beside a merchant / storage), else it covers it. */
+  dockX(w: UiWindow, width: number): number {
+    const W = this.layers.layout.width;
+    for (const o of this.all) {
+      if (o === w || !o.open) continue;
+      const ow = parseFloat(o.el.dataset.dockW ?? "") || o.el.offsetWidth, ox = parseFloat(o.el.style.left) || 0;
+      if (Math.abs(ox + ow - W) < 2 && ow + width <= W) return 0;
+    }
+    return Math.max(0, W - width);
+  }
   /** @internal */
   savedPos(key: string): Pos | undefined {
     const p = this.saved[key];
@@ -292,6 +305,22 @@ export abstract class UiWindow {
 
   /** Applies x / y, clamped so at least KEEP px of the window, and its title, stay inside the layer. */
   protected place(): void {
+    if (this.wm.mobile) { // docked sheet: full height from the top, right (or left beside another window)
+      // A window bigger than the layer shrinks to fit (not below 70 %); what is still too tall scrolls.
+      const { width: W, height: H } = this.wm.layers.layout, st = this.el.style;
+      st.transform = ""; st.maxHeight = "none";
+      const w = this.el.offsetWidth || 300, nat = this.el.scrollHeight || 1;
+      const s = Math.max(0.7, Math.min(1, W / w, H / nat));
+      st.transformOrigin = "0 0";
+      st.transform = s < 1 ? `scale(${s.toFixed(3)})` : "";
+      st.maxHeight = (H / s).toFixed(0) + "px";
+      this.el.dataset.dockW = String(w * s);
+      this.x = this.wm.dockX(this, w * s);
+      this.y = 0;
+      this.el.style.left = this.x + "px";
+      this.el.style.top = "0px";
+      return;
+    }
     if (this.x !== null) {
       const { width: W, height: H } = this.wm.layers.layout, w = this.el.offsetWidth || 300;
       this.x = Math.min(Math.max(this.x, KEEP - w), W - KEEP);
@@ -319,6 +348,7 @@ export abstract class UiWindow {
       close.addEventListener("click", () => this.toggle(false), { signal: this.signal });
       t.append(close);
     }
+    if (this.wm.mobile) { this.swipeClose(t); return t; } // docked sheets do not move
     t.title = "Drag to move (Alt: no snapping) · double-click to reset";
     t.addEventListener("dblclick", (e) => {
       if ((e.target as HTMLElement).closest(".x")) return;
@@ -327,6 +357,37 @@ export abstract class UiWindow {
     }, { signal: this.signal });
     this.drag(t);
     return t;
+  }
+
+  /** A docked sheet (touch layout): a swipe down on its title slides it down and closes it past 90 px (or a quick
+   *  flick); a shorter one springs back. Only the `translate` property moves (the sheet's fit scale is `transform`). */
+  private swipeClose(handle: HTMLElement): void {
+    handle.style.touchAction = "none";
+    handle.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 || (e.target as HTMLElement).closest(".x, input, button, select, textarea, a, .nodrag")) return;
+      try { handle.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+      const sy = e.clientY, t0 = e.timeStamp, st = this.el.style;
+      const scale = this.el.getBoundingClientRect().height / (this.el.offsetHeight || 1) || 1;
+      let dy = 0;
+      const move = (ev: PointerEvent) => {
+        if (ev.pointerId !== e.pointerId) return;
+        dy = Math.max(0, (ev.clientY - sy) / scale);
+        st.translate = dy > 4 ? `0 ${dy.toFixed(0)}px` : "";
+        st.opacity = dy > 4 ? String(Math.max(0.4, 1 - dy / 400)) : "";
+      };
+      const end = (ev: PointerEvent) => {
+        if (ev.pointerId !== e.pointerId) return;
+        handle.removeEventListener("pointermove", move);
+        handle.removeEventListener("pointerup", end);
+        handle.removeEventListener("pointercancel", end);
+        const flick = dy > 30 && dy / Math.max(1, ev.timeStamp - t0) > 0.6;
+        st.translate = ""; st.opacity = "";
+        if (ev.type === "pointerup" && (dy > 90 || flick)) this.toggle(false);
+      };
+      handle.addEventListener("pointermove", move, { signal: this.signal });
+      handle.addEventListener("pointerup", end, { signal: this.signal });
+      handle.addEventListener("pointercancel", end, { signal: this.signal });
+    }, { signal: this.signal });
   }
 
   /** Drag by a handle with pointer capture. The layer is scaled (fit scale x HUD scale), so screen pixels are divided by

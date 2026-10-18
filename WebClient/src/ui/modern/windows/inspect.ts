@@ -28,13 +28,13 @@ import type { UserItem } from "../../../protocol/server.ts";
 import { EquipmentSlot, MirClass, MirGender, Stat } from "../../../protocol/enums.generated.ts";
 import { defaultBaseStats, refreshStats } from "../../../game/stats.ts";
 import { serverRules } from "../../../game/serverRules.ts";
-import { Lib, libPicture, type LibPicture } from "../../mir/controls.ts";
+import { Lib, libPicture } from "../../mir/controls.ts";
 import type { ItemLabelContext } from "../../itemLabel.ts";
 import { button, h, injectCss, setText, svg, tabs, UiWindow, type Btn } from "../core/index.ts";
 import { className, classTag, fmt, range, signed } from "../core/format.ts";
 import { classVar, gradeVar } from "../core/styles.ts";
 import type { ItemCell } from "../core/itemCells.ts";
-import { baseBody } from "./character.ts";
+import { baseBody, dollPicture, type DollPicture } from "./character.ts";
 import { registerWindow, type ModernUiHost } from "../windowRegistry.ts";
 
 /** The window's registry key (no menu entry: the server opens it). */
@@ -95,6 +95,7 @@ const CSS = `
   background: radial-gradient(ellipse 60% 45% at 50% 55%, color-mix(in srgb, var(--ac) 14%, transparent), transparent 70%), radial-gradient(ellipse 45% 7% at 50% 93%, rgba(0,0,0,.6), transparent); }
 .hudm .inwin .org { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .hudm .inwin .org div { position: absolute; background-repeat: no-repeat; image-rendering: pixelated; }
+.hudm .inwin .org div.hd { background-size: 100% 100%; image-rendering: auto; }
 .hudm .inwin .org div.wing { mix-blend-mode: plus-lighter; }
 .hudm .inwin .bottom { display: flex; justify-content: center; gap: 4px; }
 .hudm .inwin .icell > .e { font-size: 8px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); opacity: .6; }
@@ -163,7 +164,7 @@ function itemStats(host: ModernUiHost, item: UserItem | null | undefined, cls: n
 
 // The base body is character.ts baseBody (one cache for both windows).
 
-interface Layer { pic: LibPicture; dx: number; dy: number; cls: string }
+interface Layer { pic: DollPicture; dx: number; dy: number; cls: string }
 
 class InspectWindow extends UiWindow {
   private readonly m: ModernUiHost["ctx"]["models"];
@@ -400,11 +401,11 @@ class InspectWindow extends UiWindow {
     const hairDx = assassin ? (female ? 4 : 6) : 0, hairDy = assassin ? (female ? 18 : 25) : 0;
     const want: Promise<Layer | null>[] = [
       baseBody(female).then((pic) => pic && { pic, dx: 0, dy: 0, cls: "" }),
-      armour ? libPicture(Lib.StateItems, armour.Image).then((pic) => pic && { pic, dx: 0, dy: 0, cls: "" }) : Promise.resolve(null),
-      wing >= 0 ? libPicture(Lib.Prguse2, wing).then((pic) => pic && { pic, dx: 0, dy: 0, cls: "wing" }) : Promise.resolve(null),
-      weapon ? libPicture(Lib.StateItems, weapon.Image).then((pic) => pic && { pic, dx: 0, dy: 0, cls: "" }) : Promise.resolve(null),
+      armour ? dollPicture(Lib.StateItems, armour.Image).then((pic) => pic && { pic, dx: 0, dy: 0, cls: "" }) : Promise.resolve(null),
+      wing >= 0 ? dollPicture(Lib.Prguse2, wing).then((pic) => pic && { pic, dx: 0, dy: 0, cls: "wing" }) : Promise.resolve(null),
+      weapon ? dollPicture(Lib.StateItems, weapon.Image).then((pic) => pic && { pic, dx: 0, dy: 0, cls: "" }) : Promise.resolve(null),
       items[E.Helmet]
-        ? (helmet ? libPicture(Lib.StateItems, helmet.Image).then((pic) => pic && { pic, dx: 0, dy: 0, cls: "" }) : Promise.resolve(null))
+        ? (helmet ? dollPicture(Lib.StateItems, helmet.Image).then((pic) => pic && { pic, dx: 0, dy: 0, cls: "" }) : Promise.resolve(null))
         : libPicture(Lib.Prguse, hairIndex).then((pic) => pic && { pic, dx: hairDx, dy: hairDy, cls: "" }),
     ];
     void Promise.all(want).then((all) => {
@@ -414,7 +415,7 @@ class InspectWindow extends UiWindow {
       const els: HTMLElement[] = [];
       for (const l of layers) {
         const x = l.pic.x + l.dx, y = l.pic.y + l.dy;
-        const d = h("div", l.cls);
+        const d = h("div", l.cls + (l.pic.hd ? " hd" : ""));
         Object.assign(d.style, { left: x + "px", top: y + "px", width: l.pic.width + "px", height: l.pic.height + "px", backgroundImage: `url("${l.pic.url}")` });
         els.push(d);
         if (l.cls !== "wing") { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x + l.pic.width); y1 = Math.max(y1, y + l.pic.height); }

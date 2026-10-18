@@ -167,6 +167,7 @@ const CSS = `
   background: radial-gradient(ellipse 60% 45% at 50% 55%, color-mix(in srgb, var(--ac) 14%, transparent), transparent 70%), radial-gradient(ellipse 45% 7% at 50% 93%, rgba(0,0,0,.6), transparent); }
 .hudm .hrwin .figure .org { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .hudm .hrwin .figure .org div { position: absolute; background-repeat: no-repeat; image-rendering: pixelated; }
+.hudm .hrwin .figure .org div.hd { background-size: 100% 100%; image-rendering: auto; }
 .hudm .hrwin .figure .org div.wing { mix-blend-mode: plus-lighter; }
 .hudm .hrwin .figure.fallen { opacity: .45; }
 .hudm .hrwin .figure .ghost { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; letter-spacing: .2em; color: var(--bad); text-shadow: 0 0 6px #000; }

@@ -2,21 +2,27 @@
 // (Client/MirScenes/Dialogs/MainDialogs.cs; classic port src/ui/miniMap.ts) in a themed round or square frame.
 //   Picture   MMap.Lib[MapControl.MiniMap] around the user (CurrentMap.miniMapIndex, the map's size from the loaded
 //             MapCells); maps without a minimap switch to the small mode (the banner only), like DrawMiniMap.
-//   Banner    map title, the user's location (Functions.PointToString), the time of day (GameScene.Lights, LightSetting).
+//   Banner    map title + the time-of-day icon (GameScene.Lights, LightSetting; name on hover). Under the disc: the user's location (Functions.PointToString).
 //   Marks     NPCs and exits from the map's ClientMapInfo (C.RequestMapInfo via GameInfo.requestMap; exits beyond the edge
 //             as arrows on the rim), the NPC quest "!" / "?" markers (Quests.npcQuestIcon + questMiniMapMarker, recomputed
 //             on quest changes only), the objects in view (players, monsters, NPCs and guards; items, the dead, spells and
 //             sneaking objects skipped like DrawMiniMap; the user's pets and group members in the accent colour), group
-//             members on this map as diamonds (GroupState.locations, S.SendMemberLocation), the user as the centre arrow.
+//             members on this map as diamonds (GroupState.locations, S.SendMemberLocation), the user as the centre arrow
+//             pointing the way the user faces (turns eased over 180 ms, after WoOOLcraft MiniMapDialog.GetSmoothedUserArrowAngle).
+//   Smooth    the view centres on the user's drawn position (Movement - OffSetMove / cell, the world camera's sum), and
+//             objects sit at their drawn positions, so the picture slides with the world instead of jumping a cell a step
+//             (after WoOOLcraft's smoothed view offset, but locked to the camera rather than eased behind it).
 //   Buttons   zoom (wheel / - / +), world map (the "bigMap" window), mail (the "mail" window; a badge while
 //             MailBox.newMail, the desktop's blinking NewMail icon), round / square, fold (KeybindOptions.Minimap: toggle()).
 // Hover shows names, a click walks there (GameWorld.walkTo: MapControl.AutoPath, as the big map does; the desktop
-// minimap has no click-walk). Drawn at 10 Hz on the UI ticker, never while folded or hidden; the accent colour is read
+// minimap has no click-walk). Drawn each frame while the view or an object moves or the arrow turns, else at 10 Hz, on the
+// UI ticker; never while folded or hidden. The accent colour is read
 // from the theme once and on theme changes (no getComputedStyle per draw). Zoom / shape / fold are per-viewer
 // conveniences in localStorage 'crystal.ui.minimap'.
 
 import { LightSetting, ObjectType } from "../../../protocol/enums.generated.ts";
 import type { ClientMapInfo } from "../../../protocol/server.ts";
+import { CELL_H, CELL_W, type MapObj } from "../../../game/objects.ts";
 import { questMiniMapMarker } from "../../../game/quests.ts";
 import type { GameUiContext } from "../../gameUi.ts";
 import { Lib, libPicture } from "../../mir/controls.ts";
@@ -28,15 +34,25 @@ import type { UiRuntime } from "../core/runtime.ts";
 const ZOOMS = [14, 24, 40, 64]; // cells from the centre to the edge
 const SIZE = 176;
 const STORE = "crystal.ui.minimap";
+const SLOW_MS = 100; // the banner, markers and a still picture
+const TURN_MS = 180; // WoOOLcraft UserArrowAnimationDurationMs
+
+/** The cell an object is drawn at, fractional while it walks (MapObj.updateMovement: Movement + OffSetMove). */
+function drawnX(ob: MapObj): number { return ob.movement.X - ob.offsetMove.X / CELL_W; }
+function drawnY(ob: MapObj): number { return ob.movement.Y - ob.offsetMove.Y / CELL_H; }
 
 const CSS = `
 .hudm .mmap { position: absolute; z-index: 3; right: 12px; top: 10px; width: ${SIZE + 24}px; pointer-events: none; color: var(--tx); user-select: none; }
-.hudm .mmap .ban { position: relative; z-index: 2; margin: 0 auto -10px; width: max-content; max-width: 100%; padding: 4px 12px 5px; text-align: center; border-radius: 12px; pointer-events: auto;
+.hudm .mmap .ban { position: relative; z-index: 2; margin: 0 auto -10px; width: max-content; max-width: 100%; padding: 4px 12px 5px; display: flex; align-items: center; justify-content: center; gap: 6px; border-radius: 12px; pointer-events: auto;
   background: linear-gradient(180deg, var(--pa), var(--pb)); border: 1px solid var(--fr); box-shadow: 0 0 0 1px #000, 0 3px 8px rgba(0,0,0,.6); }
-.hudm .mmap .ban b { display: block; font-size: 12px; font-weight: 700; letter-spacing: .04em; color: var(--ac); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hudm .mmap .ban .ln { display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 10px; color: var(--dim); font-variant-numeric: tabular-nums; }
-.hudm .mmap .ban .ln svg.ic { width: 12px; height: 12px; color: var(--acd); }
-.hudm .mmap .ban .ln span { display: inline-flex; align-items: center; gap: 3px; }
+.hudm .mmap .ban b { display: block; min-width: 0; font-size: 12px; font-weight: 700; letter-spacing: .04em; color: var(--ac); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hudm .mmap .loc { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; gap: 9px; width: max-content; margin: -16px auto 0; padding: 3px 11px 4px;
+  border-radius: 10px 10px 4px 4px; font-size: 10px; color: var(--dim); font-variant-numeric: tabular-nums; pointer-events: auto;
+  background: linear-gradient(180deg, var(--pa), var(--pb)); border: 1px solid var(--fr); box-shadow: 0 0 0 1px #000, 0 -2px 6px rgba(0,0,0,.5); }
+.hudm .mmap .ban .lt { display: inline-flex; flex: none; }
+.hudm .mmap .ban .lt svg.ic { width: 13px; height: 13px; color: var(--acd); }
+.hudm .mmap .loc svg.ic { width: 12px; height: 12px; color: var(--acd); }
+.hudm .mmap .loc span { display: inline-flex; align-items: center; gap: 3px; }
 .hudm .mmap .disc { position: relative; width: ${SIZE}px; height: ${SIZE}px; margin: 0 auto; border-radius: 50%; overflow: hidden; cursor: crosshair; pointer-events: auto;
   background: #05070b; box-shadow: 0 0 0 2px #000, 0 0 0 4px var(--fr), 0 0 0 5px #000, inset 0 0 18px rgba(0,0,0,.9); }
 .hudm .mmap.square .disc { border-radius: var(--rad); }
@@ -50,10 +66,12 @@ const CSS = `
   pointer-events: auto; color: var(--acd); background: linear-gradient(180deg, var(--pa), var(--pb)); border: 1px solid var(--fr); box-shadow: 0 0 0 1px #000; }
 .hudm .mmap .btns > div:hover { color: #fff; border-color: var(--ac); }
 .hudm .mmap .btns svg.ic { width: 12px; height: 12px; }
+.hudm .mmap .btns > .zoom svg.ic { width: 11px; height: 11px; stroke-width: 3; }
 .hudm .mmap .btns .badge { position: absolute; right: -3px; top: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--bad); box-shadow: 0 0 0 1px #000; }
 .hudm .mmap .btns .badge[hidden] { display: none; }
 .hudm .mmap.shut .disc, .hudm .mmap.shut .btns > div:not(.keep), .hudm .mmap.small .disc, .hudm .mmap.small .btns > .zoom { display: none; }
 .hudm .mmap.shut .ban, .hudm .mmap.small .ban { margin-bottom: 4px; }
+.hudm .mmap.shut .loc, .hudm .mmap.small .loc { margin-top: 0; border-radius: 10px; }
 `;
 
 interface Mark { px: number; py: number; label: string }
@@ -92,6 +110,16 @@ export class MinimapHud {
   private mouse: { x: number; y: number } | null = null;
   private lastLight = -1;
   private ticks = 0;
+  private slowDue = 0;
+  /** The view centre last drawn (the user's drawn cell, fractional mid-step); NaN before the first draw. */
+  private cx = NaN;
+  private cy = NaN;
+  /** The centre arrow: the facing it eases to, from where, since when (radians, 0 = up, clockwise). */
+  private arrowDir = -1;
+  private arrowFrom = 0;
+  private arrowTo = 0;
+  private arrowStart = 0;
+  private drawnAngle = NaN;
   private accent: string;
   private readonly sub: { on(): void; off(): void };
 
@@ -107,8 +135,9 @@ export class MinimapHud {
     this.tip.hidden = true;
     this.title = h("b");
     this.coords = h("span");
-    this.lightBox = h("span");
-    const ban = h("div", "ban", this.title, h("div", "ln", h("span", "", svg("pin"), this.coords), this.lightBox));
+    this.lightBox = h("span", "lt");
+    const ban = h("div", "ban", this.title, this.lightBox);
+    const loc = h("div", "loc", this.coords);
     const disc = h("div", "disc", this.canvas, h("div", "vig"), h("span", "n", "N"), this.tip);
     const btn = (content: Node | string, title: string, fn: () => void, cls = "") => {
       const b = h("div", cls, content);
@@ -126,11 +155,11 @@ export class MinimapHud {
     const syncWinBtns = () => { for (const [b, key] of winBtns) b.hidden = !rt.hasWindow(key); };
     syncWinBtns();
     const btns = h("div", "btns",
-      btn("−", "Zoom out (wheel)", () => this.setZoom(this.zoom + 1), "zoom"), btn("+", "Zoom in (wheel)", () => this.setZoom(this.zoom - 1), "zoom"),
+      btn(svg("minus"), "Zoom out (wheel)", () => this.setZoom(this.zoom + 1), "zoom"), btn(svg("plus"), "Zoom in (wheel)", () => this.setZoom(this.zoom - 1), "zoom"),
       bigMap, mail,
       btn(svg("square"), "Round / square", () => { this.square = !this.square; this.el.classList.toggle("square", this.square); this.save(); }),
       btn(svg("chevronDown"), "Hide / show the minimap", () => this.toggle(), "keep"));
-    this.el = h("div", "mmap snap" + (this.square ? " square" : "") + (this.shut ? " shut" : ""), ban, disc, btns);
+    this.el = h("div", "mmap snap" + (this.square ? " square" : "") + (this.shut ? " shut" : ""), ban, disc, loc, btns);
 
     disc.addEventListener("wheel", (e) => { e.preventDefault(); this.setZoom(this.zoom + (e.deltaY > 0 ? 1 : -1)); }, { passive: false, signal: rt.signal });
     // The disc's rect is measured on pointerenter (the minimap does not move under the pointer); the tip moves at most
@@ -147,7 +176,7 @@ export class MinimapHud {
     }, sig);
 
     rt.layers.wins.append(this.el);
-    this.sub = rt.ticker.every(100, () => this.tick());
+    this.sub = rt.ticker.frame((now) => this.tick(now));
     if (!this.shut) this.sub.on();
 
     const m = ctx.models;
@@ -168,7 +197,7 @@ export class MinimapHud {
   toggle(): void {
     this.shut = !this.shut;
     this.el.classList.toggle("shut", this.shut);
-    if (this.shut) { this.sub.off(); this.tip.hidden = true; } else this.sub.on();
+    if (this.shut) { this.sub.off(); this.tip.hidden = true; } else { this.slowDue = 0; this.sub.on(); }
     this.save();
   }
 
@@ -252,28 +281,61 @@ export class MinimapHud {
     const user = this.ctx.player.user, map = this.ctx.world.map;
     if (!user || !map.width || this.el.classList.contains("small")) return null;
     const r = this.radius();
-    const x = Math.round(user.location.X + (px / SIZE * 2 - 1) * r), y = Math.round(user.location.Y + (py / SIZE * 2 - 1) * r);
+    const cx = Number.isNaN(this.cx) ? user.location.X : this.cx, cy = Number.isNaN(this.cy) ? user.location.Y : this.cy;
+    const x = Math.round(cx + (px / SIZE * 2 - 1) * r), y = Math.round(cy + (py / SIZE * 2 - 1) * r);
     return x >= 0 && y >= 0 && x < map.width && y < map.height ? { x, y } : null;
   }
 
-  private tick(): void {
+  /** Every frame: the banner and markers at 10 Hz; the picture each frame while anything on it moves, else at 10 Hz. */
+  private tick(now: number): void {
     if (this.rt.root.hidden) return;
     const user = this.ctx.player.user;
     if (!user) return;
-    setText(this.coords, `${user.location.X}, ${user.location.Y}`);
-    const light = this.ctx.world.lights.timeOfDay;
-    if (light !== this.lastLight) {
-      this.lastLight = light;
-      this.lightBox.replaceChildren(svg(lightIcon(light)), lightName(light));
+    const slow = now >= this.slowDue;
+    if (slow) {
+      this.slowDue = now + SLOW_MS;
+      setText(this.coords, `${user.location.X}, ${user.location.Y}`);
+      const light = this.ctx.world.lights.timeOfDay;
+      if (light !== this.lastLight) {
+        this.lastLight = light;
+        this.lightBox.replaceChildren(svg(lightIcon(light)));
+        this.lightBox.title = lightName(light);
+      }
     }
     if (this.el.classList.contains("small")) return;
     // NPCs coming into view get their markers within 2 s (quest changes recompute at once).
-    if (++this.ticks % 20 === 0) this.computeMarkers();
-    this.draw(user.location.X, user.location.Y, user.name);
+    if (slow && ++this.ticks % 20 === 0) this.computeMarkers();
+    const cx = drawnX(user), cy = drawnY(user), angle = this.arrowAngle(user.direction, now);
+    let moving = cx !== this.cx || cy !== this.cy || angle !== this.drawnAngle;
+    if (!moving && !slow) {
+      for (const ob of this.ctx.world.objects.values()) if (ob.offsetMove.X || ob.offsetMove.Y) { moving = true; break; }
+    }
+    if (!slow && !moving) return;
+    this.cx = cx; this.cy = cy; this.drawnAngle = angle;
+    this.draw(cx, cy, user.name, angle);
     if (this.mouse) this.hover();
   }
 
-  private draw(cx: number, cy: number, me: string): void {
+  /** The centre arrow's angle for MirDirection `dir` (Up = 0, clockwise by 45 degrees): a new facing turns the short way
+   *  round over TURN_MS, smoothstep (WoOOLcraft MiniMapDialog.GetSmoothedUserArrowAngle). */
+  private arrowAngle(dir: number, now: number): number {
+    const target = dir * Math.PI / 4;
+    if (this.arrowDir < 0) { this.arrowDir = dir; this.arrowFrom = this.arrowTo = target; this.arrowStart = now; return target; }
+    const t = Math.min(1, Math.max(0, (now - this.arrowStart) / TURN_MS));
+    let cur = this.arrowFrom + (this.arrowTo - this.arrowFrom) * t * t * (3 - 2 * t);
+    if (dir !== this.arrowDir) {
+      let d = (target - cur) % (Math.PI * 2);
+      if (d > Math.PI) d -= Math.PI * 2; else if (d < -Math.PI) d += Math.PI * 2;
+      this.arrowDir = dir; this.arrowFrom = cur; this.arrowTo = cur + d; this.arrowStart = now;
+      return cur;
+    }
+    if (t >= 1) { // settled: keep the angle small
+      cur = this.arrowFrom = this.arrowTo = target;
+    }
+    return cur;
+  }
+
+  private draw(cx: number, cy: number, me: string, angle: number): void {
     const g = this.g, S = SIZE * 2, r = this.radius(), accent = this.accent || "#3fb4ff";
     const toPx = (x: number, y: number): [number, number] => [((x - cx) / r + 1) * S / 2, ((y - cy) / r + 1) * S / 2];
     const inside = (px: number, py: number) => px >= -6 && py >= -6 && px <= S + 6 && py <= S + 6;
@@ -321,7 +383,7 @@ export class MinimapHud {
       const npc = ob.race === ObjectType.Merchant || ob.ai === 6;
       if (ob.race === ObjectType.Merchant && info) continue; // drawn from the map info
       const fill = ob.name.endsWith(petSuffix) ? accent : ob.race === ObjectType.Player ? "#9fd8ff" : npc ? "#ffd75a" : "#ff5a4a";
-      dot(ob.location.X, ob.location.Y, ob.race === ObjectType.Player ? 4.5 : 4, fill, npc ? npcName(ob.name)[0] : "");
+      dot(drawnX(ob), drawnY(ob), ob.race === ObjectType.Player ? 4.5 : 4, fill, npc ? npcName(ob.name)[0] : "");
     }
     // NPC quest markers ("!" / "?" over the NPC, MiniMapDialog's bold labels).
     if (this.markers.size) {
@@ -333,7 +395,7 @@ export class MinimapHud {
         const npc = info?.NPCs.find((n) => n.ObjectID === id);
         if (npc) return [npc.Location.X, npc.Location.Y];
         const ob = this.ctx.world.objects.get(id);
-        return ob ? [ob.location.X, ob.location.Y] : null;
+        return ob ? [drawnX(ob), drawnY(ob)] : null;
       };
       for (const [id, m] of this.markers) {
         const p = at(id);
@@ -356,8 +418,8 @@ export class MinimapHud {
       g.restore();
       this.marks.push({ px: px / 2, py: py / 2, label: name });
     }
-    // You: an arrow at the centre.
-    this.arrow(S / 2, S / 2, 0, accent, 11, true);
+    // You: an arrow at the centre, pointing the way you face.
+    this.arrow(S / 2, S / 2, angle, accent, 11, true);
   }
 
   /** A filled arrow at (px, py) pointing along `ang` (0 = up). */

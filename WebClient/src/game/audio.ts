@@ -11,8 +11,9 @@ import { assetUrl, fetchAsset } from "../assets/manifest.ts";
 
 const EXTENSIONS = [".wav", ".mp3"]; // SoundManager.SupportedFileTypes
 
-/** The procedural rain's overall level (every band and the close drops go through `out`); 0.3 = about -10 dB, the user found 1 far too loud (2026-10-14). */
-const RAIN_VOLUME = 0.3;
+/** The procedural rain's overall level (every band and the close drops go through `out`); 0.3 = about -10 dB, the user found 1 far too loud (2026-10-14),
+ *  then halved to 0.15 (2026-10-16). */
+const RAIN_VOLUME = 0.15;
 
 /** The procedural rain's graph: looped stereo noise -> hiss (high band) / patter (mid band) / rumble (low band) -> out -> master. */
 interface RainVoice {
@@ -139,10 +140,10 @@ export class SoundManager {
     return p;
   }
 
-  /** SoundManager.PlaySound(index, loop, delay). */
-  play(index: number, loop = false, delay = 0): void {
+  /** SoundManager.PlaySound(index, loop, delay). Web-only `gain` (< 1 = quieter than the file, e.g. the atmosphere's thunder). */
+  play(index: number, loop = false, delay = 0, gain = 1): void {
     if (index <= 0) return;
-    if (delay > 0) { setTimeout(() => this.play(index, loop), delay); return; }
+    if (delay > 0) { setTimeout(() => this.play(index, loop, 0, gain), delay); return; }
     if (this._volume <= 0 && !loop) return;
     const ctx = this.ensure();
     if (!ctx || ctx.state !== "running") return; // not unlocked yet: a missed one-shot is better than a late one
@@ -151,7 +152,11 @@ export class SoundManager {
       const src = this.ctx.createBufferSource();
       src.buffer = buf;
       src.loop = loop;
-      src.connect(this.master);
+      if (gain !== 1) {
+        const g = this.ctx.createGain();
+        g.gain.value = gain;
+        src.connect(g).connect(this.master);
+      } else src.connect(this.master);
       if (loop) {
         this.loops.get(index)?.stop();
         this.loops.set(index, src);

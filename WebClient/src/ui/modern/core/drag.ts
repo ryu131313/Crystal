@@ -15,7 +15,8 @@
 //    (mapClick(), from GameUi.mapMouseDown), Esc or a right-click clears it.
 //  - Shift + left click on a stack: split amount; Shift + right click on a bag item: link it into chat (hooks.onLink);
 //    Ctrl + right click on a bag / worn item: its sockets (ItemChanges.openSockets, then hooks.onSockets); Ctrl + drop
-//    on another bag item: combine (after the desktop's question); right click: MirItemCell.UseItem / RemoveItem.
+//    on another bag item: combine (after the desktop's question); right click: MirItemCell.UseItem / RemoveItem, except
+//    the web-only quick move (dragRoutes.routeQuickMove): bag -> the open guild storage page / NPC storage, storage -> bag.
 // On drop the source cell is re-read (the item must still be the one picked up: the mock's stale-stack bug), locked
 // cells show and refuse, and every request goes through a SendPacer (src/game/sendPacer.ts: burst 5, then ~3 a second;
 // MaxPacket is 50 socket reads per 5 s and players behind WebRelay share one IP). Queued requests show their cells busy.
@@ -32,7 +33,7 @@ import { scaleOf } from "./layers.ts";
 import type { UiRuntime } from "./runtime.ts";
 import { itemCells, type ItemCell, type ItemCellDeps, type ItemCells } from "./itemCells.ts";
 import {
-  cellKey, itemAt, routeDrop, routeSplit, routeUse, sameCell, split, worldDrop,
+  cellKey, itemAt, routeDrop, routeQuickMove, routeSplit, routeUse, sameCell, split, worldDrop,
   type CellRef, type CustomGrid, type CustomTarget, type Verdict,
 } from "./dragRoutes.ts";
 
@@ -57,6 +58,10 @@ const CSS = `
 
 /** Pixels of movement that turn a press into a drag. */
 const DRAG_START = 5;
+/** A finger moves more before a press becomes a drag (the touch layout). */
+const DRAG_START_TOUCH = 12;
+/** A still finger held this long on an item opens its action sheet (the touch layout's right click / Shift / Ctrl). */
+const LONG_PRESS_MS = 450;
 
 /** Hooks the integrator / other windows set. */
 export interface DragHooks {
@@ -66,6 +71,8 @@ export interface DragHooks {
   onSockets?(item: UserItem): void;
   /** An item was picked up / dragged (MirItemCell PlayItemSound: SoundManager + itemSound by ItemType). */
   onPickSound?(item: UserItem): void;
+  /** The item's tooltip card for the touch layout's long-press sheet (modernUi.ts: ItemTooltip.pinnedCard). */
+  itemCard?(item: UserItem, cell: CellRef): Node | null;
 }
 
 /** A left click on a filled cell with nothing picked: return true when it was used (NPCDropDialog's bag-click target). */
@@ -100,6 +107,9 @@ export class DragController {
   private hinted: ItemCell[] = [];
   private swallowClick = false;
   private wasActive = false;
+  /** The last press came from a finger / pen: the long press stands in for the right click (Android fires contextmenu on it). */
+  private touchish = false;
+  private lpTimer = 0;
   private readonly follow: (x: number, y: number) => void;
 
   constructor(private readonly rt: UiRuntime, deps: DragDeps) {
@@ -122,11 +132,11 @@ export class DragController {
       this.last = [e.clientX, e.clientY];
       if (this.press && !this.drag && e.buttons === 0) { this.press = null; return; } // released outside the page
       if (this.drag && e.buttons === 0) { this.cancel(); return; }
-      if (this.press && !this.drag && Math.hypot(e.clientX - this.press.x, e.clientY - this.press.y) > DRAG_START) this.start();
+      if (this.press && !this.drag && Math.hypot(e.clientX - this.press.x, e.clientY - this.press.y) > (this.touchish ? DRAG_START_TOUCH : DRAG_START)) { this.clearLongPress(); this.start(); }
       else if (this.drag || ghost) this.follow(e.clientX, e.clientY);
     }, sig);
     window.addEventListener("pointerup", (e) => this.up(e), sig);
-    window.addEventListener("pointercancel", () => { this.press = null; this.cancel(); }, sig);
+    window.addEventListener("pointercancel", () => { this.clearLongPress(); this.press = null; this.cancel(); }, sig);
     window.addEventListener("blur", () => { this.press = null; this.cancel(); }, sig);
     // Swallow the click that ends a drag (it would act on the cell / control under the pointer).
     window.addEventListener("click", (e) => { if (this.swallowClick) { e.stopPropagation(); e.preventDefault(); this.swallowClick = false; } }, { capture: true, signal: this.signal });
@@ -203,6 +213,7 @@ export class DragController {
   }
 
   dispose(): void {
+    this.clearLongPress();
     this.endDrag();
     this.removeGhost();
     this.pacer.dispose();
@@ -214,15 +225,57 @@ export class DragController {
   // — Pointer —
 
   private down(e: PointerEvent): void {
+    this.touchish = e.pointerType !== "mouse";
     const cell = this.cells.cellOf(e.target);
     if (!cell || cell.opts.readOnly || this.drag) return;
     if (e.button !== 0) return; // right clicks: contextmenu
     e.preventDefault(); // no text selection / native image drag
     this.last = [e.clientX, e.clientY];
     this.press = { cell, ref: cell.ref, x: e.clientX, y: e.clientY, shift: e.shiftKey, ctrl: e.ctrlKey, button: e.button };
+    this.clearLongPress();
+    const press = this.press;
+    if (this.touchish && itemAt(this.cells.deps, cell.ref) && !this.cells.deps.models.itemPick.cell) {
+      this.lpTimer = window.setTimeout(() => { this.lpTimer = 0; if (this.press === press && !this.drag) { this.press = null; this.longPress(press.ref); } }, LONG_PRESS_MS);
+    }
+  }
+
+  private clearLongPress(): void { if (this.lpTimer) { clearTimeout(this.lpTimer); this.lpTimer = 0; } }
+
+  /** The touch layout's item sheet (a long press): Use / Equip, Move, Split, Drop, Link, Sockets through the same routes
+   *  as the right click, Shift and Ctrl gestures; nothing moves until the server answers (request). */
+  private longPress(ref: CellRef): void {
+    const d = this.cells.deps, m = d.models, item = itemAt(d, ref);
+    if (!item || this.signal.aborted) return;
+    navigator.vibrate?.(10);
+    type Act = "use" | "quick" | "split" | "drop" | "link" | "sockets";
+    const choices: { label: string; value: Act; main?: boolean }[] = [];
+    const use = routeUse(d, ref);
+    if (use.ok && use.run) choices.push({ label: use.label || "Use", value: "use", main: true });
+    const quick = routeQuickMove(d, ref, (g) => this.gridOnScreen(g));
+    if (quick?.ok && quick.run) choices.push({ label: quick.label || "Move", value: "quick" });
+    if (routeSplit(d, ref).ok) choices.push({ label: "Split stack", value: "split" });
+    if (worldDrop(d, ref) === "") choices.push({ label: "Drop", value: "drop" });
+    if (ref.grid === "inv") choices.push({ label: "Link in chat", value: "link" });
+    if (ref.grid === "inv" || ref.grid === "eq") choices.push({ label: "Sockets", value: "sockets" });
+    const name = m.itemInfos.get(item.ItemIndex)?.Name ?? "Item";
+    const head = this.hooks.itemCard?.(item, ref) ?? undefined;
+    void this.rt.popups.choose({ title: name, choices, ...(head ? { head } : {}) }).then((a) => {
+      if (!a || this.signal.aborted) return;
+      const now = itemAt(d, ref);
+      if (!now || now.UniqueID !== item.UniqueID) return; // the cell changed meanwhile
+      switch (a) {
+        case "use": { const v = routeUse(d, ref); if (v.ok && v.run) this.request(v.run, [ref]); return; }
+        case "quick": { const v = routeQuickMove(d, ref, (g) => this.gridOnScreen(g)); if (v?.ok && v.run) this.request(v.run, [ref]); return; }
+        case "split": this.askSplit(ref, now); return;
+        case "drop": m.itemPick.set({ grid: ref.grid as Grid, index: ref.index }); this.itemDrop.mapClick(); return;
+        case "link": this.hooks.onLink?.(now, ref); return;
+        case "sockets": if (m.itemChanges.openSockets(now)) this.hooks.onSockets?.(now); return;
+      }
+    });
   }
 
   private up(e: PointerEvent): void {
+    this.clearLongPress();
     this.last = [e.clientX, e.clientY];
     if (this.drag) { e.preventDefault(); this.drop(e); return; }
     const p = this.press;
@@ -238,6 +291,7 @@ export class DragController {
     if (!cell) return;
     e.preventDefault();
     e.stopPropagation();
+    if (this.touchish) return; // a long touch: the item sheet (longPress), never a use
     if (cell.opts.readOnly || this.drag) return;
     const d = this.cells.deps, m = d.models, ref = cell.ref, item = itemAt(d, ref);
     this.last = [e.clientX, e.clientY];
@@ -250,8 +304,20 @@ export class DragController {
       return;
     }
     m.itemPick.clear();
+    const quick = routeQuickMove(d, ref, (g) => this.gridOnScreen(g));
+    if (quick) {
+      if (!quick.ok || !quick.run) { if (quick.label) this.toast(quick.label, e.clientX, e.clientY); return; }
+      this.request(quick.run, [ref]);
+      return;
+    }
     const v = routeUse(d, ref);
     if (v.ok && v.run) this.request(v.run, [ref]);
+  }
+
+  /** Whether any cell of `grid` is on screen (its window open and the page shown). */
+  private gridOnScreen(grid: CellRef["grid"]): boolean {
+    for (const c of this.cells.all()) if (c.ref.grid === grid && c.el.isConnected && c.el.offsetParent !== null) return true;
+    return false;
   }
 
   /** A left click without a drag: the desktop pick / place (InventoryWindow.leftClick). */

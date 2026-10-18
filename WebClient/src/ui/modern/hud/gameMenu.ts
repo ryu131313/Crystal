@@ -86,10 +86,13 @@ export interface GameMenuHost {
 }
 
 const CSS = `
-.hudm .gmenu { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 18px; pointer-events: auto;
+.hudm .gmenu { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: auto;
   background: radial-gradient(ellipse at 40% 50%, rgba(6,12,24,.62), rgba(2,4,10,.88)); animation: hudm-gmin .2s ease-out; }
 @keyframes hudm-gmin { from { opacity: 0; } }
+/* Two columns of one height: the launcher spans the card top to the action list bottom (a hidden logo copy above it). */
+.hudm .gmenu .row { display: flex; align-items: stretch; gap: 18px; }
 .hudm .gmenu .col { display: flex; flex-direction: column; gap: 12px; animation: hudm-gmslide .28s cubic-bezier(.2,.9,.3,1); }
+.hudm .gmenu .logo.sp { visibility: hidden; }
 .hudm .gmenu .col.r { animation-delay: .04s; animation-fill-mode: backwards; }
 @keyframes hudm-gmslide { from { opacity: 0; transform: translateY(14px); } }
 .hudm .gmenu .card, .hudm .gmenu .acts, .hudm .gmenu .launch { color: var(--tx); border-radius: calc(var(--rad) + 2px);
@@ -105,20 +108,20 @@ const CSS = `
 .hudm .gmenu .who b { display: block; font-size: 15px; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hudm .gmenu .who span { display: block; font-size: 11px; color: var(--dim); line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hudm .gmenu .who em { font-style: normal; color: var(--ac); }
-.hudm .gmenu .acts { width: 280px; padding: 8px; display: flex; flex-direction: column; gap: 3px; }
+.hudm .gmenu .acts { flex: 1; width: 280px; padding: 8px; display: flex; flex-direction: column; gap: 3px; }
 .hudm .gmenu .act { position: relative; display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 12px; border-radius: var(--rad); cursor: pointer; user-select: none;
   font-size: 13px; font-weight: 600; letter-spacing: .03em; border: 1px solid transparent; transition: background .12s, border-color .12s, padding .12s; }
 .hudm .gmenu .act svg.ic { width: 18px; height: 18px; stroke: var(--acd); stroke-width: 1.8; }
-.hudm .gmenu .act svg.gmi { width: 22px; height: 22px; flex: none; transition: transform .12s; }
+.hudm .gmenu .act .gmi { width: 22px; height: 22px; flex: none; transition: transform .12s; }
 .hudm .gmenu .act kbd { margin-left: auto; font: inherit; font-size: 10px; color: var(--dim); padding: 1px 6px; border-radius: 4px; border: 1px solid var(--fr); }
 .hudm .gmenu .act.on { padding-left: 16px; color: #fff; border-color: color-mix(in srgb, var(--ac) 55%, var(--fr));
   background: linear-gradient(90deg, color-mix(in srgb, var(--ac) 30%, transparent), transparent); box-shadow: inset 3px 0 0 var(--ac); }
-.hudm .gmenu .act.on svg.gmi { transform: scale(1.08); }
+.hudm .gmenu .act.on .gmi { transform: scale(1.08); }
 .hudm .gmenu .act.on svg.ic { stroke: var(--ac); }
 .hudm .gmenu .act.leave.on { box-shadow: inset 3px 0 0 var(--bad); border-color: color-mix(in srgb, var(--bad) 55%, var(--fr));
   background: linear-gradient(90deg, color-mix(in srgb, var(--bad) 28%, transparent), transparent); }
-.hudm .gmenu .sep { height: 1px; margin: 4px 6px; background: linear-gradient(90deg, transparent, var(--fr), transparent); }
-.hudm .gmenu .launch { width: 470px; padding: 14px; }
+.hudm .gmenu .sep { height: 1px; margin: auto 6px 4px; background: linear-gradient(90deg, transparent, var(--fr), transparent); }
+.hudm .gmenu .launch { flex: 1; width: 470px; padding: 14px; display: flex; flex-direction: column; }
 .hudm .gmenu .lh { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .hudm .gmenu .lh b { font-size: 11px; letter-spacing: .24em; color: var(--ac); }
 .hudm .gmenu .lh .ui-search { margin-left: auto; width: 190px; }
@@ -126,20 +129,21 @@ const CSS = `
 .hudm .gmenu .tile { position: relative; height: 74px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; cursor: pointer; user-select: none;
   border-radius: var(--rad); border: 1px solid color-mix(in srgb, var(--fr) 70%, transparent); background: radial-gradient(ellipse 80% 70% at 50% 30%, color-mix(in srgb, var(--pc) 70%, transparent), transparent);
   transition: transform .12s, border-color .12s; }
-.hudm .gmenu .tile svg.gmi { width: 34px; height: 34px; transition: transform .12s; }
+.hudm .gmenu .tile .gmi { width: 34px; height: 34px; transition: transform .12s; }
 .hudm .gmenu .tile svg.ic { width: 24px; height: 24px; stroke: var(--acd); stroke-width: 1.7; }
 .hudm .gmenu .tile span { font-size: 11px; font-weight: 600; text-align: center; }
 .hudm .gmenu .tile kbd { position: absolute; right: 5px; top: 4px; font: inherit; font-size: 9px; color: var(--dim); }
 .hudm .gmenu .tile i { position: absolute; left: 5px; top: 4px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 7px; font-style: normal; font-size: 9px; font-weight: 800;
   line-height: 14px; text-align: center; color: #fff; background: var(--ac); }
 .hudm .gmenu .tile:hover, .hudm .gmenu .tile.hit, .hudm .gmenu .tile:focus-visible { transform: translateY(-2px); border-color: var(--ac); }
-.hudm .gmenu .tile:hover svg.gmi, .hudm .gmenu .tile.hit svg.gmi { transform: translateY(-1px) scale(1.08); }
+.hudm .gmenu .tile:hover .gmi, .hudm .gmenu .tile.hit .gmi { transform: translateY(-1px) scale(1.08); }
 .hudm .gmenu .tile.dim { opacity: .25; }
 .hudm .gmenu .none { grid-column: 1 / -1; }
-.hudm .gmenu .foot { display: flex; gap: 14px; justify-content: space-between; padding: 8px 4px 0; font-size: 10.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.hudm .gmenu .foot { margin-top: auto; display: flex; gap: 14px; justify-content: space-between; padding: 8px 4px 0; font-size: 10.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
 .hudm .gmenu .foot b { color: var(--tx); font-weight: 600; }
 /* Narrow layer (< 1040 px): one column, a smaller launcher. */
-.hudm.narrow .gmenu { flex-direction: column; gap: 10px; overflow-y: auto; justify-content: flex-start; padding: 16px 0; }
+.hudm.narrow .gmenu { overflow-y: auto; align-items: flex-start; padding: 16px 0; }
+.hudm.narrow .gmenu .row { flex-direction: column; align-items: center; gap: 10px; width: 100%; }
 .hudm.narrow .gmenu .logo { display: none; }
 .hudm.narrow .gmenu .launch { width: min(470px, 96%); }
 .hudm.narrow .gmenu .tiles { grid-template-columns: repeat(4, 1fr); }
@@ -252,7 +256,6 @@ export class GameMenu {
       if (rt.hasWindow(key)) act("", emblem(emblemKey, icon), label, keyLabel(bind), () => { this.close(); this.host.openWindow(key); });
     };
     win(W.options, "Options", "gear", "Options", KeybindOptions.Options);
-    win(W.keybinds, "Key bindings", "keyboard", "Key bindings", KeybindOptions.Keybind);
     win(W.help, "help", "help", "Help", KeybindOptions.Help);
     acts.append(h("div", "sep"));
     act("leave", emblem("logout", "logout"), "Log out", keyLabel(KeybindOptions.Logout), () => { this.close(); ctx.actions.logOut(false); });
@@ -272,6 +275,7 @@ export class GameMenu {
     const unread = badgeText(unreadMail(ctx));
     for (const w of MENU_WINDOWS) {
       if (!rt.hasWindow(w.key)) continue; // later phases register it
+      if (w.key === W.help) continue; // already in the left-hand action list (its MENU_WINDOWS entry keeps the hotkey)
       const k = w.bind !== undefined ? keyLabel(w.bind) : "";
       const badge = w.key === W.mail ? unread : "";
       const el = asButton(h("div", "tile", emblem(w.emblem, w.icon), h("span", "", w.name), k ? h("kbd", "", k) : null, badge ? h("i", "", badge) : null));
@@ -283,7 +287,10 @@ export class GameMenu {
     if (!this.tiles.length) tiles.append(h("div", "empty-note none", "No windows yet."));
     const foot = h("div", "foot", h("span", "", "Local time ", this.clockEl));
     const launch = h("div", "launch", h("div", "lh", h("b", "", "WINDOWS"), this.search.el), tiles, foot);
-    this.el!.replaceChildren(h("div", "col", h("div", "logo", "CRYSTAL", h("small", "", "LEGEND OF MIR")), card, acts), h("div", "col r", launch));
+    const logo = (cls: string) => h("div", cls, "CRYSTAL", h("small", "", "LEGEND OF MIR"));
+    const spacer = logo("logo sp");
+    spacer.setAttribute("aria-hidden", "true");
+    this.el!.replaceChildren(h("div", "row", h("div", "col", logo("logo"), card, acts), h("div", "col r", spacer, launch)));
   }
 
   private filter(q: string): void {

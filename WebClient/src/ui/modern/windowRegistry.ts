@@ -41,8 +41,10 @@ export interface ModernUiHost {
   readonly hud: Hud;
   /** World notifications (GameUi.notify: "itemInfo", "gameDataApplied") for windows that draw item infos / shop data. */
   readonly events: Emitter<UiEvent>;
-  /** Every packet GameUi.handle sees (after the models ran: their state is current). Listeners never consume; for
-   *  server-opened windows whose packets have no model event (storage). */
+  /** Every packet GameUi.handle sees. It runs after the item / social / NPC models (game.ts handlePacket, before
+   *  `ui.handle`) but BEFORE game.ts's world switch (objects, fishing, mounts, chat ...): those models still hold the
+   *  previous state, so read such packets' own fields. Listeners never consume; for server-opened windows whose packets
+   *  have no model event (storage). */
   readonly packets: Emitter<ServerPacket>;
   /** GameScene.CreateItemLabel's context for the user (level, class, gender, stats). */
   labelContext(): ItemLabelContext;

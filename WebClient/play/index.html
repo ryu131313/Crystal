@@ -4,6 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Crystal Web Client</title>
+  <!-- Add to Home Screen (the touch layout): full screen + landscape when installed; iOS has no other way to hide its bars -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0b0d12">
+  <!-- The page is dark already: keeps a phone browser's auto dark mode (Chrome Android, Samsung Internet) from re-colouring it -->
+  <meta name="color-scheme" content="dark">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Crystal">
+  <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="stylesheet" href="play.css">
 </head>
 <body>

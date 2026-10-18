@@ -186,7 +186,7 @@ const NPC_CSS = `
 .hudm .npwin .stage { position: relative; width: 210px; height: 220px; overflow: hidden; flex: none; }
 .hudm .npwin .stage::before { content: ""; position: absolute; left: 50%; bottom: 18px; width: 150px; height: 30px; translate: -50% 0; border-radius: 50%;
   background: radial-gradient(ellipse, color-mix(in srgb, var(--ac) 45%, transparent), transparent 70%); }
-.hudm .npwin .spr { position: absolute; left: 50%; bottom: 26px; transform-origin: 50% 100%; }
+.hudm .npwin .spr { position: absolute; left: calc(50% + 14px); bottom: 26px; transform-origin: 50% 100%; }
 .hudm .npwin .spr img { position: absolute; image-rendering: pixelated; }
 .hudm .npwin .mark { position: absolute; left: 50%; top: 4px; translate: -50% 0; font-size: 30px; font-weight: 900; text-shadow: 0 0 10px currentColor, 0 2px 3px #000; animation: hudm-npmark 1.4s ease-in-out infinite; }
 @keyframes hudm-npmark { 50% { translate: -50% -5px; } }

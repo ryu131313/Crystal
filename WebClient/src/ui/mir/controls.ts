@@ -21,6 +21,9 @@ export const Lib = {
   ChrSel: "ChrSel", Prguse: "Prguse", Prguse2: "Prguse2", Prguse3: "Prguse3", BuffIcon: "BuffIcon", Help: "Help",
   MiniMap: "MMap", MapLinkIcon: "MapLinkIcon", Title: "Title", MagIcon: "MagIcon", MagIcon2: "MagIcon2",
   Items: "Items", StateItems: "StateItem", FloorItems: "DNItems", UI_32bit: "UI_32bit", GuildSkill: "GuildSkill",
+  /** Web only, optional files: 2x companions of StateItem (weapon / armour paperdolls) and Prguse2 (the doll's wings),
+   *  by the same index, pictures and offsets doubled, every other slot 0 x 0. */
+  StateItemsHD: "StateItemHD", Prguse2HD: "Prguse2HD",
 } as const;
 
 /** Settings.ScreenWidth / ScreenHeight: 1024 x 768, or the game resolution (1280 x 800, 1366 x 768, 1920 x 1080) in game (live

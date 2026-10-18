@@ -161,6 +161,7 @@ const CSS = `
 .hudm .gdwin .page { flex: 1; min-width: 0; min-height: 0; padding: 12px 14px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--fr) transparent; }
 .hudm .gdwin .card { border-radius: var(--rad); padding: 10px 12px; background: color-mix(in srgb, var(--frl) 5%, transparent); border: 1px solid color-mix(in srgb, var(--fr) 55%, transparent); }
 .hudm .gdwin .card + .card, .hudm .gdwin .grid2 + .card { margin-top: 12px; }
+.hudm .gdwin :is(.grid2, .cards4, .mgrid, .bgrid) > .card { margin-top: 0; } /* the grid gap spaces these; a stacked-card margin would drop every card after the first */
 .hudm .gdwin .ch { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--acd); }
 .hudm .gdwin .ch .sp { flex: 1; }
 .hudm .gdwin .ch .btn { height: 20px; font-size: 10px; letter-spacing: .04em; text-transform: none; }

@@ -9,7 +9,7 @@ import type { MapCells } from "../map/mapReader.ts";
 import { Effect, Lib, effectWorld } from "./effects.ts";
 
 export interface SoundWorld {
-  play(id: number, loop?: boolean, delay?: number): void;  // SoundManager.PlaySound(index, loop, delay)
+  play(id: number, loop?: boolean, delay?: number, gain?: number): void;  // SoundManager.PlaySound(index, loop, delay); web-only gain
   stop(id: number): void;                                  // SoundManager.StopSound
   user(): MapObj | null;                                   // MapObject.User
   map(): MapCells;                                         // MapControl.M2CellInfo (+ Width/Height via map.width/height)
@@ -55,8 +55,19 @@ export function baseSound(ob: MapObj): number {
 
 // ---------------------------------------------------------------- MonsterObject
 
+/** Web-only: pets (a monster with a master, "Name(Owner)", or an intelligent creature) play at this gain; the user found them loud (2026-10-16). */
+const PET_GAIN = 0.5;
+
+const isPet = (ob: MapObj): boolean => ob.name.endsWith(")") || (ob.image & 0xffff) >= 10000;
+
+/** `w` with every sound at PET_GAIN when `ob` is a pet. */
+export function petWorld(ob: MapObj, w: SoundWorld): SoundWorld {
+  return isPet(ob) ? { ...w, play: (id, loop, delay) => w.play(id, loop, delay, PET_GAIN) } : w;
+}
+
 /** MonsterObject.PlaySummonSound .. PlayPetSound (dispatch by kind). */
 export function monsterSound(ob: MapObj, kind: MonsterSound, w: SoundWorld): void {
+  w = petWorld(ob, w);
   switch (kind) {
     case "summon": playSummonSound(ob, w); return;
     case "walkL": playWalkSound(ob, w, true); return;
@@ -533,7 +544,7 @@ function playThirdRangeSound(ob: MapObj, w: SoundWorld): void {
 /** GameScene.IntelligentCreaturePickup (S.IntelligentCreaturePickup { ObjectID }): MonsterObject.PlayPickupSound, only
  *  when the object is a monster (`ob` = the map object with that id, or undefined). */
 export function intelligentCreaturePickupSound(ob: MapObj | undefined, w: SoundWorld): void {
-  if (ob && ob.race === ObjectType.Monster) playPickupSound(ob, w);
+  if (ob && ob.race === ObjectType.Monster) playPickupSound(ob, petWorld(ob, w));
 }
 
 // MonsterObject.PlayPickupSound

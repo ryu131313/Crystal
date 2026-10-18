@@ -103,12 +103,17 @@ function monsterPortrait(image: number): Promise<string | null> {
   }
   return p;
 }
-function setPortrait(el: HTMLElement, info: ClientMonsterInfo | undefined): void {
-  if (info) void monsterPortrait(info.Image).then((url) => { if (url) el.style.backgroundImage = `url(${url})`; });
+/** `under` = a background layer drawn beneath the portrait (a gradient: see DARK_FILL). */
+function setPortrait(el: HTMLElement, info: ClientMonsterInfo | undefined, under = ""): void {
+  if (info) void monsterPortrait(info.Image).then((url) => { if (url) el.style.backgroundImage = `url(${url})` + (under ? `, ${under}` : ""); });
 }
 function setLinkIcon(el: HTMLElement, icon: number): void {
   if (icon > 0) void libPicture(Lib.MapLinkIcon, icon).then((p) => { if (p) el.style.backgroundImage = `url(${p.url})`; });
 }
+
+/** The tokens' small dark fills as gradients, not solid colours: a phone browser's auto dark mode turned the solid
+ *  ones (the count pills, the second-kind circle) white while it left gradients alone. */
+const DARK_FILL = "linear-gradient(#0d1118, #0d1118)";
 
 const ARROW = "M12 2l7 19-7-4-7 4z";
 const PIN = "M11 25C11 25 2 15 2 9a9 9 0 0118 0c0 6-9 16-9 16z";
@@ -137,7 +142,7 @@ const CSS = `
   background: color-mix(in srgb, var(--ac) 70%, #000); border: 1px solid #fff; box-shadow: 0 0 6px var(--glow); }
 .hudm .bmwin .exit svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 .hudm .bmwin .mk em { position: absolute; right: -8px; top: -6px; min-width: 13px; height: 12px; padding: 0 3px; border-radius: 6px; font-style: normal;
-  font-size: 8px; font-weight: 800; line-height: 11px; text-align: center; color: #fff; background: #000; border: 1px solid currentColor; }
+  font-size: 8px; font-weight: 800; line-height: 11px; text-align: center; color: #fff; background: linear-gradient(#000, #000); border: 1px solid currentColor; }
 .hudm .bmwin .exit em { border-color: var(--ac); }
 /* Spawn areas (hidden until a token is hovered or its monster selected) and safe zones: square, like the server's ranges. */
 .hudm .bmwin .zone, .hudm .bmwin .safe { position: absolute; transform: translate(-50%, -50%); pointer-events: none; }
@@ -154,7 +159,7 @@ const CSS = `
 .hudm .bmwin .mob { width: 28px; height: 28px; border-radius: 50%; z-index: 2; border: 2px solid #aab3c2; color: #aab3c2;
   background: radial-gradient(circle at 50% 40%, #2c3442, #090c12 75%); box-shadow: 0 0 0 1px #000, 0 2px 5px rgba(0,0,0,.8); transition: opacity .15s, transform .12s; }
 .hudm .bmwin .mob i { position: absolute; inset: 1px; border-radius: 50%; background: center 40% / contain no-repeat; }
-.hudm .bmwin .mob i.bk { inset: auto; left: -9px; top: -6px; width: 20px; height: 20px; z-index: -1; border: 1px solid currentColor; background-color: #0d1118; box-shadow: 0 0 0 1px #000; }
+.hudm .bmwin .mob i.bk { inset: auto; left: -9px; top: -6px; width: 20px; height: 20px; z-index: -1; border: 1px solid currentColor; background-image: linear-gradient(#0d1118, #0d1118); box-shadow: 0 0 0 1px #000; }
 .hudm .bmwin .mob em { right: -7px; top: auto; bottom: -5px; min-width: 15px; height: 13px; font-size: 9px; line-height: 12px; border-radius: 7px; }
 .hudm .bmwin .mob .ml { margin-top: 3px; }
 .hudm .bmwin .mob.even { border-color: var(--ac); color: var(--ac); }
@@ -278,6 +283,10 @@ export class BigMapWindow extends UiWindow {
   /** A pan in progress: pointer, start (moved = past 3 px, set on the raw event so a quick drag is never a click) and
    *  the last applied position. */
   private pan: { id: number; sx: number; sy: number; x: number; y: number; moved: boolean } | null = null;
+  /** A two-finger pinch (touch): its pointers and the last applied finger distance and midpoint (viewport px). */
+  private pinch: { a: number; b: number; d: number; mx: number; my: number } | null = null;
+  /** The pointers down on the viewport (client px), for the pinch. */
+  private readonly pts = new Map<number, { x: number; y: number }>();
   private hoverCell = "";
   // — DOM —
   private readonly vp = h("div", "vp");
@@ -403,7 +412,7 @@ export class BigMapWindow extends UiWindow {
     this.setView(cm.index, true);
   }
   /** Closed under the cursor gives no pointerleave: forget the hover, the drag and the measured box (the window may move). */
-  protected override closed(): void { this.vpBox = null; this.pan = null; this.vp.classList.remove("drag"); this.regroup.cancel(); }
+  protected override closed(): void { this.vpBox = null; this.pan = null; this.pinch = null; this.pts.clear(); this.vp.classList.remove("drag"); this.regroup.cancel(); }
 
   protected override render(): void {
     if (this.closeX) {
@@ -515,9 +524,22 @@ export class BigMapWindow extends UiWindow {
     this.vp.addEventListener("pointerenter", () => this.measure(), opts);
     this.vp.addEventListener("pointerleave", () => { if (!this.pan) { this.vpBox = null; this.setHover(null); } }, opts);
     this.vp.addEventListener("pointerdown", (e) => {
+      // A second finger while one pans: a pinch (the pan becomes a drag, so lifting it never walks)
+      if (this.pan && !this.pinch && e.pointerType !== "mouse" && e.pointerId !== this.pan.id) {
+        const p = this.pts.get(this.pan.id);
+        if (!p) return;
+        this.pan.moved = true;
+        this.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        try { this.vp.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+        const g = this.pinchGeom(p, { x: e.clientX, y: e.clientY });
+        this.pinch = { a: this.pan.id, b: e.pointerId, ...g };
+        e.preventDefault();
+        return;
+      }
       if (e.button !== 0 || onChrome(e.target) || this.pan) return;
       this.measure();
       this.pan = { id: e.pointerId, sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY, moved: false };
+      this.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
       try { this.vp.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
       this.vp.classList.add("drag");
       e.preventDefault();
@@ -532,13 +554,35 @@ export class BigMapWindow extends UiWindow {
       }
       this.setHover(this.cellAt(x, y));
     }, this.signal);
+    // The pinch: zoom by the change in finger distance around their midpoint, and pan with the midpoint.
+    const pinchMove = rafCoalesce(() => {
+      const pi = this.pinch;
+      if (!pi || !this.open) return;
+      const p = this.pts.get(pi.a), q = this.pts.get(pi.b);
+      if (!p || !q) return;
+      const g = this.pinchGeom(p, q);
+      this.ox += g.mx - pi.mx; this.oy += g.my - pi.my;
+      this.zoomBy(pi.d > 0 ? g.d / pi.d : 1, g.mx, g.my);
+      pi.d = g.d; pi.mx = g.mx; pi.my = g.my;
+    }, this.signal);
     this.vp.addEventListener("pointermove", (e) => {
+      const pt = this.pts.get(e.pointerId);
+      if (pt) { pt.x = e.clientX; pt.y = e.clientY; }
+      if (this.pinch) { if (pt) pinchMove(); return; }
       if (!this.open || (!this.vpBox && !this.pan)) return;
       const d = this.pan;
       if (d && !d.moved && Math.abs(e.clientX - d.sx) + Math.abs(e.clientY - d.sy) > 3) d.moved = true;
       move(e.clientX, e.clientY);
     }, opts);
     const end = (e: PointerEvent, click: boolean) => {
+      this.pts.delete(e.pointerId);
+      const pi = this.pinch;
+      if (pi && (e.pointerId === pi.a || e.pointerId === pi.b)) {
+        this.pinch = null;
+        // The panning finger stays down: it pans on from where it is now (no jump)
+        const d0 = this.pan, p = d0 && d0.id !== e.pointerId ? this.pts.get(d0.id) : undefined;
+        if (d0 && p) { d0.x = p.x; d0.y = p.y; return; }
+      }
       const d = this.pan;
       if (!d || d.id !== e.pointerId) return;
       this.pan = null;
@@ -560,6 +604,12 @@ export class BigMapWindow extends UiWindow {
       const c = this.cellAt(e.clientX, e.clientY);
       if (c) this.addWaypoint(c.x, c.y);
     }, opts);
+  }
+
+  /** Two fingers' distance and midpoint, in viewport px. */
+  private pinchGeom(p: { x: number; y: number }, q: { x: number; y: number }): { d: number; mx: number; my: number } {
+    const b = this.vpBox ?? this.measure();
+    return { d: Math.hypot(q.x - p.x, q.y - p.y) / b.k, mx: ((p.x + q.x) / 2 - b.left) / b.k, my: ((p.y + q.y) / 2 - b.top) / b.k };
   }
 
   /** Measures the viewport's screen box and the total scale once (pointerenter / pointerdown / wheel). */
@@ -756,7 +806,7 @@ export class BigMapWindow extends UiWindow {
       const i = h("i");
       setPortrait(i, topKind.info);
       const t = this.add(h("div", "mk mob " + ring, i, h("span", "ml", mobName(top, topKind.info) + (mixed ? ` +${kinds.length - 1}` : ""))), g.x, g.y);
-      if (mixed) { const bk = h("i", "bk"); setPortrait(bk, kinds[1]![1].info); t.prepend(bk); }
+      if (mixed) { const bk = h("i", "bk"); setPortrait(bk, kinds[1]![1].info, DARK_FILL); t.prepend(bk); }
       if (g.count > 1) t.append(h("em", "", String(g.count)));
       const lines = kinds.map(([idx, k]) => `${mobName(idx, k.info)} · ${guard(k) ? "guard" : k.info ? `level ${k.info.Level}` : "level ?"} · ${k.count}`);
       t.title = mixed ? `${lines.join("\n")}\nClick to zoom in`

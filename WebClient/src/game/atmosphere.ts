@@ -1,5 +1,5 @@
 // Web-only atmosphere on top of Enhanced lighting (no desktop counterpart; Classic stays the desktop's MapControl.DrawLights exactly).
-// Runs only while gameSettings.Lighting is Enhanced (and available), gameSettings.Atmosphere is on, the post programs linked and the user is alive
+// Runs only while gameSettings.Lighting is Enhanced (and available), gameSettings.Atmosphere is on (atmosphereOn: not under the touch battery saver), the post programs linked and the user is alive
 // (the dead-user grayscale keeps its own path). Four parts:
 // - Glow (bloom): every additive DrawBlend of the frame (spells, blended monster frames, map fire tiles, embers - not snow / rain / plain leaves) is
 //   recorded by the Painter and replayed into a half-resolution half-float target, blurred twice (render/postFx.ts) and added over the scene.
@@ -33,7 +33,7 @@ import type { MapCells } from "../map/mapReader.ts";
 import { MAP_LIBS, sprite, visiblePixel } from "./libraries.ts";
 import { CELL_W, CELL_H, type MapObj } from "./objects.ts";
 import { Lib, type Effect } from "./effects.ts";
-import { gameSettings } from "./settings.ts";
+import { atmosphereOn, gameSettings } from "./settings.ts";
 import type { LightSource, Rgb } from "./lighting.ts";
 
 /** A light added to the Enhanced light map: centre (x, y) and radii in screen pixels. `scaled` lights fade out in daylight like lamps; flashes do not. */
@@ -215,14 +215,14 @@ const HAZE_SPELL_OBJECTS = new Map<number, HazeSpec>([
 
 /** Atmosphere on: the warm light colour for a fire effect (any table entry with a fire flash, heat haze or fireLight), else null (keep its own colour). */
 export function fireLightColour(e: Effect): Rgb | null {
-  if (!gameSettings.Atmosphere) return null;
+  if (!atmosphereOn()) return null;
   const spec = EFFECTS.get(`${e.lib}:${e.baseIndex}`);
   return spec && (spec.fireLight || spec.haze || spec.flash?.colour === FIRE) ? FIRE_LIGHT : null;
 }
 
 /** Atmosphere on: the warm light colour for a burning spell object (FireWall, MeteorStrike), else null. */
 export function fireSpellObjectLight(spell: number | undefined): Rgb | null {
-  return gameSettings.Atmosphere && spell !== undefined && HAZE_SPELL_OBJECTS.has(spell) ? FIRE_LIGHT : null;
+  return atmosphereOn() && spell !== undefined && HAZE_SPELL_OBJECTS.has(spell) ? FIRE_LIGHT : null;
 }
 
 /** `tint` applied at strength `k` (0 = none, 1 = full). */
@@ -340,7 +340,7 @@ export class Atmosphere {
   begin(batch: SpriteBatch, width: number, height: number, enhanced: boolean, userDead: boolean): boolean {
     this.active = false;
     this.glowDraws.length = 0;
-    if (!enhanced || userDead || !gameSettings.Atmosphere) {
+    if (!enhanced || userDead || !atmosphereOn()) {
       this.flashes.length = 0;
       return false;
     }
@@ -363,7 +363,7 @@ export class Atmosphere {
     this.fogOn = (weather & WeatherSetting.Fog) !== 0;
     this.depth = dungeon ? DUNGEON_DEPTH : 0;
     const happened = this.fx.update(now, weather, map, objects);
-    this.rainAudio(gameSettings.Atmosphere && this.fx.rain ? this.fx.rainIntensity(now) * (0.85 + 0.15 * Math.min(this.fx.gust, 1.2)) : 0);
+    this.rainAudio(atmosphereOn() && this.fx.rain ? this.fx.rainIntensity(now) * (0.85 + 0.15 * Math.min(this.fx.gust, 1.2)) : 0);
     if (!this.active) return;
     if (this.fx.wet) this.updateCellMask(map, user, offSetX, offSetY, now);
     if (happened.strike) this.flashes.push({ ...strike(0, 0, 560, 0.38), wx: 0, wy: 0, start: now });
@@ -652,7 +652,7 @@ export class Atmosphere {
 
   /** A critical hit on `ob` (GameScene.DamageIndicator, Critical): placed at the next `collect`. */
   crit(ob: MapObj): void {
-    if (gameSettings.Atmosphere && this.pendingCrits.length < 32) this.pendingCrits.push(ob);
+    if (atmosphereOn() && this.pendingCrits.length < 32) this.pendingCrits.push(ob);
   }
 
   /** After the objects and weather are drawn, before the lights: new flashes from started effects, this frame's lights and haze. */

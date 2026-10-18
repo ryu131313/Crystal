@@ -35,6 +35,8 @@ export interface UiRuntimeInit {
   scale?: number;
   autoScale?: boolean;
   theme?: ThemeSettings;
+  /** The touch layout (settings.ts isMobileUi): k fits a 1024 px wide windows layer (mobile/mobileUi.ts). */
+  mobile?: boolean;
 }
 
 /** Builds a window on its first open. */
@@ -59,6 +61,8 @@ export class UiRuntime implements WindowHost {
   private screenH: number;
   private uiScale: number;
   private autoScale: boolean;
+  /** The touch layout (UiRuntimeInit.mobile). */
+  readonly mobile: boolean;
   private themeColors: ThemeColors;
   private disposed = false;
 
@@ -67,9 +71,11 @@ export class UiRuntime implements WindowHost {
     this.screenH = init.screen[1];
     this.uiScale = init.scale ?? 1;
     this.autoScale = init.autoScale ?? true;
+    this.mobile = init.mobile ?? false;
     if (init.signal.aborted) this.scope.abort();
     else init.signal.addEventListener("abort", () => this.dispose(), { once: true, signal: this.scope.signal });
     this.layers = new Layers();
+    this.layers.root.classList.toggle("mobile", this.mobile);
     installIconDefs(this.layers.root);
     this.themeColors = applyTheme(this.layers.root, init.theme);
     this.wm = new WindowManager(this.layers, this.signal);
@@ -82,7 +88,11 @@ export class UiRuntime implements WindowHost {
   get signal(): AbortSignal { return this.scope.signal; }
   get root(): HTMLElement { return this.layers.root; }
   /** The current HUD scale k. */
-  get k(): number { return hudScale(this.uiScale, this.autoScale, this.screenH); }
+  get k(): number {
+    // mobile: every window still gets its 1024 px layer (webclient.md 3.6), as large as the phone's width allows
+    if (this.mobile) return Math.min(4, Math.max(0.25, (this.uiScale > 0 ? this.uiScale : 1) * this.screenW / 1024));
+    return hudScale(this.uiScale, this.autoScale, this.screenH);
+  }
   get layout(): LayoutInfo { return this.layers.layout; }
   /** The resolved theme colours (for canvas drawing). */
   get theme(): ThemeColors { return this.themeColors; }

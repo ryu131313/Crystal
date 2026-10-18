@@ -76,6 +76,10 @@ const WINDOW_CSS = `
 .hudm .hwin.front .panel { border-color: color-mix(in srgb, var(--ac) 55%, var(--fr)); box-shadow: 0 0 0 1px #000, inset 0 1px 0 color-mix(in srgb, var(--frl) 30%, transparent), 0 10px 30px rgba(0,0,0,.7), 0 0 calc(14px * var(--gl)) color-mix(in srgb, var(--ac) 22%, transparent); }
 /* While dragged, a window moves by transform on its own layer (no relayout, no repaint of its big shadow per move). */
 .hudm .hwin.wdrag { will-change: transform; }
+/* The touch layout (UiRuntime.mobile): docked sheets that scroll, a big close cross, no move cursor. */
+.hudm.mobile .hwin { max-height: 100%; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; overscroll-behavior: contain; scrollbar-width: none; }
+.hudm.mobile .hwin .title { height: 46px; cursor: default; }
+.hudm.mobile .hwin .x { width: 46px; height: 46px; top: 0; right: 0; font-size: 30px; color: var(--tx); }
 .hudm .wguide { position: absolute; pointer-events: none; background: var(--ac); box-shadow: 0 0 6px var(--glow); opacity: .85; }
 .hudm .wguide.v { top: 0; bottom: 0; width: 1px; } .hudm .wguide.h { left: 0; right: 0; height: 1px; }
 `;

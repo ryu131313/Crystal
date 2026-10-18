@@ -24,7 +24,8 @@ export interface ThemePreset extends ThemeColors { readonly name: string }
 const p = (name: string, hue: number, sat: number, lit: number, accent: string, frame: string, text: string, glow: number): ThemePreset =>
   ({ name, hue, sat, lit, accent, frame, text, glow, radius: 5 });
 
-/** The scene lab's nine presets (play/lab.ts THEMES); the first is the default. */
+/** The scene lab's nine presets (play/lab.ts THEMES), then the web's warmer / greener / purple ones (2026-10-17); the
+ *  first is the default. Names are saved (Settings UiTheme): rename never, append freely. */
 export const THEME_PRESETS: readonly ThemePreset[] = [
   p("Midnight electric", 218, 1, 1, "#3fb4ff", "#3a5a8c", "#d6e2f5", 1),
   p("Abyss", 222, 0.8, 0.65, "#00c8ff", "#24395e", "#c8d6ec", 1.2),
@@ -35,6 +36,14 @@ export const THEME_PRESETS: readonly ThemePreset[] = [
   p("Royal gold", 224, 1.25, 1.2, "#e8b84a", "#8a6a2e", "#f2ead6", 0.9),
   p("Dark brown / red", 14, 0.55, 0.9, "#c8402e", "#5e3a2a", "#ead8cc", 0.8),
   p("Lost Ark red", 356, 0.8, 0.9, "#ff3b3b", "#6a2a30", "#f0dada", 1),
+  p("Emerald", 152, 0.9, 0.9, "#2fe39a", "#2a6a52", "#d8f2e6", 1.1),
+  p("Forest", 112, 0.55, 0.85, "#9ad35a", "#4a6a34", "#e2ecd4", 0.8),
+  p("Toxic", 84, 1.1, 0.8, "#c6ff3a", "#4e6a1e", "#eef8d4", 1.4),
+  p("Amethyst", 276, 0.85, 0.95, "#b67cff", "#5a3c8a", "#ece2fa", 1.1),
+  p("Sakura", 332, 0.7, 1.05, "#ff7ab8", "#8a4266", "#fae4ee", 1),
+  p("Ember", 22, 0.95, 0.9, "#ff8a2e", "#7a4424", "#f6e4d4", 1.2),
+  p("Desert sand", 38, 0.5, 1.15, "#e6c27a", "#7a6646", "#f4ecdc", 0.7),
+  p("Obsidian", 220, 0.08, 0.8, "#e6e6e6", "#4a4a4e", "#e4e4e6", 0.5),
 ];
 
 export const DEFAULT_THEME = "Midnight electric";

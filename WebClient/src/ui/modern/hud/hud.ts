@@ -180,8 +180,9 @@ export class Hud {
   private readonly modes: ModeSlot[] = [];
   private readonly core = h("div", "hm-core");
   private readonly menu = h("div", "hm-menu");
-  private readonly buffRow = h("div", "hm-buffs");
-  private readonly poisonRow = h("div", "hm-debuffs");
+  /** The buff / poison rows (the touch layout moves them under its HP / MP box: mobile/mobileUi.ts). */
+  readonly buffRow = h("div", "hm-buffs");
+  readonly poisonRow = h("div", "hm-debuffs");
   private readonly dura = h("div", "hdura");
   private hpBar!: HTMLElement; private hpFill!: HTMLElement; private hpLag!: HTMLElement; private hpTxt!: HTMLElement;
   private mpBar!: HTMLElement; private mpFill!: HTMLElement; private mpLag!: HTMLElement; private mpTxt!: HTMLElement;
@@ -403,7 +404,7 @@ export class Hud {
   // — Per frame: bars, EXP, level, modes, skill row —
 
   private frame(now: number): void {
-    if (this.disposed || this.rt.root.hidden) return;
+    if (this.disposed || this.rt.root.hidden || this.rt.layers.rig.hidden) return; // rig hidden: the touch layout
     const p = this.ctx.player, st = p.stats?.stats, sh = this.shown;
     const hpMax = st?.[Stat.HP] ?? 0, mpMax = st?.[Stat.MP] ?? 0;
     if (p.hp !== sh.hp || hpMax !== sh.hpMax) {
@@ -474,6 +475,7 @@ export class Hud {
 
   private slow(now: number): void {
     if (this.disposed || this.rt.root.hidden) return;
+    if (this.rt.layers.rig.hidden) { this.drawBuffs(now); this.drawPoisons(now); return; } // the touch layout shows only these
     this.plates.update();
     this.drawBuffs(now);
     this.drawPoisons(now);

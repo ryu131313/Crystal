@@ -227,6 +227,9 @@ export class ChatHud {
   private readonly opts: Opts;
   private readonly place: Place;
   private stick = true;
+  /** When the player last scrolled the log by hand (wheel, touch, drag, keys): only such a scroll stops the follow,
+   *  not one caused by a resize (the phone keyboard, the mobile chat sheet opening / closing). */
+  private userScrollAt = -1e9;
   private unseen = 0;
   private hover = false;
   private readonly log: HTMLElement;
@@ -272,8 +275,15 @@ export class ChatHud {
     this.log = h("div", "log");
     this.log.addEventListener("scroll", () => {
       const atEnd = this.log.scrollHeight - this.log.scrollTop - this.log.clientHeight < 6;
-      if (atEnd && !this.stick) { this.stick = true; this.unseen = 0; this.renderNewPill(); } else if (!atEnd) this.stick = false;
+      if (atEnd && !this.stick) { this.stick = true; this.unseen = 0; this.renderNewPill(); }
+      else if (!atEnd && performance.now() - this.userScrollAt < 1000) this.stick = false;
     }, { passive: true, signal: this.signal });
+    const byHand = () => { this.userScrollAt = performance.now(); };
+    for (const ev of ["wheel", "pointerdown", "touchmove", "keydown"]) this.log.addEventListener(ev, byHand, { passive: true, signal: this.signal });
+    // A resize keeps a following log at its end (the scroll position alone would leave it short)
+    const ro = new ResizeObserver(() => { if (this.stick) this.scrollEnd(); });
+    ro.observe(this.log);
+    this.signal.addEventListener("abort", () => ro.disconnect());
     this.newp = h("div", "newp");
     this.newp.hidden = true;
     this.newp.addEventListener("click", () => { this.stick = true; this.unseen = 0; this.scrollEnd(); this.renderNewPill(); }, sig);
@@ -341,6 +351,15 @@ export class ChatHud {
   /** GameScene map click: the input loses the focus (it closes when empty). */
   blur(): void { this.input.blur(); }
 
+  /** Back to following the newest line (the mobile chat sheet opening / closing). */
+  follow(): void { this.stick = true; this.unseen = 0; this.scrollEnd(); this.renderNewPill(); }
+
+  /** True when `name` is on the block list (its lines are hidden). */
+  isBlocked(name: string): boolean { return this.blocked.has(name); }
+
+  /** The input element (the mobile chat sheet tells a tap on it from one on the log). */
+  get inputEl(): HTMLInputElement { return this.input; }
+
   /** Opens the input (Enter). */
   focus(): void {
     this.el.classList.add("typing", "act");
@@ -404,8 +423,8 @@ export class ChatHud {
     }
     if (matchesAnyBinding(e)) return false;
     switch (e.key) {
-      case "PageUp": this.log.scrollTop -= this.log.clientHeight * 0.8; break;
-      case "PageDown": this.log.scrollTop += this.log.clientHeight * 0.8; break;
+      case "PageUp": this.userScrollAt = performance.now(); this.log.scrollTop -= this.log.clientHeight * 0.8; break;
+      case "PageDown": this.userScrollAt = performance.now(); this.log.scrollTop += this.log.clientHeight * 0.8; break;
       case "End": this.stick = true; this.unseen = 0; this.scrollEnd(); this.renderNewPill(); break;
       default: return false;
     }

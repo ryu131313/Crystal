@@ -8,7 +8,8 @@
 //  - the doll follows the classic CharacterPage.AfterDraw logic (src/ui/characterWindow.ts drawDoll): armour / weapon
 //    by ItemInfos.realItem, the helmet by its own Image, else the hair (Prguse 441 + hair, assassin / female offsets),
 //    the wings (Prguse2 1202 / 1204 + gender, additive) for an armour with WingEffect 1 / 2, the gender's base body;
-//  - topPointX is memoised by picture URL (Performance.md T4-4); the doll redraws only when its look key changes;
+//  - centred on the base body's mass centre (memoised by URL, Performance.md T4-4), not the head's top point (hairpins
+//    pulled it off centre); the doll redraws only when its look key changes;
 //  - the Stats panel reads UserStats (ctx.player.stats) with the classic STATS I / II formats, HP / MP rows included;
 //    it flips to the window's left side when it would open off the layer's right edge (Review-Core.md);
 //  - name / level / class from the user object, guild name + rank from the guild model; rows without data are hidden;
@@ -95,13 +96,14 @@ const CSS = `
 .hudm .cwin .who span.cls { color: var(--cc, var(--dim)); }
 .hudm .cwin .who em { display: block; font-style: normal; font-size: 12px; font-weight: 600; color: var(--ac); }
 .hudm .cwin .body { position: relative; margin: 6px 22px 0; height: 300px; }
-.hudm .cwin .col { position: absolute; top: 0; bottom: 0; display: flex; flex-direction: column; justify-content: space-between; }
+.hudm .cwin .col { position: absolute; bottom: 0; display: flex; flex-direction: column; gap: 8px; z-index: 1; }
 .hudm .cwin .col.l { left: 0; } .hudm .cwin .col.r { right: 0; }
-.hudm .cwin .figure { position: absolute; left: 52px; right: 52px; top: 0; bottom: 0; overflow: hidden; border-radius: var(--rad); pointer-events: none;
+.hudm .cwin .figure { position: absolute; left: 52px; right: 52px; top: 0; bottom: 0; overflow: visible; border-radius: var(--rad); pointer-events: none;
   background: radial-gradient(ellipse 60% 45% at 50% 55%, color-mix(in srgb, var(--ac) 14%, transparent), transparent 70%),
     radial-gradient(ellipse 45% 7% at 50% 93%, rgba(0,0,0,.6), transparent); }
 .hudm .cwin .org { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .hudm .cwin .org div { position: absolute; background-repeat: no-repeat; image-rendering: pixelated; }
+.hudm .cwin .org div.hd { background-size: 100% 100%; image-rendering: auto; }
 .hudm .cwin .org div.wing { mix-blend-mode: plus-lighter; }
 .hudm .cwin .bottom { display: flex; justify-content: center; gap: 6px; margin: 10px 0 0; }
 /* The arrow tab on the right edge: opens / closes the Stats panel. */
@@ -144,6 +146,21 @@ export interface DollLook {
 
 const part = (lib: string, index: number, ox = 0, oy = 0): DollPart | null => index >= 0 ? { lib, index, ox, oy } : null;
 
+/** A doll picture; `hd` = a 2x HD-companion picture given in its library's units (draw it scaled to width x height). */
+export type DollPicture = LibPicture & { readonly hd?: boolean };
+
+/** The libraries with a web-only 2x companion (controls.ts Lib.StateItemsHD / Prguse2HD). */
+const HD_LIBS: Readonly<Record<string, string>> = { [Lib.StateItems]: Lib.StateItemsHD, [Lib.Prguse2]: Lib.Prguse2HD };
+
+/** A doll picture of `lib`: its HD companion's (2x pictures and offsets) halved to `lib` units when that file has
+ *  the index, else `lib`'s own. */
+export async function dollPicture(lib: string, index: number): Promise<DollPicture | null> {
+  const hdLib = HD_LIBS[lib];
+  const hd = hdLib ? await libPicture(hdLib, index) : null;
+  if (hd) return { url: hd.url, width: hd.width / 2, height: hd.height / 2, x: hd.x / 2, y: hd.y / 2, hd: true };
+  return libPicture(lib, index);
+}
+
 /** CharacterPage.AfterDraw (src/ui/characterWindow.ts drawDoll) as data: armour / weapon by ItemInfos.realItem (the
  *  wearer's level and class), the helmet by its own Image, else the hair; wings (Prguse2) for WingEffect 1 / 2. */
 export function dollLook(o: {
@@ -173,13 +190,15 @@ const partKey = (p: DollPart | null): string => p ? `${p.lib}#${p.index}@${p.ox}
 const lookKey = (l: DollLook): string => [l.female ? "f" : "m", partKey(l.wing), partKey(l.armour), partKey(l.weapon), partKey(l.head)].join("|");
 
 /** The paperdoll element: `el` is the figure box (size it with CSS); set() redraws only when the look changed. The
- *  doll is placed so the head's top point sits on the box's centre line, scaled as large as fits on both sides of it. */
+ *  doll is placed so the base body's mass centre sits on the box's centre line, scaled as large as fits on both sides of it.
+ *  `bleed` lets the weapon and wings reach that many px past the box's sides (the box needs overflow: visible); the
+ *  body, armour and head always stay inside it. */
 export class Paperdoll {
   readonly el: HTMLElement;
   private org: HTMLElement;
   private key = "";
 
-  constructor(cls = "figure") {
+  constructor(cls = "figure", private readonly bleed = 0) {
     this.org = h("div", "org");
     this.el = h("div", cls, this.org);
   }
@@ -200,26 +219,29 @@ export class Paperdoll {
 
   private async draw(look: DollLook, org: HTMLElement, key: string): Promise<void> {
     const parts = [look.wing, look.armour, look.weapon, look.head];
-    const all = await Promise.all([baseBody(look.female), ...parts.map((p) => p ? libPicture(p.lib, p.index) : Promise.resolve(null))]);
+    const all: (DollPicture | null)[] = await Promise.all([baseBody(look.female), ...parts.map((p) => p ? dollPicture(p.lib, p.index) : Promise.resolve(null))]);
     if (org !== this.org || !org.isConnected) return;
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, drawn = 0;
+    let cx0 = Infinity, cx1 = -Infinity; // the body, armour and head only (no wings, no weapon)
     all.forEach((pic, i) => {
       if (!pic) return;
       const p = i > 0 ? parts[i - 1]! : null;
       const x = pic.x + (p?.ox ?? 0), y = pic.y + (p?.oy ?? 0);
-      const d = h("div", i === 1 ? "wing" : "");
+      const d = h("div", (i === 1 ? "wing" : "") + (pic.hd ? " hd" : ""));
       Object.assign(d.style, { left: x + "px", top: y + "px", width: pic.width + "px", height: pic.height + "px", backgroundImage: `url(${pic.url})` });
       org.append(d);
       drawn++;
       x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x + pic.width); y1 = Math.max(y1, y + pic.height);
+      if (i === 0 || i === 2 || i === 4) { cx0 = Math.min(cx0, x); cx1 = Math.max(cx1, x + pic.width); }
     });
     if (!drawn) { if (this.key === key) this.key = ""; return; } // nothing loaded: try again on the next set()
-    const head = all[4] ?? null;
-    const apex = head ? await topPointX(head) + (look.head?.ox ?? 0) : (x0 + x1) / 2;
+    const body = all[0] ?? null;
+    const apex = body ? await centreX(body) : (x0 + x1) / 2;
     if (org !== this.org || !org.isConnected) return;
     const fw = this.el.clientWidth, fh = this.el.clientHeight;
     if (!fw || !fh) { if (this.key === key) this.key = ""; return; } // not laid out (closed): drawn again on the next open
-    const k = Math.min((fh - 8) / (y1 - y0), (fw / 2 - 4) / Math.max(1, apex - x0, x1 - apex));
+    const core = cx0 <= cx1 ? Math.max(1, apex - cx0, cx1 - apex) : 1;
+    const k = Math.min((fh - 4) / (y1 - y0), (fw / 2 - 4) / core, (fw / 2 + this.bleed - 2) / Math.max(1, apex - x0, x1 - apex));
     org.style.transform = `scale(${k})`;
     org.style.left = fw / 2 - apex * k + "px";
     org.style.top = (fh - (y1 - y0) * k) / 2 - y0 * k + "px";
@@ -264,15 +286,16 @@ async function makeBaseBody(female: boolean): Promise<LibPicture | null> {
   return { url: URL.createObjectURL(blob), width: cw, height: ch, x: 8 + cx, y: 90 + cy };
 }
 
-/** topPointX by picture URL (Performance.md T4-4: decode + getImageData once per picture, not per draw). */
-const apexes = new Map<string, Promise<number>>();
-function topPointX(p: LibPicture): Promise<number> {
-  let a = apexes.get(p.url);
-  if (!a) { a = measureTopPointX(p); apexes.set(p.url, a); }
+/** centreX by picture URL (Performance.md T4-4: decode + getImageData once per picture, not per draw). */
+const centres = new Map<string, Promise<number>>();
+function centreX(p: LibPicture): Promise<number> {
+  let a = centres.get(p.url);
+  if (!a) { a = measureCentreX(p); centres.set(p.url, a); }
   return a;
 }
-/** The x (in doll coordinates) of a picture's top point: the middle of its topmost row of opaque pixels. */
-async function measureTopPointX(p: LibPicture): Promise<number> {
+/** The x (in doll coordinates) of a picture's opaque mass centre. Used on the base body, so the doll is centred on the
+ *  figure whatever it wears (the head's top point was thrown off by hairpins and helmet plumes). */
+async function measureCentreX(p: LibPicture): Promise<number> {
   const img = new Image();
   img.src = p.url;
   await img.decode().catch(() => {});
@@ -280,14 +303,12 @@ async function measureTopPointX(p: LibPicture): Promise<number> {
   c.width = p.width; c.height = p.height;
   const g = c.getContext("2d");
   if (!g) return p.x + p.width / 2;
-  g.drawImage(img, 0, 0);
+  g.drawImage(img, 0, 0, p.width, p.height); // sized to the box: an HD picture is 2x its box
   const d = g.getImageData(0, 0, p.width, p.height).data;
-  for (let y = 0; y < p.height; y++) {
-    let sum = 0, n = 0;
+  let sum = 0, n = 0;
+  for (let y = 0; y < p.height; y++)
     for (let x = 0; x < p.width; x++) if (d[(y * p.width + x) * 4 + 3]! > 0) { sum += x; n++; }
-    if (n) return p.x + sum / n + 0.5;
-  }
-  return p.x + p.width / 2;
+  return n ? p.x + sum / n + 0.5 : p.x + p.width / 2;
 }
 
 // — The window —
@@ -297,7 +318,7 @@ export class CharacterWindow extends UiWindow {
   private readonly lineEl = h("span", "cls");
   private readonly guildEl = h("span");
   private readonly rankEl = h("em");
-  private readonly doll = new Paperdoll();
+  private readonly doll = new Paperdoll("figure", 30);
   private readonly cells = new Map<number, ItemCell>();
   private readonly slotNames = new Map<number, string>();
   /** The empty-slot hint last written per slot (title only while empty; the item tooltip covers a filled slot). */
