@@ -27,5 +27,8 @@
         public readonly AllowTogglesState AllowToggles = new AllowTogglesState();
         public readonly MapDetailsState MapDetails = new MapDetailsState();
         public readonly HeroAutoCastState HeroAutoCast = new HeroAutoCastState();
+        public readonly RankingsState Rankings = new RankingsState();
+        public readonly RelationshipState Relationship = new RelationshipState();
+        public readonly PoisonTimers Poisons = new PoisonTimers();
     }
 }

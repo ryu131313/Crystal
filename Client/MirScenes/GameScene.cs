@@ -76,6 +76,8 @@ namespace Client.MirScenes
         public static List<ClientRecipeInfo> RecipeInfoList = new List<ClientRecipeInfo>();
         public static List<ClientHeroInformation> HeroInfoList = new List<ClientHeroInformation>();
         public static ClientHeroInformation[] HeroStorage = new ClientHeroInformation[8];
+        /// <summary>The hero S.ManageHeroes named current (was HeroManageDialog.CurrentAvatar.Info); S.ChangeHero swaps it with a storage slot.</summary>
+        public static ClientHeroInformation CurrentHeroInfo;
         public static Dictionary<long, RankCharacterInfo> RankingList = new Dictionary<long, RankCharacterInfo>();
         public static int TeleportToNPCCost;
         public static int MaximumHeroCount;
@@ -743,9 +745,7 @@ namespace Client.MirScenes
             if (CMain.Time >= LogTime)
             {
                 //If Last Combat < 10 CANCEL
-                MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ExitTip), MirMessageBoxButtons.YesNo);
-                messageBox.YesButton.Click += (o, e) => Program.Form.Close();
-                messageBox.Show();
+                Ui.ConfirmQuit();
             }
             else
             {
@@ -765,13 +765,7 @@ namespace Client.MirScenes
                 }
 
                 //If Last Combat < 10 CANCEL
-                MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.LogOutTip), MirMessageBoxButtons.YesNo);
-                messageBox.YesButton.Click += (o, e) =>
-                {
-                    Network.Enqueue(new C.LogOut());
-                    Enabled = false;
-                };
-                messageBox.Show();
+                Ui.ConfirmLogOut();
             }
             else
             {
@@ -1259,6 +1253,43 @@ namespace Client.MirScenes
                         Models.Inspect.ProfileText = profile.Text ?? string.Empty;
                         Models.Inspect.ProfileChanged.Emit();
                     }
+                    break;
+                // Phase 4: model-only packets (the classic windows do not read them)
+                case (short)ServerPacketIds.PoisonStatus:
+                    Models.Poisons.Apply(((S.PoisonStatus)p).Poisons);
+                    break;
+                case (short)ServerPacketIds.GroupMemberStatus:
+                    GroupMemberStatus((S.GroupMemberStatus)p);
+                    break;
+                case (short)ServerPacketIds.GuildMemberDetails:
+                    {
+                        var details = (S.GuildMemberDetails)p;
+                        Models.Guild.ApplyMemberDetails(details.Part, details.PartCount, details.Members);
+                    }
+                    break;
+                case (short)ServerPacketIds.GuildWarList:
+                    Models.Guild.ApplyWars(((S.GuildWarList)p).Wars);
+                    break;
+                case (short)ServerPacketIds.GuildLog:
+                    Models.Guild.ApplyLog(((S.GuildLog)p).Entries);
+                    break;
+                case (short)ServerPacketIds.RankingsDetail:
+                    Models.Rankings.ApplyDetails((S.RankingsDetail)p);
+                    break;
+                case (short)ServerPacketIds.GuildRankings:
+                    Models.Rankings.ApplyGuildPage((S.GuildRankings)p);
+                    break;
+                case (short)ServerPacketIds.MentorDetails:
+                    Models.Relationship.ApplyMentorDetails((S.MentorDetails)p);
+                    break;
+                case (short)ServerPacketIds.MentorCandidates:
+                    Models.Relationship.ApplyCandidates((S.MentorCandidates)p);
+                    break;
+                case (short)ServerPacketIds.FriendRequest:
+                    Models.Friends.AddRequest((S.FriendRequest)p);
+                    break;
+                case (short)ServerPacketIds.FriendRequestResult:
+                    Models.Friends.ResultReceived.Emit((S.FriendRequestResult)p);
                     break;
                 case (short)ServerPacketIds.MarketPriceHistory:
                     {
@@ -1835,6 +1866,7 @@ namespace Client.MirScenes
             MapControl.Weather = p.WeatherParticles;
             MapControl.LoadMap();
             InsertControl(0, MapControl);
+            Ui.MapChanged(p.MapIndex);
         }
 
         private void WorldMapSetup(S.WorldMapSetupInfo info)
@@ -2634,11 +2666,7 @@ namespace Client.MirScenes
 
             if (quest == null) return;
 
-            MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerShareQuestRequest), p.SharerName), MirMessageBoxButtons.YesNo);
-
-            messageBox.YesButton.Click += (o, e) => Network.Enqueue(new C.AcceptQuest { NPCIndex = 0, QuestIndex = quest.Index });
-
-            messageBox.Show();
+            Ui.QuestShareRequest(p, quest);
         }
 
         private void ChangeQuest(S.ChangeQuest p)
@@ -3463,6 +3491,7 @@ namespace Client.MirScenes
             var previousPoisons = User.Poison;
 
             User.Poison = p.Poison;
+            Models.Poisons.Trim(p.Poison);
             if (p.Poison.HasFlag(PoisonType.Stun) || p.Poison.HasFlag(PoisonType.Dazed) || p.Poison.HasFlag(PoisonType.Frozen) || p.Poison.HasFlag(PoisonType.Paralysis) || p.Poison.HasFlag(PoisonType.LRParalysis))
             {
                 User.ClearMagic();
@@ -3536,6 +3565,7 @@ namespace Client.MirScenes
             MapControl.InputDelay = CMain.Time + 400;
 
             MapControl.UpdateWeather();
+            Ui.MapChanged(p.MapIndex);
         }
         private void ObjectTeleportOut(S.ObjectTeleportOut p)
         {
@@ -4435,6 +4465,7 @@ namespace Client.MirScenes
             Models.Group.Members.Clear();
             Models.Group.MemberMaps.Clear();
             Models.Group.MemberLocations.Clear();
+            Models.Group.MemberStatus.Clear();
             Models.Group.Changed.Emit();
             Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.YouHaveLeftGroup), ChatType.Group);
         }
@@ -4444,6 +4475,7 @@ namespace Client.MirScenes
             Models.Group.Members.Remove(p.Name);
             Models.Group.MemberMaps.Remove(p.Name);
             Models.Group.MemberLocations.Remove(p.Name);
+            Models.Group.MemberStatus.Remove(p.Name);
             Models.Group.Changed.Emit();
             Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerHasLeftGroup), p.Name), ChatType.Group);
         }
@@ -4457,6 +4489,12 @@ namespace Client.MirScenes
             Models.Group.Members.Add(p.Name);
             Models.Group.Changed.Emit();
             Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerHasJoinedGroup), p.Name), ChatType.Group);
+        }
+        private void GroupMemberStatus(S.GroupMemberStatus p)
+        {
+            if (string.IsNullOrEmpty(p.Name)) return;
+            Models.Group.MemberStatus[p.Name] = p;
+            Models.Group.StatusChanged.Emit(p.Name);
         }
         private void GroupMembersMap(S.GroupMembersMap p)
         {
@@ -5232,50 +5270,25 @@ namespace Client.MirScenes
 
         private void GuildInvite(S.GuildInvite p)
         {
-            MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.JoinGuildPrompt), p.Name), MirMessageBoxButtons.YesNo);
-
-            messageBox.YesButton.Click += (o, e) => Network.Enqueue(new C.GuildInvite { AcceptInvite = true });
-            messageBox.NoButton.Click += (o, e) => Network.Enqueue(new C.GuildInvite { AcceptInvite = false });
-
-            messageBox.Show();
+            Ui.GuildInviteRequest(p);
         }
 
         private void GuildNameRequest(S.GuildNameRequest p)
         {
-            MirInputBox inputBox = new MirInputBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.EnterGuildNameLengthLimit));
-            inputBox.InputTextBox.TextBox.KeyPress += (o, e) =>
-            {
-                string Allowed = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-                if (!Allowed.Contains(e.KeyChar) && e.KeyChar != (char)Keys.Back)
-                    e.Handled = true;
-            };
-            inputBox.OKButton.Click += (o, e) =>
-            {
-                if (inputBox.InputTextBox.Text.Contains('\\'))
-                {
-                    Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CannotUseBackslashInGuildName), ChatType.System);
-                    inputBox.InputTextBox.Text = "";
-                }
-                Network.Enqueue(new C.GuildNameReturn { Name = inputBox.InputTextBox.Text });
-                inputBox.Dispose();
-            };
-            inputBox.Show();
+            Ui.GuildNameRequest();
         }
 
         private void GuildRequestWar(S.GuildRequestWar p)
         {
-            MirInputBox inputBox = new MirInputBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.EnterGuildToWarWith));
-
-            inputBox.OKButton.Click += (o, e) =>
-            {
-                Network.Enqueue(new C.GuildWarReturn { Name = inputBox.InputTextBox.Text });
-                inputBox.Dispose();
-            };
-            inputBox.Show();
+            Ui.GuildWarRequest();
         }
 
         private void GuildNoticeChange(S.GuildNoticeChange p)
         {
+            if (p.update == -1)
+                Models.Guild.NoticeStale = true;
+            else
+                Models.Guild.SetNotice(p.notice);
             Ui.GuildNoticeChange(p);
         }
         private void GuildMemberChange(S.GuildMemberChange p)
@@ -5302,7 +5315,49 @@ namespace Client.MirScenes
                     break;
             }
 
-            Ui.GuildMemberChange(p);
+            // The member-list half (was GuildDialog's: classic only refreshes its controls in Ui.GuildMemberChange)
+            GuildState guild = Models.Guild;
+            GuildMemberEdit edit = GuildMemberEdit.None;
+            bool membersEdited = true;
+            switch (p.Status)
+            {
+                case 0: // logged off
+                    guild.SetMemberOnline(p.Name, false);
+                    break;
+                case 1: // logged on
+                    guild.SetMemberOnline(p.Name, true);
+                    break;
+                case 2: // new member
+                case 3: // kicked member
+                case 4: // member left
+                case 5: // rank change (name or different rank)
+                    guild.MembersStale = true;
+                    membersEdited = false;
+                    break;
+                case 6: // new rank
+                    if (p.Ranks.Count > 0) guild.AddRank(p.Ranks[0]);
+                    break;
+                case 7: // rank option changed
+                    if (p.Ranks.Count > 0)
+                    {
+                        guild.ChangeRank(p.Ranks[0], out bool mine, out bool renamed);
+                        if (mine) edit |= GuildMemberEdit.Mine;
+                        if (renamed) edit |= GuildMemberEdit.Renamed;
+                    }
+                    break;
+                case 8: // my rank changed
+                    if (p.Ranks.Count > 0 && guild.ChangeMyRank(p.Ranks[0])) edit |= GuildMemberEdit.Moved;
+                    break;
+                case 255:
+                    guild.ReplaceMembers(p.Ranks);
+                    break;
+                default:
+                    membersEdited = false;
+                    break;
+            }
+
+            Ui.GuildMemberChange(p, edit);
+            if (membersEdited) guild.MembersChanged.Emit();
         }
 
         private void GuildStatus(S.GuildStatus p)
@@ -5311,6 +5366,13 @@ namespace Client.MirScenes
 
             GuildState guild = Models.Guild;
             bool GuildChange = User.GuildName != p.GuildName;
+            if (User.GuildName == "" && p.GuildName != "")
+            {
+                guild.NoticeStale = true;
+                guild.MembersStale = true;
+            }
+            if (GuildChange && User.GuildName != "")
+                guild.ClearExtras(); // the member details, wars and log belong to the old guild
             User.GuildName = p.GuildName;
             User.GuildRankName = p.GuildRankName;
             guild.Level = p.Level;
@@ -5491,11 +5553,16 @@ namespace Client.MirScenes
             }
 
             MaximumHeroCount = p.MaximumCount;
+            CurrentHeroInfo = p.CurrentHero;
             Ui.ManageHeroes(p.CurrentHero);
         }
 
         private void ChangeHero(S.ChangeHero p)
         {
+            if (p.FromIndex < 0 || p.FromIndex >= HeroStorage.Length) return;
+            ClientHeroInformation temp = HeroStorage[p.FromIndex];
+            HeroStorage[p.FromIndex] = CurrentHeroInfo;
+            CurrentHeroInfo = temp;
             Ui.ChangeHero(p);
         }
 
@@ -5578,33 +5645,17 @@ namespace Client.MirScenes
 
         private void MarriageRequest(S.MarriageRequest p)
         {
-            MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerAskedForMarriage), p.Name), MirMessageBoxButtons.YesNo);
-
-            messageBox.YesButton.Click += (o, e) => Network.Enqueue(new C.MarriageReply { AcceptInvite = true });
-            messageBox.NoButton.Click += (o, e) => { Network.Enqueue(new C.MarriageReply { AcceptInvite = false }); messageBox.Dispose(); };
-
-            messageBox.Show();
+            Ui.MarriageRequest(p);
         }
 
         private void DivorceRequest(S.DivorceRequest p)
         {
-            MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerRequestedDivorce), p.Name), MirMessageBoxButtons.YesNo);
-
-            messageBox.YesButton.Click += (o, e) => Network.Enqueue(new C.DivorceReply { AcceptInvite = true });
-            messageBox.NoButton.Click += (o, e) => { Network.Enqueue(new C.DivorceReply { AcceptInvite = false }); messageBox.Dispose(); };
-
-            messageBox.Show();
+            Ui.DivorceRequest(p);
         }
 
         private void MentorRequest(S.MentorRequest p)
         {
-            MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerRequestedTeachClass), p.Name, p.Level, GameScene.User.Class.ToString()),
-                MirMessageBoxButtons.YesNo);
-
-            messageBox.YesButton.Click += (o, e) => Network.Enqueue(new C.MentorReply { AcceptInvite = true });
-            messageBox.NoButton.Click += (o, e) => { Network.Enqueue(new C.MentorReply { AcceptInvite = false }); messageBox.Dispose(); };
-
-            messageBox.Show();
+            Ui.MentorRequest(p);
         }
 
         private bool UpdateGuildBuff(GuildBuff buff, bool Remove = false)
@@ -5683,12 +5734,7 @@ namespace Client.MirScenes
 
         private void TradeRequest(S.TradeRequest p)
         {
-            MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerRequestedTrade), p.Name), MirMessageBoxButtons.YesNo);
-
-            messageBox.YesButton.Click += (o, e) => Network.Enqueue(new C.TradeReply { AcceptInvite = true });
-            messageBox.NoButton.Click += (o, e) => { Network.Enqueue(new C.TradeReply { AcceptInvite = false }); messageBox.Dispose(); };
-
-            messageBox.Show();
+            Ui.TradeRequest(p);
         }
         private void TradeAccept(S.TradeAccept p)
         {
@@ -5699,21 +5745,31 @@ namespace Client.MirScenes
         private void TradeGold(S.TradeGold p)
         {
             Models.Trade.GuestGold = p.Amount;
+            User.TradeLocked = false; // the guest changed the offer: the user's side unlocks (was TradeDialog.ChangeLockState)
             Models.Trade.Changed.Emit();
             Ui.TradeGuestChanged();
         }
         private void TradeItem(S.TradeItem p)
         {
             Models.Trade.GuestItems = p.TradeItems;
+            User.TradeLocked = false;
             Models.Trade.Changed.Emit();
             Ui.TradeGuestChanged();
         }
         private void TradeConfirm()
         {
+            Models.Trade.Reset(User);
             Ui.TradeConfirmed();
         }
         private void TradeCancel(S.TradeCancel p)
         {
+            if (p.Unlock)
+            {
+                User.TradeLocked = false;
+                Models.Trade.Changed.Emit();
+            }
+            else
+                Models.Trade.Reset(User);
             Ui.TradeCancelled(p.Unlock);
         }
         private void NPCAwakening()
@@ -5902,11 +5958,7 @@ namespace Client.MirScenes
         {
             if (CMain.Time > User.DeadTime && User.CurrentAction == MirAction.Dead)
             {
-                MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.WouldYouLikeToBeRevived), MirMessageBoxButtons.YesNo);
-
-                messageBox.YesButton.Click += (o, e) => Network.Enqueue(new C.AcceptReincarnation());
-
-                messageBox.Show();
+                Ui.ReincarnationRequest();
             }
         }
 
@@ -5959,11 +6011,13 @@ namespace Client.MirScenes
 
         private void LoverUpdate(S.LoverUpdate p)
         {
+            Models.Relationship.ApplyLover(p);
             Ui.LoverUpdate(p);
         }
 
         private void MentorUpdate(S.MentorUpdate p)
         {
+            Models.Relationship.ApplyMentor(p);
             Ui.MentorUpdate(p);
         }
 
@@ -6137,6 +6191,7 @@ namespace Client.MirScenes
             foreach (long id in p.Listings)
                 listings.Add(RankingList[id]);
 
+            Models.Rankings.ApplyRankings(p, listings);
             Ui.RankingsReceived(listings, p);
         }
 

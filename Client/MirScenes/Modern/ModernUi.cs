@@ -48,6 +48,9 @@ namespace Client.MirScenes.Modern
             RegisterNpcWindows();      // ModernUi.Npc.cs (phase 3)
             RegisterUpgradeWindows();  // ModernUi.Upgrade.cs (phase 3)
             RegisterEconomyWindows();  // ModernUi.Economy.cs (phase 3)
+            RegisterGuildWindows();     // ModernUi.Guild.cs (phase 4): guild, territories, ranking (+ the HUD timer / compass / roll / notice)
+            RegisterSocialWindows();    // ModernUi.Social.cs (phase 4): group, trade, friends, mentor, relationship, quests
+            RegisterCompanionWindows(); // ModernUi.Companion.cs (phase 4): hero, creatures, mount, fishing
         }
 
         // Area hooks, one partial file per area (phase 2): each builds its part and answers its own keybinds.
@@ -58,6 +61,13 @@ namespace Client.MirScenes.Modern
         partial void RegisterNpcWindows();
         partial void RegisterUpgradeWindows();
         partial void RegisterEconomyWindows();
+        partial void RegisterGuildWindows();
+        partial void RegisterSocialWindows();
+        partial void RegisterCompanionWindows();
+        /// <summary>Phase 4 areas: called from <see cref="Dispose"/> before ModernEvents.Clear (drop model subscriptions, sessions).</summary>
+        partial void DisposeGuild();
+        partial void DisposeSocial();
+        partial void DisposeCompanion();
         /// <summary>Keybinds the area handles (true = consumed). Called by <see cref="KeyBind"/> before the shared cases.</summary>
         private partial bool HudKeyBind(KeybindOptions function);
         private partial bool ChatKeyBind(KeybindOptions function);
@@ -65,6 +75,9 @@ namespace Client.MirScenes.Modern
         private partial bool NpcKeyBind(KeybindOptions function);
         private partial bool UpgradeKeyBind(KeybindOptions function);
         private partial bool EconomyKeyBind(KeybindOptions function);
+        private partial bool GuildKeyBind(KeybindOptions function);
+        private partial bool SocialKeyBind(KeybindOptions function);
+        private partial bool CompanionKeyBind(KeybindOptions function);
 
         /// <summary>Spaces the modern UI's bulk sends (item moves, sorts, sell junk, …) under the server's MaxPacket.</summary>
         public readonly SendPacer Pacer = new SendPacer();
@@ -85,11 +98,18 @@ namespace Client.MirScenes.Modern
         {
         }
 
+        /// <summary>Set when the UI is disposed (log-out / quit): request toasts closed by Popups.CloseAll then send no decline.</summary>
+        private bool _ending;
+
         public void Dispose()
         {
+            _ending = true;
             Pacer.Dispose();
             Storage?.Dispose();
             DisposeUpgrade();   // ModernUi.Upgrade.cs: refine / awaken / rental sessions
+            DisposeGuild();
+            DisposeSocial();
+            DisposeCompanion();
             MapData?.Dispose(); // drops its Models.MapDetails subscription (ModernEvents.Clear covers the rest)
             ModernEvents.Clear();
             Root = null; // a child of the scene: disposed with it
@@ -97,10 +117,30 @@ namespace Client.MirScenes.Modern
 
         public void BuffAdded(bool hero, ClientBuff buff) { } // Models.Buffs / HeroBuffs.Changed already fired
         public void BuffRemoved(bool hero, int index) { } // the model emits after the removal
-        public void GuildActiveStatsChanged() => NotPorted(nameof(GuildActiveStatsChanged));
-        public void GuildStatusChanging(S.GuildStatus p, bool joined) => NotPorted(nameof(GuildStatusChanging));
-        public void GuildStatusChanged(S.GuildStatus p) => NotPorted(nameof(GuildStatusChanged));
-        public void GuildMembersChanged() => NotPorted(nameof(GuildMembersChanged));
+
+        // ---- phase 4 prompts that belong to no window (IGameUi.Social.cs; classic: MirMessageBox)
+        public void ConfirmQuit()
+        {
+            if (Root == null || Root.IsDisposed) return;
+            Root.Popups.Ask(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ExitTip), yes => { if (yes) Program.Form.Close(); });
+        }
+
+        public void ConfirmLogOut()
+        {
+            if (Root == null || Root.IsDisposed) return;
+            Root.Popups.Ask(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.LogOutTip), yes => { if (yes) GameScene.Scene?.LogOut(false); });
+        }
+
+        public void MapChanged(int mapIndex) => ModernEvents.MapChanged.Emit(mapIndex);
+
+        public void ReincarnationRequest()
+        {
+            if (Root == null || Root.IsDisposed) return;
+            Root.Popups.Ask(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.WouldYouLikeToBeRevived), yes =>
+            {
+                if (yes) MirNetwork.Network.Enqueue(new ClientPackets.AcceptReincarnation());
+            });
+        }
 
         // ---- seam step 4 (sweep) BEGIN: generated, keep in this order ----
         /// <summary>Per frame: a silent no-op until ported (NotPorted is not called per spin).</summary>
@@ -133,7 +173,7 @@ namespace Client.MirScenes.Modern
         {
             if (Root == null || Root.IsDisposed) return;
             if (HudKeyBind(function) || ChatKeyBind(function) || WindowKeyBind(function) || NpcKeyBind(function) || UpgradeKeyBind(function) ||
-                EconomyKeyBind(function)) return;
+                EconomyKeyBind(function) || GuildKeyBind(function) || SocialKeyBind(function) || CompanionKeyBind(function)) return;
 
             switch (function)
             {
@@ -182,7 +222,6 @@ namespace Client.MirScenes.Modern
         public void HeroBehaviourChanged(HeroBehaviour behaviour) => ModernEvents.HeroBehaviour.Emit(behaviour);
         public void UserInformationReceived() => ModernEvents.UserInformation.Emit();
         public void MountChanged() => ModernEvents.Mount.Emit();
-        public void FishingUpdated(S.FishingUpdate p) => NotPorted(nameof(FishingUpdated));
         public void QuestAdded(ClientQuestProgress quest, bool track)
         {
             ModernEvents.QuestAdded.Emit((quest, track));
@@ -204,38 +243,11 @@ namespace Client.MirScenes.Modern
                 () => MirNetwork.Network.Enqueue(new ClientPackets.GroupInvite { AcceptInvite = false }));
         }
         public void ItemInfoChanged(UserItem item) => ModernEvents.ItemInfo.Emit(item);
-        public void GuildNoticeChange(S.GuildNoticeChange p) => NotPorted(nameof(GuildNoticeChange));
-        public void GuildMemberChange(S.GuildMemberChange p) => NotPorted(nameof(GuildMemberChange));
-        public void GuildTerritoryPage(S.GuildTerritoryPage p) => NotPorted(nameof(GuildTerritoryPage));
-        public void HeroCreateRequest(S.HeroCreateRequest p) => NotPorted(nameof(HeroCreateRequest));
-        public void ManageHeroes(ClientHeroInformation currentHero) => NotPorted(nameof(ManageHeroes));
-        public void ChangeHero(S.ChangeHero p) => NotPorted(nameof(ChangeHero));
         public void HeroAutoPotChanged() => ModernEvents.HeroAutoPot.Emit();
-        public void NewHeroResult(S.NewHero p) => NotPorted(nameof(NewHeroResult));
         public void HeroInformationReceived() => ModernEvents.HeroInformation.Emit();
         public void HeroSpawnStateChanged(HeroSpawnState state) => ModernEvents.HeroSpawnState.Emit(state);
-        public void TradeAccepted() => NotPorted(nameof(TradeAccepted));
-        public void TradeGuestChanged() => NotPorted(nameof(TradeGuestChanged));
-        public void TradeConfirmed() => NotPorted(nameof(TradeConfirmed));
-        public void TradeCancelled(bool unlock) => NotPorted(nameof(TradeCancelled));
         public void InventoryResized() => ModernEvents.InventoryResized.Emit();
         public void StorageResized() => ModernEvents.StorageResized.Emit();
-        public void NewIntelligentCreature() => NotPorted(nameof(NewIntelligentCreature));
-        public void IntelligentCreaturesChanged(bool listReplaced) => NotPorted(nameof(IntelligentCreaturesChanged));
-        public void IntelligentCreatureEnableRename() => NotPorted(nameof(IntelligentCreatureEnableRename));
-        public void FriendsChanged() => NotPorted(nameof(FriendsChanged));
-        public void LoverUpdate(S.LoverUpdate p) => NotPorted(nameof(LoverUpdate));
-        public void MentorUpdate(S.MentorUpdate p) => NotPorted(nameof(MentorUpdate));
-        public void RankingsReceived(List<RankCharacterInfo> listings, S.Rankings p) => NotPorted(nameof(RankingsReceived));
-        public void SetTimer(S.SetTimer p) => NotPorted(nameof(SetTimer));
-        public void ExpireTimer(string key) => NotPorted(nameof(ExpireTimer));
-        public void SetCompass(Point location) => NotPorted(nameof(SetCompass));
-        public void Roll(S.Roll p) => NotPorted(nameof(Roll));
-        public void ShowNotice(S.UpdateNotice p) => NotPorted(nameof(ShowNotice));
-        public void CloseMountWindow() => NotPorted(nameof(CloseMountWindow));
-        public void CloseFishingWindow() => NotPorted(nameof(CloseFishingWindow));
-        public void FishingCast() => NotPorted(nameof(FishingCast));
-        public void FishingWait(bool foundFish) => NotPorted(nameof(FishingWait));
         // ---- seam step 4 (sweep) END ----
     }
 }

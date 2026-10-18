@@ -3,7 +3,7 @@
 // (QuestTracking.ini, Settings.SaveTrackedQuests), a quest the server adds with track = true is tracked. Quest names in gold,
 // each ClientQuestProgress.TaskList line under it (a trailing "n/m" is shown as the count and marks the line when complete),
 // and "Ready: return to <NPC>" once Completed (FinishNPCIndex = the NPC's ObjectID: its name from the map objects or the map's
-// NPC list). The header folds the list (per session); a quest click opens the "quests" window when one is registered.
+// NPC list). The header folds the list (Settings.UiTrackerFolded); a quest click opens the "quests" window when one is registered.
 // Hidden while nothing is tracked. Repainted on ModernEvents.Quests / QuestAdded only (and only when the text changed).
 // Desktop idiom: one surface on the HUD layer; long lines end in an ellipsis (the web scrolls them back and forth).
 using System.Drawing.Drawing2D;
@@ -20,7 +20,7 @@ namespace Client.MirScenes.Modern.Hud
     {
         public const int MaxTracked = 5;
         private const int Width = 220;
-        private static bool _shut;
+        private static bool _shut = Settings.UiTrackerFolded;
 
         private readonly BigMapData _data;
         private readonly List<int> _tracked = new List<int>();
@@ -103,6 +103,7 @@ namespace Client.MirScenes.Modern.Hud
         internal void Fold()
         {
             _shut = !_shut;
+            Settings.UiTrackerFolded = _shut;
             _key = "\u0000";
             Render();
         }
@@ -165,7 +166,9 @@ namespace Client.MirScenes.Modern.Hud
         internal void OpenQuest(int questId)
         {
             WindowManager wm = ModernRoot.Instance?.Wm;
-            if (wm != null && wm.IsRegistered("quests")) wm.Open("quests");
+            if (wm == null || !wm.IsRegistered("quests")) return;
+            wm.Open("quests");
+            (wm.Get("quests") as Windows.QuestsWindow)?.FocusQuest(questId);
         }
 
         protected override void Dispose(bool disposing)

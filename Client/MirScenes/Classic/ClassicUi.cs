@@ -90,7 +90,7 @@ namespace Client.MirScenes.Classic
         public bool IsMarketOpen() => _scene.ClassicIsMarketOpen();
         public void MarketPageAdded() => _scene.ClassicMarketPageAdded();
         public void GuildNoticeChange(S.GuildNoticeChange p) => _scene.ClassicGuildNoticeChange(p);
-        public void GuildMemberChange(S.GuildMemberChange p) => _scene.ClassicGuildMemberChange(p);
+        public void GuildMemberChange(S.GuildMemberChange p, Models.GuildMemberEdit edit) => _scene.ClassicGuildMemberChange(p, edit);
         public void GuildTerritoryPage(S.GuildTerritoryPage p) => _scene.ClassicGuildTerritoryPage(p);
         public void HeroCreateRequest(S.HeroCreateRequest p) => _scene.ClassicHeroCreateRequest(p);
         public void ManageHeroes(ClientHeroInformation currentHero) => _scene.ClassicManageHeroes(currentHero);

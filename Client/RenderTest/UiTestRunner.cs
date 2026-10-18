@@ -51,6 +51,9 @@ namespace Client.RenderTest
         static partial void AddNpcSteps(List<Step> steps);
         static partial void AddUpgradeSteps(List<Step> steps);
         static partial void AddEconomySteps(List<Step> steps);
+        static partial void AddGuildSteps(List<Step> steps);
+        static partial void AddSocialSteps(List<Step> steps);
+        static partial void AddCompanionSteps(List<Step> steps);
         static partial void DumpModern(List<string> log);
 
         public static bool ParseArg(string arg, string[] args, ref int i)
@@ -420,6 +423,9 @@ namespace Client.RenderTest
             AddNpcSteps(steps);
             AddUpgradeSteps(steps);
             AddEconomySteps(steps);
+            AddGuildSteps(steps);
+            AddSocialSteps(steps);
+            AddCompanionSteps(steps);
             return steps;
         }
 

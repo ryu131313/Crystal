@@ -52,7 +52,7 @@ namespace Client.MirScenes.Dialogs
         public static int MyRankId { get => GameScene.Models.Guild.MyRankId; set => GameScene.Models.Guild.MyRankId = value; }
         public static GuildRankOptions MyOptions { get => GameScene.Models.Guild.MyOptions; set => GameScene.Models.Guild.MyOptions = value; }
         public List<GuildRank> Ranks { get => GameScene.Models.Guild.Ranks; set => GameScene.Models.Guild.Ranks = value; }
-        public bool MembersChanged = true;
+        public bool MembersChanged { get => GameScene.Models.Guild.MembersStale; set => GameScene.Models.Guild.MembersStale = value; } // phase 4: lives in GameScene.Models
         public long LastMemberRequest = 0;
         public long LastGuildMsg = 0;
         public long LastRankNameChange = 0;
@@ -63,7 +63,7 @@ namespace Client.MirScenes.Dialogs
         #endregion
 
         #region NoticePagePub
-        public bool NoticeChanged = true;
+        public bool NoticeChanged { get => GameScene.Models.Guild.NoticeStale; set => GameScene.Models.Guild.NoticeStale = value; } // phase 4: lives in GameScene.Models
         public long LastNoticeRequest = 0;
         public int NoticeScrollIndex = 0;
         public MirButton NoticeUpButton, NoticeDownButton, NoticePositionBar, NoticeEditButton, NoticeSaveButton;
@@ -1450,23 +1450,10 @@ namespace Client.MirScenes.Dialogs
         #endregion
 
         #region MembersDialogCode
-        public void NewMembersList(List<GuildRank> NewRanks)
+        /// <summary>S.GuildMemberChange 255, after Models.Guild.ReplaceMembers (Ranks, MemberCount, MembersChanged).</summary>
+        public void NewMembersList()
         {
-            Ranks = NewRanks;
-            MemberCount = CountMembers(Ranks);
-            MembersChanged = false;
             RefreshMemberList();
-        }
-        private int CountMembers(List<GuildRank> ranks)
-        {
-            if (ranks == null) return 0;
-            int total = 0;
-            for (int i = 0; i < ranks.Count; i++)
-            {
-                if (ranks[i] != null && ranks[i].Members != null)
-                    total += ranks[i].Members.Count;
-            }
-            return total;
         }
         public void RefreshMemberList()
         {
@@ -1496,12 +1483,9 @@ namespace Client.MirScenes.Dialogs
             UpdateRanks();
         }
 
-        public void MemberStatusChange(string name, bool online)
+        /// <summary>S.GuildMemberChange 0 / 1, after Models.Guild.SetMemberOnline.</summary>
+        public void MemberStatusChange()
         {
-            for (int i = 0; i < Ranks.Count; i++)
-                for (int j = 0; j < Ranks[i].Members.Count; j++)
-                    if (Ranks[i].Members[j].Name == name)
-                        Ranks[i].Members[j].Online = online;
             UpdateMembers();
         }
 
@@ -1775,68 +1759,31 @@ namespace Client.MirScenes.Dialogs
         #endregion
 
         #region RankDialogCode
-        public void NewRankRecieved(GuildRank New)
+        /// <summary>S.GuildMemberChange 6, after Models.Guild.AddRank.</summary>
+        public void NewRankRecieved()
         {
-            int NewIndex = Ranks.Count > 1 ? Ranks.Count - 1 : 1;
-            Ranks.Insert(NewIndex, New);
-            Ranks[Ranks.Count - 1].Index = Ranks.Count - 1;
             RefreshMemberList();
             UpdateRanks();
         }
-        public void MyRankChanged(GuildRank New)
+        /// <summary>S.GuildMemberChange 8, after Models.Guild.ChangeMyRank (moved = the user's row moved to the new rank).</summary>
+        public void MyRankChanged(bool moved)
         {
-            MyOptions = New.Options;
-
-            MapObject.User.GuildRankName = New.Name;
-            GuildMember Member = null;
-            int OldRank = MyRankId;
-            MyRankId = New.Index;
-            if (OldRank >= Ranks.Count) return;
-            for (int i = 0; i < Ranks[OldRank].Members.Count; i++)
-                if (Ranks[OldRank].Members[i].Name == MapObject.User.Name)
-                {
-                    Member = Ranks[OldRank].Members[i];
-                    Ranks[OldRank].Members.Remove(Member);
-                    break;
-                }
-
-            if (Member == null) return;
-            if (Ranks.Count <= New.Index)
-            {
-                Ranks[MyRankId].Members.Add(Member);
-                MembersChanged = true;
-                return;
-            }
-            Ranks[New.Index].Members.Add(Member);
+            if (!moved) return;
 
             ResetButtonStats();
             UpdateMembers();
 
         }
-        public void RankChangeRecieved(GuildRank New)
+        /// <summary>S.GuildMemberChange 7, after Models.Guild.ChangeRank (mine = the user's rank; renamed = the rank's name changed).</summary>
+        public void RankChangeRecieved(bool mine, bool renamed)
         {
-            for (int i = 0; i < Ranks.Count; i++)
-                if (Ranks[i].Index == New.Index)
-                {
-                    if (Ranks[i].Name == MapObject.User.GuildRankName)
-                        for (int j = 0; j < Ranks[i].Members.Count; j++)
-                            if (Ranks[i].Members[j].Name == MapObject.User.Name)
-                            {
-                                MapObject.User.GuildRankName = New.Name;
-                                MyOptions = New.Options;
-                                ResetButtonStats();
-                                UpdateMembers();
-                            }
-                    if (Ranks[i].Name == New.Name)
-                    {
-                        Ranks[i] = New;
-                    }
-                    else
-                    {
-                        Ranks[i] = New;
-                        RefreshMemberList();
-                    }
-                }
+            if (mine)
+            {
+                ResetButtonStats();
+                UpdateMembers();
+            }
+            if (renamed)
+                RefreshMemberList();
             UpdateRanks();
         }
         public void UpdateRanks()

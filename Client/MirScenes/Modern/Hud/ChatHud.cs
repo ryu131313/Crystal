@@ -40,7 +40,7 @@ namespace Client.MirScenes.Modern.Hud
         // ---- constants (chat.ts) ----
         private const int BufferLines = 300, MaxShown = 150, FoldMs = 30000, FadeOutMs = 1200, FadeSteps = 8;
 
-        /// <summary>The chat settings (chat.ts Opts; per session).</summary>
+        /// <summary>The chat settings (chat.ts Opts; saved in Settings.UiChat with the box place).</summary>
         public sealed class Options
         {
             public int Opacity = 55;   // background 0-90 %
@@ -52,6 +52,25 @@ namespace Client.MirScenes.Modern.Hud
         public static readonly Options Opts = new Options();
         // chat.ts Place (HUD px: left, bottom, width, height)
         private static int _left = 8, _bottom = 186, _w = 440, _h = 196;
+
+        static ChatHud()
+        {
+            int?[] v = HudPrefs.Ints(Settings.UiChat, 10);
+            _left = v[0] ?? _left; _bottom = v[1] ?? _bottom; _w = v[2] ?? _w; _h = v[3] ?? _h;
+            Opts.Opacity = Math.Clamp(v[4] ?? Opts.Opacity, 0, 90);
+            Opts.Fade = Math.Max(0, v[5] ?? Opts.Fade);
+            int font = v[6] ?? Opts.FontSize;
+            Opts.FontSize = font == 11 || font == 14 ? font : 12;
+            Opts.Time = (v[7] ?? (Opts.Time ? 1 : 0)) != 0;
+            Opts.Tags = (v[8] ?? (Opts.Tags ? 1 : 0)) != 0;
+            Opts.Lock = (v[9] ?? (Opts.Lock ? 1 : 0)) != 0;
+        }
+
+        /// <summary>Settings.UiChat (written on change; Settings.Save at exit).</summary>
+        internal static void SavePrefs()
+        {
+            Settings.UiChat = HudPrefs.Join(_left, _bottom, _w, _h, Opts.Opacity, Opts.Fade, Opts.FontSize, Opts.Time ? 1 : 0, Opts.Tags ? 1 : 0, Opts.Lock ? 1 : 0);
+        }
 
         private static readonly (ChatChannel Ch, string Prefix, ClientTextKeys Label)[] Speak =
         {
@@ -288,6 +307,7 @@ namespace Client.MirScenes.Modern.Hud
             _lock = IconButton(Opts.Lock ? ModernIcons.Lock : ModernIcons.Unlock, T(ClientTextKeys.ModernChatLockPosition), 1, () =>
             {
                 Opts.Lock = !Opts.Lock;
+                SavePrefs();
                 _lock.Icon = Opts.Lock ? ModernIcons.Lock : ModernIcons.Unlock;
                 ApplyOpts();
             });
@@ -427,6 +447,7 @@ namespace Client.MirScenes.Modern.Hud
 
         internal void DragEnded(bool resize)
         {
+            SavePrefs();
             if (!resize) return;
             _relayoutDue = false;
             if (_typing) { Reposition(); Log.Relayout(); }
@@ -1131,6 +1152,7 @@ namespace Client.MirScenes.Modern.Hud
         /// <summary>A setting changed in the settings popover (chat.ts change()).</summary>
         internal void OptionsChanged(bool relog)
         {
+            SavePrefs();
             ApplyOpts();
             if (relog) RenderLog();
             else Log.Relayout();

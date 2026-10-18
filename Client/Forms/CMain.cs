@@ -595,6 +595,13 @@ namespace Client
                 HintTextLabel.SizeChanged += (o, e) => HintBaseLabel.Size = HintTextLabel.Size;
             }
 
+            // A modern control's hint shows on the kit's themed card instead (phase 4)
+            if (MirScenes.Modern.Core.ModernHint.Update(MirControl.MouseControl, MPoint))
+            {
+                if (HintBaseLabel.Visible) HintBaseLabel.Visible = false;
+                return;
+            }
+
             if (MirControl.MouseControl == null || string.IsNullOrEmpty(MirControl.MouseControl.Hint))
             {
                 HintBaseLabel.Visible = false;

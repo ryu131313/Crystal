@@ -162,15 +162,15 @@ namespace Client.MirScenes
         void MarketPageAdded();
         /// <summary>S.GuildNoticeChange (update -1 = the notice changed and is fetched when shown; else the new notice).</summary>
         void GuildNoticeChange(S.GuildNoticeChange p);
-        /// <summary>S.GuildMemberChange, after the chat line and Models.Guild.MemberCount (statuses 1-4). Classic still edits Models.Guild.Ranks through GuildDialog (statuses 0, 1, 6, 7, 8, 255).</summary>
-        void GuildMemberChange(S.GuildMemberChange p);
+        /// <summary>S.GuildMemberChange, after the chat line and Models.Guild (MemberCount, MembersStale, and the member list for statuses 0, 1, 6, 7, 8, 255); edit = what statuses 7 / 8 changed.</summary>
+        void GuildMemberChange(S.GuildMemberChange p, Models.GuildMemberEdit edit);
         /// <summary>S.GuildTerritoryPage (classic: the guild territory window shows the page).</summary>
         void GuildTerritoryPage(S.GuildTerritoryPage p);
         /// <summary>S.HeroCreateRequest: open hero creation with the classes the server allows.</summary>
         void HeroCreateRequest(S.HeroCreateRequest p);
         /// <summary>S.ManageHeroes, after HeroInfoList / HeroStorage and MaximumHeroCount were updated.</summary>
         void ManageHeroes(ClientHeroInformation currentHero);
-        /// <summary>S.ChangeHero. Classic keeps the current hero in HeroManageDialog.CurrentAvatar and swaps it with HeroStorage[p.FromIndex].</summary>
+        /// <summary>S.ChangeHero, after GameScene.CurrentHeroInfo was swapped with HeroStorage[p.FromIndex].</summary>
         void ChangeHero(S.ChangeHero p);
         /// <summary>The hero's auto-potion switch or percentages changed (Hero.AutoPot / AutoHPPercent / AutoMPPercent).</summary>
         void HeroAutoPotChanged();
@@ -182,11 +182,11 @@ namespace Client.MirScenes
         void HeroSpawnStateChanged(HeroSpawnState state);
         /// <summary>S.TradeAccept, after Models.Trade.GuestName was set (classic: opens the trade windows).</summary>
         void TradeAccepted();
-        /// <summary>S.TradeGold / S.TradeItem, after Models.Trade took the guest's offer (classic: unlocks the user's side, which also clears User.TradeLocked, and refreshes).</summary>
+        /// <summary>S.TradeGold / S.TradeItem, after Models.Trade took the guest's offer and User.TradeLocked was cleared (classic: unlocks the user's side and refreshes).</summary>
         void TradeGuestChanged();
-        /// <summary>S.TradeConfirm (classic: TradeDialog.TradeReset clears User.Trade / TradeGoldAmount / TradeLocked and the guest side, and closes the windows).</summary>
+        /// <summary>S.TradeConfirm, after Models.Trade.Reset cleared both sides (User.Trade / TradeGoldAmount / TradeLocked; classic: closes the windows).</summary>
         void TradeConfirmed();
-        /// <summary>S.TradeCancel (unlock = only unlock the user's side; else reset the trade as TradeConfirmed does and tell the user).</summary>
+        /// <summary>S.TradeCancel, after User.TradeLocked was cleared (unlock) or Models.Trade.Reset ran (else: also tell the user).</summary>
         void TradeCancelled(bool unlock);
         /// <summary>S.NPCAwakening: open the awakening window.</summary>
         void NpcAwakening();
@@ -212,15 +212,15 @@ namespace Client.MirScenes
         void IntelligentCreatureEnableRename();
         /// <summary>S.FriendUpdate, after Models.Friends was replaced.</summary>
         void FriendsChanged();
-        /// <summary>S.LoverUpdate (classic: the relationship window keeps the lover's name, date, map and days).</summary>
+        /// <summary>S.LoverUpdate, after Models.Relationship took the lover's name, date, map and days.</summary>
         void LoverUpdate(S.LoverUpdate p);
-        /// <summary>S.MentorUpdate (classic: the mentor window keeps the mentor's name, level, online state and mentee exp).</summary>
+        /// <summary>S.MentorUpdate, after Models.Relationship took the mentor's name, level, online state and mentee exp.</summary>
         void MentorUpdate(S.MentorUpdate p);
         /// <summary>S.GameShopInfo added an item dated within the last 7 days (classic: the shop's "new" marker).</summary>
         void GameShopNewItems();
         /// <summary>S.GameShopStock changed (or removed) a GameShopInfoList entry; called once per matching entry, as before.</summary>
         void GameShopStockChanged();
-        /// <summary>S.Rankings, after RankingList took the details (listings = the page in order).</summary>
+        /// <summary>S.Rankings, after RankingList took the details and Models.Rankings the page (listings = the page in order).</summary>
         void RankingsReceived(List<RankCharacterInfo> listings, S.Rankings p);
         /// <summary>S.GetRentedItems: the user's rented-out items (classic: the item rental window).</summary>
         void RentedItems(S.GetRentedItems p);

@@ -329,7 +329,8 @@ namespace Client.MirScenes.Modern.Hud
         {
             if (_platesOn) Plates.Update();
             DrawBuffs();
-            DrawPoisons(u.Poison);
+            DrawPoisons(u.Poison | PoisonTimerFlags());
+            for (int i = 0; i < _poisons.Count; i++) _poisons[i].UpdateTime();
             if (_duraDirty)
             {
                 _duraDirty = false;
@@ -398,6 +399,17 @@ namespace Client.MirScenes.Modern.Hud
             PoisonType.Green, PoisonType.Red, PoisonType.Slow, PoisonType.Frozen, PoisonType.Stun, PoisonType.Paralysis, PoisonType.DelayedExplosion,
             PoisonType.Bleeding, PoisonType.LRParalysis, PoisonType.Blindness, PoisonType.Dazed,
         };
+
+        /// <summary>The poisons with an S.PoisonStatus timer (shown even before their S.Poisoned flag, as hud.ts does).</summary>
+        private static PoisonType PoisonTimerFlags()
+        {
+            List<Models.PoisonTimer> timers = GameScene.Models?.Poisons.Timers;
+            if (timers == null) return PoisonType.None;
+            PoisonType flags = PoisonType.None;
+            for (int i = 0; i < timers.Count; i++)
+                if (Models.PoisonTimers.TimeLeft(timers[i]) > 0) flags |= timers[i].Type;
+            return flags;
+        }
 
         private void DrawPoisons(PoisonType flags)
         {
@@ -1131,7 +1143,18 @@ namespace Client.MirScenes.Modern.Hud
         /// <summary>The time left text: rebuilt only when what it shows changes (once a second at most).</summary>
         public void UpdateTime()
         {
-            if (_buff == null) return;
+            if (_buff == null)
+            {
+                // a poison: the S.PoisonStatus countdown under the cell ("12s", "3.2s"; none without a timer)
+                Models.PoisonTimer t = GameScene.Models?.Poisons.Get(_poison);
+                long ms = t == null ? -1 : Models.PoisonTimers.TimeLeft(t);
+                long pkey = ms < 0 ? -1 : ms >= 10000 ? 100000 + ms / 1000 : ms / 100;
+                if (pkey == _textKey) return;
+                _textKey = pkey;
+                _text = HudExtras.PoisonTimeText(_poison);
+                Invalidate();
+                return;
+            }
             long key;
             string text;
             bool ending = false;

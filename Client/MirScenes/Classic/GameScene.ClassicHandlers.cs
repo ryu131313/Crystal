@@ -481,42 +481,29 @@ namespace Client.MirScenes
                 GuildDialog.NoticeChange(p.notice);
         }
 
-        internal void ClassicGuildMemberChange(S.GuildMemberChange p)
+        /// <summary>The model half (Models.Guild: online flags, ranks, MembersStale) ran in GameScene.GuildMemberChange.</summary>
+        internal void ClassicGuildMemberChange(S.GuildMemberChange p, GuildMemberEdit edit)
         {
             switch (p.Status)
             {
                 case 0: // logged of
-                    GuildDialog.MemberStatusChange(p.Name, false);
-                    break;
                 case 1: // logged on
-                    GuildDialog.MemberStatusChange(p.Name, true);
-                    break;
-                case 2: //new member
-                    GuildDialog.MembersChanged = true;
-                    break;
-                case 3: //kicked member
-                    GuildDialog.MembersChanged = true;
-                    break;
-                case 4: //member left
-                    GuildDialog.MembersChanged = true;
-                    break;
-                case 5://rank change (name or different rank)
-                    GuildDialog.MembersChanged = true;
+                    GuildDialog.MemberStatusChange();
                     break;
                 case 6: //new rank
                     if (p.Ranks.Count > 0)
-                        GuildDialog.NewRankRecieved(p.Ranks[0]);
+                        GuildDialog.NewRankRecieved();
                     break;
                 case 7: //rank option changed
                     if (p.Ranks.Count > 0)
-                        GuildDialog.RankChangeRecieved(p.Ranks[0]);
+                        GuildDialog.RankChangeRecieved((edit & GuildMemberEdit.Mine) != 0, (edit & GuildMemberEdit.Renamed) != 0);
                     break;
                 case 8: //my rank changed
                     if (p.Ranks.Count > 0)
-                        GuildDialog.MyRankChanged(p.Ranks[0]);
+                        GuildDialog.MyRankChanged((edit & GuildMemberEdit.Moved) != 0);
                     break;
                 case 255:
-                    GuildDialog.NewMembersList(p.Ranks);
+                    GuildDialog.NewMembersList();
                     break;
             }
         }
@@ -552,9 +539,7 @@ namespace Client.MirScenes
 
         internal void ClassicChangeHero(S.ChangeHero p)
         {
-            ClientHeroInformation temp = HeroStorage[p.FromIndex];
-            HeroStorage[p.FromIndex] = HeroManageDialog.CurrentAvatar.Info;
-            HeroManageDialog.SetCurrentHero(temp);
+            HeroManageDialog.SetCurrentHero(CurrentHeroInfo); // GameScene.ChangeHero swapped it with HeroStorage[p.FromIndex]
             HeroManageDialog.RefreshInterface();
         }
 

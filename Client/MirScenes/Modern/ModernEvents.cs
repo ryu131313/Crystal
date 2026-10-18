@@ -50,6 +50,8 @@ namespace Client.MirScenes.Modern
         public static Emitter Quests = new Emitter();
         /// <summary>A quest was added; track = the server asked to track it.</summary>
         public static Emitter<(ClientQuestProgress Quest, bool Track)> QuestAdded = new Emitter<(ClientQuestProgress, bool)>();
+        /// <summary>The user is on a new (or reloaded) map: S.MapInformation / S.MapChanged, after MapControl loaded it (the map index).</summary>
+        public static Emitter<int> MapChanged = new Emitter<int>();
 
         /// <summary>Drops every subscriber (end of the game's modern UI).</summary>
         public static void Clear()
@@ -78,6 +80,7 @@ namespace Client.MirScenes.Modern
             SearchMap = new Emitter<S.SearchMapResult>();
             Quests = new Emitter();
             QuestAdded = new Emitter<(ClientQuestProgress, bool)>();
+            MapChanged = new Emitter<int>();
         }
     }
 }

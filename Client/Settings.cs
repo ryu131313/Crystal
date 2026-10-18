@@ -94,6 +94,10 @@ namespace Client
         /// <summary>The six stat plate picks ("AC,MAC,DC,Bag,Weight,Gold"; empty = defaults; HudPlateStore parses).</summary>
         public static string UiPlateStats = "";
         public static string UiWindows = "";
+        /// <summary>Modern HUD prefs (HudPrefs): chat box "left,bottom,w,h,opacity,fade,font,time,tags,lock"; minimap "zoom,square,shut";
+        /// big-map layers (names); waypoints "character|map|x.y,x.y;…"; read help topics (ids); quest tracker folded.</summary>
+        public static string UiChat = "", UiMinimap = "", UiBigMap = "", UiWaypoints = "", UiHelpRead = "";
+        public static bool UiTrackerFolded = false;
         public static int Resolution = 1024;
         public static bool DebugMode = false;
         // [Graphics] RebuildOptimisations: fewer UI/map render-target rebuilds (live skill-bar/minimap overlays, no blind 100 ms map
@@ -265,6 +269,12 @@ namespace Client
             UiPlates = Reader.ReadBoolean("Interface", "UiPlates", UiPlates);
             UiPlateStats = Reader.ReadString("Interface", "UiPlateStats", UiPlateStats);
             UiWindows = Reader.ReadString("Interface", "UiWindows", UiWindows);
+            UiChat = Reader.ReadString("Interface", "UiChat", UiChat);
+            UiMinimap = Reader.ReadString("Interface", "UiMinimap", UiMinimap);
+            UiBigMap = Reader.ReadString("Interface", "UiBigMap", UiBigMap);
+            UiWaypoints = Reader.ReadString("Interface", "UiWaypoints", UiWaypoints);
+            UiHelpRead = Reader.ReadString("Interface", "UiHelpRead", UiHelpRead);
+            UiTrackerFolded = Reader.ReadBoolean("Interface", "UiTrackerFolded", UiTrackerFolded);
 
             //Network
             UseConfig = Reader.ReadBoolean("Network", "UseConfig", UseConfig);
@@ -406,6 +416,12 @@ namespace Client
             Reader.Write("Interface", "UiPlates", UiPlates);
             Reader.Write("Interface", "UiPlateStats", UiPlateStats);
             Reader.Write("Interface", "UiWindows", UiWindows);
+            Reader.Write("Interface", "UiChat", UiChat);
+            Reader.Write("Interface", "UiMinimap", UiMinimap);
+            Reader.Write("Interface", "UiBigMap", UiBigMap);
+            Reader.Write("Interface", "UiWaypoints", UiWaypoints);
+            Reader.Write("Interface", "UiHelpRead", UiHelpRead);
+            Reader.Write("Interface", "UiTrackerFolded", UiTrackerFolded);
             Reader.Write("Logs", "LogErrors", LogErrors); // roadmap C1: [Logs] was load-only
             Reader.Write("Logs", "LogChat", LogChat);
             Reader.Write("Graphics", "Resolution", Resolution);

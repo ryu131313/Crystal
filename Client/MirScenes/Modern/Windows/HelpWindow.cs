@@ -173,8 +173,8 @@ namespace Client.MirScenes.Modern.Windows
             ("@roll", ClientTextKeys.ModernWinHelpCmdRoll), ("@map", ClientTextKeys.ModernWinHelpCmdMap), ("@leaveguild", ClientTextKeys.ModernWinHelpCmdLeaveGuild),
         };
 
-        /// <summary>Read topics for the session (the web keeps them per browser).</summary>
-        private static readonly HashSet<string> Read = new HashSet<string>();
+        /// <summary>Read topics (the web keeps them per browser; here Settings.UiHelpRead).</summary>
+        private static readonly HashSet<string> Read = new HashSet<string>(HudPrefs.Names(Settings.UiHelpRead));
 
         private string _topic;
         private int _pageNo;
@@ -284,7 +284,7 @@ namespace Client.MirScenes.Modern.Windows
         {
             _topic = id != null && ById(id) != null ? id : null;
             _pageNo = page;
-            if (_topic != null) Read.Add(_topic);
+            if (_topic != null && Read.Add(_topic)) Settings.UiHelpRead = string.Join(",", Read);
             _query = string.Empty;
             if (_search != null && !_search.IsDisposed) _search.Text = string.Empty;
             _dirty = true;

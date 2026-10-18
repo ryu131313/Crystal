@@ -10,7 +10,12 @@
 
 
 
-        public void ItemTradeUnlocked() => NotPorted(nameof(ItemTradeUnlocked));
+        /// <summary>A trade item came back to the bag: the user's side unlocks (classic: TradeDialog.ChangeLockState(false)).</summary>
+        public void ItemTradeUnlocked()
+        {
+            if (GameScene.User != null) GameScene.User.TradeLocked = false;
+            SocialTradeItemReturned();
+        }
         public void ItemDuraRefresh() => ModernEvents.Durability.Emit(null);
         public void ItemDuraUpdate(UserItem item) => ModernEvents.Durability.Emit(item);
     }

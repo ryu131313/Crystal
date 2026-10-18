@@ -39,6 +39,17 @@ namespace Client.MirScenes.Modern.Hud
         private static int _zoom = 1;
         private static bool _shut, _square;
 
+        static MinimapHud()
+        {
+            int?[] v = HudPrefs.Ints(Settings.UiMinimap, 3);
+            _zoom = Math.Clamp(v[0] ?? _zoom, 0, Zooms.Length - 1);
+            _square = (v[1] ?? 0) != 0;
+            _shut = (v[2] ?? 0) != 0;
+        }
+
+        /// <summary>Settings.UiMinimap "zoom,square,shut".</summary>
+        private static void SavePrefs() => Settings.UiMinimap = HudPrefs.Join(_zoom, _square ? 1 : 0, _shut ? 1 : 0);
+
         private readonly BigMapData _data;
 
         // state
@@ -121,6 +132,7 @@ namespace Client.MirScenes.Modern.Hud
             _shape = Button(ModernIcons.Square, ClientTextKeys.ModernChatMapShape, 12, () =>
             {
                 _square = !_square;
+                SavePrefs();
                 Disc.ShapeChanged();
                 _ring.Invalidate();
             });
@@ -212,6 +224,7 @@ namespace Client.MirScenes.Modern.Hud
         public void Toggle()
         {
             _shut = !_shut;
+            SavePrefs();
             Disc.HideTip();
             Arrange();
             _slowDue = 0;
@@ -224,6 +237,7 @@ namespace Client.MirScenes.Modern.Hud
             int next = Math.Clamp(z, 0, Zooms.Length - 1);
             if (next == _zoom) return;
             _zoom = next;
+            SavePrefs();
             _dirty = true;
             _staticDirty = true;
             _nextDraw = 0;

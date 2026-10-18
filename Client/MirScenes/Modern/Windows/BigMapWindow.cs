@@ -49,11 +49,63 @@ namespace Client.MirScenes.Modern.Windows
         internal enum ListTab { Npcs, Exits, Monsters }
         internal enum Difficulty { Easy, Even, Hard, Deadly, Guard }
 
-        // prefs (per session): spawns / safe zones opt-in (busy maps)
-        private static readonly HashSet<Layer> _layers = new HashSet<Layer> { Layer.Npcs, Layer.Exits, Layer.Group, Layer.Waypoints };
+        // prefs (Settings.UiBigMap / UiWaypoints): spawns / safe zones opt-in (busy maps)
+        private static readonly HashSet<Layer> _layers = LoadLayers();
         private static ListTab _tab = ListTab.Npcs;
-        /// <summary>Waypoints: character → MapIndex → cells (bigMap.ts 'crystal.ui.waypoints'; per session).</summary>
-        private static readonly Dictionary<string, Dictionary<int, List<Point>>> _waypoints = new Dictionary<string, Dictionary<int, List<Point>>>();
+        /// <summary>Waypoints: character → MapIndex → cells (bigMap.ts 'crystal.ui.waypoints'; Settings.UiWaypoints).</summary>
+        private static readonly Dictionary<string, Dictionary<int, List<Point>>> _waypoints = LoadWaypoints();
+
+        private static HashSet<Layer> LoadLayers()
+        {
+            var set = new HashSet<Layer>();
+            List<string> names = HudPrefs.Names(Settings.UiBigMap);
+            if (names.Count == 0) return new HashSet<Layer> { Layer.Npcs, Layer.Exits, Layer.Group, Layer.Waypoints };
+            foreach (string n in names)
+                if (n != "-" && Enum.TryParse(n, out Layer l) && Enum.IsDefined(l)) set.Add(l);
+            return set;
+        }
+
+        /// <summary>Settings.UiBigMap: the layer names ("-" = none on, so an empty value still means the defaults).</summary>
+        private static void SaveLayers() => Settings.UiBigMap = _layers.Count == 0 ? "-" : string.Join(",", _layers);
+
+        private static Dictionary<string, Dictionary<int, List<Point>>> LoadWaypoints()
+        {
+            var all = new Dictionary<string, Dictionary<int, List<Point>>>();
+            if (string.IsNullOrEmpty(Settings.UiWaypoints)) return all;
+            foreach (string entry in Settings.UiWaypoints.Split(';'))
+            {
+                string[] f = entry.Split('|');
+                if (f.Length != 3 || !int.TryParse(f[1], out int map)) continue;
+                var cells = new List<Point>();
+                foreach (string c in f[2].Split(','))
+                {
+                    int dot = c.IndexOf('.');
+                    if (dot > 0 && int.TryParse(c.Substring(0, dot), out int x) && int.TryParse(c.Substring(dot + 1), out int y)) cells.Add(new Point(x, y));
+                }
+                if (cells.Count == 0) continue;
+                if (!all.TryGetValue(f[0], out var maps)) all[f[0]] = maps = new Dictionary<int, List<Point>>();
+                maps[map] = cells;
+            }
+            return all;
+        }
+
+        private static void SaveWaypointPrefs()
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var who in _waypoints)
+                foreach (var map in who.Value)
+                {
+                    if (map.Value.Count == 0) continue;
+                    if (sb.Length > 0) sb.Append(';');
+                    sb.Append(HudPrefs.Clean(who.Key)).Append('|').Append(map.Key).Append('|');
+                    for (int i = 0; i < map.Value.Count; i++)
+                    {
+                        if (i > 0) sb.Append(',');
+                        sb.Append(map.Value[i].X).Append('.').Append(map.Value[i].Y);
+                    }
+                }
+            Settings.UiWaypoints = sb.ToString();
+        }
 
         private readonly BigMapData _data;
 
@@ -260,6 +312,7 @@ namespace Client.MirScenes.Modern.Windows
                 // keep hidden detail layers as they were
                 foreach (Layer l in new[] { Layer.Npcs, Layer.Exits, Layer.Group, Layer.Waypoints }) if (sel.Contains(l)) _layers.Add(l); else _layers.Remove(l);
                 if (_chipsDetails) foreach (Layer l in new[] { Layer.Monsters, Layer.Safe }) if (sel.Contains(l)) _layers.Add(l); else _layers.Remove(l);
+                SaveLayers();
                 DrawOverlay();
                 RenderSide();
             };
@@ -1129,7 +1182,7 @@ namespace Client.MirScenes.Modern.Windows
                     row.ButtonAct = () => { _data?.Learn(dest, destTitle); SetView(dest, true); };
                     row.Click += (o, e) =>
                     {
-                        if (!_layers.Contains(Layer.Exits)) { _layers.Add(Layer.Exits); _layerChips.Set(_layers); }
+                        if (!_layers.Contains(Layer.Exits)) { _layers.Add(Layer.Exits); SaveLayers(); _layerChips.Set(_layers); }
                         FocusOn(first.X, first.Y, "e:" + first.X + "," + first.Y);
                     };
                     AddRow(row);
@@ -1158,7 +1211,7 @@ namespace Client.MirScenes.Modern.Windows
                     row.Click += (o, e) =>
                     {
                         Point at = mr.Zones[mr.Next++ % mr.Zones.Count];
-                        if (!_layers.Contains(Layer.Monsters)) { _layers.Add(Layer.Monsters); _layerChips.Set(_layers); }
+                        if (!_layers.Contains(Layer.Monsters)) { _layers.Add(Layer.Monsters); SaveLayers(); _layerChips.Set(_layers); }
                         bool changed = _selMob != mr.Index;
                         _selMob = mr.Index;
                         FocusOn(at.X, at.Y, "m:" + mr.Index);
@@ -1236,7 +1289,7 @@ namespace Client.MirScenes.Modern.Windows
             Network.Enqueue(new C.SearchMap { Text = text });
         }
 
-        // ------------------------------------------------------------------ waypoints (per character, per session)
+        // ------------------------------------------------------------------ waypoints (per character; Settings.UiWaypoints)
 
         private List<Point> Waypoints()
         {
@@ -1251,6 +1304,7 @@ namespace Client.MirScenes.Modern.Windows
             if (!_waypoints.TryGetValue(who, out var maps)) _waypoints[who] = maps = new Dictionary<int, List<Point>>();
             if (list.Count > 0) maps[View] = list;
             else maps.Remove(View);
+            SaveWaypointPrefs();
         }
 
         private void AddWaypoint(Point cell)
@@ -1259,7 +1313,7 @@ namespace Client.MirScenes.Modern.Windows
             if (list.Count >= MaxWaypoints) list.RemoveAt(0);
             list.Add(cell);
             SaveWaypoints(list);
-            if (!_layers.Contains(Layer.Waypoints)) { _layers.Add(Layer.Waypoints); _layerChips.Set(_layers); }
+            if (!_layers.Contains(Layer.Waypoints)) { _layers.Add(Layer.Waypoints); SaveLayers(); _layerChips.Set(_layers); }
             DrawOverlay();
             RenderSide();
         }
