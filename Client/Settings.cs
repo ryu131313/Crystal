@@ -107,6 +107,8 @@ namespace Client
         public static LightingMode Lighting = LightingMode.Classic;
         // [Graphics] Atmosphere: shader rain and lightning on weather maps (D3D11 + Enhanced lighting only). In game: @weather on / @weather off.
         public static bool Atmosphere = true;
+        // [Graphics] Reflections: wet-ground reflections of objects and lamps (D3D11 + Enhanced lighting only; no in-game command).
+        public static bool Reflections = true;
 
         //Network
         public static bool UseConfig = false;
@@ -253,6 +255,7 @@ namespace Client
             RebuildOptimisations = Reader.ReadBoolean("Graphics", "RebuildOptimisations", RebuildOptimisations);
             Lighting = Enum.TryParse(Reader.ReadString("Graphics", "Lighting", Lighting.ToString()), true, out LightingMode lighting) ? lighting : LightingMode.Classic;
             Atmosphere = Reader.ReadBoolean("Graphics", "Atmosphere", Atmosphere);
+            Reflections = Reader.ReadBoolean("Graphics", "Reflections", Reflections);
             UseMouseCursors = Reader.ReadBoolean("Graphics", "UseMouseCursors", UseMouseCursors);
 
             //Interface
@@ -435,6 +438,7 @@ namespace Client
             Reader.Write("Graphics", "RebuildOptimisations", RebuildOptimisations);
             Reader.Write("Graphics", "Lighting", Lighting.ToString());
             Reader.Write("Graphics", "Atmosphere", Atmosphere);
+            Reader.Write("Graphics", "Reflections", Reflections);
             Reader.Write("Graphics", "UseMouseCursors", UseMouseCursors);
 
             //Sound

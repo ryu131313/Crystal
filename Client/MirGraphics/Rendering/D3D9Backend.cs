@@ -97,6 +97,7 @@ namespace Client.MirGraphics.Rendering
         // Atmosphere weather is D3D11 only too; D3D9 keeps the classic weather sprites.
         public bool SupportsAtmosphere => false;
         public void SetAtmosphereConstants(ReadOnlySpan<Vector4> constants) { }
+        public void SetAtmosphereSource(int slot, RenderTexture texture) => throw new NotSupportedException("The atmosphere needs the D3D11 backend.");
         public void DrawFullscreen(FullscreenKind kind, RenderTexture source, ReadOnlySpan<Vector4> inputs) => throw new NotSupportedException("The atmosphere needs the D3D11 backend.");
         public RenderTexture CreateRenderTarget(int width, int height, RenderTargetFormat format)
         {

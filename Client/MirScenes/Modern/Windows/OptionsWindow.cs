@@ -571,6 +571,7 @@ namespace Client.MirScenes.Modern.Windows
                 Bool(Cat.Graphics, gLight, "SmoothMove", ClientTextKeys.SmoothMove, ClientTextKeys.SmoothMoveDesc, () => Settings.SmoothMove, v => Settings.SmoothMove = v, true),
                 Bool(Cat.Graphics, gLight, "Atmosphere", ClientTextKeys.Weather, ClientTextKeys.WeatherDesc, () => Settings.Atmosphere,
                     v => { Settings.Atmosphere = v; if (GameScene.Scene?.MapControl != null) GameScene.Scene.MapControl.TextureValid = false; }, true),
+                Bool(Cat.Graphics, gLight, "Reflections", ClientTextKeys.Reflections, ClientTextKeys.ReflectionsDesc, () => Settings.Reflections, v => Settings.Reflections = v, true),
                 // Interface
                 new Def { Id = "UiStyle", Cat = Cat.Interface, Group = gStyle, Label = ClientTextKeys.ModernWinOptClassicUi, Desc = ClientTextKeys.ModernWinOptClassicUiDesc, Kind = Kind.Toggle,
                     GetB = () => Settings.UiStyle == UiStyle.Classic, SetB = SetClassic },

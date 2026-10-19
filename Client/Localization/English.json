@@ -971,6 +971,8 @@
     "SmoothMoveDesc": "Move between cells in even steps between animation frames instead of jumping.",
     "Weather": "Enhanced weather",
     "WeatherDesc": "Shader rain and lightning on weather maps. Needs enhanced lighting (the Direct3D 11 renderer).",
+    "Reflections": "Wet-ground reflections",
+    "ReflectionsDesc": "Mirror objects and lamps in puddles and wet ground. Needs enhanced weather and lighting (the Direct3D 11 renderer).",
     "SmoothMoveOn": "[Smooth movement: On]",
     "SmoothMoveOff": "[Smooth movement: Off]",
     "WeatherOn": "[Enhanced weather: On]",

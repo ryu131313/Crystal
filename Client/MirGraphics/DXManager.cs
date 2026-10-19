@@ -35,6 +35,14 @@ namespace Client.MirGraphics
         public static RenderTexture FloorTexture, LightTexture;
         /// <summary>Float light map of the enhanced lighting (D3D11 only, [Graphics] Lighting=Enhanced); released in CleanUp.</summary>
         public static RenderTexture EnhancedLightTexture;
+        /// <summary>Wet ground (D3D11 only): the reflectivity snapshot (R = scene alpha after the objects); released in CleanUp.</summary>
+        public static RenderTexture AtmosphereWetMask;
+        /// <summary>Wet ground (D3D11 only): the half-resolution object mirror; released in CleanUp.</summary>
+        public static RenderTexture AtmosphereReflectMirror;
+        /// <summary>Wet ground (D3D11 only): the half-resolution lamp reflections (RGBA16F); released in CleanUp.</summary>
+        public static RenderTexture AtmosphereReflectLamps;
+        /// <summary>Wet ground (D3D11 only): the per-cell floor/water/eaves-drip mask (CPU-written); released in CleanUp.</summary>
+        public static RenderTexture AtmosphereCellMask;
 
         public static bool GrayScale;
 
@@ -332,6 +340,37 @@ namespace Client.MirGraphics
             CMain.DPSCounter++;
         }
 
+        /// <summary>A fullscreen atmosphere pass with extra sources on t1/t2 (scene, wet mask, cell mask).</summary>
+        public static void DrawFullscreen(FullscreenKind kind, RenderTexture source, RenderTexture source1, RenderTexture source2, ReadOnlySpan<Vector4> inputs)
+        {
+            Backend.SetAtmosphereSource(1, source1);
+            Backend.SetAtmosphereSource(2, source2);
+            Backend.DrawFullscreen(kind, source, inputs);
+            Backend.SetAtmosphereSource(1, null);
+            Backend.SetAtmosphereSource(2, null);
+            CMain.DPSCounter++;
+        }
+
+        /// <summary>Binds a pass source on t1..t3 for the next <see cref="DrawFullscreen(FullscreenKind, RenderTexture, ReadOnlySpan{Vector4})"/>.</summary>
+        public static void SetAtmosphereSource(int slot, RenderTexture texture) => Backend.SetAtmosphereSource(slot, texture);
+
+        /// <summary>Alpha blending with explicit factors (flushes first). Restore with <see cref="RestartSpriteAlphaBlend"/>.</summary>
+        public static void SetBlendFactors(RenderBlend source, RenderBlend destination)
+        {
+            Backend.SpriteFlush();
+            Backend.SetAlphaBlendEnable(true);
+            Backend.SetSourceBlend(source);
+            Backend.SetDestinationBlend(destination);
+        }
+
+        /// <summary>A fullscreen pass composited with explicit blend factors (reflection mirror/lamps); the caller restores
+        /// the sprite state with <see cref="RestartSpriteAlphaBlend"/>.</summary>
+        public static void DrawFullscreenBlend(FullscreenKind kind, RenderTexture source, RenderBlend blendSource, RenderBlend blendDestination, ReadOnlySpan<Vector4> inputs)
+        {
+            SetBlendFactors(blendSource, blendDestination);
+            DrawFullscreen(kind, source, inputs);
+        }
+
         /// <summary>The enhanced light map modulates the scene 2x (DestinationColor, SourceColor) through the LightComposite shader,
         /// so lights can brighten it. Undo with <see cref="RestartSpriteAlphaBlend"/>.</summary>
         public static void SetEnhancedLightCompositeBlend()
@@ -566,6 +605,13 @@ namespace Client.MirGraphics
         }
 
 
+        private static void DisposeStatic(ref RenderTexture texture)
+        {
+            if (texture == null) return;
+            if (!texture.Disposed) texture.Dispose();
+            texture = null;
+        }
+
         private static void CleanUp()
         {
             // The back buffer belongs to the backend (released in Backend.Reset/Dispose); only forget it here.
@@ -617,6 +663,11 @@ namespace Client.MirGraphics
 
                 EnhancedLightTexture = null;
             }
+
+            DisposeStatic(ref AtmosphereWetMask);
+            DisposeStatic(ref AtmosphereReflectMirror);
+            DisposeStatic(ref AtmosphereReflectLamps);
+            DisposeStatic(ref AtmosphereCellMask);
 
             if (Lights != null)
             {

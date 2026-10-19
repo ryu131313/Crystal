@@ -143,6 +143,8 @@ namespace Client.MirScenes
 
         private void DrawEnhancedLights(LightSetting setting)
         {
+            _reflectionSources.Clear();
+
             if (DXManager.EnhancedLightTexture == null || DXManager.EnhancedLightTexture.Disposed)
                 DXManager.EnhancedLightTexture = DXManager.CreateLightTarget(Settings.ScreenWidth, Settings.ScreenHeight);
 
@@ -235,7 +237,8 @@ namespace Client.MirScenes
 
                     if (blind) colour = GetBlindLight(colour);
 
-                    AddEnhancedLight(ob.DrawLocation, light % 15, colour, intensity * lightScale, flickerSeed, amplitude, 0);
+                    AddEnhancedLight(ob.DrawLocation, light % 15, colour, intensity * lightScale, flickerSeed, amplitude, 0,
+                        ob.Race == ObjectType.Spell ? ReflectKind.Effect : ReflectKind.Carried, 0);
                 }
 
                 if (!Settings.Effect) continue;
@@ -247,7 +250,7 @@ namespace Client.MirScenes
                     Color colour = EffectLightColour(effect);
                     if (blind) colour = GetBlindLight(colour);
 
-                    AddEnhancedLight(effect.DrawLocation, effect.Light, colour, 1.2F * lightScale, 0, 0F, 0);
+                    AddEnhancedLight(effect.DrawLocation, effect.Light, colour, 1.2F * lightScale, 0, 0F, 0, ReflectKind.Effect, 0);
                 }
             }
         }
@@ -264,7 +267,7 @@ namespace Client.MirScenes
                 Color colour = EffectLightColour(effect);
                 if (blind) colour = GetBlindLight(colour);
 
-                AddEnhancedLight(effect.DrawLocation, effect.Light, colour, 1.2F * lightScale, 0, 0F, 0);
+                AddEnhancedLight(effect.DrawLocation, effect.Light, colour, 1.2F * lightScale, 0, 0F, 0, ReflectKind.Effect, 0);
             }
         }
 
@@ -295,10 +298,16 @@ namespace Client.MirScenes
                         (x + OffSetX - MapObject.User.Movement.X) * CellWidth + MapObject.User.OffSetMove.X,
                         (y + OffSetY - MapObject.User.Movement.Y) * CellHeight + MapObject.User.OffSetMove.Y + 32);
 
+                    int lift = -1; // an animated lamp's sprite lifts its light above the cell (reflection contact line)
                     if (cell.FrontAnimationFrame > 0 && fileIndex >= 0 && fileIndex < Libraries.MapLibs.Length)
-                        p.Offset(Libraries.MapLibs[fileIndex].GetOffSet(imageIndex));
+                    {
+                        Point spriteOffset = Libraries.MapLibs[fileIndex].GetOffSet(imageIndex);
+                        p.Offset(spriteOffset);
+                        lift = -spriteOffset.Y;
+                    }
 
-                    AddEnhancedLight(p, (cellLight % 10) * 3, colour, 1.15F * lightScale, x * 7919 + y * 104729 + 1, FlickerAmplitude, 10);
+                    AddEnhancedLight(p, (cellLight % 10) * 3, colour, 1.15F * lightScale, x * 7919 + y * 104729 + 1, FlickerAmplitude, 10,
+                        lift > 0 ? ReflectKind.Lamp : ReflectKind.StaticLamp, lift);
                 }
             }
         }
@@ -316,7 +325,8 @@ namespace Client.MirScenes
         /// One light at the classic position: the classic code offsets by half of LightSizes[range] but draws the next larger
         /// texture (LightSizes[range + 1]), so the same rectangle is used here. <paramref name="flickerSeed"/> 0 = steady.
         /// </summary>
-        private void AddEnhancedLight(Point location, int range, Color colour, float intensity, int flickerSeed, float amplitude, int extraX)
+        private void AddEnhancedLight(Point location, int range, Color colour, float intensity, int flickerSeed, float amplitude, int extraX,
+            ReflectKind kind, int lift)
         {
             if (intensity <= 0F) return;
 
@@ -345,6 +355,24 @@ namespace Client.MirScenes
             }
 
             DXManager.DrawLight(x, y, width, height, colour, intensity);
+
+            // Puddle reflection source (wet ground, Phase 2): where the light shines from and where its object meets the
+            // ground, by kind (web lightingEnhanced.ts recordReflection). Only the strongest 48 are kept (Reflect_PS loops them all).
+            ReflectionSource reflection = RecordReflection(x + width / 2F, y + height / 2F, width / 2F, colour, intensity, kind, lift);
+            if (_reflectionSources.Count < 48) _reflectionSources.Add(reflection);
+            else
+            {
+                int weakest = 0;
+                float weakestScore = float.MaxValue;
+                for (int i = 0; i < _reflectionSources.Count; i++)
+                {
+                    ReflectionSource l = _reflectionSources[i];
+                    float score = (l.R + l.G + l.B) * l.Radius;
+                    if (score < weakestScore) { weakestScore = score; weakest = i; }
+                }
+                if ((reflection.R + reflection.G + reflection.B) * reflection.Radius > weakestScore)
+                    _reflectionSources[weakest] = reflection;
+            }
         }
 
         /// <summary>Smooth noise in -1..1 from three detuned sines; the seed de-phases neighbouring lights.</summary>

@@ -52,6 +52,12 @@ namespace Client.MirGraphics.Rendering
         Rainfall,
         /// <summary>Atmosphere (D3D11 only): a flat fullscreen lightning flash (colour in rgb, envelope in alpha), added to the scene.</summary>
         Lightning,
+        /// <summary>Atmosphere wet ground (D3D11 only): the ground pass, used for both the wet colour and the alpha/reflectivity pass.</summary>
+        Ground,
+        /// <summary>Atmosphere wet ground (D3D11 only): the scene alpha into the wet-mask target.</summary>
+        Snapshot,
+        /// <summary>Atmosphere reflections (D3D11 only): objects and lamps mirrored in puddles.</summary>
+        Reflect,
     }
 
     /// <summary>The colour format of a render target (<see cref="IRenderBackend.CreateRenderTarget(int, int, RenderTargetFormat)"/>).</summary>
@@ -68,6 +74,19 @@ namespace Client.MirGraphics.Rendering
     {
         Rainfall,
         Lightning,
+        /// <summary>Wet ground (D3D11 only): puddles, ripples, splashes and eaves drips over the floor, alpha-blended.</summary>
+        GroundWet,
+        /// <summary>Wet ground (D3D11 only): the ground shader's alpha pass, writing the map target's alpha (reflectivity) only.</summary>
+        GroundMask,
+        /// <summary>Wet ground (D3D11 only): the scene's alpha into the wet-mask target's red channel.</summary>
+        Snapshot,
+        /// <summary>Wet ground (D3D11 only): objects mirrored in puddles, premultiplied, into a half-resolution target.</summary>
+        ReflectObjects,
+        /// <summary>Wet ground (D3D11 only): lamp reflections into a half-resolution float target.</summary>
+        ReflectLamps,
+        /// <summary>Wet ground (D3D11 only): samples the source with the linear sampler, using the caller's blend state
+        /// (DXManager.SetBlendFactors), so half-resolution mirrors upsample smoothly.</summary>
+        BlitLinear,
     }
 
     public enum DeviceStatus
@@ -183,8 +202,11 @@ namespace Client.MirGraphics.Rendering
         bool SupportsAtmosphere { get; }
         /// <summary>A render target in the requested colour format (Rgba8 = A8R8G8B8).</summary>
         RenderTexture CreateRenderTarget(int width, int height, RenderTargetFormat format);
-        /// <summary>Uploads up to four float4s to the atmosphere constant buffer (b2) read by <see cref="DrawFullscreen"/>.</summary>
+        /// <summary>Uploads up to 128 float4s to the atmosphere constant buffer (b2) read by <see cref="DrawFullscreen"/>.</summary>
         void SetAtmosphereConstants(ReadOnlySpan<Vector4> constants);
+        /// <summary>Binds a pass source on texture slot 1..3 (t1..t3, linear clamp) for the next <see cref="DrawFullscreen"/>.
+        /// t0 is the <c>source</c> argument. Pass null to clear the slot.</summary>
+        void SetAtmosphereSource(int slot, RenderTexture texture);
         /// <summary>Runs a fullscreen atmosphere pass over the current render target, sampling <paramref name="source"/> at t0
         /// (null binds a white 1x1). <paramref name="inputs"/> is uploaded as the atmosphere constants first.</summary>
         void DrawFullscreen(FullscreenKind kind, RenderTexture source, ReadOnlySpan<Vector4> inputs);

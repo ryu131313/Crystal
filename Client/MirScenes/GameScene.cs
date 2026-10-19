@@ -6551,6 +6551,7 @@ namespace Client.MirScenes
             if (User.Poison.HasFlag(PoisonType.Blindness) && User.BlindCount < 25) rebuild = Reason("blindness"); // ramp advances in DrawLights
             if (AnimatedTileFrameChanged()) rebuild = Reason("tiles");
             if (EnhancedLightingNeedsRebuild(out string lightReason)) rebuild = Reason(lightReason); // flicker, day/night fade
+            if (AtmosphereNeedsRebuild(out string wetReason)) rebuild = Reason(wetReason); // baked wet ground at 10 Hz
 
             bool damage = false, chat = false, health = false;
             for (int i = 0; i < ObjectsList.Count; i++)
@@ -6871,6 +6872,9 @@ namespace Client.MirScenes
                 DXManager.Draw(DXManager.FloorTexture, new Rectangle(0, 0, Settings.ScreenWidth, Settings.ScreenHeight), Vector3.Zero, Color.White);
             }
 
+            // Wet ground goes under the objects: puddles/ripples/splashes, footfall ripples, then the reflectivity alpha pass.
+            DrawAtmosphereGround();
+
             DrawObjects();
 
             //render weather
@@ -6878,6 +6882,9 @@ namespace Client.MirScenes
             {
                 engine.Draw();
             }
+
+            // The object/weather pixels have raised the scene alpha: snapshot it to tell wet floor from what stands on it.
+            DrawAtmosphereSnapshot();
 
             //Render Death, 
 

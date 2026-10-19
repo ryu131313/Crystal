@@ -526,6 +526,162 @@ namespace Client.RenderTest
             return failures;
         }
 
+        // ------------------------------------------------------------------ wet ground (D3D11 only, self-checked)
+
+        /// <summary>
+        /// X03: the wet-ground ground pass, its reflectivity alpha pass, the scene-alpha snapshot and the object mirror.
+        /// A synthetic cell mask puts floor in a known rectangle and void outside it. Checks that void pixels keep their
+        /// colour and alpha, floor pixels change and get a wet alpha, the snapshot marks wet floor, and the mirror is
+        /// non-zero only where the mask marks wet floor.
+        /// </summary>
+        private static unsafe List<string> CheckWetGround()
+        {
+            var failures = new List<string>();
+            const int cols = 16, rows = 8;
+            const int floorX0 = 2 * CellWidth, floorX1 = 14 * CellWidth; // cells 2..13
+            const int floorY0 = 1 * CellHeight, floorY1 = 7 * CellHeight; // cells 1..6
+            Color clear = Color.FromArgb(255, 20, 40, 60);
+            byte clearB = clear.B, clearG = clear.G, clearR = clear.R;
+
+            RenderTexture mask = DXManager.CreateTexture(cols, rows);
+            RenderTexture scene = DXManager.CreateRenderTarget(Width, Height);
+            RenderTexture snapshot = DXManager.CreateRenderTarget(Width, Height);
+            RenderTexture mirror = DXManager.CreateRenderTarget(Math.Max(1, Width / 2), Math.Max(1, Height / 2));
+
+            try
+            {
+                var data = new byte[cols * rows * 4];
+                for (int r = 1; r <= 6; r++)
+                    for (int c = 2; c <= 13; c++)
+                    {
+                        int o = (r * cols + c) * 4;
+                        data[o + 2] = 255;  // R: floor (the texture is BGRA)
+                        data[o + 3] = 255;
+                    }
+                byte* dst = DXManager.LockTexture(mask);
+                System.Runtime.InteropServices.Marshal.Copy(data, 0, (IntPtr)dst, data.Length);
+                DXManager.UnlockTexture(mask);
+
+                var inputs = new Vector4[5];
+                inputs[0] = new Vector4(Width, Height, 12.5F, 0F);       // size, time, mode 0 = wet
+                inputs[1] = new Vector4(0F, 0F, 1.5F, 0.7F);             // cam, amount, ripples
+                inputs[2] = new Vector4(0.5F, 1F, 0F, 0.6F);             // splash, wet, pass 0, drip
+                inputs[3] = new Vector4(0F, 0F, 0F, 0F);                 // mask origin, cell0
+                inputs[4] = new Vector4(cols, rows, 0F, 0F);             // mask cells
+
+                DXManager.BeginFrame();
+                DXManager.SetSurface(scene);
+                DXManager.Clear(clear);
+                DXManager.DrawFullscreen(FullscreenKind.GroundWet, mask, inputs.AsSpan(0, 5));
+                inputs[2] = new Vector4(0.5F, 1F, 1F, 0.6F);             // alpha/reflectivity pass
+                DXManager.DrawFullscreen(FullscreenKind.GroundMask, mask, inputs.AsSpan(0, 5));
+
+                // A figure standing on the floor (opaque): its mirror is what the reflection pass should find below it.
+                DrawScaled(DXManager.RadarTexture, 200F, 120F, 300F, 60F, Color.White);
+                DXManager.SetSurface(DXManager.MainSurface);
+                DXManager.EndFrame();
+
+                byte[] ground = DXManager.Backend.CaptureRenderTarget(scene);
+
+                DXManager.BeginFrame();
+                DXManager.SetSurface(snapshot);
+                inputs[0] = new Vector4(Width, Height, 0F, 0F);
+                DXManager.DrawFullscreen(FullscreenKind.Snapshot, scene, inputs.AsSpan(0, 1));
+                DXManager.SetSurface(DXManager.MainSurface);
+                DXManager.EndFrame();
+                byte[] wet = DXManager.Backend.CaptureRenderTarget(snapshot);
+
+                DXManager.BeginFrame();
+                DXManager.SetSurface(mirror);
+                inputs[0] = new Vector4(Width, Height, 12.5F, 0F);
+                inputs[1] = new Vector4(0F, 0F, 1F, 0.7F);
+                inputs[2] = new Vector4(0.86F, 0.89F, 0.94F, 0F);
+                DXManager.DrawFullscreen(FullscreenKind.ReflectObjects, scene, snapshot, null, inputs.AsSpan(0, 3));
+                DXManager.SetSurface(DXManager.MainSurface);
+                DXManager.EndFrame();
+                byte[] reflected = DXManager.Backend.CaptureRenderTarget(mirror);
+
+                // Void: colour and alpha untouched.
+                int voidChecked = 0;
+                foreach (Point p in new[] { new Point(24, 16), new Point(24, 300), new Point(800, 400), new Point(500, 8) })
+                {
+                    int i = (p.Y * Width + p.X) * 4;
+                    voidChecked++;
+                    if (ground[i + 3] != 255 && failures.Count < 10) failures.Add($"void alpha at {p}: {ground[i + 3]}");
+                    if (ground[i] != clearB || ground[i + 1] != clearG || ground[i + 2] != clearR)
+                    {
+                        if (failures.Count < 10) failures.Add($"void colour at {p}: {ground[i + 2]},{ground[i + 1]},{ground[i]} != {clearR},{clearG},{clearB}");
+                    }
+                }
+
+                // Floor: the wet pass changed the colour and the alpha pass marked it (alpha below opaque).
+                int floorChanged = 0, floorChecked = 0;
+                for (int y = floorY0 + 8; y < floorY1 - 8; y += 17)
+                    for (int x = floorX0 + 8; x < floorX1 - 8; x += 19)
+                    {
+                        if (x >= 198 && x <= 502 && y >= 118 && y <= 182) continue; // the opaque figure band is not wet floor
+                        int i = (y * Width + x) * 4;
+                        floorChecked++;
+                        bool changed = ground[i] != clearB || ground[i + 1] != clearG || ground[i + 2] != clearR;
+                        if (changed) floorChanged++;
+                        if (ground[i + 3] >= 240 && failures.Count < 10) failures.Add($"floor alpha not wet at ({x},{y}): {ground[i + 3]}");
+                    }
+                if (floorChanged * 10 < floorChecked * 9) failures.Add($"floor barely changed: {floorChanged}/{floorChecked}");
+
+                // Snapshot: wet floor has a low red value, void and the figure stay opaque.
+                int wetChecked = 0;
+                for (int y = floorY0 + 8; y < floorY1 - 8; y += 23)
+                    for (int x = floorX0 + 8; x < floorX1 - 8; x += 29)
+                    {
+                        if (x >= 198 && x <= 502 && y >= 118 && y <= 182) continue; // the figure reads as an object, not wet floor
+                        int i = (y * Width + x) * 4;
+                        wetChecked++;
+                        if (wet[i] >= 250 && failures.Count < 10) failures.Add($"snapshot not wet at ({x},{y}): {wet[i]}");
+                    }
+                foreach (Point p in new[] { new Point(24, 16), new Point(300, 150) })
+                {
+                    int i = (p.Y * Width + p.X) * 4;
+                    if (wet[i] < 250 && failures.Count < 10) failures.Add($"snapshot marked non-wet at {p}: {wet[i]}");
+                }
+
+                // Mirror: non-zero only on wet floor.
+                int mw = mirror.Width, mh = mirror.Height, nonZero = 0, outside = 0;
+                for (int y = 0; y < mh; y++)
+                    for (int x = 0; x < mw; x++)
+                    {
+                        int i = (y * mw + x) * 4;
+                        if (reflected[i] + reflected[i + 1] + reflected[i + 2] == 0) continue;
+                        nonZero++;
+                        int sx = x * 2, sy = y * 2;
+                        if (sx < floorX0 - 8 || sx > floorX1 + 8 || sy < floorY0 - 8 || sy > floorY1 + 8) outside++;
+                    }
+                if (nonZero == 0) failures.Add("mirror drew nothing");
+                if (outside > 0) failures.Add($"mirror drew {outside} pixels outside wet floor");
+                int voidMirror = (8 * mw + 12) * 4;
+                if (Math.Abs(voidMirror) < reflected.Length && reflected[voidMirror] + reflected[voidMirror + 1] + reflected[voidMirror + 2] != 0)
+                    failures.Add("mirror drew in a void cell");
+
+                Log($"X03 checks: void {voidChecked} px, floor {floorChanged}/{floorChecked} changed, wet {wetChecked} px, mirror {nonZero} px ({outside} outside floor)");
+            }
+            finally
+            {
+                mask.Dispose();
+                scene.Dispose();
+                snapshot.Dispose();
+                mirror.Dispose();
+            }
+
+            return failures;
+        }
+
+        private static void DrawScaled(RenderTexture texture, float x, float y, float width, float height, Color colour)
+        {
+            float scaleX = width / texture.Width, scaleY = height / texture.Height;
+            DXManager.SetSpriteTransform(Matrix.Scaling(scaleX, scaleY, 0F));
+            DXManager.Draw(texture, new Rectangle(0, 0, texture.Width, texture.Height), new Vector3(x / scaleX, y / scaleY, 0F), colour);
+            DXManager.SetSpriteTransform(Matrix.Identity);
+        }
+
         private static void DrawScaledScenario()
         {
             var imgs = ValidIndices(Libraries.Prguse, 0, 6);
@@ -794,9 +950,17 @@ namespace Client.RenderTest
                     foreach (var f in failures) Log("X02 FAIL " + f);
                     Log(failures.Count == 0 ? "X02_atmosphere CHECK PASS" : $"X02_atmosphere CHECK FAIL ({failures.Count})");
                     if (failures.Count > 0) return 1;
+
+                    var wetFailures = CheckWetGround();
+                    foreach (var f in wetFailures) Log("X03 FAIL " + f);
+                    Log(wetFailures.Count == 0 ? "X03_wet CHECK PASS" : $"X03_wet CHECK FAIL ({wetFailures.Count})");
+                    if (wetFailures.Count > 0) return 1;
                 }
                 else
+                {
                     Log("X02_atmosphere skipped: backend has no atmosphere");
+                    Log("X03_wet skipped: backend has no atmosphere");
+                }
 
                 if (BenchFrames > 0)
                 {

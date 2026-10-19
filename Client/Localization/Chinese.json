@@ -971,6 +971,8 @@
     "SmoothMoveDesc": "在动画帧之间以偶数像素步进移动，而不是跳跃。",
     "Weather": "增强天气",
     "WeatherDesc": "在天气地图上使用着色器降雨和闪电。需要增强光照（Direct3D 11 渲染器）。",
+    "Reflections": "湿地反射",
+    "ReflectionsDesc": "在水洼和湿地上倒映物体与灯光。需要增强天气和光照（Direct3D 11 渲染器）。",
     "SmoothMoveOn": "[平滑移动：开启]",
     "SmoothMoveOff": "[平滑移动：关闭]",
     "WeatherOn": "[增强天气：开启]",
