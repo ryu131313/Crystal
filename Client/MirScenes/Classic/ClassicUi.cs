@@ -22,6 +22,7 @@ namespace Client.MirScenes.Classic
         {
             _scene.ClassicBuild();
             _scene.ClassicBuildLate();
+            ListenFriendRequests();
         }
 
         public void Process() => _scene.ClassicProcess();
@@ -30,7 +31,11 @@ namespace Client.MirScenes.Classic
         {
         }
 
-        public void Dispose() => _scene.ClassicDispose();
+        public void Dispose()
+        {
+            StopFriendRequests();
+            _scene.ClassicDispose();
+        }
         public void DrawOverlay() { } // the classic dialogs are scene children, drawn in the scene texture
         public void MarketMessage(string text, bool fail) => MirControls.MirMessageBox.Show(text); // as GameScene did
         public void NpcRequestInput(S.NPCRequestInput p) => _scene.ClassicNpcRequestInput(p);

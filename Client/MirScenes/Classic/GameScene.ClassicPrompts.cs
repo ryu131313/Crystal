@@ -1,5 +1,6 @@
 ﻿using Client.MirControls;
 using Client.MirNetwork;
+using Client.MirScenes.Models;
 using S = ServerPackets;
 using C = ClientPackets;
 
@@ -130,6 +131,56 @@ namespace Client.MirScenes
             messageBox.YesButton.Click += (o, e) => Network.Enqueue(new C.AcceptReincarnation());
 
             messageBox.Show();
+        }
+
+        /// <summary>The open friend request boxes by requester name (ClassicFriendRequest).</summary>
+        private readonly Dictionary<string, MirMessageBox> _classicFriendBoxes = new Dictionary<string, MirMessageBox>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>S.FriendRequest (Models.Friends.RequestReceived; classic had no prompt before phase 2.7): Yes / No answers through
+        /// Models.Friends.Reply. A repeat from the same player replaces the open box; the server judges expiry.</summary>
+        internal void ClassicFriendRequest(FriendRequestInfo r)
+        {
+            if (r == null || MirScene.ActiveScene != this) return;
+            string name = r.Name;
+            ClassicCloseFriendBox(name);
+
+            MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PlayerRequestedFriend, name, r.Level), MirMessageBoxButtons.YesNo);
+            _classicFriendBoxes[name] = messageBox;
+
+            messageBox.YesButton.Click += (o, e) => ClassicAnswerFriend(name, messageBox, true);
+            messageBox.NoButton.Click += (o, e) => ClassicAnswerFriend(name, messageBox, false);
+
+            messageBox.Show();
+        }
+
+        /// <summary>Models.Friends.RequestsChanged: a request settled by a friend list update closes its box without an answer.</summary>
+        internal void ClassicFriendRequestsChanged()
+        {
+            if (_classicFriendBoxes.Count == 0) return;
+            List<FriendRequestInfo> live = Models?.Friends.Requests;
+            foreach (string name in new List<string>(_classicFriendBoxes.Keys))
+            {
+                bool still = false;
+                if (live != null)
+                    for (int i = 0; i < live.Count; i++)
+                        if (string.Equals(live[i].Name, name, StringComparison.OrdinalIgnoreCase)) { still = true; break; }
+                if (!still) ClassicCloseFriendBox(name);
+            }
+        }
+
+        private void ClassicAnswerFriend(string name, MirMessageBox box, bool accept)
+        {
+            // the box disposed itself (its first Click handler); answer only if it is still the open box for this name
+            if (!_classicFriendBoxes.TryGetValue(name, out MirMessageBox current) || current != box) return;
+            _classicFriendBoxes.Remove(name);
+            Models?.Friends.Reply(name, accept);
+        }
+
+        private void ClassicCloseFriendBox(string name)
+        {
+            if (!_classicFriendBoxes.TryGetValue(name, out MirMessageBox box)) return;
+            _classicFriendBoxes.Remove(name);
+            if (!box.IsDisposed) box.Dispose();
         }
     }
 }

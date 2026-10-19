@@ -54,6 +54,8 @@ namespace Client.RenderTest
         static partial void AddGuildSteps(List<Step> steps);
         static partial void AddSocialSteps(List<Step> steps);
         static partial void AddCompanionSteps(List<Step> steps);
+        // Classic-only prompts added after the seam (UiTestRunner.ClassicPrompts.cs), last so the earlier step numbers stay put.
+        static partial void AddClassicPromptSteps(List<Step> steps);
         static partial void DumpModern(List<string> log);
 
         public static bool ParseArg(string arg, string[] args, ref int i)
@@ -426,6 +428,7 @@ namespace Client.RenderTest
             AddGuildSteps(steps);
             AddSocialSteps(steps);
             AddCompanionSteps(steps);
+            AddClassicPromptSteps(steps);
             return steps;
         }
 

@@ -1,4 +1,5 @@
-﻿using S = ServerPackets;
+﻿using Client.MirScenes.Models;
+using S = ServerPackets;
 
 namespace Client.MirScenes.Classic
 {
@@ -16,5 +17,25 @@ namespace Client.MirScenes.Classic
         public void ConfirmQuit() => _scene.ClassicConfirmQuit();
         public void ConfirmLogOut() => _scene.ClassicConfirmLogOut();
         public void MapChanged(int mapIndex) { } // the classic dialogs read MapControl when they draw
+
+        // S.FriendRequest is model-only (Models.Friends); the classic prompt listens to it like ModernUi's toast does
+        private Action<FriendRequestInfo> _friendRequest;
+        private Action _friendRequestsChanged;
+
+        private void ListenFriendRequests()
+        {
+            _friendRequest = _scene.ClassicFriendRequest;
+            _friendRequestsChanged = _scene.ClassicFriendRequestsChanged;
+            GameScene.Models?.Friends.RequestReceived.On(_friendRequest);
+            GameScene.Models?.Friends.RequestsChanged.On(_friendRequestsChanged);
+        }
+
+        private void StopFriendRequests()
+        {
+            if (_friendRequest != null) GameScene.Models?.Friends.RequestReceived.Off(_friendRequest);
+            if (_friendRequestsChanged != null) GameScene.Models?.Friends.RequestsChanged.Off(_friendRequestsChanged);
+            _friendRequest = null;
+            _friendRequestsChanged = null;
+        }
     }
 }

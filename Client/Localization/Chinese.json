@@ -1,4 +1,4 @@
-{
+﻿{
   "Text": {
     "LowLevel": "你的等级不足。",
     "LowGold": "金币不足。",
@@ -830,6 +830,7 @@
     "PlayerRequestedTeachClass": "{0}（等级 {1}）请求你教授他 {2} 的技能与知识。",
     "Guild": "公会（{0}）",
     "PlayerRequestedTrade": "玩家 {0} 请求与你进行交易。",
+    "PlayerRequestedFriend": "{0}（等级 {1}）请求加你为好友。",
     "DealCancelledMustFace": "交易已取消。\n交易时必须面对对方。",
     "NotEnoughMaterials": "你提供的材料不足。",
     "AwakeningMaxLevel": "觉醒已达到最高等级。",

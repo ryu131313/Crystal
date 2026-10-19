@@ -1,4 +1,4 @@
-// ReSharper disable InconsistentNaming
+﻿// ReSharper disable InconsistentNaming
 
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -866,6 +866,7 @@ public enum ClientTextKeys
     PlayerRequestedTeachClass,
     Guild,
     PlayerRequestedTrade,
+    PlayerRequestedFriend,
     DealCancelledMustFace,
     NotEnoughMaterials,
     AwakeningMaxLevel,
@@ -6678,6 +6679,7 @@ public static class GameLanguage
             { nameof(ClientTextKeys.PlayerRequestedTeachClass), "{0} (Level {1}) has requested you teach him the ways of the {2}." },
             { nameof(ClientTextKeys.Guild), "Guild" },
             { nameof(ClientTextKeys.PlayerRequestedTrade), "Player {0} has requested to trade with you." },
+            { nameof(ClientTextKeys.PlayerRequestedFriend), "{0} (level {1}) has asked to be your friend." },
             { nameof(ClientTextKeys.DealCancelledMustFace), "Deal cancelled.\nTo deal correctly you must face the other party." },
             { nameof(ClientTextKeys.NotEnoughMaterials), "You have not supplied enough materials." },
             { nameof(ClientTextKeys.AwakeningMaxLevel), "Awakening already at maximum level." },
