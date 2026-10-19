@@ -436,6 +436,96 @@ namespace Client.RenderTest
             return failures;
         }
 
+        /// <summary>
+        /// X02: the atmosphere rainfall pass over the objects scene, with frozen inputs. There is no D3D9 golden (D3D11
+        /// only); <see cref="CheckAtmosphere"/> checks the image against the unlit scene and against a second render of the
+        /// same frozen inputs (determinism).
+        /// </summary>
+        private static void DrawRainScenario()
+        {
+            DrawObjectsScenario();
+            var inputs = new Vector4[4];
+            inputs[0] = new Vector4(Width, Height, 12.5f, 0.5f);   // size, time, amount
+            inputs[1] = new Vector4(0f, 0f, 0.1f, 0.05f);          // cam, slant, wash
+            inputs[2] = new Vector4(1.3f, 0.4f, 0f, 0f);           // sheet drift, near, hasLight
+            DXManager.DrawFullscreen(FullscreenKind.Rainfall, null, inputs);
+        }
+
+        /// <summary>X02: the lightning screen flash at full envelope.</summary>
+        private static void DrawLightningScenario()
+        {
+            DrawObjectsScenario();
+            var inputs = new Vector4[4];
+            inputs[0] = new Vector4(170f / 255f, 195f / 255f, 1f, 0.9f);
+            DXManager.DrawFullscreen(FullscreenKind.Lightning, null, inputs);
+        }
+
+        /// <summary>
+        /// X02 checks: the rain differs from the unlit scene (drew pixels), two renders of the same frozen inputs are
+        /// byte-identical (no hidden time/random input), and the lightning flash brightens the scene. Returns the failures.
+        /// </summary>
+        private static List<string> CheckAtmosphere(byte[] baseline, byte[] rainA, byte[] rainB, byte[] flash)
+        {
+            var failures = new List<string>();
+            int rainPixels = 0, deterministicChecked = 0, brighter = 0, brighterChecked = 0;
+
+            for (int i = 0; i + 3 < baseline.Length; i += 4)
+            {
+                int dr = Math.Abs(rainA[i] - baseline[i]) + Math.Abs(rainA[i + 1] - baseline[i + 1]) + Math.Abs(rainA[i + 2] - baseline[i + 2]);
+                if (dr > 8) rainPixels++;
+
+                deterministicChecked++;
+                if (rainA[i] != rainB[i] || rainA[i + 1] != rainB[i + 1] || rainA[i + 2] != rainB[i + 2])
+                {
+                    if (failures.Count < 10) failures.Add($"rain not deterministic at byte {i}");
+                }
+
+                if (baseline[i] < 200) { brighterChecked++; if (flash[i] > baseline[i]) brighter++; }
+            }
+
+            if (rainPixels < 200) failures.Add($"rain drew too few pixels: {rainPixels}");
+            if (brighterChecked == 0) failures.Add("no pixels to check the flash against");
+            else if (brighter * 10 < brighterChecked * 8) failures.Add($"lightning flash did not brighten the scene: {brighter}/{brighterChecked}");
+            Log($"X02 checks: rain {rainPixels} px, deterministic {deterministicChecked} px, flash {brighter}/{brighterChecked} brighter");
+            return failures;
+        }
+
+        /// <summary>
+        /// Smooth-movement offset check ([Game] SmoothMove): every smooth offset is an even pixel, and on the last frame of an
+        /// action (steps == count) it equals the classic final offset exactly.
+        /// </summary>
+        private static List<string> CheckSmoothOffsets()
+        {
+            var failures = new List<string>();
+            var dirs = (MirDirection[])Enum.GetValues(typeof(MirDirection));
+            int[] counts = { 1, 2, 3, 4, 5, 6, 8 };
+            int[] speeds = { 1, 2, 3 };
+            int checkedValues = 0;
+
+            foreach (MirDirection dir in dirs)
+                foreach (int i in speeds)
+                    foreach (int count in counts)
+                    {
+                        Point classic = MapObject.ClassicMoveOffset(dir, i, count, count - 1);
+                        Point end = MapObject.SmoothMoveOffset(dir, i, count, count);
+                        if (end != classic && failures.Count < 10) failures.Add($"smooth end != classic {dir} i={i} count={count}: {end} vs {classic}");
+
+                        for (float s = 0f; s <= count; s += 0.25f)
+                        {
+                            Point p = MapObject.SmoothMoveOffset(dir, i, count, s);
+                            checkedValues++;
+                            if ((p.X & 1) != 0 || (p.Y & 1) != 0)
+                            {
+                                if (failures.Count < 10) failures.Add($"odd smooth offset {dir} i={i} count={count} s={s}: {p}");
+                                break;
+                            }
+                        }
+                    }
+
+            Log($"X02 smooth check: {checkedValues} offsets over {dirs.Length} directions x {speeds.Length} speeds x {counts.Length} frame counts");
+            return failures;
+        }
+
         private static void DrawScaledScenario()
         {
             var imgs = ValidIndices(Libraries.Prguse, 0, 6);
@@ -671,6 +761,42 @@ namespace Client.RenderTest
                 }
                 else
                     Log("X01_enhanced_lights skipped: backend has no enhanced lighting");
+
+                // X02: the smooth-movement offset math (both backends) and the atmosphere passes (D3D11 only, self-checked).
+                var smoothFailures = CheckSmoothOffsets();
+                foreach (var f in smoothFailures) Log("X02 FAIL " + f);
+                Log(smoothFailures.Count == 0 ? "X02_smooth CHECK PASS" : $"X02_smooth CHECK FAIL ({smoothFailures.Count})");
+                if (smoothFailures.Count > 0) return 1;
+
+                if (DXManager.AtmosphereAvailable)
+                {
+                    var objects = scenarios.Find(s => s.Name == "S02_objects");
+                    RenderScenario(objects, toTarget: true);
+                    var baseline = DXManager.Backend.CaptureRenderTarget(_target);
+
+                    var rain = new Scenario { Name = "X02_rain", Draw = DrawRainScenario };
+                    RenderScenario(rain, toTarget: true);
+                    RenderScenario(rain, toTarget: true);
+                    var rainA = DXManager.Backend.CaptureRenderTarget(_target);
+                    RenderScenario(rain, toTarget: true);
+                    var rainB = DXManager.Backend.CaptureRenderTarget(_target);
+                    File.WriteAllBytes(Path.Combine(OutDir, "X02_rain.bgra"), rainA);
+                    SavePng(rainA, Path.Combine(OutDir, "X02_rain.png"));
+
+                    var flash = new Scenario { Name = "X02_lightning", Draw = DrawLightningScenario };
+                    RenderScenario(flash, toTarget: true);
+                    RenderScenario(flash, toTarget: true);
+                    var flashBytes = DXManager.Backend.CaptureRenderTarget(_target);
+                    File.WriteAllBytes(Path.Combine(OutDir, "X02_lightning.bgra"), flashBytes);
+                    SavePng(flashBytes, Path.Combine(OutDir, "X02_lightning.png"));
+
+                    var failures = CheckAtmosphere(baseline, rainA, rainB, flashBytes);
+                    foreach (var f in failures) Log("X02 FAIL " + f);
+                    Log(failures.Count == 0 ? "X02_atmosphere CHECK PASS" : $"X02_atmosphere CHECK FAIL ({failures.Count})");
+                    if (failures.Count > 0) return 1;
+                }
+                else
+                    Log("X02_atmosphere skipped: backend has no atmosphere");
 
                 if (BenchFrames > 0)
                 {

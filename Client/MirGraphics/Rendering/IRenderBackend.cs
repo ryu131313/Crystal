@@ -48,6 +48,26 @@ namespace Client.MirGraphics.Rendering
         /// <summary>Enhanced lighting (D3D11 only): samples the float light map, soft-knees it into 0..2 and outputs half of it
         /// for the 2x modulate blend (DestinationColor, SourceColor).</summary>
         LightComposite,
+        /// <summary>Atmosphere (D3D11 only): the fullscreen rainfall pass; its source texture (t0) is the enhanced light map.</summary>
+        Rainfall,
+        /// <summary>Atmosphere (D3D11 only): a flat fullscreen lightning flash (colour in rgb, envelope in alpha), added to the scene.</summary>
+        Lightning,
+    }
+
+    /// <summary>The colour format of a render target (<see cref="IRenderBackend.CreateRenderTarget(int, int, RenderTargetFormat)"/>).</summary>
+    public enum RenderTargetFormat
+    {
+        /// <summary>8-bit BGRA (A8R8G8B8): the classic control and map targets.</summary>
+        Rgba8,
+        /// <summary>16-bit half float per channel: values above 1 do not clip (light maps, atmosphere captures).</summary>
+        Rgba16F,
+    }
+
+    /// <summary>A fullscreen atmosphere pass ([Graphics] Atmosphere; D3D11 + enhanced lighting only).</summary>
+    public enum FullscreenKind
+    {
+        Rainfall,
+        Lightning,
     }
 
     public enum DeviceStatus
@@ -155,6 +175,19 @@ namespace Client.MirGraphics.Rendering
         /// <summary>Queues one light quad (UV 0..1 across it) for the <see cref="PixelShaderKind.Light"/> shader.
         /// <paramref name="intensity"/> is 0..4, carried in the vertex alpha.</summary>
         void DrawLight(float x, float y, float width, float height, Color colour, float intensity);
+
+        /// <summary>
+        /// Atmosphere weather passes ([Graphics] Atmosphere): fullscreen shader rain and lightning over the enhanced-lighting
+        /// path. D3D11 only; D3D9 keeps the classic weather sprites and reports false.
+        /// </summary>
+        bool SupportsAtmosphere { get; }
+        /// <summary>A render target in the requested colour format (Rgba8 = A8R8G8B8).</summary>
+        RenderTexture CreateRenderTarget(int width, int height, RenderTargetFormat format);
+        /// <summary>Uploads up to four float4s to the atmosphere constant buffer (b2) read by <see cref="DrawFullscreen"/>.</summary>
+        void SetAtmosphereConstants(ReadOnlySpan<Vector4> constants);
+        /// <summary>Runs a fullscreen atmosphere pass over the current render target, sampling <paramref name="source"/> at t0
+        /// (null binds a white 1x1). <paramref name="inputs"/> is uploaded as the atmosphere constants first.</summary>
+        void DrawFullscreen(FullscreenKind kind, RenderTexture source, ReadOnlySpan<Vector4> inputs);
 
         DeviceStatus TestCooperativeLevel();
         /// <summary>Resets/resizes the device. DXManager has already released every texture it owns.</summary>

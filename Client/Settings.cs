@@ -105,6 +105,8 @@ namespace Client
         public static bool RebuildOptimisations = true;
         // [Graphics] Lighting: Classic (default) or Enhanced (D3D11 only; D3D9 always draws Classic). In game: @light new / @light old.
         public static LightingMode Lighting = LightingMode.Classic;
+        // [Graphics] Atmosphere: shader rain and lightning on weather maps (D3D11 + Enhanced lighting only). In game: @weather on / @weather off.
+        public static bool Atmosphere = true;
 
         //Network
         public static bool UseConfig = false;
@@ -184,7 +186,9 @@ namespace Client
             ExpandedBuffWindow = true,
             ExpandedHeroBuffWindow = true,
             DisplayBodyName = false,
-            NewMove = false;
+            NewMove = false,
+            // [Game] SmoothMove: move between cells in even steps between animation frames (default on, 2026-10-19). In game: @smooth on / @smooth off.
+            SmoothMove = true;
 
         public static string Language = "English";
 
@@ -248,6 +252,7 @@ namespace Client
             DebugMode = Reader.ReadBoolean("Graphics", "DebugMode", DebugMode);
             RebuildOptimisations = Reader.ReadBoolean("Graphics", "RebuildOptimisations", RebuildOptimisations);
             Lighting = Enum.TryParse(Reader.ReadString("Graphics", "Lighting", Lighting.ToString()), true, out LightingMode lighting) ? lighting : LightingMode.Classic;
+            Atmosphere = Reader.ReadBoolean("Graphics", "Atmosphere", Atmosphere);
             UseMouseCursors = Reader.ReadBoolean("Graphics", "UseMouseCursors", UseMouseCursors);
 
             //Interface
@@ -320,6 +325,7 @@ namespace Client
             DuraView = Reader.ReadBoolean("Game", "DuraWindow", DuraView);
             DisplayBodyName = Reader.ReadBoolean("Game", "DisplayBodyName", DisplayBodyName);
             NewMove = Reader.ReadBoolean("Game", "NewMove", NewMove);
+            SmoothMove = Reader.ReadBoolean("Game", "SmoothMove", SmoothMove);
             Language = Reader.ReadString("Game", "Language", Language);
 
             for (int i = 0; i < SkillbarLocation.Length / 2; i++)
@@ -428,6 +434,7 @@ namespace Client
             Reader.Write("Graphics", "DebugMode", DebugMode);
             Reader.Write("Graphics", "RebuildOptimisations", RebuildOptimisations);
             Reader.Write("Graphics", "Lighting", Lighting.ToString());
+            Reader.Write("Graphics", "Atmosphere", Atmosphere);
             Reader.Write("Graphics", "UseMouseCursors", UseMouseCursors);
 
             //Sound
@@ -458,6 +465,7 @@ namespace Client
             Reader.Write("Game", "DuraWindow", DuraView);
             Reader.Write("Game", "DisplayBodyName", DisplayBodyName);
             Reader.Write("Game", "NewMove", NewMove);
+            Reader.Write("Game", "SmoothMove", SmoothMove);
             Reader.Write("Game", "Language", Language);
 
             for (int i = 0; i < SkillbarLocation.Length / 2; i++)

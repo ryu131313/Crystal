@@ -111,7 +111,7 @@ namespace Client.MirObjects
             if (BodyLibrary != null)
                 FinalDrawLocation = DrawLocation.Add(BodyLibrary.GetOffSet(DrawFrame));
 
-            if (BodyLibrary != null && update)
+            if (BodyLibrary != null && (SmoothDrawLocationMoved() | update)) // smooth: the body follows every glide step
             {
                 FinalDrawLocation = DrawLocation.Add(BodyLibrary.GetOffSet(DrawFrame));
                 DisplayRectangle = new Rectangle(DrawLocation, BodyLibrary.GetTrueSize(DrawFrame));

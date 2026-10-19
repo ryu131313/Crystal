@@ -94,6 +94,16 @@ namespace Client.MirGraphics.Rendering
         public RenderTexture CreateLightTarget(int width, int height) => throw new NotSupportedException("Enhanced lighting needs the D3D11 backend.");
         public void DrawLight(float x, float y, float width, float height, Color colour, float intensity) => throw new NotSupportedException("Enhanced lighting needs the D3D11 backend.");
 
+        // Atmosphere weather is D3D11 only too; D3D9 keeps the classic weather sprites.
+        public bool SupportsAtmosphere => false;
+        public void SetAtmosphereConstants(ReadOnlySpan<Vector4> constants) { }
+        public void DrawFullscreen(FullscreenKind kind, RenderTexture source, ReadOnlySpan<Vector4> inputs) => throw new NotSupportedException("The atmosphere needs the D3D11 backend.");
+        public RenderTexture CreateRenderTarget(int width, int height, RenderTargetFormat format)
+        {
+            if (format == RenderTargetFormat.Rgba16F) throw new NotSupportedException("16-bit float targets need the D3D11 backend.");
+            return CreateRenderTarget(width, height);
+        }
+
         private PixelShader ShaderFor(PixelShaderKind kind) => kind switch
         {
             PixelShaderKind.Grayscale => _grayScale,

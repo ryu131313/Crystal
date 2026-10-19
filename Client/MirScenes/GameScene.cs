@@ -6578,7 +6578,7 @@ namespace Client.MirScenes
         private int DrawSettingsSignature()
         {
             int s = (Settings.Effect ? 1 : 0) | (Settings.LevelEffect ? 2 : 0) | (Settings.DropView ? 4 : 0) | (Settings.NameView ? 8 : 0) |
-                    (Settings.HighlightTarget ? 16 : 0) | (Settings.DisplayBodyName ? 32 : 0);
+                    (Settings.HighlightTarget ? 16 : 0) | (Settings.DisplayBodyName ? 32 : 0) | (Settings.SmoothMove ? 64 : 0) | (Settings.Atmosphere ? 128 : 0);
             s = s * 31 + (int)GameScene.Scene.Lights;
             s = s * 31 + (int)Lights;
             s = s * 31 + MapDarkLight;
@@ -6771,6 +6771,8 @@ namespace Client.MirScenes
             for (int i = Effects.Count - 1; i >= 0; i--)
                 Effects[i].Process();
 
+            AtmosphereProcess();
+
             if (MapObject.TargetObject != null && MapObject.TargetObject is MonsterObject && MapObject.TargetObject.AI == 64)
                 MapObject.TargetObjectID = 0;
             if (MapObject.MagicObject != null && MapObject.MagicObject is MonsterObject && MapObject.MagicObject.AI == 64)
@@ -6884,7 +6886,8 @@ namespace Client.MirScenes
             if (UseEnhancedLighting)
             {
                 UpdateAmbient(setting);
-                if (setting != LightSetting.Day || AmbientFading || GameScene.User.Poison.HasFlag(PoisonType.Blindness))
+                _atmosphereLightDrawn = setting != LightSetting.Day || AmbientFading || GameScene.User.Poison.HasFlag(PoisonType.Blindness);
+                if (_atmosphereLightDrawn)
                     DrawEnhancedLights(setting);
             }
             else if (setting != LightSetting.Day || GameScene.User.Poison.HasFlag(PoisonType.Blindness))
@@ -6954,6 +6957,9 @@ namespace Client.MirScenes
             DXManager.DrawOpaque(ControlTexture, new Rectangle(0, 0, Settings.ScreenWidth, Settings.ScreenHeight), Vector3.Zero, Color.White, Opacity);
 
             if (MapObject.User.Dead) DXManager.SetGrayscale(false);
+
+            // Enhanced weather: rain and the lightning strobe over the cached map, every frame (never baked into it).
+            DrawAtmosphereOverlay();
 
             CleanTime = CMain.Time + Settings.CleanDelay;
         }
@@ -8619,6 +8625,7 @@ namespace Client.MirScenes
                         GameScene.Scene.ParticleEngines.Add(FLeavesEngine2);
                         break;
                     case WeatherSetting.Rain:
+                        if (AtmosphereEnabled) break; // the shader rain replaces the Weather.Lib rain sprites
                         textures = new List<ParticleImageInfo>();
                         //Rain
                         textures.Add(new ParticleImageInfo(Libraries.Weather, 164, 150, 50));

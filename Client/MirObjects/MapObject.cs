@@ -140,6 +140,91 @@ namespace Client.MirObjects
             get { return new Point(0, 0); }
         }
 
+        /// <summary>The global movement tick (GameScene.Process: MoveTime = Time + 100); moving frames step only on it.</summary>
+        private const int MoveTickMs = 100;
+
+        private Point _smoothDrawLocation;
+
+        /// <summary>
+        /// Movement offset for the current moving frame (shared by PlayerObject/MonsterObject.Process). Classic: discrete
+        /// steps of (index + 1), truncated then snapped by +/-1 to an even pixel. Smooth ([Game] SmoothMove, default on): the
+        /// step count also follows the time inside the current movement tick (index + 0..1) and is rounded to the nearest
+        /// even pixel, so the slide runs on from one step into the next and the art's 1 px dither (shadows, ground) does not
+        /// flip phase. On the last frame of an action both modes give the same offset (steps == count).
+        /// Moving frames advance on GameScene.CanMove (the shared 100 ms MoveTime tick), not on NextMotion, so the time
+        /// inside the step comes from GameScene.MoveTime; every mover then glides in phase with the others and the camera.
+        /// </summary>
+        protected Point ComputeMoveOffset(int i, int count, int index)
+        {
+            if (count <= 0) return Point.Empty;
+            if (!Settings.SmoothMove) return ClassicMoveOffset(Direction, i, count, index);
+
+            float ratio = (GameScene.MoveTime - CMain.Time) / (float)MoveTickMs;
+            return SmoothMoveOffset(Direction, i, count, index + Math.Clamp(1f - ratio, 0f, 1f));
+        }
+
+        /// <summary>
+        /// Sets OffSetMove. Smooth mode: the offset changes between frame steps, so a change invalidates the map here (and the
+        /// floor for the user, whose offset moves the camera); an unchanged offset costs no redraw. Classic offsets change only
+        /// on a frame step, which ProcessFrames already invalidates.
+        /// </summary>
+        protected void SetMoveOffset(Point offset)
+        {
+            if (offset == OffSetMove) return;
+            OffSetMove = offset;
+            if (!Settings.SmoothMove) return;
+            InvalidateMap();
+            if (this == User && GameScene.Scene?.MapControl != null) GameScene.Scene.MapControl.FloorValid = false;
+        }
+
+        /// <summary>
+        /// Smooth mode: DrawLocation also moves between frame steps (this object's glide, or the user's moving the camera), so the
+        /// body position (FinalDrawLocation) must follow it outside the classic update gate. False when classic or unchanged.
+        /// </summary>
+        protected bool SmoothDrawLocationMoved()
+        {
+            if (!Settings.SmoothMove || DrawLocation == _smoothDrawLocation) return false;
+            _smoothDrawLocation = DrawLocation;
+            return true;
+        }
+
+        /// <summary>Classic offset: (index + 1) discrete steps, truncated then snapped by +/-1 to an even pixel.</summary>
+        internal static Point ClassicMoveOffset(MirDirection direction, int i, int count, int index)
+        {
+            if (count <= 0) return Point.Empty;
+            float cx = MapControl.CellWidth * i / (float)count * (index + 1);
+            float cy = MapControl.CellHeight * i / (float)count * (index + 1);
+            Point p = DirectionOffset(direction, (int)cx, (int)cy);
+            return new Point(p.X % 2 + p.X, p.Y % 2 + p.Y);
+        }
+
+        /// <summary>Smooth offset: a fractional step count over the frame, rounded to the nearest even pixel. At
+        /// <paramref name="steps"/> == count it equals <see cref="ClassicMoveOffset"/> on the last frame (index + 1 == count).</summary>
+        internal static Point SmoothMoveOffset(MirDirection direction, int i, int count, float steps)
+        {
+            if (count <= 0) return Point.Empty;
+            float fx = MapControl.CellWidth * i / (float)count * steps;
+            float fy = MapControl.CellHeight * i / (float)count * steps;
+            return DirectionOffset(direction, RoundEven(fx), RoundEven(fy));
+        }
+
+        /// <summary>Nearest even integer (2 * round(v / 2)): keeps the sprite dither in phase.</summary>
+        private static int RoundEven(float v) => 2 * (int)MathF.Floor(v / 2f + 0.5f);
+
+        /// <summary>The positive-magnitude step (fx, fy) mapped to screen axes for <paramref name="direction"/>.</summary>
+        private static Point DirectionOffset(MirDirection direction, int fx, int fy) => direction switch
+        {
+            MirDirection.Up => new Point(0, fy),
+            MirDirection.UpRight => new Point(-fx, fy),
+            MirDirection.Right => new Point(-fx, 0),
+            MirDirection.DownRight => new Point(-fx, -fy),
+            MirDirection.Down => new Point(0, -fy),
+            MirDirection.DownLeft => new Point(fx, -fy),
+            MirDirection.Left => new Point(fx, 0),
+            MirDirection.UpLeft => new Point(fx, fy),
+            _ => Point.Empty,
+        };
+
         protected MapObject() { }
 
         protected MapObject(uint objectID)

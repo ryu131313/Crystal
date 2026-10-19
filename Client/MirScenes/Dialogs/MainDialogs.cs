@@ -747,6 +747,43 @@ namespace Client.MirScenes.Dialogs
             return true;
         }
 
+        /// <summary>
+        /// @smooth on|off and @weather on|off: the local smooth-movement and enhanced-weather settings (never sent).
+        /// </summary>
+        private bool TryAtmosphereCommand(string msg)
+        {
+            string[] parts = msg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0) return false;
+            bool smooth = parts[0].Equals("@SMOOTH", StringComparison.OrdinalIgnoreCase);
+            bool weather = parts[0].Equals("@WEATHER", StringComparison.OrdinalIgnoreCase);
+            if (!smooth && !weather) return false;
+
+            string arg = parts.Length > 1 ? parts[1].ToUpperInvariant() : string.Empty;
+            if (arg != "ON" && arg != "OFF")
+            {
+                ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.SmoothWeatherUsage), ChatType.Hint);
+                return true;
+            }
+            bool on = arg == "ON";
+
+            if (smooth)
+            {
+                Settings.SmoothMove = on;
+                ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(on ? ClientTextKeys.SmoothMoveOn : ClientTextKeys.SmoothMoveOff), ChatType.Hint);
+                return true;
+            }
+
+            if (on && !DXManager.AtmosphereAvailable)
+            {
+                ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.WeatherNeedsEnhanced), ChatType.Hint);
+                return true;
+            }
+            Settings.Atmosphere = on;
+            if (GameScene.Scene?.MapControl != null) GameScene.Scene.MapControl.TextureValid = false;
+            ReceiveChat(GameLanguage.ClientTextMap.GetLocalization(on ? ClientTextKeys.WeatherOn : ClientTextKeys.WeatherOff), ChatType.Hint);
+            return true;
+        }
+
         private void ChatTextBox_KeyPress(object sender, KeyPressEventArgs e)
         {
             switch (e.KeyChar)
@@ -767,7 +804,7 @@ namespace Client.MirScenes.Dialogs
                             Settings.TargetDead = !Settings.TargetDead;
                         }
 
-                        if (TryLightingCommand(msg))
+                        if (TryLightingCommand(msg) || TryAtmosphereCommand(msg))
                         {
                             ChatTextBox.Visible = false;
                             ChatTextBox.Text = string.Empty;

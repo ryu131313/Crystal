@@ -62,6 +62,13 @@ namespace Client.MirGraphics.Rendering
             public uint Pad0, Pad1, Pad2;
         }
 
+        /// <summary>The atmosphere constant buffer (b2): four float4s per pass, read by AtmosphereShaders.</summary>
+        [StructLayout(LayoutKind.Sequential)]
+        private struct AtmosphereConstants
+        {
+            public SVector4 C0, C1, C2, C3;
+        }
+
         private sealed class TextureData
         {
             public ID3D11Texture2D Texture;
@@ -100,14 +107,15 @@ namespace Client.MirGraphics.Rendering
         private SwapChainFlags _swapChainFlags;
 
         private ID3D11VertexShader _vs;
-        private ID3D11PixelShader _psModulate, _psGrayscale, _psLight, _psLightComposite;
+        private ID3D11PixelShader _psModulate, _psGrayscale, _psLight, _psLightComposite, _psRainfall, _psLightning;
         private ID3D11InputLayout _layout;
-        private ID3D11Buffer _vertexBuffer, _indexBuffer, _frameBuffer, _pixelBuffer;
+        private ID3D11Buffer _vertexBuffer, _indexBuffer, _frameBuffer, _pixelBuffer, _atmosphereBuffer;
         private ID3D11SamplerState _samplerPoint, _samplerLinear, _samplerAnisotropic;
         private ID3D11RasterizerState _rasterizer;
         private ID3D11DepthStencilState _depthOff;
         private readonly Dictionary<int, ID3D11BlendState> _blendStates = new Dictionary<int, ID3D11BlendState>();
         private bool _grayscaleAvailable;
+        private bool _atmosphereAvailable;   // the atmosphere HLSL compiled: [Graphics] Atmosphere can run
 
         private RenderTexture _backBuffer, _target, _white;
         private ID3D11Texture2D _lastFrame;   // copy of the back buffer taken just before Present (screenshots)
@@ -296,6 +304,7 @@ float4 LightComposite_PS(VSOut i) : SV_Target
 
             _frameBuffer = _device.CreateBuffer(new BufferDescription { ByteWidth = (uint)Marshal.SizeOf<FrameConstants>(), Usage = ResourceUsage.Default, BindFlags = BindFlags.ConstantBuffer });
             _pixelBuffer = _device.CreateBuffer(new BufferDescription { ByteWidth = (uint)Marshal.SizeOf<PixelConstants>(), Usage = ResourceUsage.Default, BindFlags = BindFlags.ConstantBuffer });
+            _atmosphereBuffer = _device.CreateBuffer(new BufferDescription { ByteWidth = (uint)Marshal.SizeOf<AtmosphereConstants>(), Usage = ResourceUsage.Default, BindFlags = BindFlags.ConstantBuffer });
 
             _samplerPoint = _device.CreateSamplerState(new SamplerDescription
             {
@@ -322,6 +331,29 @@ float4 LightComposite_PS(VSOut i) : SV_Target
                 FillMode = FillMode.Solid, CullMode = CullMode.None, ScissorEnable = false, DepthClipEnable = true, MultisampleEnable = false,
             });
             _depthOff = _device.CreateDepthStencilState(new DepthStencilDescription { DepthEnable = false, DepthWriteMask = DepthWriteMask.Zero, StencilEnable = false });
+
+            TryCompileAtmosphere();
+        }
+
+        /// <summary>
+        /// Compiles the atmosphere weather passes ([Graphics] Atmosphere). A compile failure disables them for the run (logged)
+        /// and leaves the already-built sprite pipeline and the classic weather sprites untouched.
+        /// </summary>
+        private void TryCompileAtmosphere()
+        {
+            try
+            {
+                ReadOnlyMemory<byte> psRain = Compiler.Compile(AtmosphereShaders.Source, "Rainfall_PS", "Atmosphere.hlsl", "ps_4_0");
+                ReadOnlyMemory<byte> psLightning = Compiler.Compile(AtmosphereShaders.Source, "Lightning_PS", "Atmosphere.hlsl", "ps_4_0");
+                _psRainfall = _device.CreatePixelShader(psRain.Span);
+                _psLightning = _device.CreatePixelShader(psLightning.Span);
+                _atmosphereAvailable = true;
+            }
+            catch (Exception ex)
+            {
+                _atmosphereAvailable = false;
+                CMain.SaveError("[D3D11] atmosphere shaders failed to compile, weather runs as classic sprites: " + ex.Message);
+            }
         }
 
         /// <summary>Binds the whole fixed pipeline (never trust sticky context state after ClearState/resize).</summary>
@@ -337,6 +369,7 @@ float4 LightComposite_PS(VSOut i) : SV_Target
             _context.VSSetShader(_vs);
             _context.VSSetConstantBuffer(0, _frameBuffer);
             _context.PSSetConstantBuffer(1, _pixelBuffer);
+            _context.PSSetConstantBuffer(2, _atmosphereBuffer);
             _context.RSSetState(_rasterizer);
             _context.OMSetDepthStencilState(_depthOff);
             _boundAlphaTest = uint.MaxValue;
@@ -443,6 +476,11 @@ float4 LightComposite_PS(VSOut i) : SV_Target
             t.Native = new TextureData { Texture = texture, Srv = _device.CreateShaderResourceView(texture), Rtv = _device.CreateRenderTargetView(texture) };
             return t;
         }
+
+        public bool SupportsAtmosphere => _atmosphereAvailable;
+
+        public RenderTexture CreateRenderTarget(int width, int height, RenderTargetFormat format) =>
+            format == RenderTargetFormat.Rgba16F ? CreateLightTarget(width, height) : CreateRenderTarget(width, height);
 
         public byte* LockTexture(RenderTexture texture) => ((TextureData)texture.Native).Cpu;
 
@@ -634,6 +672,60 @@ float4 LightComposite_PS(VSOut i) : SV_Target
             _count++;
         }
 
+        public void SetAtmosphereConstants(ReadOnlySpan<SVector4> constants)
+        {
+            var c = new AtmosphereConstants();
+            if (constants.Length > 0) c.C0 = constants[0];
+            if (constants.Length > 1) c.C1 = constants[1];
+            if (constants.Length > 2) c.C2 = constants[2];
+            if (constants.Length > 3) c.C3 = constants[3];
+            _context.UpdateSubresource(in c, _atmosphereBuffer);
+        }
+
+        public void DrawFullscreen(FullscreenKind kind, RenderTexture source, ReadOnlySpan<SVector4> inputs)
+        {
+            if (!_atmosphereAvailable || _white == null) return;
+            Size size = CurrentTargetSize;
+            if (size.Width <= 0 || size.Height <= 0) return;
+
+            SetAtmosphereConstants(inputs);
+            Flush();
+            if (_count >= MaxSprites) Flush();
+
+            // One fullscreen quad through the sprite path; the pass samples its source at t0 and reads the atmosphere cbuffer.
+            float w = size.Width, h = size.Height;
+            const uint c = 0xFFFFFFFFu;
+            int v = _count * 4;
+            _vertices[v] = new Vertex { X = 0f, Y = 0f, U = 0f, V = 0f, Colour = c };
+            _vertices[v + 1] = new Vertex { X = w, Y = 0f, U = 1f, V = 0f, Colour = c };
+            _vertices[v + 2] = new Vertex { X = 0f, Y = h, U = 0f, V = 1f, Colour = c };
+            _vertices[v + 3] = new Vertex { X = w, Y = h, U = 1f, V = 1f, Colour = c };
+            _textures[_count] = source ?? _white;
+            _scaled[_count] = false;
+            _count++;
+
+            // The pass owns its blend, shader and projection for one flush; the DXManager-visible state is restored after.
+            DeviceState savedState = _state;
+            SMatrix savedTransform = _transform;
+            bool savedIdentity = _transformIdentity;
+            Size savedProjection = _spriteProjectionSize;
+            _transform = SMatrix.Identity;
+            _transformIdentity = true;
+            _spriteProjectionSize = size;
+
+            // Rain is alpha-blended over the scene; the lightning flash adds (SourceAlpha, One) so it only brightens.
+            _state = kind == FullscreenKind.Lightning
+                ? new DeviceState { BlendEnable = true, Source = RenderBlend.SourceAlpha, Destination = RenderBlend.One, Factor = Color.White, Shader = PixelShaderKind.Lightning, AlphaTest = false }
+                : new DeviceState { BlendEnable = true, Source = RenderBlend.SourceAlpha, Destination = RenderBlend.InverseSourceAlpha, Factor = Color.White, Shader = PixelShaderKind.Rainfall, AlphaTest = false };
+
+            Flush();
+
+            _state = savedState;
+            _transform = savedTransform;
+            _transformIdentity = savedIdentity;
+            _spriteProjectionSize = savedProjection;
+        }
+
         private Vertex Transformed(float x, float y, float u, float v, uint c) => new Vertex
         {
             X = x * _transform.M11 + y * _transform.M21 + _transform.M41,
@@ -736,6 +828,8 @@ float4 LightComposite_PS(VSOut i) : SV_Target
                 PixelShaderKind.Grayscale => _psGrayscale,
                 PixelShaderKind.Light => _psLight,
                 PixelShaderKind.LightComposite => _psLightComposite,
+                PixelShaderKind.Rainfall => _psRainfall,
+                PixelShaderKind.Lightning => _psLightning,
                 _ => _psModulate,
             };
             if (shader != _boundShader) { _context.PSSetShader(shader); _boundShader = shader; }
@@ -991,11 +1085,12 @@ float4 LightComposite_PS(VSOut i) : SV_Target
             foreach (var blend in _blendStates.Values) blend.Dispose();
             _blendStates.Clear();
             _depthOff?.Dispose(); _rasterizer?.Dispose(); _samplerAnisotropic?.Dispose(); _samplerLinear?.Dispose(); _samplerPoint?.Dispose();
-            _pixelBuffer?.Dispose(); _frameBuffer?.Dispose(); _indexBuffer?.Dispose(); _vertexBuffer?.Dispose();
-            _layout?.Dispose(); _psLightComposite?.Dispose(); _psLight?.Dispose(); _psGrayscale?.Dispose(); _psModulate?.Dispose(); _vs?.Dispose();
+            _pixelBuffer?.Dispose(); _frameBuffer?.Dispose(); _atmosphereBuffer?.Dispose(); _indexBuffer?.Dispose(); _vertexBuffer?.Dispose();
+            _layout?.Dispose(); _psLightning?.Dispose(); _psRainfall?.Dispose(); _psLightComposite?.Dispose(); _psLight?.Dispose(); _psGrayscale?.Dispose(); _psModulate?.Dispose(); _vs?.Dispose();
             _depthOff = null; _rasterizer = null; _samplerAnisotropic = null; _samplerLinear = null; _samplerPoint = null;
-            _pixelBuffer = null; _frameBuffer = null; _indexBuffer = null; _vertexBuffer = null;
-            _layout = null; _psLightComposite = null; _psLight = null; _psGrayscale = null; _psModulate = null; _vs = null;
+            _pixelBuffer = null; _frameBuffer = null; _atmosphereBuffer = null; _indexBuffer = null; _vertexBuffer = null;
+            _layout = null; _psLightning = null; _psRainfall = null; _psLightComposite = null; _psLight = null; _psGrayscale = null; _psModulate = null; _vs = null;
+            _atmosphereAvailable = false;
 
             ReleaseBackBuffer();
             _swapChain?.Dispose(); _swapChain = null;

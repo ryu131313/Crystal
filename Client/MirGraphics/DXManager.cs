@@ -319,6 +319,19 @@ namespace Client.MirGraphics
             CMain.DPSCounter++;
         }
 
+        /// <summary>True when the backend can run the atmosphere weather passes (D3D11 with the atmosphere shaders compiled).</summary>
+        public static bool AtmosphereAvailable => Backend != null && Backend.SupportsAtmosphere;
+
+        /// <summary>A render target in the given colour format (Rgba8 = A8R8G8B8).</summary>
+        public static RenderTexture CreateRenderTarget(int width, int height, RenderTargetFormat format) => Backend.CreateRenderTarget(width, height, format);
+
+        /// <summary>Runs a fullscreen atmosphere pass ([Graphics] Atmosphere) over the current target, sampling <paramref name="source"/> at t0.</summary>
+        public static void DrawFullscreen(FullscreenKind kind, RenderTexture source, ReadOnlySpan<Vector4> inputs)
+        {
+            Backend.DrawFullscreen(kind, source, inputs);
+            CMain.DPSCounter++;
+        }
+
         /// <summary>The enhanced light map modulates the scene 2x (DestinationColor, SourceColor) through the LightComposite shader,
         /// so lights can brighten it. Undo with <see cref="RestartSpriteAlphaBlend"/>.</summary>
         public static void SetEnhancedLightCompositeBlend()

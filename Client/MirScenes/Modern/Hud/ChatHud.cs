@@ -945,6 +945,7 @@ namespace Client.MirScenes.Modern.Hud
             if (msg.ToUpperInvariant() == "@LEVELEFFECT") Settings.LevelEffect = !Settings.LevelEffect;
             if (msg.ToUpperInvariant() == "@TARGETDEAD") Settings.TargetDead = !Settings.TargetDead;
             if (TryLightingCommand(msg)) return;
+            if (TryAtmosphereCommand(msg)) return;
             var links = new List<ChatItem>();
             for (int i = 0; i < _links.Count; i++)
                 if (msg.Contains("<" + _links[i].Title + ">")) links.Add(_links[i]);
@@ -981,6 +982,40 @@ namespace Client.MirScenes.Modern.Hud
             }
             if (GameScene.Scene?.MapControl != null) GameScene.Scene.MapControl.TextureValid = false;
             log?.Add(T(Settings.Lighting == LightingMode.Enhanced ? ClientTextKeys.LightingEnhanced : ClientTextKeys.LightingClassic), ChatType.Hint);
+            return true;
+        }
+
+        /// <summary>ChatDialog.TryAtmosphereCommand: "@smooth on|off" / "@weather on|off" set the local render options (never sent).</summary>
+        private static bool TryAtmosphereCommand(string msg)
+        {
+            string[] parts = msg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0) return false;
+            bool smooth = parts[0].Equals("@SMOOTH", StringComparison.OrdinalIgnoreCase);
+            bool weather = parts[0].Equals("@WEATHER", StringComparison.OrdinalIgnoreCase);
+            if (!smooth && !weather) return false;
+
+            ChatLog log = GameScene.Models?.Chat;
+            string arg = parts.Length > 1 ? parts[1].ToUpperInvariant() : string.Empty;
+            if (arg != "ON" && arg != "OFF")
+            {
+                log?.Add(T(ClientTextKeys.SmoothWeatherUsage), ChatType.Hint);
+                return true;
+            }
+            bool on = arg == "ON";
+            if (smooth)
+            {
+                Settings.SmoothMove = on;
+                log?.Add(T(on ? ClientTextKeys.SmoothMoveOn : ClientTextKeys.SmoothMoveOff), ChatType.Hint);
+                return true;
+            }
+            if (on && !DXManager.AtmosphereAvailable)
+            {
+                log?.Add(T(ClientTextKeys.WeatherNeedsEnhanced), ChatType.Hint);
+                return true;
+            }
+            Settings.Atmosphere = on;
+            if (GameScene.Scene?.MapControl != null) GameScene.Scene.MapControl.TextureValid = false;
+            log?.Add(T(on ? ClientTextKeys.WeatherOn : ClientTextKeys.WeatherOff), ChatType.Hint);
             return true;
         }
 

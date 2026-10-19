@@ -567,6 +567,10 @@ namespace Client.MirScenes.Modern.Windows
                 },
                 Bool(Cat.Graphics, gLight, "Effect", ClientTextKeys.ModernWinOptEffect, ClientTextKeys.ModernWinOptEffectDesc, () => Settings.Effect, v => Settings.Effect = v, true),
                 Bool(Cat.Graphics, gLight, "LevelEffect", ClientTextKeys.ModernWinOptLevelEffect, ClientTextKeys.ModernWinOptLevelEffectDesc, () => Settings.LevelEffect, v => Settings.LevelEffect = v, true),
+                // Desktop-Smooth-Mode-and-Weather: the classic OptionDialog has the same two rows.
+                Bool(Cat.Graphics, gLight, "SmoothMove", ClientTextKeys.SmoothMove, ClientTextKeys.SmoothMoveDesc, () => Settings.SmoothMove, v => Settings.SmoothMove = v, true),
+                Bool(Cat.Graphics, gLight, "Atmosphere", ClientTextKeys.Weather, ClientTextKeys.WeatherDesc, () => Settings.Atmosphere,
+                    v => { Settings.Atmosphere = v; if (GameScene.Scene?.MapControl != null) GameScene.Scene.MapControl.TextureValid = false; }, true),
                 // Interface
                 new Def { Id = "UiStyle", Cat = Cat.Interface, Group = gStyle, Label = ClientTextKeys.ModernWinOptClassicUi, Desc = ClientTextKeys.ModernWinOptClassicUiDesc, Kind = Kind.Toggle,
                     GetB = () => Settings.UiStyle == UiStyle.Classic, SetB = SetClassic },

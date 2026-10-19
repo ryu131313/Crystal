@@ -392,35 +392,7 @@ namespace Client.MirObjects
                         index %= 3;
                     }
 
-                    switch (Direction)
-                    {
-                        case MirDirection.Up:
-                            OffSetMove = new Point(0, (int)((MapControl.CellHeight * i / (float)(count)) * (index + 1)));
-                            break;
-                        case MirDirection.UpRight:
-                            OffSetMove = new Point((int)((-MapControl.CellWidth * i / (float)(count)) * (index + 1)), (int)((MapControl.CellHeight * i / (float)(count)) * (index + 1)));
-                            break;
-                        case MirDirection.Right:
-                            OffSetMove = new Point((int)((-MapControl.CellWidth * i / (float)(count)) * (index + 1)), 0);
-                            break;
-                        case MirDirection.DownRight:
-                            OffSetMove = new Point((int)((-MapControl.CellWidth * i / (float)(count)) * (index + 1)), (int)((-MapControl.CellHeight * i / (float)(count)) * (index + 1)));
-                            break;
-                        case MirDirection.Down:
-                            OffSetMove = new Point(0, (int)((-MapControl.CellHeight * i / (float)(count)) * (index + 1)));
-                            break;
-                        case MirDirection.DownLeft:
-                            OffSetMove = new Point((int)((MapControl.CellWidth * i / (float)(count)) * (index + 1)), (int)((-MapControl.CellHeight * i / (float)(count)) * (index + 1)));
-                            break;
-                        case MirDirection.Left:
-                            OffSetMove = new Point((int)((MapControl.CellWidth * i / (float)(count)) * (index + 1)), 0);
-                            break;
-                        case MirDirection.UpLeft:
-                            OffSetMove = new Point((int)((MapControl.CellWidth * i / (float)(count)) * (index + 1)), (int)((MapControl.CellHeight * i / (float)(count)) * (index + 1)));
-                            break;
-                    }
-
-                    OffSetMove = new Point(OffSetMove.X % 2 + OffSetMove.X, OffSetMove.Y % 2 + OffSetMove.Y);
+                    SetMoveOffset(ComputeMoveOffset(i, count, index));
                     break;
                 default:
                     OffSetMove = Point.Empty;
@@ -438,7 +410,7 @@ namespace Client.MirObjects
             DrawLocation = DrawLocation.Add(ManualLocationOffset);
             DrawLocation.Offset(GlobalDisplayLocationOffset);
 
-            if (BodyLibrary != null && update)
+            if (BodyLibrary != null && (SmoothDrawLocationMoved() | update)) // smooth: the body follows every glide step
             {
                 FinalDrawLocation = DrawLocation.Add(BodyLibrary.GetOffSet(DrawFrame));
                 DisplayRectangle = new Rectangle(DrawLocation, BodyLibrary.GetTrueSize(DrawFrame));
