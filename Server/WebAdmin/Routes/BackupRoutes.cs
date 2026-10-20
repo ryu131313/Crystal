@@ -59,14 +59,14 @@ namespace Server.WebAdmin.Routes
                     return new KindSpec
                     {
                         Kind = Database,
-                        // With [Database] Backend=Sqlite (roadmap P7) the live system data is SystemData.db and its backups are
-                        // VACUUM INTO copies taken by the store's writer thread, named like the binary ones.
-                        Label = Envir.StoreIsSqlite ? "Database (SystemData.db)" : "Database (Server.MirDB)",
+                        // Since roadmap P7 the live system data is SystemData.db and its backups are VACUUM INTO copies taken by the
+                        // store's writer thread, named like the old binary ones (older Back Up\Database files may still be binary).
+                        Label = "Database (SystemData.db)",
                         Root = Full(Envir.DatabaseBackUpPath),
-                        LiveFile = Full(Envir.StoreIsSqlite ? SqliteWorldStore.DatabasePath : Envir.DatabasePath),
+                        LiveFile = Full(SqliteWorldStore.DatabasePath),
                         Creatable = true,
                         Restorable = true,
-                        HasHeader = !Envir.StoreIsSqlite, // SQLite files have no Version/CustomVersion header (restore checks schema_version)
+                        HasHeader = false, // SQLite files have no Version/CustomVersion header (restore checks schema_version)
                     };
                 case Accounts:
                     return new KindSpec
@@ -161,8 +161,7 @@ namespace Server.WebAdmin.Routes
                 int? version = null;
                 if (fi.Exists)
                 {
-                    if (s.Kind == Database) version = LiveDatabaseVersion(fi);
-                    else if (BackupStore.TryReadHeader(s.LiveFile, out var v, out _)) version = v; // MirADB is swapped by rename: a shared read never blocks a save
+                    if (s.HasHeader && BackupStore.TryReadHeader(s.LiveFile, out var v, out _)) version = v; // MirADB is swapped by rename: a shared read never blocks a save
                 }
 
                 live = new
@@ -193,63 +192,6 @@ namespace Server.WebAdmin.Routes
             });
         }
 
-        // ------------------------------------------------------------------------------------------------ live database version (cached)
-
-        private sealed class LiveHeader
-        {
-            public long Length;
-            public DateTime WriteUtc;
-            public int Version;
-        }
-
-        private static LiveHeader _liveDbHeader;
-
-        private static void RememberLiveDatabaseHeader(string path, byte[] data)
-        {
-            if (data == null || data.Length < 8) return;
-
-            try
-            {
-                var fi = new FileInfo(path);
-                if (!fi.Exists || fi.Length != data.Length) return;
-                Volatile.Write(ref _liveDbHeader, new LiveHeader { Length = fi.Length, WriteUtc = fi.LastWriteTimeUtc, Version = BitConverter.ToInt32(data, 0) });
-            }
-            catch (Exception)
-            {
-                // cache only
-            }
-        }
-
-        /// <summary>
-        /// Server.MirDB is replaced (temp file + File.Replace since roadmap P2) by Main's periodic SaveDB() on the game thread and by
-        /// Envir.Edit.SaveDB() under EditLock: an extra open handle at that moment makes the save throw (and Main's WorkLoop stops the
-        /// world). So the header is only read when no game loop exists and EditLock is free; otherwise the last known version is reported.
-        /// </summary>
-        private static int? LiveDatabaseVersion(FileInfo fi)
-        {
-            var cached = Volatile.Read(ref _liveDbHeader);
-            if (cached != null && cached.Length == fi.Length && cached.WriteUtc == fi.LastWriteTimeUtc) return cached.Version;
-
-            if (WebAdminGame.IsFullyStopped(WebAdminGame.World) && Monitor.TryEnter(WebAdminGame.EditLock, 0))
-            {
-                try
-                {
-                    // Main.LoadDB only ever opens the file for shared reading, so a start racing this read is harmless.
-                    if (WebAdminGame.IsFullyStopped(WebAdminGame.World) && BackupStore.TryReadHeader(fi.FullName, out var version, out _))
-                    {
-                        Volatile.Write(ref _liveDbHeader, new LiveHeader { Length = fi.Length, WriteUtc = fi.LastWriteTimeUtc, Version = version });
-                        return version;
-                    }
-                }
-                finally
-                {
-                    Monitor.Exit(WebAdminGame.EditLock);
-                }
-            }
-
-            return cached?.Version;
-        }
-
         // ------------------------------------------------------------------------------------------------ POST create
 
         private static async Task Create(WebAdminRequest req)
@@ -267,8 +209,11 @@ namespace Server.WebAdmin.Routes
             string name;
             long size;
 
-            if (spec.Kind == Database && Envir.Store is SqliteWorldStore store)
+            if (spec.Kind == Database)
             {
+                if (Envir.Store is not SqliteWorldStore store)
+                    throw new WebAdminException(500, "The game data store is not SQLite (test or tool configuration)");
+
                 // The writer thread takes the copy between saves, so it is never torn; no EditLock needed.
                 name = await Task.Run(() =>
                 {
@@ -281,20 +226,6 @@ namespace Server.WebAdmin.Routes
                     }
                 }).ConfigureAwait(false);
                 size = new FileInfo(Path.Combine(spec.Root, name)).Length;
-            }
-            else if (spec.Kind == Database)
-            {
-                // EditLock is taken on a worker thread (never on the game thread); see ReadDatabaseForBackup.
-                var data = await Task.Run(() => ReadDatabaseForBackup(spec.LiveFile)).ConfigureAwait(false);
-                RememberLiveDatabaseHeader(spec.LiveFile, data);
-
-                lock (BackupGate)
-                {
-                    Directory.CreateDirectory(spec.Root);
-                    name = BackupStore.NewName(spec.Root, "Manual", DateTime.Now);
-                    BackupStore.WriteAllBytesAtomic(Path.Combine(spec.Root, name), data);
-                    size = data.Length;
-                }
             }
             else
             {
@@ -314,55 +245,6 @@ namespace Server.WebAdmin.Routes
             WebAdminAudit.Record(req, "backup.create", spec.Kind + ":" + name, new { kind = spec.Kind, name, size, version }, reason);
 
             await req.Ok(new { kind = spec.Kind, name, size, version }, "Backup created: " + name).ConfigureAwait(false);
-        }
-
-        /// <summary>
-        /// Reads Server.MirDB for a backup. Two writers replace it (temp file + File.Replace since roadmap P2), and an extra open handle
-        /// makes either save throw: Envir.Edit.SaveDB() (web saves hold EditLock) and Main's periodic SaveDB() on the game thread (which
-        /// stops the world when it throws). So EditLock is held here on a worker thread, never on the game thread, and the read itself
-        /// runs inline when Main cannot save (no game loop, or SystemDataStale makes the loop skip SaveDB). Otherwise only the file read
-        /// is posted to the game thread, where it cannot overlap Main's save, and it never waits for a lock there.
-        /// Blocking (Monitor needs the same thread for Enter/Exit): call it through Task.Run.
-        /// </summary>
-        private static byte[] ReadDatabaseForBackup(string path)
-        {
-            if (!Monitor.TryEnter(WebAdminGame.EditLock, 5000))
-                throw new WebAdminException(409, "The game database is being saved by another action; try again in a moment");
-
-            try
-            {
-                var w = WebAdminGame.World;
-                if (WebAdminGame.IsFullyStopped(w) || (w.QueueOpen && Envir.SystemDataStale))
-                    return ReadFileShared(path);
-
-                try
-                {
-                    return WebAdminGame.RunAsync(() => ReadFileShared(path), 15000).GetAwaiter().GetResult();
-                }
-                catch (WorldNotRunningException)
-                {
-                    if (WebAdminGame.IsFullyStopped(WebAdminGame.World)) return ReadFileShared(path);
-                    throw new WebAdminException(409, "The world is " + WebAdminGame.WorldState + "; try the backup again in a moment",
-                        new { world = WebAdminGame.WorldState });
-                }
-            }
-            finally
-            {
-                Monitor.Exit(WebAdminGame.EditLock);
-            }
-        }
-
-        private static byte[] ReadFileShared(string path)
-        {
-            if (!File.Exists(path))
-                throw new WebAdminException(404, Path.GetFileName(path) + " does not exist");
-
-            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
-            using (var ms = new MemoryStream((int)Math.Min(stream.Length, int.MaxValue)))
-            {
-                stream.CopyTo(ms);
-                return ms.ToArray();
-            }
         }
 
         // ------------------------------------------------------------------------------------------------ GET download
@@ -548,7 +430,7 @@ namespace Server.WebAdmin.Routes
 
         private static void CheckBackupHeader(KindSpec spec, string path)
         {
-            if (spec.Kind == Database && Envir.StoreIsSqlite)
+            if (spec.Kind == Database)
             {
                 if (!SqliteWorldFile.LooksLikeSqlite(path))
                     throw new WebAdminException(422, "The backup is a binary Server.MirDB file; the server stores system data in SystemData.db now. Import it offline with MirDbExport (Knowledgebase/Runbook.md)");

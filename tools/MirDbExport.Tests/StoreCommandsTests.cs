@@ -1,10 +1,6 @@
-using Server;
-using Server.MirEnvir;
-using Server.MirEnvir.Storage;
-
 namespace MirDbExport.Tests;
 
-/// <summary>Roadmap P7 phase 7.2: import / export-binary / roundtrip, and shadow mode end to end.</summary>
+/// <summary>Roadmap P7: import / export-binary / roundtrip.</summary>
 public sealed class StoreCommandsTests : IDisposable
 {
     private readonly string _dir;
@@ -42,33 +38,9 @@ public sealed class StoreCommandsTests : IDisposable
         Assert.Equal(0, StoreCommands.ExportBinary(store, outDir, force: false));
         Assert.Equal(File.ReadAllBytes(FixtureDb()), File.ReadAllBytes(Path.Combine(outDir, "Server.MirDB")));
         Assert.Throws<ToolException>(() => StoreCommands.ExportBinary(store, outDir, force: false));
-    }
 
-    [Fact]
-    public void Shadow_mirror_of_an_edit_save_round_trips()
-    {
-        var old = Environment.CurrentDirectory;
-        var shadow = Settings.DatabaseShadow;
-        try
-        {
-            Directory.SetCurrentDirectory(_src);
-            Settings.DatabaseShadow = true;
-            if (Envir.Main.BuffInfoList.Count == 0)
-                foreach (var b in Server.MirDatabase.BuffInfo.Load()) Envir.Main.BuffInfoList.Add(b);
-            Envir.Edit.MagicInfoList.Clear();
-            Assert.True(Envir.Edit.LoadDB());
-            Envir.Edit.ItemInfoList[0].Price += 1; // a real edit
-            Envir.Edit.SaveDB();
-            ShadowMirror.Flush();
-            Assert.Equal(0, ShadowMirror.Failures);
-        }
-        finally
-        {
-            Settings.DatabaseShadow = shadow;
-            Directory.SetCurrentDirectory(old);
-        }
-
-        Assert.True(File.Exists(Path.Combine(_src, "SystemData.shadow.db")));
+        // The import recorded the source's hash: roundtrip finds it and gets the same bytes back.
+        File.Copy(store, Path.Combine(_src, "SystemData.db"));
         Assert.Equal(0, StoreCommands.Roundtrip(_src, null));
     }
 }

@@ -85,7 +85,7 @@ internal static class Program
 
             var e = Envir.Main;
             Populate(e, mapNames, size);
-            e.SaveDB();
+            new Server.MirEnvir.Storage.BinaryWorldStore().SaveDesign(e, null); // Server.MirDB; the server imports it into SQLite on its first start
             Console.WriteLine($"Wrote {Path.Combine(outDir, "Server.MirDB")} (version {Envir.Version}): " +
                               $"{e.MapInfoList.Count} map(s), {e.MonsterInfoList.Count} monsters, {e.ItemInfoList.Count} items, " +
                               $"{e.MapInfoList.Sum(m => m.Respawns.Count)} respawns");

@@ -155,7 +155,7 @@ Client track · parallel from week 1
   - the client shaders (not in git);
   - your weekly hours;
   - answers to the §9 decisions.
-- **Freeze:** no new MirCraft game-data editing until P7, and no new client UI or effects on D3D9 until C4.
+- **Freeze:** ~~no new MirCraft game-data editing until P7~~ (lifted 2026-10-21: P7 phase 7.3, Envir.Edit is the single writer of SystemData.db), and no new client UI or effects on D3D9 until C4.
 - **Gate:**
   - The GM password is changed and the snapshot exists.
   - `verify.ps1` builds Server.Library, Server.exe, Client and LibraryEditor to scratch, and leaves `Build\` untouched.
@@ -372,7 +372,7 @@ Every deploy runs: manual save → stop → off-box snapshot → `deploy-with-ba
 - **Packet "encryption":** the key would ship in the client. TLS only, if public.
 - ~~**A web client or any second client**~~: **overridden 2026-10-12** (see §8 and "W — web client" below). The cost warning stands: about 40 % of WoOOLcraft's commits went to its web client.
 - **Premature optimisation:** none before P6, and no .NET 8 server baseline.
-- **New features on old paths:** no new MirCraft game-data editing on `Envir.Edit` before P7, and no new client UI or effects on D3D9.
+- **New features on old paths:** ~~no new MirCraft game-data editing on `Envir.Edit` before P7~~ (lifted 2026-10-21, P7 phase 7.3), and no new client UI or effects on D3D9.
 - **Runtime splits:** no player-facing net10 client while SlimDX remains, and no net10-only `Shared` while any consumer is on net8.
 - **Shortcuts:** no mixed-risk deploys, no compressed Stage 1 gates, and no `LangVersion` change bundled with a retarget.
 - **Live-folder risks:** no CLI `.sln` builds, no builds into `Build\`, no agent deploys, and no live data in the repo or CI.
@@ -443,7 +443,7 @@ Later decisions are listed per phase in the phase notes. **Answered 2026-10-09:*
 | P4 Server .NET 10 | Live 2026-10-10 on .NET 10 Desktop Runtime 10.0.11 | `Future Ideas/Overnight-Log-2026-10-10.md` D43 | 2026-10-10 |
 | P5 Safety net | Live 2026-10-10 (runtime fault injection still open) | `Future Ideas/Overnight-Log-2026-10-10.md` D43 | 2026-10-10 |
 | P6 Measurement | Tools, baseline and 60-min 300-bot soak done 2026-10-10; loop changes live | `Future Optimisation/Baseline-2026-10-10.md`, `Soak-2026-10-10.md`, `tools/run-baseline.ps1`, `tools/run-soak.ps1` | 2026-10-10 |
-| P7 SQLite system data | Step 1 (exporter + verifier) done 2026-10-10. Scope widened 2026-10-20 to the file-based design data, which the exporter doesn't cover yet. No time gates (user, 2026-10-20: not open to players yet). Phase 7.1 (storage seam) done 2026-10-20; 7.2 (SQLite store, shadow, import/export, byte-identical on a copy of live data) done 2026-10-21; plan in `Future Ideas/Roadmap-Phase-Notes.md` P7 | `Future Ideas/P7-SQLite-Export.md` | — |
+| P7 SQLite system data | Step 1 (exporter + verifier) done 2026-10-10. Scope widened 2026-10-20 to the file-based design data, which the exporter doesn't cover yet. No time gates (user, 2026-10-20: not open to players yet). Phase 7.1 (storage seam) done 2026-10-20; 7.2 (SQLite store, shadow, import/export, byte-identical on a copy of live data) done 2026-10-21; 7.3 (soak + drill on a live-data copy, binary writer retired, additive columns, freeze lifted) done 2026-10-21, live flip = the next deploy; 7.4 (file data) open; plan in `Future Ideas/Roadmap-Phase-Notes.md` P7 | `Future Ideas/P7-SQLite-Export.md` | — |
 | P8 Security | Live 2026-10-10 (v2 hashes off by default; X1-17 decision + X1-20 retire decision open) | `Future Ideas/Overnight-Log-2026-10-10.md` D37, D39 | 2026-10-10 |
 | P9 Optimisation | Started 2026-10-10; P9-01/02 live | P9-01 encode-once, P9-02 player process interval (`Future Optimisation/P9-0*.md`) | Gate: quiet-machine rerun + 2 h soak |
 | C1 Client fixes + goldens | Done 2026-10-10: fixes, shaders, golden harness (15 scenarios, goldens outside git), frame profiler | `Client/D3D11-Parity.md` | — |

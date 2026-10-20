@@ -292,12 +292,6 @@ namespace Server.WebAdmin
             // ---- Database -----------------------------------------------------------------------------------------
             const string D = GroupDatabase;
             Add(D, "Database", "SaveDelay", "SaveDelay", I32, "Save interval (min)", "Minutes between automatic saves of accounts, database, guilds and goods. Takes effect after the next save.", min: 1, max: 1440);
-            Add(D, "Database", "Backend", "DatabaseBackend", S, "System data store",
-                "Where items, monsters, maps, NPCs, quests, spells, the game shop, conquests and the dragon are stored: Binary (Server.MirDB) or Sqlite (SystemData.db). The first start with Sqlite imports Server.MirDB and leaves it untouched for a rollback. Accounts, guilds, goods and conquest state stay binary. See roadmap P7.",
-                SettingRestart.Process);
-            Add(D, "Database", "Shadow", "DatabaseShadow", B, "Mirror saves to SQLite (shadow)",
-                "With the Binary store: after every Game Data / editor save, also write the same data to SystemData.shadow.db, to check the SQLite store with MirDbExport roundtrip before switching. No effect with Sqlite.",
-                SettingRestart.Process);
             Add(D, "Database", "CredxGold", "CredxGold", I16, "Credit to gold rate", "Gold price multiplier for game shop items bought with gold (GoldPrice = 1000 × rate).", min: 0);
             Add(D, "Backup", "RetentionEnabled", "BackupRetentionEnabled", B, "Prune old backups", "Delete old files from the Back Up accounts and database folders after each save (keeps all recent, then hourly, then daily copies). Off by default: it deletes files.");
             Add(D, "Backup", "KeepAllHours", "BackupKeepAllHours", I32, "Keep every backup for (hours)", "Every backup younger than this is kept.", min: 1, max: 8760);

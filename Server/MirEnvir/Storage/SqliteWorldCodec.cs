@@ -172,6 +172,33 @@ namespace Server.MirEnvir.Storage
             }
         }
 
+        /// <summary>Every stored column of a table (name, SQL type), as <see cref="ColumnNames"/> minus the three key columns.</summary>
+        public static IEnumerable<(string Name, string SqlType)> StoredColumns(TableSpec spec)
+        {
+            foreach (var c in spec.Columns) yield return (c.Name, c.SqlType);
+            if (spec.StatsField != null) yield return (spec.StatsField.Name + ZeroStatsSuffix, "TEXT");
+        }
+
+        /// <summary>The encoded value a freshly constructed model holds in <paramref name="column"/> (an additive migration's default).</summary>
+        public static object ColumnDefault(TableSpec spec, string column)
+        {
+            if (spec.StatsField != null && column == spec.StatsField.Name + ZeroStatsSuffix) return "[]";
+            var c = spec.Columns.First(x => x.Name == column);
+            var row = new GameDataRow { Entity = Activator.CreateInstance(spec.EntityType, nonPublic: true) };
+            if (!TryEncode(c.ValueType, c.Get(row), out var value, out var error))
+                throw new InvalidOperationException("[Store] " + spec.Name + "." + c.Name + ": default can't be stored: " + error);
+            return value;
+        }
+
+        /// <summary>The cells of a freshly constructed model at position 0 (a new one-row table such as dragon).</summary>
+        public static object[] FreshRow(TableSpec spec)
+        {
+            var errors = new List<string>();
+            var cells = EncodeRow(spec, 0, null, 0, Activator.CreateInstance(spec.EntityType, nonPublic: true), errors);
+            if (errors.Count > 0) throw new InvalidOperationException("[Store] " + spec.Name + ": fresh row can't be stored: " + string.Join("; ", errors));
+            return cells;
+        }
+
         /// <summary>The column names of a table's rows, in cell order.</summary>
         public static List<string> ColumnNames(TableSpec spec)
         {

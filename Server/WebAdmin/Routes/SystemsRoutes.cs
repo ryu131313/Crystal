@@ -473,7 +473,7 @@ namespace Server.WebAdmin.Routes
 
         // ------------------------------------------------------------------------------------------------ spawn tick
 
-        /// <summary>The Edit database is loaded (SaveDB on an empty Edit envir would wipe Server.MirDB).</summary>
+        /// <summary>The Edit database is loaded (SaveDB on an empty Edit envir would wipe the game data).</summary>
         private static bool EditLoaded()
         {
             return Envir.Edit.MapInfoList.Count > 0 || Envir.Edit.ItemInfoList.Count > 0 || Envir.Edit.MonsterInfoList.Count > 0;
@@ -589,7 +589,7 @@ namespace Server.WebAdmin.Routes
                         timer.BaseSpawnRate = oldRate;
                         timer.Respawn = oldOptions;
                         WebAdminLog.Error(ex, "Edit.SaveDB failed while saving the respawn tick");
-                        throw new WebAdminException(500, "Writing Server.MirDB failed (see the server log); nothing was changed.");
+                        throw new WebAdminException(500, "Saving the game data failed (see the server log); nothing was changed.");
                     }
                 }
 

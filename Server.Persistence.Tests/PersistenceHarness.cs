@@ -13,10 +13,14 @@ internal static class PersistenceHarness
 {
     public static readonly object Gate = new();
 
+    private static readonly Server.MirEnvir.Storage.BinaryWorldStore Binary = new();
+
     public static T InFolder<T>(string dir, Func<T> body)
     {
         lock (Gate)
         {
+            // These tests pin the binary Server.MirDB format; the server itself runs on SQLite since roadmap P7 phase 7.3.
+            Envir.Store = Binary;
             var old = Environment.CurrentDirectory;
             Directory.SetCurrentDirectory(dir);
             try { return body(); }

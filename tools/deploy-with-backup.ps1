@@ -13,7 +13,7 @@
   5. Writes the new manifest to <Target>\.deploy-manifest.txt.
 
   Protected (never copied over, never deleted):
-    Server: Server.MirDB*, Server.MirADB* (incl. n/o temp files), Guilds\, Conquests\, Archive\,
+    Server: Server.MirDB*, Server.MirADB* (incl. n/o temp files), SystemData.db*, Guilds\, Conquests\, Archive\,
             Back Up\, WebAdmin\admins.dat, Exports\, Configs\, Envir\, Maps\, Logs\
     Client: Data\, Sound\, Map\, Screenshots\, Mir2Config.ini, Mir2Test.ini, KeyBinds.ini, Error.txt
 
@@ -56,7 +56,7 @@ $protectedFiles = @{
     'Client' = @('Mir2Config.ini', 'Mir2Test.ini', 'KeyBinds.ini', 'Error.txt')
 }[$Kind]
 $protectedPrefixes = @{
-    'Server' = @('Server.MirDB', 'Server.MirADB')   # root files incl. Server.MirADBn / Server.MirADBo
+    'Server' = @('Server.MirDB', 'Server.MirADB', 'SystemData.db')   # root files incl. Server.MirADBn / Server.MirADBo, SystemData.db.tmp (roadmap P7)
     'Client' = @()
 }[$Kind]
 

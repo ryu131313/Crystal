@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Server.MirDatabase;
 using Server.MirEnvir;
+using Server.MirEnvir.Storage;
 using S = ServerPackets;
 
 namespace Server.WebAdmin.Routes
@@ -94,7 +95,7 @@ namespace Server.WebAdmin.Routes
                 }).ConfigureAwait(false);
 
                 if (!loaded)
-                    throw new WebAdminException(500, "The game database (Server.MirDB) could not be loaded; the world was not started. See the server log.");
+                    throw new WebAdminException(500, "The game data (SystemData.db) could not be loaded; the world was not started. See the server log ([Store] lines).");
 
                 WebAdminAudit.Record(req, "server.start", "world", crashed ? new { recoveredFromCrash = true } : null, reason);
                 await Accepted(req, crashed ? "The world loop had crashed; restarting it." : "Starting the world…", new { world = "starting" });
@@ -224,9 +225,8 @@ namespace Server.WebAdmin.Routes
             Envir.Main.RequestSaveNow();
             WebAdminAudit.Record(req, "server.save", "world", null, reason);
 
-            await req.Ok(null, Envir.SystemDataStale
-                ? "Save requested: accounts, guilds, goods and conquests save on the next tick (game data was edited, so Main's database save is skipped until the restart)."
-                : "Save requested: accounts, database, guilds, goods and conquests save on the next game tick.");
+            // Game data is saved by every Game Data save already (roadmap P7: Main's save only keeps the respawn counter).
+            await req.Ok(null, "Save requested: accounts, guilds, goods, conquests and the respawn counter save on the next game tick.");
         }
 
         // ------------------------------------------------------------------ reloads
@@ -398,7 +398,8 @@ namespace Server.WebAdmin.Routes
                 {
                     baseDirectory = AppContext.BaseDirectory,
                     workingDirectory = Environment.CurrentDirectory,
-                    database = SafeFullPath(Envir.DatabasePath),
+                    database = SafeFullPath(SqliteWorldStore.DatabasePath),
+                    databaseImportSource = SafeFullPath(Envir.DatabasePath), // Server.MirDB: read once at the first start, never written
                     accounts = SafeFullPath(Envir.AccountPath),
                     envir = SafeFullPath(Settings.EnvirPath),
                     backups = SafeFullPath(Envir.BackUpPath),

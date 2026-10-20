@@ -94,6 +94,8 @@ namespace Server.MirEnvir.Storage
                 {
                     SqliteWorldFile.CheckIntegrity(_conn);
                     SqliteWorldFile.CheckSchema(_conn);
+                    SqliteWorldFile.Migrate(_conn, MessageQueue.Enqueue, System.IO.Path.Combine(Envir.DatabaseBackUpPath,
+                        $"Pre-migrate {DateTime.Now:yyyy-MM-dd HH-mm-ss}.bak"));
                 }
                 catch
                 {

@@ -140,6 +140,40 @@ public class SqliteStoreTests
     }
 
     [Fact]
+    public void A_new_model_field_is_added_as_a_column_with_its_default()
+    {
+        var dir = NewTempFolder("p7-sqlite-migrate");
+        InFolder(dir, () =>
+        {
+            EnsureBuffInfo();
+            ResetMain();
+            SyntheticWorld.Populate(Envir.Main);
+            var db = Path.Combine(dir, "old.db");
+            SqliteWorldStore.Create(db, SqliteWorldCodec.Encode(Envir.Main, 0), null);
+
+            // An older store: written before ItemInfo.Price and the dragon table existed.
+            using (var conn = SqliteWorldFile.Open(db, create: false))
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "ALTER TABLE items DROP COLUMN \"Price\"; DROP TABLE dragon";
+                cmd.ExecuteNonQuery();
+                Assert.Throws<InvalidDataException>(() => SqliteWorldFile.ReadAll(conn));
+
+                var log = new List<string>();
+                Assert.Equal(2, SqliteWorldFile.Migrate(conn, log.Add));
+                Assert.Contains(log, l => l.Contains("items.Price"));
+                var rows = SqliteWorldFile.ReadAll(conn);
+                lock (Envir.LoadLock) SqliteWorldCodec.Decode(rows, Envir.Edit); // the new one-row dragon table got the fresh model's row
+                Assert.All(Envir.Edit.ItemInfoList, i => Assert.Equal(new ItemInfo().Price, i.Price));
+                Assert.Equal(new DragonInfo().MapFileName, Envir.Edit.DragonInfo.MapFileName);
+                Assert.Equal(0, SqliteWorldFile.Migrate(conn, log.Add)); // idempotent
+            }
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void Empty_or_missing_files_are_refused()
     {
         var dir = NewTempFolder("p7-sqlite-empty");
@@ -200,13 +234,19 @@ public class SqliteStoreTests
                 store.Writer.Shutdown();
             }
 
-            // The store is lost but a SQLite backup exists: refuse instead of re-importing the stale Server.MirDB.
+            // The store is lost and a SQLite backup newer than Server.MirDB exists: refuse instead of re-importing the stale Server.MirDB.
             File.Delete(SqliteWorldStore.DatabasePath);
             var again = new SqliteWorldStore();
             try
             {
                 lock (Envir.LoadLock) Assert.False(again.LoadDesign(Envir.Edit));
                 Assert.False(File.Exists(SqliteWorldStore.DatabasePath));
+
+                // After a rollback a binary build wrote Server.MirDB, newer than every SQLite backup: importing it again is allowed.
+                File.SetLastWriteTimeUtc(Envir.DatabasePath, DateTime.UtcNow.AddMinutes(10));
+                Envir.Edit.MagicInfoList.Clear();
+                lock (Envir.LoadLock) Assert.True(again.LoadDesign(Envir.Edit));
+                Assert.True(File.Exists(SqliteWorldStore.DatabasePath));
             }
             finally
             {

@@ -342,7 +342,7 @@ Add a regression script with relative thresholds.
 >
 > **No time gates (user, 2026-10-20).** The server isn't open to players yet, so no phase waits for days or weeks on live. Every gate below is a set of checks (tests, a scratch soak, a drill) that is done when it passes. This overrides the P7 waits in `roadmap.md` ("≥1 week shadow, ≥4 weeks burn-in") and its §7 soak classes for P7.
 >
-> **Status:** 7.1 done 2026-10-20 (`1d1b2403`). 7.2 done 2026-10-21. 7.3-7.4 not started.
+> **Status:** 7.1 done 2026-10-20 (`1d1b2403`). 7.2 done 2026-10-21 (`2da35a92`). 7.3 done 2026-10-21 (code; the live flip is your deploy). 7.4 not started.
 
 ### Decisions this plan relies on
 
@@ -484,6 +484,22 @@ Add a regression script with relative thresholds.
 **Tests and smoke check:** the 7.2 suites, minus the shadow tests. **Smoke:** after the retire commit, a scratch server boots from a `VACUUM INTO` backup and passes one web save and one restart.
 
 **Subagents (1):** **Reviewer** of the retire commit: nothing still writes `Server.MirDB` on the server, `SaveAccounts` and the guild/goods/conquest saves are untouched, and every deleted call site has a store replacement.
+
+**Done 2026-10-21 (code; not committed).** The live flip is the operator's next deploy (Runbook §10): the first start imports `Server.MirDB`.
+- **Soak** on a scratch copy of the live data (Configs, Envir, Maps, Guilds, Conquests, both DBs; 1.1 GB, read-only copy from `Build\Server\Release`) with `Backend=Sqlite` and `SaveDelay=1`: the import took 0.36 s; 200 StressClient bots for 10 min, all in game, 0 errors / decode errors / disconnects / refusals (`RESULT: PASS`); 0 isolated errors in the server log; `runtime_state` advanced (Main's runtime-only saves); `integrity_check` ok. No web edits in the soak: the scratch profile has the web admin off and the copy holds real accounts (no test credentials on real data); Edit saves are covered by `SqliteStoreTests`.
+- **Drill** (on the 7.2 build, which still had Binary): restart on SQLite (the counter carried over); manual backup restore (an edited price came back); `export-binary` → boot Binary → Main saved `Server.MirDB`; back on SQLite the stale store was **refused**; moving it away then **also** refused the re-import, because a SQLite backup existed. Fixed: only a SQLite backup **newer** than `Server.MirDB` counts as a lost store (after a rollback the binary build wrote `Server.MirDB` after every backup). Re-run on the retire build: re-import, then load from the store.
+- **Retire:**
+  - `Envir.Store` is always `SqliteWorldStore` (an internal setter lets tests and tools pick `BinaryWorldStore`); `[Database] Backend` / `Shadow` and `ShadowMirror` are gone.
+  - Main's periodic save always runs and only posts the respawn counter.
+  - `GameDataSave.RunFileIo` runs inline under `LoadLock` (the game-thread branch is gone); `BackupRoutes` lost the binary Server.MirDB backup and header paths.
+  - `MonsterTunerForm` / `DragonInfoForm` never call `Main.SaveDB` (their edits last until a restart; they always say so).
+  - `BinaryWorldStore` keeps the reader (import) and the writer (only for `MirDbExport export-binary`, the scratch generator and the persistence tests).
+  - **`SystemDataStale` is kept as an informational flag** (five web status responses use it to say "Main's data is older than the store until a reboot"); it gates nothing.
+- **Additive schema (replaces the `Envir.Version` bump for system data):** `SqliteWorldFile.Migrate` adds missing tables and columns on open, with the fresh model's value as the default (a new one-row table gets the fresh model's row), after a `VACUUM INTO` copy to `Back Up\Database\Pre-migrate <time>.bak`. A column the code doesn't know, or a missing index counter, still fails the load. Rule text: server.md §4.3, AGENTS.md "New saved fields".
+- **Ops:** `deploy-with-backup.ps1` protects `SystemData.db*`; scratch `-Reset` removes it; the scratch generator writes `Server.MirDB` through `BinaryWorldStore`; Runbook §10 (flip, backups, restore, rollback, roll forward, refusals). The freeze on MirCraft game-data editing is lifted (roadmap §3 / §6).
+- **Tests:** `verify.ps1` all green (WebAdmin 983, Shared 73 ×2, Persistence 46, MirDbExport 20). New: the migration test; the store test covers the roll-forward re-import.
+- **Review (1 reviewer) fixes:** the web save guard checked `Server.MirDB` instead of the store (an empty editor copy could have been saved over a failed load); Migrate's singleton tables, per-column defaults only for missing columns, and the pre-migrate backup; stale messages in `ServerControlRoutes` (`/save` text, start error, `paths.database`), `SystemsRoutes`, `Envir` comments; Runbook: touch the file after a manual restore, and drop a leftover `Backend=Sqlite` before rolling back to 2da35a92.
+- **Left as is (noted):** `GameDataRoutes` still has a now-unreachable `GameThreadTimeoutException` catch and comments describing the game-thread path; `DragonInfoForm` shows its "not saved" box on every close; `Server/WebAdmin/README.md` still describes Server.MirDB and `SystemDataStale` gating (it has other uncommitted edits; update it with them).
 
 **Gate:** the soak and the rollback drill pass, 0 decode errors. Rollback before the retire commit: `--export-binary` (DB and linked files; nothing is lost because the schema is frozen), then the previous build with `Backend=Binary`.
 

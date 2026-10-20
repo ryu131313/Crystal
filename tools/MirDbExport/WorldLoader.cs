@@ -47,6 +47,7 @@ namespace MirDbExport
                     var source = new SourceFile { Path = src, Size = new FileInfo(copy).Length, Sha256 = Sha256Of(copy) };
 
                     Directory.SetCurrentDirectory(work);
+                    Envir.Store = new Server.MirEnvir.Storage.BinaryWorldStore(); // read Server.MirDB (the server runs on SQLite)
                     if (Envir.Main.BuffInfoList.Count == 0)
                         foreach (var b in BuffInfo.Load()) Envir.Main.BuffInfoList.Add(b);
 

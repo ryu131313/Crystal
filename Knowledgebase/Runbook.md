@@ -33,7 +33,7 @@ powershell -ExecutionPolicy Bypass -File C:\Mir2\tools\verify.ps1 -Scratch D:\mi
 5. **Start the server and watch.** At least 3 autosaves (`SaveDelay`, default 5 min), 1 planned full-process restart, and a read of `Logs\Server\Server (dd-MM-yyyy).log`. The watch length per change type is in `roadmap.md` §6.
 
 Protected paths (never overwritten or deleted by the script):
-- **Server:** `Server.MirDB*`, `Server.MirADB*`, `Guilds\`, `Conquests\`, `Archive\`, `Back Up\`, `WebAdmin\admins.dat`, `Exports\`, `Configs\`, `Envir\`, `Maps\`, `Logs\`
+- **Server:** `Server.MirDB*`, `Server.MirADB*`, `SystemData.db*` (roadmap P7), `Guilds\`, `Conquests\`, `Archive\`, `Back Up\`, `WebAdmin\admins.dat`, `Exports\`, `Configs\`, `Envir\`, `Maps\`, `Logs\`
 - **Client:** `Data\`, `Sound\`, `Map\`, `Screenshots\`, `Mir2Config.ini`, `Mir2Test.ini`, `KeyBinds.ini`, `Error.txt`
 
 ## 3. Rollback
@@ -169,3 +169,33 @@ Desktop clients with `[Launcher] Mode=OnDemand` (the default) download the raw c
 - Apply keeps the replaced files as `Old__<name>` until the new build reaches the game window. A build that fails to get there is rolled back at the next start and **rejected** (`Patch\Rejected.bin`): clients stay on the old build until you publish a different one. A failed apply (a file locked by another program) restores everything and tells the player to restart the launcher.
 - If a build is bad, publish the previous build output again (same files = clients that have not updated yet do nothing; updated ones go back).
 - A build whose new `Client.dll` cannot even load (corrupt file, missing runtime) cannot roll itself back: the recovery code lives in `Client.dll`. Test a build on one client before publishing.
+
+## 10. System data in SQLite (`SystemData.db`, roadmap P7, 2026-10-21)
+
+Since P7 phase 7.3 the server keeps items, monsters, maps, NPCs, quests, magic, the game shop, conquests and the dragon in `SystemData.db` (SQLite) next to `Server.exe`. Accounts, guilds, goods and conquest state stay in `Server.MirADB` and the side files. `Server.MirDB` is read once, on the first start, and never written again: it stays as the rollback. `MirDbExport` (`dotnet build C:\Mir2\tools\MirDbExport\MirDbExport.csproj`, exe in `tools\MirDbExport\bin\Debug\net10.0\`) works on copies, never on a running server's files.
+
+**First deploy of a P7 build (the flip):**
+1. Optional dry run on a copy: copy the live `Server.MirDB` to a scratch folder, then `MirDbExport import <folder> <folder>\SystemData.db` and `MirDbExport export-binary <folder>\SystemData.db <folder>\out`, and compare `out\Server.MirDB` with the copy (`fc /b`): they must be identical.
+2. Deploy as §2 (stop, snapshot, deploy). The deploy script protects `SystemData.db*`.
+3. Start. The log shows `[Store] Importing .\Server.MirDB (version 119) into .\SystemData.db` and `[Store] Created .\SystemData.db (import)`. Check a few Game Data grids in the web admin, then make one small edit and save it.
+
+**Backups:** every editor or web Game Data save first copies the current store to `Back Up\Database\Database yyyy-MM-dd HH-mm-ss.bak` (LiveDb uses its own names). These are SQLite files with the old names, so `[Backup] RetentionEnabled` prunes them as before. Older `.bak` files in that folder are binary Server.MirDB copies.
+
+**Restore a SQLite backup:** stop the world, then web admin → Backups → Database → Restore (it closes the store, swaps the file, runs an integrity check and reloads the editor copy; a binary `.bak` is refused with a message). By hand: stop `Server.exe`, keep a copy of the current `SystemData.db`, copy the `.bak` over `SystemData.db`, give it the current time (`(Get-Item SystemData.db).LastWriteTime = Get-Date`: a copy keeps the backup's old time, and a store older than `Server.MirDB` is refused), start.
+
+**After an upgrade that adds fields:** the first start adds the new columns and first copies the store to `Back Up\Database\Pre-migrate <time>.bak` (`[Store] Added column ...`). An older build refuses the migrated store (`unknown column(s)`): to go back, put that `Pre-migrate` copy in place, or use the rollback below.
+
+**Restore an old binary backup** (a `.bak` from before the flip): in a scratch folder, put it as `Server.MirDB`, run `MirDbExport import <folder> <folder>\SystemData.db`, then stop the server and put that `SystemData.db` in place.
+
+**Roll back to a binary build** (2da35a92 or older; their default is `[Database] Backend=Binary`):
+1. Stop `Server.exe`. Keep a copy of `SystemData.db`.
+2. `MirDbExport export-binary <live>\SystemData.db <scratch>\out`, then copy `out\Server.MirDB` over the live `Server.MirDB` (the old one is in the deploy snapshot). This carries every edit made since the flip.
+3. Deploy the previous build (§3). If its `Configs\Setup.ini` still has `[Database] Backend=Sqlite` (left from 7.2 testing), set it to `Binary` or remove it. Start.
+
+**Back to SQLite after a rollback:** the server refuses a `SystemData.db` older than `Server.MirDB` (`[Store] Server.MirDB is newer than ...`), because the edits made on the binary build would be lost. Move `SystemData.db` away (rename it), and the next start imports `Server.MirDB` again (allowed because the binary build wrote `Server.MirDB` after every SQLite backup; drilled 2026-10-21).
+
+**Startup refusals and what they mean:**
+- `SystemData.db is missing but Back Up\Database has a SQLite backup newer than Server.MirDB`: the store was lost. Restore the newest SQLite `.bak` (above). It never re-imports the older `Server.MirDB` on its own.
+- `schema_version is ...` or `table ...: unknown column(s)`: the store was written by a newer build, or a field was renamed or removed without a migration. Run the build that wrote it.
+- New fields need nothing: a newer build adds missing columns on open (`[Store] Added column items.X (default ...)`).
+- A leftover `SystemData.db.tmp` from an interrupted first import is replaced automatically.

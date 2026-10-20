@@ -162,6 +162,90 @@ namespace Server.MirEnvir.Storage
             return rows;
         }
 
+        /// <summary>
+        /// Additive schema changes (roadmap P7 phase 7.3, replaces the Envir.Version bump for system data): a table or column the code
+        /// expects and the file lacks is added, the column defaulting to the value a freshly constructed model holds (so existing rows
+        /// read as if the field had always been at its default). Logged per column. A column the file has and the code doesn't know
+        /// (a renamed or removed field) is not touched: <see cref="ReadAll"/> then fails loudly, because that needs a written migration.
+        /// Returns the number of tables and columns added.
+        /// </summary>
+        /// <param name="backupPath">When set and something is missing, the store is first copied there with VACUUM INTO (an older build
+        /// refuses the migrated file, so this copy is what it can run on). Offline tools work on copies and pass null.</param>
+        public static int Migrate(SqliteConnection conn, Action<string> log, string backupPath = null)
+        {
+            // What is missing (defaults are computed only for those columns, never for the rest).
+            var missingTables = new List<SqliteWorldCodec.TableSpec>();
+            var missingColumns = new List<(SqliteWorldCodec.TableSpec Spec, string Name, string SqlType)>();
+            foreach (var spec in SqliteWorldCodec.Specs)
+            {
+                var actual = TableColumns(conn, null, spec.Name);
+                if (actual.Count == 0) { missingTables.Add(spec); continue; }
+                foreach (var (name, sqlType) in SqliteWorldCodec.StoredColumns(spec))
+                    if (!actual.Contains(name)) missingColumns.Add((spec, name, sqlType));
+            }
+
+            var added = missingTables.Count + missingColumns.Count;
+            if (added == 0) return 0;
+
+            if (backupPath != null)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(backupPath)));
+                BackupTo(conn, backupPath);
+                log("[Store] Copied the store to " + backupPath + " before adding " + added.ToString(CultureInfo.InvariantCulture) + " table(s)/column(s)");
+            }
+
+            using var tx = conn.BeginTransaction();
+            foreach (var spec in missingTables)
+            {
+                var ddl = SqliteWorldCodec.CreateStatements().First(sql => sql.StartsWith("CREATE TABLE " + SqliteWorldCodec.Quote(spec.Name) + " (", StringComparison.Ordinal));
+                Exec(conn, tx, ddl);
+                if (spec.Single)
+                {
+                    // A one-row table (dragon) must hold its row: the fresh model's defaults.
+                    var names = SqliteWorldCodec.ColumnNames(spec);
+                    Insert(conn, tx, SqliteWorldCodec.Quote(spec.Name), names.Select(SqliteWorldCodec.Quote).ToArray(), SqliteWorldCodec.FreshRow(spec));
+                }
+
+                log("[Store] Added table " + spec.Name + (spec.Single ? " with a default row" : string.Empty));
+            }
+
+            foreach (var (spec, name, sqlType) in missingColumns)
+            {
+                var literal = SqlLiteral(SqliteWorldCodec.ColumnDefault(spec, name));
+                Exec(conn, tx, "ALTER TABLE " + SqliteWorldCodec.Quote(spec.Name) + " ADD COLUMN " + SqliteWorldCodec.Quote(name) + " " + sqlType + " DEFAULT " + literal);
+                log("[Store] Added column " + spec.Name + "." + name + " (default " + literal + ")");
+            }
+
+            // A new index counter is not added here: Decode refuses a store without it (a counter needs a written migration).
+            Upsert(conn, tx, "meta", "migrated_utc", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
+            tx.Commit();
+            return added;
+        }
+
+        private static HashSet<string> TableColumns(SqliteConnection conn, SqliteTransaction tx, string table)
+        {
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = "SELECT name FROM pragma_table_info($t)";
+            cmd.Parameters.AddWithValue("$t", table);
+            using var r = cmd.ExecuteReader();
+            while (r.Read()) names.Add(r.GetString(0));
+            return names;
+        }
+
+        private static string SqlLiteral(object value)
+        {
+            switch (value)
+            {
+                case null: return "NULL";
+                case long l: return l.ToString(CultureInfo.InvariantCulture);
+                case double d: return d.ToString("R", CultureInfo.InvariantCulture); // a STRICT REAL column stores 5 as 5.0
+                case string s: return "'" + s.Replace("'", "''") + "'";
+                default: throw new InvalidOperationException("[Store] default of type " + value.GetType());
+            }
+        }
+
         /// <summary>Loud schema check: a column the code doesn't know, or one it expects and can't find, fails the read.</summary>
         private static void CheckColumns(SqliteConnection conn, string table, List<string> expected)
         {

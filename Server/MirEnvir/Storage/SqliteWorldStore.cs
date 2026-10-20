@@ -42,9 +42,9 @@ namespace Server.MirEnvir.Storage
                 }
                 else if (File.Exists(Envir.DatabasePath) && File.GetLastWriteTimeUtc(Envir.DatabasePath) > File.GetLastWriteTimeUtc(DatabasePath))
                 {
-                    // Only the binary store writes Server.MirDB: a newer one means the server ran with Backend=Binary since this store
-                    // was last written (a rollback). Loading the store would silently drop those edits, and the next save would bury them.
-                    MessageQueue.Enqueue("[Store] Server.MirDB is newer than " + DatabasePath + " (the server ran with Backend=Binary since). " +
+                    // Only a binary build writes Server.MirDB: a newer one means such a build ran since this store was last written (a
+                    // rollback). Loading the store would silently drop those edits, and the next save would bury them.
+                    MessageQueue.Enqueue("[Store] Server.MirDB is newer than " + DatabasePath + " (an older, binary build ran since). " +
                                          "Refusing to load stale data: move " + DatabasePath + " away to import Server.MirDB again, or touch it to keep it (Knowledgebase/Runbook.md).");
                     return false;
                 }
@@ -87,6 +87,18 @@ namespace Server.MirEnvir.Storage
             });
         }
 
+        /// <summary>True when the store file holds any item, monster or map (the web admin refuses to save an empty editor copy over it).</summary>
+        public bool HasDesignRows()
+        {
+            if (!File.Exists(DatabasePath)) return false;
+            return Writer.Run(w =>
+            {
+                using var cmd = w.Connection.CreateCommand();
+                cmd.CommandText = "SELECT (SELECT count(*) FROM items) + (SELECT count(*) FROM monsters) + (SELECT count(*) FROM maps)";
+                return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture) > 0;
+            });
+        }
+
         /// <summary>
         /// Takes a VACUUM INTO copy of the store (web admin backups). Runs on the writer, so it never sees a half-written save.
         /// </summary>
@@ -107,8 +119,8 @@ namespace Server.MirEnvir.Storage
         {
             if (HasPriorSqliteEvidence())
             {
-                MessageQueue.Enqueue("[Store] " + DatabasePath + " is missing but a SQLite backup in Back Up\\Database or " + DatabasePath +
-                                     ".tmp exists. Refusing to import Server.MirDB over it: restore the newest backup (Knowledgebase/Runbook.md).");
+                MessageQueue.Enqueue("[Store] " + DatabasePath + " is missing but Back Up\\Database has a SQLite backup newer than Server.MirDB. " +
+                                     "Refusing to import the older Server.MirDB over it: restore the newest backup (Knowledgebase/Runbook.md §10).");
                 return false;
             }
 
@@ -159,13 +171,18 @@ namespace Server.MirEnvir.Storage
         }
 
         /// <summary>
-        /// A SQLite backup in Back Up\Database means a store existed and was lost. A leftover .tmp alone is a crashed first import
-        /// (only <see cref="Create"/> writes one, and only while no store exists): it is logged and replaced, not treated as evidence.
+        /// A SQLite backup in Back Up\Database that is newer than Server.MirDB means a store existed and was lost: since the flip the
+        /// server never writes Server.MirDB, so every save after the import left a newer backup. A Server.MirDB newer than every SQLite
+        /// backup means a binary build ran since (a rollback, Knowledgebase/Runbook.md §10), and importing it again is what the operator
+        /// wants. A leftover .tmp alone is a crashed first import (only <see cref="Create"/> writes one, and only while no store exists):
+        /// it is logged and replaced, not treated as evidence.
         /// </summary>
         internal static bool HasPriorSqliteEvidence()
         {
+            var binaryUtc = File.Exists(Envir.DatabasePath) ? File.GetLastWriteTimeUtc(Envir.DatabasePath) : DateTime.MinValue;
             var backups = Directory.Exists(Envir.DatabaseBackUpPath) &&
-                          Directory.EnumerateFiles(Envir.DatabaseBackUpPath, "*.bak").Any(SqliteWorldFile.LooksLikeSqlite);
+                          Directory.EnumerateFiles(Envir.DatabaseBackUpPath, "*.bak")
+                                   .Any(b => File.GetLastWriteTimeUtc(b) >= binaryUtc && SqliteWorldFile.LooksLikeSqlite(b));
             if (!backups && File.Exists(DatabasePath + ".tmp"))
                 MessageQueue.Enqueue("[Store] Replacing " + DatabasePath + ".tmp left by an interrupted import.");
             return backups;

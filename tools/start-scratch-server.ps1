@@ -89,7 +89,7 @@ if (-not (Test-Path $generator)) { Write-Error "Generator not built: $generator"
 # ---- assemble the run folder ----
 New-Item -ItemType Directory -Force $runDir | Out-Null
 if ($Reset) {
-    foreach ($p in 'Server.MirDB', 'Server.MirDBn', 'Server.MirADB', 'Server.MirADBn', 'Logs', 'Back Up', 'Maps', 'Guilds', 'Conquests', 'Archive') {
+    foreach ($p in 'Server.MirDB', 'Server.MirDBn', 'SystemData.db', 'SystemData.db.tmp', 'Server.MirADB', 'Server.MirADBn', 'Logs', 'Back Up', 'Maps', 'Guilds', 'Conquests', 'Archive') {
         $full = Join-Path $runDir $p
         if (Test-Path $full) { Remove-Item $full -Recurse -Force }
     }

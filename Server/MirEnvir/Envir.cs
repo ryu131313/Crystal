@@ -57,15 +57,24 @@ namespace Server.MirEnvir
 
         public static Envir Edit { get; } = new Envir();
 
-        /// <summary>Where system data is loaded from and saved to (roadmap P7): [Database] Backend, read once per process.</summary>
-        internal static IWorldStore Store => LazyStore.Value;
+        /// <summary>
+        /// Where system data is loaded from and saved to: SQLite (SystemData.db) since roadmap P7 phase 7.3. The server never writes
+        /// Server.MirDB; it only imports it on the first start. Tests and offline tools may set a <see cref="BinaryWorldStore"/>
+        /// before the first load (internal setter).
+        /// </summary>
+        internal static IWorldStore Store
+        {
+            get
+            {
+                var store = Volatile.Read(ref _store);
+                if (store != null) return store;
+                Interlocked.CompareExchange(ref _store, new SqliteWorldStore(), null);
+                return _store;
+            }
+            set => Volatile.Write(ref _store, value);
+        }
 
-        internal static bool StoreIsSqlite => Store is SqliteWorldStore;
-
-        private static readonly Lazy<IWorldStore> LazyStore = new Lazy<IWorldStore>(() =>
-            string.Equals(Settings.DatabaseBackend, "Sqlite", StringComparison.OrdinalIgnoreCase) ? new SqliteWorldStore()
-            : string.Equals(Settings.DatabaseBackend, "Binary", StringComparison.OrdinalIgnoreCase) ? new BinaryWorldStore()
-            : throw new InvalidOperationException("[Database] Backend=" + Settings.DatabaseBackend + " is not Binary or Sqlite"));
+        private static IWorldStore _store;
 
         protected static MessageQueue MessageQueue => MessageQueue.Instance;
 
@@ -2335,9 +2344,8 @@ namespace Server.MirEnvir
                             // Each save is isolated (roadmap P5): since P2 a failed save leaves the previous file intact.
                             for (var i = 0; i < Players.Count; i++) Players[i].FoldPlayTime(); // v119: a crash loses little play time
                             BeginSaveAccounts();
-                            // WebAdmin: never overwrite newer system data saved by the Edit envir. With the SQLite store Main's save only
-                            // posts the respawn counter (runtime_state), so it always runs.
-                            try { if (!SystemDataStale || StoreIsSqlite) SaveDB(); }
+                            // Main's save only posts the respawn counter (runtime_state): Envir.Edit is the only writer of design data.
+                            try { SaveDB(); }
                             catch (Exception ex) { WorldErrors.Record("SaveDB", ex); }
                             try { SaveGuilds(); } catch (Exception ex) { WorldErrors.Record("SaveGuilds", ex); }
                             try { SaveGoods(); } catch (Exception ex) { WorldErrors.Record("SaveGoods", ex); }
@@ -3094,12 +3102,9 @@ namespace Server.MirEnvir
         /// </summary>
         public void SaveDB(string backupFileName)
         {
-            if (Settings.DatabaseShadow && this == Edit && Store is BinaryWorldStore binary)
-                ShadowMirror.AfterBinarySave(this, binary.SaveDesignAndHash(this, backupFileName));
-            else
-                Store.SaveDesign(this, backupFileName);
+            Store.SaveDesign(this, backupFileName);
 
-            //WebAdmin: once the Edit envir has written Server.MirDB, Main's in-memory system data is stale until it reloads.
+            //WebAdmin: once the Edit envir has saved, Main's in-memory system data is older than the store until it reloads.
             if (this == Edit) _systemDataStale = true;
         }
 
@@ -3509,15 +3514,7 @@ namespace Server.MirEnvir
         {
             lock (LoadLock)
             {
-                IWorldStore store;
-                try { store = Store; }
-                catch (InvalidOperationException ex)
-                {
-                    MessageQueue.Enqueue(ex.Message);
-                    return false;
-                }
-
-                if (!store.LoadDesign(this)) return false;
+                if (!Store.LoadDesign(this)) return false;
                 WorldBinder.Bind(this);
             }
 
@@ -3864,7 +3861,7 @@ namespace Server.MirEnvir
 
         private static volatile bool _systemDataStale;
 
-        /// <summary>True once Envir.Edit.SaveDB() ran after Envir.Main last loaded its DB: Main's periodic SaveDB() is skipped until the next Start/Reboot reloads it.</summary>
+        /// <summary>True once Envir.Edit.SaveDB() ran after Envir.Main last loaded its DB: Main's design data is older than the store until the next Start/Reboot (informational since roadmap P7: Main never writes design data).</summary>
         public static bool SystemDataStale => _systemDataStale;
 
         /// <summary>Main's RespawnTick.CurrentTickcounter, published by the game thread after RespawnTick.Process(); -1 until then (F4).</summary>

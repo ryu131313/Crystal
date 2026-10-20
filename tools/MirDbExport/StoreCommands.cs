@@ -7,7 +7,7 @@ namespace MirDbExport
     /// <summary>
     /// Offline commands for the server's SQLite system-data store (roadmap P7 phase 7.2), using the server's own codec:
     /// <c>import</c> (Server.MirDB → SystemData.db), <c>export-binary</c> (SystemData.db → Server.MirDB, the rollback) and <c>roundtrip</c>
-    /// (the shadow check: SQLite → binary must give the bytes of the binary file the mirror was taken from). Sources are only read.
+    /// (SQLite → binary must give the bytes of the binary file the store was imported from). Sources are only read.
     /// </summary>
     internal static class StoreCommands
     {
@@ -51,15 +51,15 @@ namespace MirDbExport
         }
 
         /// <summary>
-        /// Loads <paramref name="dbPath"/> (default: &lt;folder&gt;\SystemData.shadow.db), writes it as binary and compares the bytes with
+        /// Loads <paramref name="dbPath"/> (default: &lt;folder&gt;\SystemData.db), writes it as binary and compares the bytes with
         /// whichever of &lt;folder&gt;\Server.MirDB and &lt;folder&gt;\Back Up\Database\*.bak has meta.source_sha256.
         /// </summary>
         public static int Roundtrip(string folder, string dbPath)
         {
             folder = Path.GetFullPath(folder);
-            dbPath = Path.GetFullPath(dbPath ?? Path.Combine(folder, "SystemData.shadow.db"));
+            dbPath = Path.GetFullPath(dbPath ?? Path.Combine(folder, "SystemData.db"));
             var sha = ReadMeta(dbPath, "source_sha256") as string
-                      ?? throw new ToolException(dbPath + " has no meta.source_sha256 (only shadow mirrors and imports record their source).");
+                      ?? throw new ToolException(dbPath + " has no meta.source_sha256 (only imports record their source).");
 
             var candidates = new List<string> { Path.Combine(folder, WorldLoader.DbFileName) };
             var backups = Path.Combine(folder, "Back Up", "Database");
@@ -89,10 +89,21 @@ namespace MirDbExport
             lock (Gate)
             {
                 WorldRows rows;
-                using (var conn = SqliteWorldFile.Open(dbPath, create: false))
+                // Reads a copy: Migrate may add columns, and the source is never written.
+                var copy = Path.Combine(Path.GetTempPath(), "mirdbexport", Guid.NewGuid().ToString("N") + ".db");
+                Directory.CreateDirectory(Path.GetDirectoryName(copy));
+                File.Copy(dbPath, copy);
+                try
                 {
+                    using var conn = SqliteWorldFile.Open(copy, create: false);
                     SqliteWorldFile.CheckIntegrity(conn);
+                    SqliteWorldFile.CheckSchema(conn);
+                    SqliteWorldFile.Migrate(conn, Console.WriteLine);
                     rows = SqliteWorldFile.ReadAll(conn);
+                }
+                finally
+                {
+                    File.Delete(copy);
                 }
 
                 var work = Path.Combine(Path.GetTempPath(), "mirdbexport", Guid.NewGuid().ToString("N"));

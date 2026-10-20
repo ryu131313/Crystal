@@ -34,9 +34,9 @@ Usage:
       The rollback: writes <out-folder>\Server.MirDB from a SQLite store.
 
   MirDbExport roundtrip <folder> [<store.db>]
-      The shadow check: loads <store.db> (default <folder>\SystemData.shadow.db), writes it as binary and
-      compares the bytes with the Server.MirDB or Back Up\Database\*.bak in <folder> whose SHA-256 the store
-      recorded. Exit 0 only when identical.
+      Loads <store.db> (default <folder>\SystemData.db), writes it as binary and compares the bytes with the
+      Server.MirDB or Back Up\Database\*.bak in <folder> whose SHA-256 the store recorded at import.
+      Exit 0 only when identical (no design edits since the import).
 
 Never point it at a live server folder that is being written; copy the file first (the tool only reads it).";
 

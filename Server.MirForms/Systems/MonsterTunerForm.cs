@@ -106,18 +106,13 @@ namespace Server.MirForms.Systems
                 Envir.MonsterInfoList[i] = mob;
             }
 
-            // Approved Known-debt fix (2026-10-10): Main.SaveDB() would overwrite newer data saved through the editor copy (LiveDb saves
-            // on every web apply; SystemDataStale after any editor save) and races the game thread's own save.
-            if (Settings.LiveDbEnabled || Envir.SystemDataStale)
+            // This form edits Main's copy, and since roadmap P7 phase 7.3 Main never saves design data (Envir.Edit is the only writer of
+            // SystemData.db), so the change lasts until a restart. Approved Known-debt behaviour since 2026-10-10 (no Main.SaveDB).
             {
-                MessageBox.Show("The tuned values were applied to the running world only and were NOT saved to Server.MirDB: " +
-                                (Settings.LiveDbEnabled ? "LiveDb is enabled, so Server.MirDB is written only through the web admin." : "newer game data was saved through the editor since the world loaded.") +
+                MessageBox.Show("The tuned values were applied to the running world only and were NOT saved to the game data: this form changes the running world only (Main), and the game data is saved only from the editor copy." +
                                 " Make the same change in the web admin (Game Data → Monsters) to keep it after a restart.",
                     "Monster Tuner", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
             }
-
-            Envir.SaveDB();
         }
     }
 }

@@ -5,17 +5,15 @@ namespace Server.MirEnvir.Storage
     /// <summary>
     /// Server.MirDB, the hand-written binary system-data file versioned by Envir.Version (roadmap P7 phase 7.1). The code is
     /// Envir.SaveDB / Envir.LoadDB moved here unchanged, minus the post-load bindings (now <see cref="WorldBinder"/>).
+    /// <para>Since phase 7.3 the server runs on <see cref="SqliteWorldStore"/> and only reads this format (the first-start import).
+    /// The writer stays for the offline tools (<c>MirDbExport export-binary</c>, the rollback) and the persistence tests, which select
+    /// this store explicitly through <see cref="Envir.Store"/>.</para>
     /// </summary>
     internal sealed class BinaryWorldStore : IWorldStore
     {
         private static MessageQueue MessageQueue => MessageQueue.Instance;
 
-        public void SaveDesign(Envir e, string backupFileName) => Save(e, backupFileName, hash: false);
-
-        /// <summary>Saves and returns the SHA-256 of the file written (shadow mode, roadmap P7 phase 7.2).</summary>
-        internal string SaveDesignAndHash(Envir e, string backupFileName) => Save(e, backupFileName, hash: true);
-
-        private string Save(Envir e, string backupFileName, bool hash)
+        public void SaveDesign(Envir e, string backupFileName)
         {
             // Crash-safe save (roadmap P2): write a complete temp file, then swap it in with File.Replace, which also
             // moves the previous file into Back Up\Database. Server.MirDB is never truncated in place, so a crash or an
@@ -82,8 +80,6 @@ namespace Server.MirEnvir.Storage
                     e.GTMapList[i].Save(writer);
             }
 
-            var sha = hash ? SqliteWorldStore.Sha256(tempPath) : null;
-
             if (File.Exists(Envir.DatabasePath))
             {
                 if (!Directory.Exists(Envir.DatabaseBackUpPath)) Directory.CreateDirectory(Envir.DatabaseBackUpPath);
@@ -101,8 +97,6 @@ namespace Server.MirEnvir.Storage
             {
                 File.Move(tempPath, Envir.DatabasePath);
             }
-
-            return sha;
         }
 
         public bool LoadDesign(Envir e)
