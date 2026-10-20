@@ -7,7 +7,7 @@
     - SharedTfm:    Shared (consumed by BOTH server and client: keep it on the
                     lowest TFM of any consumer, see roadmap.md P4 / C5)
     - ClientTfm:    Client.exe
-    - ToolsTfm:     LibraryEditor, LibraryViewer, AutoPatcherAdmin(V2), CustomFormControl
+    - ToolsTfm:     LibraryEditor, LibraryViewer, CustomFormControl
     LangVersion is pinned so a TFM bump never silently changes C# semantics.
     No output-path properties here on purpose: each project keeps its own.
   -->

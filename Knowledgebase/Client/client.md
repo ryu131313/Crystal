@@ -29,14 +29,13 @@ You are a **Principal .NET Game Client Engineer** working on the **Crystal** Leg
 ```
 Program.Main() [STAThread]                                   Client/Program.cs
   ├── "-tc" arg → Settings.UseTestConfig = true; #if DEBUG forces it (→ .\Mir2Test.ini)
-  ├── UpdatePatcher(): .\AutoPatcher.gz exists → rename to .exe, start it "Auto", exit
   ├── Packet.IsServer = false;  Settings.Load()               (must precede any receive)
   ├── CheckResolutionSetting()  → mode enumeration fails → MessageBox + Environment.Exit;
   │                               configured Resolution unsupported → MessageBox, reset to 1024, Settings.Save(), continue
   ├── Settings.P_Patcher ([Launcher] Enabled, default true)
   │     ? Application.Run(PForm = new AMain())   launcher/patcher (namespace Launcher, WebView2, HttpClient); sets Launch
-  │       [Launcher] Mode=OnDemand (default, in-game patcher 2026-10-20): PatchService.Start + DownloadCore (program files +
-  │       tiers 0-1 from WebRelay --patch-root), Old__ swap + restart on a program change; Mode=Full = PList.gz as before
+  │       in-game patcher (2026-10-20; the PList.gz patcher was retired the same day): PatchService.Start + DownloadCore
+  │       (program files staged + tiers 0-1 from WebRelay --patch-root); a staged program set → restart (PatchApply)
   ├── if (Launch) PatchService.StartBackground()                 background downloads during the game (§3.2 exception)
   │     : Launch = true
   ├── if (Launch) Application.Run(Form = new CMain())         game window + loop (AMain closed without launch → exit)
@@ -64,7 +63,7 @@ exit: CMain_FormClosing → (cancelled while CMain.Time < GameScene.LogTime, unl
 | **Socket IO** (APM threadpool) | `Network.Connection` / `ReceiveData` / `SendData` (`MirNetwork/Network.cs`) | **decodes** packets (`Packet.ReceivePacket` → `ReadPacket`) and enqueues into `ConcurrentQueue<Packet> _receiveList` | `_rawData`, `CMain.BytesReceived`, `Network.Disconnect()` on error; on a refused connect, `Sleep(100)` + `Network.Connect()` retry — including creating the max-attempts `MirMessageBox` off the UI thread |
 | **NAudio playback** | `WaveOutEvent` (one shared `_OneShots` mixer + one per `LoopProvider`) | audio | NAudio internals |
 | **Patcher** | `AMain._workThread`, `Task.Run` HTTP (`Forms/AMain.cs`) | downloads before the game form exists | patcher only |
-| **Patch service** (`[Launcher] Mode=OnDemand`, in-game patcher 2026-10-20) | `PatchService` coordinator + `ConcurrentDownloads` workers (`Patching/PatchService.cs`) | HTTP from WebRelay `--patch-root`, file installs into the client folder, during the game too | `Patch\` files and the client folder only; installed paths → `PatchPickup` via a `ConcurrentQueue` |
+| **Patch service** (in-game patcher 2026-10-20) | `PatchService` coordinator + `ConcurrentDownloads` workers (`Patching/PatchService.cs`) | HTTP from WebRelay `--patch-root`, file installs into the client folder, during the game too | `Patch\` files and the client folder only; installed paths → `PatchPickup` via a `ConcurrentQueue` |
 
 **Hand-off queues:** socket → main = `Network._receiveList` (`ConcurrentQueue<Packet>`); main → socket = `Network._sendList`, flushed by `Network.Process()`. Loader → main = the `Libraries.Loaded` flag (`SelectScene` waits on `Libraries.Loaded` before starting the game). **There is no render thread.**
 
@@ -187,7 +186,7 @@ private static void Application_Idle(object sender, EventArgs e)
 
 | File (CWD-relative) | Owner | Contents |
 |---|---|---|
-| `.\Mir2Config.ini` (Release) / `.\Mir2Test.ini` (Debug or `-tc`) | `Settings.Load/Save` via `InIReader` (`Shared/Functions/IniReader.cs`) | `[Graphics]` FullScreen, Borderless, MouseClip, AlwaysOnTop, FPSCap, Resolution, DebugMode, UseMouseCursors, Renderer, RebuildOptimisations, Lighting (Classic/Enhanced); `[Network]` UseConfig, IPAddress, Port; `[Logs]`; `[Sound]` Volume, SoundOverLap, Music, CleanMinutes; `[Game]` AccountID, **Password (plaintext)**, view toggles, FontName, Language, `Skillbar{i}X/Y`, ...; `[Chat]`, `[Filter]`; `[Launcher]` Enabled, Host, PatchFile, Login, **Password (plaintext)**, ConcurrentDownloads (1..100), ... |
+| `.\Mir2Config.ini` (Release) / `.\Mir2Test.ini` (Debug or `-tc`) | `Settings.Load/Save` via `InIReader` (`Shared/Functions/IniReader.cs`) | `[Graphics]` FullScreen, Borderless, MouseClip, AlwaysOnTop, FPSCap, Resolution, DebugMode, UseMouseCursors, Renderer, RebuildOptimisations, Lighting (Classic/Enhanced); `[Network]` UseConfig, IPAddress, Port; `[Logs]`; `[Sound]` Volume, SoundOverLap, Music, CleanMinutes; `[Game]` AccountID, **Password (plaintext)**, view toggles, FontName, Language, `Skillbar{i}X/Y`, ...; `[Chat]`, `[Filter]`; `[Launcher]` Enabled, Host (the WebRelay patch host), BackgroundDownloads, RefreshMinutes, ConcurrentDownloads (default 4, 1..100), AutoStart, ServerName, Browser (the launcher page) |
 | `.\KeyBinds.ini` | `KeyBindSettings` (`CMain.InputKeys`) | one section per `KeybindOptions` member **name** |
 | `.\Data\UserData\QuestTracking.ini` | `Settings.LoadTrackedQuests/SaveTrackedQuests(charName)` | tracked quests per character |
 | `.\Localization\<Language>.json` | `GameLanguage.LoadClientLanguage` | UI strings (`Settings.DbLanguageJsonPath` is a declared but unused const) |
@@ -671,7 +670,6 @@ No profiler, perf log, packet monitor, ILogger or telemetry exists.
 #### Known debt — existing breaches (do not copy; do not drive-by fix)
 
 - `RenderEnvironment`'s `catch (Exception)` calls `SaveError` every drawn frame while an exception recurs (budget gone in ~100 frames).
-- `AMain.cs` ~L306 writes `Error.txt` directly with `File.AppendAllText`, bypassing the budget.
 - `Network.Connection` (threadpool) calls `SaveError` off the main thread.
 - Messages carry no subsystem prefix; `Settings.cs` logs `ex.Message` instead of `ex.ToString()`.
 
@@ -695,7 +693,7 @@ No profiler, perf log, packet monitor, ILogger or telemetry exists.
 
 - [ ] Smoke test (login → select → play → logout, Alt+Enter, resolution change): `Error.txt` unchanged; TLC/CLC in the debug overlay don't climb without bound over ~10 min. Debug builds use `Mir2Test.ini`, Release `Mir2Config.ini`.
 - [ ] If `Shared\` changed: client and server deployed from the same commit; server `[General] VersionPath` updated if the client exe changed (the hash is weak).
-- [ ] New assets (`.Lib`, sounds, `Localization\*.json`) included in the AutoPatcherAdmin `PList.gz` patch set and present beside `Client.exe`.
+- [ ] New assets (`.Lib`, sounds, `Localization\*.json`) copied into the WebRelay patch root and published with `PatchRevision.txt` (Runbook §9).
 
 ### 5.4 Runtime Layout (working directory = exe directory)
 
@@ -710,16 +708,15 @@ Build\Client\<Configuration>\        (user's run folder — agents never write h
 ├── Sound\    SoundList.lst, *.wav / *.mp3
 ├── Screenshots\
 ├── DirectX\  (WebView2 data for the launcher)
-├── Patch\   in-game patcher (Mode=OnDemand): Manifest.bin (last /api/patch), State.bin (path → size + sha256 of every file
+├── Patch\   in-game patcher: Manifest.bin (last /api/patch), State.bin (path → size + sha256 of every file
 │            it installed or verified; only those are ever deleted as "removed"), patch.lock (one patcher per folder),
 │            Temp\<sha>-<path hash>.part (resumable downloads), Trash\ (replaced / removed files, emptied at start);
 │            program updates (PatchApply, phase 4): Staged\ + Staged.bin (the next build), Applying.bin (set being proven,
 │            start counter), Healthy.bin, Rejected.bin (builds that never reached the game), Pending.log; Old__<name>
 │            beside each replaced program file until the new build reaches CMain_Load
-└── AutoPatcher.gz / .exe (optional, patcher self-update)
 ```
 
-Data/Map/Sound are not part of the build; they must be placed beside the exe — or, with `[Launcher] Mode=OnDemand`, downloaded by the in-game patcher (`Client\Patching\`, `Knowledgebase/Future Ideas/InGame-Patcher-Plan.md`): `PatchService` (threads, §3.2 exception), `PatchPickup` (UI thread: `MLibrary.Reopen` + frames refresh, `MapControl.ReloadCells`, `SoundManager.InvalidateFile`, library array growth), `PatchStatus` → `IGameUi.PatchStatusChanged` (classic `PatchStatusStrip`, modern `Hud\DownloadStrip`), Options rows "Downloads" (Pause / Resume, Download everything). `[Launcher]` keys: `Mode` (OnDemand / Full), `Host` (the relay URL including its mount, ending in `/`), `BackgroundDownloads`, `RefreshMinutes` (default 15), `ConcurrentDownloads` (default 4 in OnDemand mode). Program updates (phase 4): `PatchApply` (BCL only; `Program.Main` calls `PatchApply.Startup` first, in its own method, before any Settings / Shared type: `--wait-pid`, then roll back a build whose proving start never reached `CMain_Load`), applied at the end of `Program.Run` after `PatchService.Stop` (lock still held), proven by `PatchApply.MarkHealthy` in `CMain_Load`; the prompt is `IGameUi.PatchUpdateReady` (`PatchUpdate`).
+Data/Map/Sound are not part of the build; they are placed beside the exe or downloaded by the in-game patcher (`Client\Patching\`, `Knowledgebase/Future Ideas/InGame-Patcher-Plan.md`): `PatchService` (threads, §3.2 exception), `PatchPickup` (UI thread: `MLibrary.Reopen` + frames refresh, `MapControl.ReloadCells`, `SoundManager.InvalidateFile`, library array growth), `PatchStatus` → `IGameUi.PatchStatusChanged` (classic `PatchStatusStrip`, modern `Hud\DownloadStrip`), Options rows "Downloads" (Pause / Resume, Download everything). `[Launcher]` keys: `Host` (the relay URL including its mount, ending in `/`), `BackgroundDownloads`, `RefreshMinutes` (default 15), `ConcurrentDownloads` (default 4). The old `PList.gz` patcher (`Mode=Full`, `PatchFile`, `NeedLogin` / `Login` / `Password`, `Utils\FileHelper.cs`, the `AutoPatcher.gz` self-update) and AutoPatcherAdmin(V2) were retired 2026-10-20. Program updates (phase 4): `PatchApply` (BCL only; `Program.Main` calls `PatchApply.Startup` first, in its own method, before any Settings / Shared type: `--wait-pid`, then roll back a build whose proving start never reached `CMain_Load`), applied at the end of `Program.Run` after `PatchService.Stop` (lock still held), proven by `PatchApply.MarkHealthy` in `CMain_Load`; the prompt is `IGameUi.PatchUpdateReady` (`PatchUpdate`).
 
 ---
 

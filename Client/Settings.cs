@@ -223,19 +223,14 @@ namespace Client
 
         //AutoPatcher
         public static bool P_Patcher = true;
+        /// <summary>[Launcher] Host: the WebRelay patch host (--patch-root) URL including its mount, ending in '/'. The built-in
+        /// default has no patch routes: a server ships Mir2Config.ini with its own (else the client runs on what is on disk).</summary>
         public static string P_Host = @"http://mirfiles.com/mir2/cmir/patch/";
-        public static string P_PatchFileName = @"PList.gz";
-        public static bool P_NeedLogin = false;
-        public static string P_Login = string.Empty;
-        public static string P_Password = string.Empty;
         public static string P_ServerName = string.Empty;
         public static string P_BrowserAddress = "https://www.lomcn.org/mir2-patchsite/";
         public static string P_Client = Application.StartupPath + "\\";
         public static bool P_AutoStart = false;
-        public static int P_Concurrency = 1;
-        /// <summary>[Launcher] Mode: "OnDemand" (WebRelay --patch-root, Client\Patching; in-game patcher plan) or "Full" (PList.gz).</summary>
-        public static string P_Mode = "OnDemand";
-        public static bool P_OnDemand => string.Equals(P_Mode, "OnDemand", StringComparison.OrdinalIgnoreCase);
+        public static int P_Concurrency = 4;
         /// <summary>[Launcher] BackgroundDownloads: false pauses the in-game background queue (demanded files still download).</summary>
         public static bool P_BackgroundDownloads = true;
         /// <summary>[Launcher] RefreshMinutes: how often the in-game patcher re-reads /api/patch (1..1440, default 15).</summary>
@@ -366,28 +361,17 @@ namespace Client
             //AutoPatcher
             P_Patcher = Reader.ReadBoolean("Launcher", "Enabled", P_Patcher);
             P_Host = Reader.ReadString("Launcher", "Host", P_Host);
-            P_PatchFileName = Reader.ReadString("Launcher", "PatchFile", P_PatchFileName);
-            P_NeedLogin = Reader.ReadBoolean("Launcher", "NeedLogin", P_NeedLogin);
-            P_Login = Reader.ReadString("Launcher", "Login", P_Login);
-            P_Password = Reader.ReadString("Launcher", "Password", P_Password);
             P_AutoStart = Reader.ReadBoolean("Launcher", "AutoStart", P_AutoStart);
             P_ServerName = Reader.ReadString("Launcher", "ServerName", P_ServerName);
             P_BrowserAddress = Reader.ReadString("Launcher", "Browser", P_BrowserAddress);
-            P_Mode = Reader.ReadString("Launcher", "Mode", P_Mode);
             P_BackgroundDownloads = Reader.ReadBoolean("Launcher", "BackgroundDownloads", P_BackgroundDownloads);
             P_RefreshMinutes = Math.Clamp(Reader.ReadInt32("Launcher", "RefreshMinutes", P_RefreshMinutes), 1, 1440);
-            P_Concurrency = Reader.ReadInt32("Launcher", "ConcurrentDownloads", P_OnDemand ? 4 : P_Concurrency);
+            P_Concurrency = Reader.ReadInt32("Launcher", "ConcurrentDownloads", P_Concurrency);
 
 
             if (!P_Host.EndsWith("/")) P_Host += "/";
             if (P_Host.StartsWith("www.", StringComparison.OrdinalIgnoreCase)) P_Host = P_Host.Insert(0, "http://");
             if (P_BrowserAddress.StartsWith("www.", StringComparison.OrdinalIgnoreCase)) P_BrowserAddress = P_BrowserAddress.Insert(0, "http://");
-
-            //Temp check to update everyones address
-            if (P_Host.ToLower() == "http://mirfiles.co.uk/mir2/cmir/patch/")
-            {
-                P_Host = "http://mirfiles.com/mir2/cmir/patch/";
-            }
 
             if (P_Concurrency < 1) P_Concurrency = 1;
             if (P_Concurrency > 100) P_Concurrency = 100;
@@ -511,15 +495,10 @@ namespace Client
             //AutoPatcher
             Reader.Write("Launcher", "Enabled", P_Patcher);
             Reader.Write("Launcher", "Host", P_Host);
-            Reader.Write("Launcher", "PatchFile", P_PatchFileName);
-            Reader.Write("Launcher", "NeedLogin", P_NeedLogin);
-            Reader.Write("Launcher", "Login", P_Login);
-            Reader.Write("Launcher", "Password", P_Password);
             Reader.Write("Launcher", "ServerName", P_ServerName);
             Reader.Write("Launcher", "Browser", P_BrowserAddress);
             Reader.Write("Launcher", "AutoStart", P_AutoStart);
             Reader.Write("Launcher", "ConcurrentDownloads", P_Concurrency);
-            Reader.Write("Launcher", "Mode", P_Mode);
             Reader.Write("Launcher", "BackgroundDownloads", P_BackgroundDownloads);
             Reader.Write("Launcher", "RefreshMinutes", P_RefreshMinutes);
         }

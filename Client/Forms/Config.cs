@@ -189,11 +189,7 @@ namespace Launcher
         {
             if (!Program.PForm.Launch_pb.Enabled) return;
 
-            Program.PForm.Completed = false;
-            Program.PForm.InterfaceTimer.Enabled = true;
-            Program.PForm.CleanFiles = true;
-            Program.PForm._workThread = new Thread(Program.PForm.Start) { IsBackground = true };
-            Program.PForm._workThread.Start();
+            Program.PForm.CheckFilesAgain();
         }
 
         private void Res4_pb_Click(object sender, EventArgs e)

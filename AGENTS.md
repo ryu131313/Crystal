@@ -47,14 +47,12 @@ All projects are in `Legend of Mir.sln` (configs `Debug|Any CPU` / `Release|Any 
 | **WebRelay** | `WebRelay/WebRelay.csproj` | `WebRelay.exe` | `$(ServerTfm)` | AnyCPU | own `bin` (safe) | Web client sidecar (roadmap W): WebSocket <-> TCP relay of raw Crystal frames + read-only `Data\`/`Map\` serving for `WebClient/` (TypeScript/WebGL2, `tsc`, not in the sln): `Knowledgebase/WebClient/webclient.md`. Also the desktop patch host (`--patch-root`, in-game patcher 2026-10-20): `/api/patch` + `/patch/<path>?v=` |
 | **ScratchWorld** | `tools/scratch-world/ScratchWorld.csproj` | `ScratchWorld.exe` | `$(ServerTfm)` | AnyCPU | own `bin` (safe) | Generates a synthetic map + `Server.MirDB` for scratch servers (`tools/start-scratch-server.ps1` / `stop-scratch-server.ps1`) |
 | **MirDbExport** (+ `.Tests`) | `tools/MirDbExport/MirDbExport.csproj` | `MirDbExport.exe` | `$(ServerTfm)` | AnyCPU | own `bin` (safe) | Read-only SQLite export + independent verifier of `Server.MirDB` (roadmap P7 step 1): `Knowledgebase/Future Ideas/P7-SQLite-Export.md` |
-| **AutoPatcherAdmin** | `AutoPatcherAdmin/…csproj` | `AutoPatcherAdmin.exe` | net8.0-windows7.0 | AnyCPU | project `bin` | Operator tool: diff client folder, upload gz files + `PList.gz` via FTP (WinSCP) |
-| **AutoPatcherAdminV2** | `AutoPatcherAdminV2/…csproj` | `AutoPatcherAdminV2.exe` | net8.0-windows7.0 | AnyCPU | project `bin` | Newer upstream rewrite: FTP or SFTP (SSH.NET), DPAPI-protected creds, same `PList.gz` name |
 | **LibraryEditor** | `LibraryEditor/…csproj` | `LibraryEditor.exe` | net8.0-windows7.0 | **x64** | `Build\Server Tools\LibraryEditor\` | `.Lib` sprite library editor (writes v3 frames; Squish + zlib) |
 | **LibraryViewer** | `LibraryViewer/…csproj` | `CMirLibraryViewer.exe` | net8.0-windows7.0 | AnyCPU | `Build\Server Tools\LibraryViewer\` | Read-only `.Lib` browser |
 | **CustomFormControl** | `Controls/FixedListViewControl/CustomFormControl.csproj` | `CustomFormControl.dll` | net8.0-windows7.0 | AnyCPU | `Components\Debug\` (untracked) | WinForms list control; source is built into LibraryEditor/LibraryViewer via ProjectReference; **Server.exe references the prebuilt `Components\CustomFormControl.dll`, not this build** |
 | **PatcherWebSite** | `PatcherWebSite\` (.NET Framework 4.8 Web Site) | — | — | — | — | Static launcher page `mir2-patchsite/`; not built by the dotnet CLI (skipped with warning MSB4078) |
 
-Solution folders: `Utils` (AutoPatcherAdmin, AutoPatcherAdminV2, LibraryEditor, LibraryViewer, PatcherWebSite, `Controls`), `Controls` (CustomFormControl), `Notes` (root `.txt` files).
+Solution folders: `Utils` (LibraryEditor, LibraryViewer, PatcherWebSite, `Controls`), `Controls` (CustomFormControl), `Notes` (root `.txt` files).
 
 **Shared protocol/data (cross-cutting):**
 - **One `Shared` assembly** is compiled into both Server and Client. Unlike WoOOLcraft's Library/LibraryCore mirror pair, there is nothing to keep in sync by hand — the wire format can only drift **across builds** (a stale client against a new server). So: **deploy client and server built from the same commit after any `Shared/` change.**
@@ -108,8 +106,7 @@ Solution folders: `Utils` (AutoPatcherAdmin, AutoPatcherAdminV2, LibraryEditor, 
 
 | Area | Code | Notes |
 |---|---|---|
-| Operator patch upload | `AutoPatcherAdmin/AMain.cs` (FTP via WinSCP), `AutoPatcherAdminV2/` (`PatchTransport.cs`: FTP/SFTP) | Both publish `PList.gz` + gz-compressed changed files |
-| Player launcher/patcher | `Client/Forms/AMain.cs` (namespace `Launcher`), chosen in `Client/Program.cs` when `[Launcher] Enabled` | `[Launcher] Mode=OnDemand` (default): `Client/Patching/` against WebRelay `--patch-root`, also in game (client.md §2.1, §3.2 exception, §5.4; Runbook §9). `Mode=Full`: `{Settings.P_Host}PList.gz` + `*.gz` as before |
+| Player launcher/patcher | `Client/Forms/AMain.cs` (namespace `Launcher`), chosen in `Client/Program.cs` when `[Launcher] Enabled` | `Client/Patching/` against WebRelay `--patch-root`, also in game (client.md §2.1, §3.2 exception, §5.4; Runbook §9). The old `PList.gz` patcher, `[Launcher] Mode` and AutoPatcherAdmin(V2) were retired 2026-10-20 (in-game patcher plan §8): publishing = copying files into the patch root + `PatchRevision.txt` |
 | Patcher web page | `PatcherWebSite/mir2-patchsite/` | Static HTML/CSS |
 | `.Lib` tools | `LibraryEditor/` (`Graphics/MLibraryV2.cs`), `LibraryViewer/` | Reader side + format rules in `client.md` §2.5 / §3.3 |
 | Weapon art | `tools/weaponpose/` (Python 3, stdlib only; README) | Poses one upright weapon picture into the 832 frames of a `CWeapon` library using a reference weapon's lines; read-only on the client folder. Browser port in the Scene Lab Weapon tester (`WebClient/play/weaponPose.ts`) |
@@ -141,8 +138,8 @@ What are you editing?
 ├─ WebClient/, WebRelay/   (browser client + its relay)
 │     → Knowledgebase/WebClient/webclient.md (+ BOTH child docs when a ported packet changes)
 │
-├─ AutoPatcherAdmin/, AutoPatcherAdminV2/, PatcherWebSite/, Client/Forms/AMain.cs
-│     → no child doc; this index + source (Client/Forms/AMain.cs also client.md §2.1)
+├─ PatcherWebSite/, Client/Forms/AMain.cs, Client/Patching/
+│     → no child doc for the page; AMain + Patching: client.md §2.1, §5.4; the relay side: webclient.md §2.1
 │
 ├─ Components/ (vendored DLLs), Legend of Mir.sln, *.csproj
 │     → this index (Build & Output Rules) + the affected child doc
@@ -164,7 +161,7 @@ What are you editing?
 | Add a monster (server AI + client frames/libraries) | Server §4.5 (AI class, `GetMonster` case, free AI numbers) | Client §4.6 "Recipe — add a monster appearance / frames" (`Monster` value = `Data\Monster\NNN.Lib`), `SoundRules.txt` |
 | Add a spell / buff | Server §4.7 | Client §4.6 (effects: `Effect`/`SpellObject`), §4.4 "Recipe — add a UI string" (spell/buff text; `BuffType` names step 4), §4.5 if a packet is added |
 | Web admin game-data edits | Server §2.7, §3.7 (`Envir.Edit` under `EditLock`, `GameDataSave`) | Server §2.6 (`SystemDataStale`), `Server/WebAdmin/README.md` |
-| Patch a client after a change | this index (patching tools) | Client §5.3 (new `.Lib`/sounds/`Localization` in the patch set, `PList.gz`) |
+| Patch a client after a change | Runbook §9 (copy into the WebRelay patch root, then `PatchRevision.txt`) | Client §5.3 (new `.Lib`/sounds/`Localization` in the patch root) |
 | Client/server version check | Server §2.5 ("Version check") | Client §3.5 Known defects (weak MD5 check) |
 | Server address for players | Client §2.6, §2.7 (`[Network] UseConfig/IPAddress/Port`) | Server §2.5 (`Settings.IPAddress`/`Port`) |
 
@@ -219,7 +216,7 @@ C:\Mir2\
 ├── Client/                 → client.md   (Forms/, MirGraphics/, MirControls/, MirScenes/,
 │                                          MirNetwork/, MirObjects/, MirSounds/, Localization/)
 ├── WebClient/, WebRelay/  → Knowledgebase/WebClient/webclient.md (browser client + relay)
-├── AutoPatcherAdmin/, AutoPatcherAdminV2/, PatcherWebSite/   → this index (no child doc)
+├── PatcherWebSite/        → this index (no child doc; the launcher's web page)
 ├── LibraryEditor/, LibraryViewer/                            → client.md §2.5, §3.3 (.Lib format) + §3.5 (MirAction)
 ├── Controls/FixedListViewControl/   → CustomFormControl source (built into LibraryEditor/Viewer; Server uses the Components\ copy)
 ├── Components/             → vendored DLLs: SlimDX (Client), CustomFormControl + VB PowerPacks (Server),
@@ -244,7 +241,7 @@ C:\Mir2\
 | **Client UI thread** | `CMain.Application_Idle` busy loop: update, render, input, `Network.Process` packet **handling** | **No** |
 | **Client socket thread** | APM `Network.ReceiveData`: decode + enqueue into `ConcurrentQueue<Packet>` | No |
 | **Client loader thread** | `Libraries` → `LoadGameLibraries`: `MLibrary.Initialize()` only; publishes `Libraries.Loaded`/`Progress` | No |
-| **Patcher tools** | Client `AMain` (before the game form), AutoPatcherAdmin(V2): Task/HTTP/FTP/SFTP | **Yes** |
+| **Patcher** | Client `AMain` work thread (before the game form) + `Client/Patching/PatchService` threads (also in game; client.md §3.2 exception): HTTP + file installs only | No async needed (blocking HTTP on its own threads); never game state |
 | **Web client** | WebRelay: async pool threads, two pumps per session (no game state). Browser: one `requestAnimationFrame` loop + async loads | **Yes** (relay); n/a (browser) |
 
 Server details: `server.md` §2.3, §3.2. Client details: `client.md` §2.1, §3.2.
@@ -270,7 +267,7 @@ Server details: `server.md` §2.3, §3.2. Client details: `client.md` §2.1, §3
 | `Knowledgebase/Client/client.md` | **Written 2026-10-08** — Crystal client, rendering, UI, assets |
 | `Knowledgebase/Client/D3D11-Parity.md` | **2026-10-10** — render seam, D3D9/D3D11 backends, golden harness, the D3DX behaviours the D3D11 backend reproduces, waivers, rollout |
 | `Knowledgebase/roadmap.md` | **Proposed 2026-10-08** — ordered modernisation plan (.NET 10, SQLite, server optimisation, DX11 client track), phase gates, rule overrides (⚠), open decisions, status table. Check it before starting any modernisation phase; per-phase mechanics and evidence are in `Future Ideas/Roadmap-Phase-Notes.md` |
-| `Knowledgebase/PatchHost/` | Empty placeholder (Crystal has no PatchHost project; patching = AutoPatcherAdmin(V2) + client `AMain`) |
+| `Knowledgebase/PatchHost/` | Empty placeholder (the patch host is WebRelay `--patch-root`: webclient.md §2.1, Runbook §9; the client side is `Client/Patching/`, client.md §5.4) |
 | `Knowledgebase/StressClient/` | `stressclient.md` (2026-10-10): the bot load generator, scratch servers, the baseline script |
 | `Knowledgebase/WebClient/` | `webclient.md` (2026-10-16): browser client + WebRelay, packet-port recipe, the scene-lab UI as the default web UI, known gaps (roadmap W) |
 | `Knowledgebase/Websites/` | Empty placeholder (web admin rules live in `server.md` §2.7 / §3.7 / §4.10 + `Server/WebAdmin/README.md`) |

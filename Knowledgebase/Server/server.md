@@ -1,7 +1,7 @@
 # Crystal Mir2 Game Server — AI Agent Reference
 
 > **Scope:** `Server/` (project `Server.Library` — `MirEnvir`, `MirObjects`, `MirDatabase`, `MirNetwork`, `Settings.cs`, `Logger.cs`, `MessageQueue.cs`, `Helpers`, `Utils`, the `WebAdmin` backend), `Server.MirForms/` (the WinForms `Server.exe` host, DB editor forms, the `wwwroot/` web-admin frontend), `Server.WebAdmin.Tests/`, and the server-side use of `Shared/`.
-> **Not in scope:** `Client/` (see `Knowledgebase/Client/client.md`), AutoPatcherAdmin(V2), LibraryEditor/Viewer, PatcherWebSite.
+> **Not in scope:** `Client/` (see `Knowledgebase/Client/client.md`), LibraryEditor/Viewer, PatcherWebSite (AutoPatcherAdmin(V2) were retired 2026-10-20).
 > **Cross-boundary:** everything in `Shared/` (packets, packet-ID enums, all shared enums, `Shared/Data/*` models) is ONE assembly compiled into both Server and Client. A change there is a server change AND a client change AND often a DB-format change.
 
 **How to read the rules in this file.** Crystal is an old, unoptimised upstream codebase (Suprcode/Crystal). The NEVER/ALWAYS rules below are the standard for **new and changed code**; they do **not** describe the current code. Where existing code breaches a rule, the breach is listed under **Known debt**: do not copy those patterns, and do not fix them in drive-by edits — fixing debt is a separate, explicitly requested task. **Known defects** are real bugs found during the 2026-10-08 survey and left unfixed; treat them as traps.
