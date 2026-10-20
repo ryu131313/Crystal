@@ -65,7 +65,9 @@ namespace Client.MirScenes.Modern.Core
             // The sprite takes its projection from the target only at Begin (D3DX behaviour, kept by the D3D11 backend: golden
             // S14): without a restart, a target smaller than the screen gets every draw scaled by target / screen size.
             DXManager.RestartSpriteAlphaBlend();
-            DXManager.Clear(Color.Transparent);
+            DXManager.Clear(Color.FromArgb(0, 0, 0, 0)); // premultiplied: Color.Transparent is white at alpha 0 and would add white
+            bool oldOver = DXManager.AlphaOver;
+            DXManager.SetAlphaOver(true);
             _rendering = true;
             try
             {
@@ -75,10 +77,36 @@ namespace Client.MirScenes.Modern.Core
             {
                 _rendering = false;
                 DXManager.Flush();
+                DXManager.SetAlphaOver(oldOver);
                 DXManager.SetSurface(oldSurface);
                 DXManager.RestartSpriteAlphaBlend();
             }
             TextureValid = true;
+        }
+
+        /// <summary>Draws the target premultiplied (see <see cref="Composite"/>).</summary>
+        protected internal override void DrawControl()
+        {
+            if (!TextureValid) CreateTexture();
+            if (ControlTexture == null || ControlTexture.Disposed) return;
+            Composite(ControlTexture, Size, DisplayLocation, Opacity);
+            CleanTime = CMain.Time + Settings.CleanDelay;
+        }
+
+        /// <summary>
+        /// A new-UI render target is drawn with alpha "over" (DXManager.SetAlphaOver): translucent pixels (sprite shadows, glows)
+        /// over opaque ones leave it opaque, and its colour is premultiplied by its alpha, so it is composited with (One,
+        /// InverseSourceAlpha) and the opacity scales all four channels. (Plain SourceAlpha blending lowered the target's alpha
+        /// under every glow, so the world showed through, and darkened translucent pixels twice.)
+        /// </summary>
+        internal static void Composite(RenderTexture texture, Size size, Point at, float opacity)
+        {
+            float o = opacity >= 1 || opacity < 0 ? 1f : opacity;
+            int c = (int)Math.Round(255 * o);
+            DXManager.SetBlend(true);
+            DXManager.SetBlendFactors(RenderBlend.One, RenderBlend.InverseSourceAlpha);
+            DXManager.Draw(texture, new Rectangle(0, 0, size.Width, size.Height), new SlimDX.Vector3(at.X, at.Y, 0), Color.FromArgb(c, c, c, c));
+            DXManager.SetBlend(false);
         }
 
         /// <summary>A move changes only where the target is blitted: no re-render (children keep their relative positions).</summary>

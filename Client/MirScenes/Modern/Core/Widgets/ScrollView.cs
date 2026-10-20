@@ -208,7 +208,10 @@ namespace Client.MirScenes.Modern.Core.Widgets
             RenderTexture oldSurface = DXManager.CurrentSurface;
             DXManager.SetSurface(ControlTexture);
             DXManager.RestartSpriteAlphaBlend(); // the sprite projection follows the target only at Begin (see ModernWindow)
-            DXManager.Clear(_background);
+            Color bg = _background; // premultiplied (ModernSurface.Composite)
+            DXManager.Clear(Color.FromArgb(bg.A, bg.R * bg.A / 255, bg.G * bg.A / 255, bg.B * bg.A / 255));
+            bool oldOver = DXManager.AlphaOver;
+            DXManager.SetAlphaOver(true);
             _rendering = true;
             try
             {
@@ -218,10 +221,20 @@ namespace Client.MirScenes.Modern.Core.Widgets
             {
                 _rendering = false;
                 DXManager.Flush();
+                DXManager.SetAlphaOver(oldOver);
                 DXManager.SetSurface(oldSurface);
                 DXManager.RestartSpriteAlphaBlend();
             }
             TextureValid = true;
+        }
+
+        /// <summary>Premultiplied, like every new-UI target (ModernSurface.Composite).</summary>
+        protected internal override void DrawControl()
+        {
+            if (!TextureValid) CreateTexture();
+            if (ControlTexture == null || ControlTexture.Disposed) return;
+            ModernSurface.Composite(ControlTexture, Size, DisplayLocation, Opacity);
+            CleanTime = CMain.Time + Settings.CleanDelay;
         }
 
         public override bool IsMouseOver(Point p) => Visible && !IsDisposed && DisplayRectangle.Contains(p);

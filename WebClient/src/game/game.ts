@@ -57,6 +57,7 @@ import { Friends } from "./friends.ts";
 import { Relationship, Mentor } from "./relationship.ts";
 import { Rankings, rankingDetails, rankingExtras } from "./rankings.ts";
 import { serverRules, rulesFor } from "./serverRules.ts";
+import { infoCache } from "./infoCache.ts";
 import { PoisonTimers } from "./poisons.ts";
 import { Inspect } from "./inspect.ts";
 import { Shop } from "./shop.ts";
@@ -869,6 +870,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   // — Packets —
   const gameDataChanges: GameDataChanges = { magics: false, shop: false };
   function handle(p: ServerPacket): void {
+    infoCache(session).record(p); // the once-per-connection infos, replayed into the next game scene (infoCache.ts)
     if (serverRules(session).handle(p)) return; // S.ServerRules on StartGame success (session-scoped store; no window reads it)
     if (hero.handle(p) && p.type === "HeroLevelChanged") play(SoundList.LevelUp); // GameScene.HeroLevelChanged
     autoPot.handle(p, now(), level); // before inventory.handle: reads the used potion
@@ -1156,7 +1158,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
           userMagics: () => magic.magics,
           heroMagics: () => magic.heroMagics,
           shopItems: () => shop.editableItems(),
-          invalidateMap: (m) => gameInfo.invalidateMap(m),
+          invalidateMap: (m) => { infoCache(session).forgetMap(m); gameInfo.invalidateMap(m); },
         }, gameDataChanges);
         if (p.Last) { // the refresh after the last chunk: stats, skill bars, an open shop
           statsDirty = true;
@@ -1880,6 +1882,7 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     for (const c of Array.from(stage.children)) if (!stageBefore.has(c)) c.remove();
     ui.dispose();
     gameInfo.dispose(); // queued C.RequestMapDetails timers
+    infoCache(session).saveStorage(inventory.storage.slice());
     renderer?.clear();
     zoom = 1; applyZoom(); // the canvas outlives the scene
     // GameScene.LogOutSuccess / ReturnToLogin: back to 1024 x 768 for the account screens (the touch layout: as wide as the phone)
@@ -1899,6 +1902,8 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
     /** The touch seam (TouchControl) for console tests. */
     touch,
   };
+  // A log-in over a connection that already played: the server does not resend what it sent before (infoCache.ts)
+  for (const p of infoCache(session).replay()) handle(p);
   return {
     handle, dispose, progress, info: gameInfo,
     sceneKeys: (handler) => input.register("scene", handler),

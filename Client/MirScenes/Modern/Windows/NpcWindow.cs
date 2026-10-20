@@ -14,6 +14,7 @@ using System.Diagnostics;
 using System.Drawing.Drawing2D;
 using Client.MirControls;
 using Client.MirGraphics;
+using Client.MirGraphics.Rendering;
 using Client.MirNetwork;
 using Client.MirObjects;
 using Client.MirScenes.Modern.Core;
@@ -851,6 +852,9 @@ namespace Client.MirScenes.Modern.Windows
         private int _tries, _lastGood = -1;
         private Size _boxSize;
         private Point _boxOffset;
+        // frames with the dithered shadow flattened (FlatShadow), per frame of the current NPC's library
+        private readonly Dictionary<int, RenderTexture> _flat = new Dictionary<int, RenderTexture>();
+        private MLibrary _flatLib;
 
         public NpcPortrait()
         {
@@ -868,8 +872,31 @@ namespace Client.MirScenes.Modern.Windows
                 _tries = 0;
                 _lastGood = -1;
                 _boxSize = Size.Empty;
+                ClearFlat();
                 Redraw();
             }
+        }
+
+        private void ClearFlat()
+        {
+            foreach (RenderTexture t in _flat.Values) t?.Dispose();
+            _flat.Clear();
+            _flatLib = null;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) ClearFlat();
+            base.Dispose(disposing);
+        }
+
+        private RenderTexture Flat(MLibrary lib, int frame)
+        {
+            if (lib != _flatLib) { ClearFlat(); _flatLib = lib; }
+            if (_flat.TryGetValue(frame, out RenderTexture t) && (t == null || !t.Disposed)) return t;
+            t = FlatShadow.Make(lib, frame);
+            _flat[frame] = t;
+            return t;
         }
 
         /// <summary>Per frame: redraw only when the NPC's frame moved.</summary>
@@ -920,7 +947,14 @@ namespace Client.MirScenes.Modern.Windows
                 if (lib.GetTrueSize(frame).IsEmpty) frame = _lastGood; // a blank frame: keep the last picture
                 if (frame < 0) return;
                 _lastGood = frame;
-                lib.Draw(frame, new Point((int)Math.Round(ox / k), (int)Math.Round(oy / k)), Color.White, true);
+                Point at = new Point((int)Math.Round(ox / k), (int)Math.Round(oy / k));
+                RenderTexture flat = Flat(lib, frame);
+                if (flat != null)
+                {
+                    Point o = lib.GetOffSet(frame);
+                    DXManager.Draw(flat, new Rectangle(0, 0, flat.Width, flat.Height), new SlimDX.Vector3(at.X + o.X, at.Y + o.Y, 0), Color.White);
+                }
+                else lib.Draw(frame, at, Color.White, true);
                 _drawn = true;
                 _tries = 0;
             }

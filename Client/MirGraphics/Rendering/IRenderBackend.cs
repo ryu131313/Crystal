@@ -171,6 +171,10 @@ namespace Client.MirGraphics.Rendering
         void SetSourceBlend(RenderBlend blend);
         void SetDestinationBlend(RenderBlend blend);
         void SetSourceBlendAlpha(RenderBlend blend);
+        /// <summary>Alpha "over" (new UI render targets): while on, every blended draw writes alpha as (One, InvSourceAlpha)
+        /// whatever the colour factors, so translucent pixels drawn over opaque ones keep the target opaque. Survives sprite
+        /// Begin / End.</summary>
+        void SetAlphaOver(bool enable);
         void SetBlendOperationAdd();
         void SetBlendFactor(Color factor);
 

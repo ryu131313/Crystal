@@ -602,6 +602,20 @@ namespace Client.MirGraphics
             return true;
         }
 
+        /// <summary>A copy of a frame's BGRA pixels (row pitch Width * 4), decoding it if needed; null when it has none.</summary>
+        public unsafe byte[] GetPixels(int index, out Size size)
+        {
+            size = Size.Empty;
+            if (!CheckImage(index)) return null;
+            MImage mi = _images[index];
+            if (mi.Data == null) return null;
+            size = new Size(mi.Width, mi.Height);
+            byte[] pixels = new byte[mi.Width * mi.Height * 4];
+            System.Runtime.InteropServices.Marshal.Copy((IntPtr)mi.Data, pixels, 0, pixels.Length);
+            mi.CleanTime = CMain.Time + Settings.CleanDelay;
+            return pixels;
+        }
+
         public Point GetOffSet(int index)
         {
             if (!_initialized) Initialize();

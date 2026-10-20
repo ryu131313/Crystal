@@ -22,7 +22,7 @@
 // MaxPacket is 50 socket reads per 5 s and players behind WebRelay share one IP). Queued requests show their cells busy.
 
 import type { UserItem } from "../../../protocol/server.ts";
-import { MirGridType } from "../../../protocol/enums.generated.ts";
+import { ItemType, MirGridType } from "../../../protocol/enums.generated.ts";
 import { Emitter } from "../../../game/emitter.ts";
 import type { Grid } from "../../../game/itemPick.ts";
 import { ItemDrop, type DropPrompts } from "../../../game/itemDrop.ts";
@@ -62,6 +62,11 @@ const DRAG_START = 5;
 const DRAG_START_TOUCH = 12;
 /** A still finger held this long on an item opens its action sheet (the touch layout's right click / Shift / Ctrl). */
 const LONG_PRESS_MS = 450;
+/** A second tap on the same bag item within this long equips it (the touch layout's right click for gear). */
+const DOUBLE_TAP_MS = 350;
+/** Item types the bag's use (Inventory.use / HeroItems.use) puts on: the double tap equips only these. */
+const WEARABLE: ReadonlySet<number> = new Set([ItemType.Weapon, ItemType.Armour, ItemType.Helmet, ItemType.Necklace, ItemType.Bracelet,
+  ItemType.Ring, ItemType.Amulet, ItemType.Belt, ItemType.Boots, ItemType.Stone, ItemType.Torch, ItemType.Mount]);
 
 /** Hooks the integrator / other windows set. */
 export interface DragHooks {
@@ -110,6 +115,8 @@ export class DragController {
   /** The last press came from a finger / pen: the long press stands in for the right click (Android fires contextmenu on it). */
   private touchish = false;
   private lpTimer = 0;
+  /** The touch tap that last picked a bag item (for the double tap that equips it). */
+  private lastTap: { ref: CellRef; id: bigint; at: number } | null = null;
   private readonly follow: (x: number, y: number) => void;
 
   constructor(private readonly rt: UiRuntime, deps: DragDeps) {
@@ -337,12 +344,23 @@ export class DragController {
         this.hooks.onPickSound?.(item);
         this.box = null;
         pick.set({ grid: ref.grid as Grid, index: ref.index });
+        this.lastTap = this.touchish ? { ref, id: item.UniqueID, at: performance.now() } : null;
       }
       return;
     }
     const from: CellRef = pick.cell;
     pick.clear();
-    if (sameCell(from, ref)) return;
+    const tap = this.lastTap;
+    this.lastTap = null;
+    if (sameCell(from, ref)) {
+      // A double tap on bag gear: equip it, like the desktop's right click (routeUse -> Inventory.use / HeroItems.use).
+      if (this.touchish && tap && item && sameCell(tap.ref, ref) && tap.id === item.UniqueID && performance.now() - tap.at <= DOUBLE_TAP_MS
+        && (ref.grid === "inv" || ref.grid === "heroInv") && WEARABLE.has(m.itemInfos.get(item.ItemIndex)?.Type ?? -1)) {
+        const v = routeUse(d, ref);
+        if (v.ok && v.run) this.request(v.run, [ref]);
+      }
+      return;
+    }
     this.apply(from, cell, this.verdict(from, cell, e.ctrlKey), e.clientX, e.clientY);
   }
 

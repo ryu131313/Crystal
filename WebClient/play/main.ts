@@ -22,7 +22,12 @@ if (mobile) {
   installMobileShell();
   stage.style.width = mobileResolution(1920)[0] + "px"; // the account screens fill the phone's width (768 high)
 }
-let lastH = 0;
+let lastH = 0, lastW = 0;
+/** A text field the player tapped (or a tap focused) has focus (so the on-screen keyboard may be up). The login screen focuses its Account ID
+ *  field by code at load, which opens no keyboard: holding the height for it kept a stale load-time height (a gap above
+ *  the stage, its bottom cut off) until the field lost focus at log-in. */
+let tappedField = false;
+const isField = (t: EventTarget | null) => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement;
 /** The visible viewport (CSS px). Some phone browsers report 0 or a stale size for a moment after load or a rotation. */
 const viewport = (): [number, number] => {
   const vv = window.visualViewport;
@@ -47,8 +52,8 @@ const fit = () => {
   if (vw < 50 || vh < 50) { if (retry++ < 120) requestAnimationFrame(fit); return; }
   retry = 0;
   if (mobile) {
-    const typing = document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement;
-    if (typing && lastH && vh < lastH) vh = lastH; else lastH = vh;
+    const typing = tappedField && isField(document.activeElement);
+    if (typing && lastH && vw === lastW && vh < lastH) vh = lastH; else { lastH = vh; lastW = vw; }
   }
   const s = mobile ? Math.min(vw / w, vh / h) : Math.min(Math.min(vw, MAX_WIDTH) / w, Math.min(vh, MAX_HEIGHT) / h);
   if (mobile && (window.scrollX || window.scrollY)) window.scrollTo(0, 0); // iOS scrolls the layout viewport on rotation
@@ -89,6 +94,12 @@ if (mobile) {
   window.addEventListener("pageshow", () => settleFit(true));
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") settleFit(true); });
   window.addEventListener("load", () => { fit(); settleFit(true); });
+  // A field focused inside a tap opens the keyboard too: the chat button focuses the chat input by code (mobileUi.ts).
+  let tapAt = -1e9;
+  document.addEventListener("pointerdown", (e) => { tapAt = performance.now(); if (isField(e.target)) tappedField = true; }, true);
+  document.addEventListener("focusin", (e) => { if (isField(e.target) && performance.now() - tapAt < 1000) tappedField = true; }, true);
+  // Tapping or Enter-ing from one field to the next keeps the keyboard up; leaving the fields drops it.
+  document.addEventListener("focusout", (e) => { if (!isField(e.relatedTarget)) { tappedField = false; settleFit(); } }, true);
 }
 fit();
 

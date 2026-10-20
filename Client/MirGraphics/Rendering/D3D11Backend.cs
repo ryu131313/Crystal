@@ -926,7 +926,8 @@ float4 LightComposite_PS(VSOut i) : SV_Target
 
         private ID3D11BlendState BlendStateFor(DeviceState state)
         {
-            int key = (state.BlendEnable ? 1 + ((int)state.Source << 1) + ((int)state.Destination << 8) : 0) | (state.WriteAlphaOnly ? 1 << 16 : 0);
+            bool over = _alphaOver && state.BlendEnable;
+            int key = (state.BlendEnable ? 1 + ((int)state.Source << 1) + ((int)state.Destination << 8) : 0) | (state.WriteAlphaOnly ? 1 << 16 : 0) | (over ? 1 << 17 : 0);
             if (_blendStates.TryGetValue(key, out var blend)) return blend;
 
             var description = new BlendDescription();
@@ -934,8 +935,8 @@ float4 LightComposite_PS(VSOut i) : SV_Target
             description.RenderTarget[0].SourceBlend = ToD3D11(state.Source, false);
             description.RenderTarget[0].DestinationBlend = ToD3D11(state.Destination, false);
             description.RenderTarget[0].BlendOperation = BlendOperation.Add;
-            description.RenderTarget[0].SourceBlendAlpha = ToD3D11(state.Source, true);
-            description.RenderTarget[0].DestinationBlendAlpha = ToD3D11(state.Destination, true);
+            description.RenderTarget[0].SourceBlendAlpha = over ? D11Blend.One : ToD3D11(state.Source, true);
+            description.RenderTarget[0].DestinationBlendAlpha = over ? D11Blend.InverseSourceAlpha : ToD3D11(state.Destination, true);
             description.RenderTarget[0].BlendOperationAlpha = BlendOperation.Add;
             description.RenderTarget[0].RenderTargetWriteMask = state.WriteAlphaOnly ? ColorWriteEnable.Alpha : ColorWriteEnable.All;
             blend = _device.CreateBlendState(description);
@@ -966,7 +967,11 @@ float4 LightComposite_PS(VSOut i) : SV_Target
         public void SetAlphaBlendEnable(bool enable) => _state.BlendEnable = enable;
         public void SetSourceBlend(RenderBlend blend) => _state.Source = blend;
         public void SetDestinationBlend(RenderBlend blend) => _state.Destination = blend;
-        public void SetSourceBlendAlpha(RenderBlend blend) { } // ignored by D3D9 too: SeparateAlphaBlendEnable is never set
+        public void SetSourceBlendAlpha(RenderBlend blend) { } // ignored by D3D9 too: SeparateAlphaBlendEnable is only set by SetAlphaOver
+
+        // Outside DeviceState: sprite Begin / End save and restore the state, alpha over stays as set.
+        private bool _alphaOver;
+        public void SetAlphaOver(bool enable) => _alphaOver = enable;
         public void SetBlendOperationAdd() { }                 // the only blend operation the client uses
         public void SetBlendFactor(Color factor) => _state.Factor = factor;
 

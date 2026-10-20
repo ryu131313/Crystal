@@ -159,8 +159,17 @@ namespace Client.MirGraphics.Rendering
         public void EndScene() => _device.EndScene();
         public void Present(bool keepFrame) => _device.Present(); // the lockable back buffer still holds the frame afterwards
 
-        public void SpriteBegin(bool alphaBlend) => _sprite.Begin(alphaBlend ? SpriteFlags.AlphaBlend : SpriteFlags.DoNotSaveState);
-        public void SpriteEnd() => _sprite.End();
+        public void SpriteBegin(bool alphaBlend)
+        {
+            _sprite.Begin(alphaBlend ? SpriteFlags.AlphaBlend : SpriteFlags.DoNotSaveState);
+            if (_alphaOver) ApplyAlphaOver(); // Begin sets SeparateAlphaBlendEnable FALSE
+        }
+
+        public void SpriteEnd()
+        {
+            _sprite.End();
+            if (_alphaOver) ApplyAlphaOver(); // End restores the state saved at Begin
+        }
         public void SpriteFlush() => _sprite.Flush();
 
         public void SpriteDraw(RenderTexture texture, Rectangle? sourceRect, Vector3? position, Color4 colour)
@@ -173,7 +182,26 @@ namespace Client.MirGraphics.Rendering
         public void SetAlphaBlendEnable(bool enable) => _device.SetRenderState(RenderState.AlphaBlendEnable, enable);
         public void SetSourceBlend(RenderBlend blend) => _device.SetRenderState(RenderState.SourceBlend, Map(blend));
         public void SetDestinationBlend(RenderBlend blend) => _device.SetRenderState(RenderState.DestinationBlend, Map(blend));
-        public void SetSourceBlendAlpha(RenderBlend blend) => _device.SetRenderState(RenderState.SourceBlendAlpha, Map(blend));
+        public void SetSourceBlendAlpha(RenderBlend blend)
+        {
+            if (!_alphaOver) _device.SetRenderState(RenderState.SourceBlendAlpha, Map(blend));
+        }
+
+        private bool _alphaOver;
+
+        public void SetAlphaOver(bool enable)
+        {
+            _alphaOver = enable;
+            ApplyAlphaOver();
+        }
+
+        private void ApplyAlphaOver()
+        {
+            _device.SetRenderState(RenderState.SeparateAlphaBlendEnable, _alphaOver);
+            if (!_alphaOver) return;
+            _device.SetRenderState(RenderState.SourceBlendAlpha, Blend.One);
+            _device.SetRenderState(RenderState.DestinationBlendAlpha, Blend.InverseSourceAlpha);
+        }
         public void SetBlendOperationAdd() => _device.SetRenderState(RenderState.BlendOperation, BlendOperation.Add);
         public void SetBlendFactor(Color factor) => _device.SetRenderState(RenderState.BlendFactor, factor.ToArgb());
 

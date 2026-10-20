@@ -381,6 +381,19 @@ namespace Client.MirGraphics
             Backend.SetPixelShader(PixelShaderKind.LightComposite);
         }
 
+        /// <summary>True while a new-UI render target is drawn: blended draws write alpha as "over" (see IRenderBackend.SetAlphaOver).</summary>
+        public static bool AlphaOver { get; private set; }
+
+        /// <summary>Alpha "over" on / off (flushes first). The new UI's render targets then hold premultiplied colour: composite
+        /// them with (One, InverseSourceAlpha).</summary>
+        public static void SetAlphaOver(bool enable)
+        {
+            if (AlphaOver == enable) return;
+            Backend.SpriteFlush();
+            Backend.SetAlphaOver(enable);
+            AlphaOver = enable;
+        }
+
         /// <summary>Ends and restarts the sprite in AlphaBlend mode, restoring the default sprite states.</summary>
         public static void RestartSpriteAlphaBlend()
         {

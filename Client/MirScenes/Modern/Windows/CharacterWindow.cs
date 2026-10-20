@@ -4,12 +4,13 @@
 // Desktop changes: a Hero tab while the user has a hero (the hero's equipment, doll and stats, and its bag under the doll —
 // the web's separate hero window is a later phase); the cells are ModernItemCell on the Equipment / HeroEquipment grids
 // (click pick / drop through ItemMoves); the doll is drawn from the libraries (MLibrary draws with a sprite scale), the base
-// body is the CharacterPage (Prguse 340 / 341) figure box, drawn only without an armour (the web keys its page texture out); the Stats
+// body is the CharacterPage (Prguse 340 / 341) figure box with the page keyed out (as the web does), under the armour too; the Stats
 // panel widens the window instead of hanging outside it. Live values are polled every 250 ms and re-read only when their
 // signature moved (PlayerState has no change events).
 using System.Drawing.Drawing2D;
 using Client.MirControls;
 using Client.MirGraphics;
+using Client.MirGraphics.Rendering;
 using Client.MirObjects;
 using Client.MirScenes.Modern.Core;
 using Client.MirScenes.Modern.Core.Widgets;
@@ -104,6 +105,47 @@ namespace Client.MirScenes.Modern.Windows
             }
         }
 
+        private static readonly RenderTexture[] _bodies = new RenderTexture[2];
+
+        /// <summary>
+        /// The base body (character.ts makeBaseBody): the figure's box of CharacterPage (Prguse 340 male / 341 female) with the
+        /// dark page texture and grey slot frames keyed out (near black or unsaturated pixels). One texture per gender, made once
+        /// (again after a device loss disposed it); null while the page cannot be read.
+        /// </summary>
+        private static unsafe RenderTexture BaseBody(bool female)
+        {
+            int g = female ? 1 : 0;
+            RenderTexture t = _bodies[g];
+            if (t != null && !t.Disposed) return t;
+            if (Libraries.Prguse == null) return null;
+            byte[] page = Libraries.Prguse.GetPixels(340 + g, out Size size);
+            if (page == null) return null;
+            const int cx = BodyX - 8, cy = BodyY - 90;
+            if (size.Width < cx + BodyW || size.Height < cy + BodyH) return null;
+
+            t = DXManager.CreateTexture(BodyW, BodyH);
+            byte* dst = DXManager.LockTexture(t);
+            try
+            {
+                for (int y = 0; y < BodyH; y++)
+                    for (int x = 0; x < BodyW; x++)
+                    {
+                        int s = ((cy + y) * size.Width + cx + x) * 4, d = (y * BodyW + x) * 4;
+                        byte b = page[s], gr = page[s + 1], r = page[s + 2];
+                        int hi = Math.Max(r, Math.Max(gr, b)), lo = Math.Min(r, Math.Min(gr, b));
+                        bool keep = hi >= 48 && hi - lo >= 14;
+                        dst[d] = b; dst[d + 1] = gr; dst[d + 2] = r;
+                        dst[d + 3] = keep ? page[s + 3] : (byte)0;
+                    }
+            }
+            finally
+            {
+                DXManager.UnlockTexture(t);
+            }
+            _bodies[g] = t;
+            return t;
+        }
+
         private static void Grow(MLibrary lib, int index, int dx, int dy, ref float x0, ref float y0, ref float x1, ref float y1, bool core, ref float cx0, ref float cx1)
         {
             if (lib == null || index < 0) return;
@@ -120,7 +162,6 @@ namespace Client.MirScenes.Modern.Windows
             base.DrawControl();
             if (!_has || Libraries.StateItems == null) return;
             DollLook l = _look;
-            int page = l.Female ? 341 : 340;
 
             float x0 = BodyX, y0 = BodyY, x1 = BodyX + BodyW, y1 = BodyY + BodyH, cx0 = BodyX, cx1 = BodyX + BodyW;
             Grow(Libraries.Prguse2, l.Wing, 0, 0, ref x0, ref y0, ref x1, ref y1, false, ref cx0, ref cx1);
@@ -138,11 +179,16 @@ namespace Client.MirScenes.Modern.Windows
 
             try
             {
-                // base body: the CharacterPage's figure box, only without an armour (the armour pictures are whole bodies). The web
-                // keys its page texture out; the desktop cannot read the pixels, so the box shows as the classic page does.
-                DXManager.SetSpriteTransform(DxMatrix.Scaling(k, k, 0));
-                if (l.Armour < 0) Libraries.Prguse.Draw(page, new Rectangle(BodyX - 8, BodyY - 90, BodyW, BodyH), At(BodyX, BodyY), Color.White, false);
-                DXManager.SetSpriteTransform(DxMatrix.Identity);
+                // base body: the CharacterPage's figure box with the page texture keyed out, always (the armour pictures have no
+                // head: classic draws them over the whole page)
+                RenderTexture body = BaseBody(l.Female);
+                if (body != null)
+                {
+                    DXManager.SetSpriteTransform(DxMatrix.Scaling(k, k, 0));
+                    Point b = At(BodyX, BodyY);
+                    DXManager.Draw(body, new Rectangle(0, 0, BodyW, BodyH), new SlimDX.Vector3(b.X, b.Y, 0), Color.White);
+                    DXManager.SetSpriteTransform(DxMatrix.Identity);
+                }
                 if (l.Wing >= 0)
                 {
                     // wings are drawn additively (CharacterPage: Prguse2.DrawBlend)
