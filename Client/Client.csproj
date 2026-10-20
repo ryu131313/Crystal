@@ -85,4 +85,38 @@
     </None>
   </ItemGroup>
 
+  <!--
+    Starter zip (Release builds): the minimum a new player needs - the program files plus Distribution\Mir2Config.ini
+    (patch host + game server) and Distribution\README.txt. The in-game patcher downloads everything else on first start.
+    Built from the program files only (never Data\, Map\, Sound\, Patch\, the user's ini or logs in the output folder),
+    staged in obj\starter\ and written next to the output folder: Build\Client\CrystalClient.zip for the normal Release build.
+    Turn off with -p:StarterZip=false.
+  -->
+  <PropertyGroup>
+    <StarterZip Condition="'$(StarterZip)' == ''">true</StarterZip>
+  </PropertyGroup>
+
+  <Target Name="StarterZip" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' And '$(StarterZip)' == 'true'">
+    <PropertyGroup>
+      <StarterOut>$([System.IO.Path]::GetFullPath($([System.IO.Path]::Combine('$(MSBuildProjectDirectory)', '$(OutDir)'))))</StarterOut>
+      <StarterStage>$([System.IO.Path]::GetFullPath($([System.IO.Path]::Combine('$(MSBuildProjectDirectory)', '$(BaseIntermediateOutputPath)starter'))))\</StarterStage>
+      <StarterZipPath>$([System.IO.Path]::GetFullPath('$(StarterOut)..\CrystalClient.zip'))</StarterZipPath>
+    </PropertyGroup>
+    <ItemGroup>
+      <StarterFile Include="$(StarterOut)*.exe;$(StarterOut)*.dll;$(StarterOut)Client.deps.json;$(StarterOut)Client.runtimeconfig.json;$(StarterOut)MIR2.ICO" Exclude="$(StarterOut)Old__*" />
+      <StarterFile Include="$(StarterOut)runtimes\win-x64\**\*" />
+      <StarterFile Include="$(StarterOut)Localization\*.json" />
+      <StarterFile Include="$(StarterOut)Resources\**\*" />
+      <StarterCopy Include="@(StarterFile)" Rel="$([MSBuild]::MakeRelative('$(StarterOut)', '%(FullPath)'))" />
+      <StarterExtra Include="Distribution\Mir2Config.ini;Distribution\README.txt" />
+    </ItemGroup>
+    <RemoveDir Directories="$(StarterStage)" />
+    <Copy SourceFiles="@(StarterCopy)" DestinationFiles="@(StarterCopy->'$(StarterStage)%(Rel)')" />
+    <Copy SourceFiles="@(StarterExtra)" DestinationFolder="$(StarterStage)" />
+    <ZipDirectory SourceDirectory="$(StarterStage)" DestinationFile="$(StarterZipPath)" Overwrite="true" />
+    <Warning Condition="$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\Distribution\Mir2Config.ini').Contains('CHANGE_ME'))"
+             Text="CrystalClient.zip: Client\Distribution\Mir2Config.ini still has CHANGE_ME values (patch host / server address); set them before sharing the zip." />
+    <Message Importance="high" Text="Starter zip: $(StarterZipPath)" />
+  </Target>
+
 </Project>

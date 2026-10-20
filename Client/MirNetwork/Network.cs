@@ -1,14 +1,29 @@
 ﻿using System.Collections.Concurrent;
 using System.Net.Sockets;
+using System.Net.WebSockets;
 using Client.MirControls;
 using C = ClientPackets;
 
 
 namespace Client.MirNetwork
 {
+    /// <summary>
+    /// The connection to the game server. Two transports behind the same queues: a TcpClient to IPAddress:Port, or, when
+    /// [Network] Relay is set, a WebSocket to a WebRelay (the web client's path: one Crystal frame per WebSocket message each
+    /// way; the relay holds the TCP connection to the server). Both decode on a background thread and hand packets to the
+    /// UI thread through _receiveList; Process (UI thread) handles them and queues sends.
+    /// </summary>
     static class Network
     {
         private static TcpClient _client;
+        private static ClientWebSocket _ws;
+        private static readonly ConcurrentQueue<byte[]> _wsOut = new ConcurrentQueue<byte[]>();
+        private static int _wsSending;
+
+        private static bool UseRelay => Settings.Relay.Length > 0;
+
+        /// <summary>The open connection of either transport.</summary>
+        private static bool IsOpen => UseRelay ? _ws != null && _ws.State == WebSocketState.Open : _client != null && _client.Connected;
         public static int ConnectAttempt = 0;
         public static int MaxAttempts = 20;
         public static bool ErrorShown;
@@ -23,7 +38,7 @@ namespace Client.MirNetwork
 
         public static void Connect()
         {
-            if (_client != null)
+            if (_client != null || _ws != null)
                 Disconnect();
 
             if (ConnectAttempt >= MaxAttempts)
@@ -43,6 +58,12 @@ namespace Client.MirNetwork
             }
 
             ConnectAttempt++;
+
+            if (UseRelay)
+            {
+                ConnectRelay();
+                return;
+            }
 
             try
             {
@@ -185,8 +206,136 @@ namespace Client.MirNetwork
             { }
         }
 
+        // — relay transport (WebSocket) —
+
+        /// <summary>
+        /// Opens the WebSocket on a background thread (the UI thread never waits on the network). The Origin header is the
+        /// relay's own site, which a public relay requires (--origin). On success the queues are created as Connection does;
+        /// a failed connect just leaves the socket closed, and Process retries every 5 s up to MaxAttempts.
+        /// </summary>
+        private static void ConnectRelay()
+        {
+            var ws = new ClientWebSocket();
+            try
+            {
+                var uri = new Uri(Settings.Relay);
+                string scheme = uri.Scheme == "wss" ? "https" : "http";
+                ws.Options.SetRequestHeader("Origin", scheme + "://" + uri.Authority);
+                ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);
+                _ws = ws;
+                var thread = new Thread(() => RelayLoop(ws, uri)) { IsBackground = true, Name = "RelaySocket" };
+                thread.Start();
+            }
+            catch (Exception ex) when (ex is UriFormatException or ArgumentException)
+            {
+                if (Settings.LogErrors) CMain.SaveError("[Network] bad [Network] Relay URL '" + Settings.Relay + "': " + ex.Message);
+                ws.Dispose();
+                _ws = null;
+            }
+        }
+
+        /// <summary>Background thread: connect, then decode every message (one server frame each) into _receiveList.</summary>
+        private static void RelayLoop(ClientWebSocket ws, Uri uri)
+        {
+            try
+            {
+                using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
+                    ws.ConnectAsync(uri, timeout.Token).GetAwaiter().GetResult();
+                if (ws != _ws) { ws.Dispose(); return; }
+
+                _rawData = new byte[0];
+                _receiveList = new ConcurrentQueue<Packet>();
+                _sendList = new ConcurrentQueue<Packet>();
+                while (_wsOut.TryDequeue(out _)) { }
+                TimeOutTime = CMain.Time + Settings.TimeOut;
+                TimeConnected = CMain.Time;
+
+                var buffer = new byte[64 * 1024];
+                while (ws == _ws && ws.State == WebSocketState.Open)
+                {
+                    WebSocketReceiveResult result = ws.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None).GetAwaiter().GetResult();
+                    if (result.MessageType == WebSocketMessageType.Close) break;
+
+                    var receiveList = _receiveList;
+                    var temp = _rawData;
+                    if (receiveList == null || temp == null) break;
+
+                    var raw = new byte[temp.Length + result.Count];
+                    Buffer.BlockCopy(temp, 0, raw, 0, temp.Length);
+                    Buffer.BlockCopy(buffer, 0, raw, temp.Length, result.Count);
+
+                    Packet p;
+                    try
+                    {
+                        while ((p = Packet.ReceivePacket(raw, out raw)) != null)
+                            receiveList.Enqueue(p);
+                        _rawData = raw;
+                    }
+                    catch (Exception ex)
+                    {
+                        CMain.SaveError("Network: undecodable packet from the relay, disconnecting: " + ex);
+                        break;
+                    }
+                    CMain.BytesReceived += result.Count;
+                }
+            }
+            catch (Exception ex) when (ex is WebSocketException or OperationCanceledException or IOException or ObjectDisposedException or InvalidOperationException)
+            {
+                // refused, lost or closed: the socket is no longer Open, so Process reports the lost connection or retries
+            }
+            finally
+            {
+                if (ws.State == WebSocketState.Open) ws.Abort();
+            }
+        }
+
+        /// <summary>
+        /// UI thread: one WebSocket message per packet (the relay closes a session whose message is not exactly one frame).
+        /// A background loop sends them in order; ClientWebSocket allows one send at a time.
+        /// </summary>
+        private static void RelaySend(byte[] frame)
+        {
+            _wsOut.Enqueue(frame);
+            if (Interlocked.CompareExchange(ref _wsSending, 1, 0) != 0) return;
+            ThreadPool.QueueUserWorkItem(_ => RelaySendLoop());
+        }
+
+        private static void RelaySendLoop()
+        {
+            while (true)
+            {
+                var ws = _ws;
+                while (_wsOut.TryDequeue(out byte[] frame))
+                {
+                    if (ws == null || ws.State != WebSocketState.Open) continue;
+                    try
+                    {
+                        ws.SendAsync(new ArraySegment<byte>(frame), WebSocketMessageType.Binary, true, CancellationToken.None).GetAwaiter().GetResult();
+                    }
+                    catch (Exception ex) when (ex is WebSocketException or IOException or ObjectDisposedException or InvalidOperationException)
+                    {
+                        // the receive loop sees the closed socket; Process reports it
+                    }
+                }
+                Interlocked.Exchange(ref _wsSending, 0);
+                if (_wsOut.IsEmpty || Interlocked.CompareExchange(ref _wsSending, 1, 0) != 0) return;
+            }
+        }
+
         public static void Disconnect()
         {
+            if (_ws != null)
+            {
+                var ws = _ws;
+                _ws = null;
+                try { ws.Abort(); ws.Dispose(); } catch (Exception) { }
+                TimeConnected = 0;
+                Connected = false;
+                _sendList = null;
+                _receiveList = null;
+                return;
+            }
+
             if (_client == null) return;
 
             _client?.Close();
@@ -201,7 +350,7 @@ namespace Client.MirNetwork
 
         public static void Process()
         {
-            if (_client == null || !_client.Connected)
+            if (!IsOpen)
             {
                 if (Connected)
                 {
@@ -249,6 +398,17 @@ namespace Client.MirNetwork
             if (_sendList == null || _sendList.IsEmpty) return;
 
             TimeOutTime = CMain.Time + Settings.TimeOut;
+
+            if (UseRelay)
+            {
+                while (_sendList != null && _sendList.TryDequeue(out Packet p))
+                {
+                    byte[] frame = p.GetPacketBytes().ToArray();
+                    CMain.BytesSent += frame.Length;
+                    RelaySend(frame);
+                }
+                return;
+            }
 
             List<byte> data = new List<byte>();
             while (!_sendList.IsEmpty)

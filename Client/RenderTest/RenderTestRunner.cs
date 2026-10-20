@@ -87,6 +87,7 @@ namespace Client.RenderTest
             // Never reach a real server: port 1 on loopback is always refused (WoOOLcraft and others listen on 7000).
             Settings.IPAddress = "127.0.0.1";
             Settings.Port = 1;
+            Settings.Relay = string.Empty; // never connect anywhere from a test run
             Settings.FullScreen = SmokeMode && SmokeFullScreen;
             Settings.Borderless = false;
             Settings.FPSCap = false;

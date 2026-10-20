@@ -167,6 +167,7 @@ private static void Application_Idle(object sender, EventArgs e)
 | Setting | Value | Source |
 |---|---|---|
 | Transport | `TcpClient { NoDelay = true }`, APM `BeginConnect/BeginReceive/BeginSend` | `Network.cs` |
+| Relay transport | `[Network] Relay` set: `ClientWebSocket` to a WebRelay `/ws` (thread `RelaySocket` decodes into the same `_receiveList`; sends one frame per message from a pool loop); IPAddress / Port unused | `Network.cs` (`ConnectRelay`, `RelayLoop`, `RelaySend`) |
 | Server | `Settings.IPAddress` `127.0.0.1`, `Settings.Port` `7000`; read from `[Network]` only when `UseConfig=true` | `Settings.cs` |
 | KeepAlive | `C.KeepAlive` when idle past `Settings.TimeOut` (const 5000 ms); plus `GameScene.Process` sends one every 60 s for ping | `Network.Process` |
 | Reconnect | every 5 s from `Network.Process`, plus an immediate (100 ms) retry chain on the socket thread after a refused connect; `MaxAttempts = 20` (shared by both) then error + close | `Network.cs` |
@@ -186,7 +187,7 @@ private static void Application_Idle(object sender, EventArgs e)
 
 | File (CWD-relative) | Owner | Contents |
 |---|---|---|
-| `.\Mir2Config.ini` (Release) / `.\Mir2Test.ini` (Debug or `-tc`) | `Settings.Load/Save` via `InIReader` (`Shared/Functions/IniReader.cs`) | `[Graphics]` FullScreen, Borderless, MouseClip, AlwaysOnTop, FPSCap, Resolution, DebugMode, UseMouseCursors, Renderer, RebuildOptimisations, Lighting (Classic/Enhanced); `[Network]` UseConfig, IPAddress, Port; `[Logs]`; `[Sound]` Volume, SoundOverLap, Music, CleanMinutes; `[Game]` AccountID, **Password (plaintext)**, view toggles, FontName, Language, `Skillbar{i}X/Y`, ...; `[Chat]`, `[Filter]`; `[Launcher]` Enabled, Host (the WebRelay patch host), BackgroundDownloads, RefreshMinutes, ConcurrentDownloads (default 4, 1..100), AutoStart, ServerName, Browser (the launcher page) |
+| `.\Mir2Config.ini` (Release) / `.\Mir2Test.ini` (Debug or `-tc`) | `Settings.Load/Save` via `InIReader` (`Shared/Functions/IniReader.cs`) | `[Graphics]` FullScreen, Borderless, MouseClip, AlwaysOnTop, FPSCap, Resolution, DebugMode, UseMouseCursors, Renderer, RebuildOptimisations, Lighting (Classic/Enhanced); `[Network]` UseConfig, IPAddress, Port, Relay (a WebRelay `ws(s)://.../ws` URL: when set, `Network` connects through the relay's WebSocket instead of TCP, one frame per message; 2026-10-20); `[Logs]`; `[Sound]` Volume, SoundOverLap, Music, CleanMinutes; `[Game]` AccountID, **Password (plaintext)**, view toggles, FontName, Language, `Skillbar{i}X/Y`, ...; `[Chat]`, `[Filter]`; `[Launcher]` Enabled, Host (the WebRelay patch host), BackgroundDownloads, RefreshMinutes, ConcurrentDownloads (default 4, 1..100), AutoStart, ServerName, Browser (the launcher page) |
 | `.\KeyBinds.ini` | `KeyBindSettings` (`CMain.InputKeys`) | one section per `KeybindOptions` member **name** |
 | `.\Data\UserData\QuestTracking.ini` | `Settings.LoadTrackedQuests/SaveTrackedQuests(charName)` | tracked quests per character |
 | `.\Localization\<Language>.json` | `GameLanguage.LoadClientLanguage` | UI strings (`Settings.DbLanguageJsonPath` is a declared but unused const) |
@@ -715,6 +716,8 @@ Build\Client\<Configuration>\        (user's run folder — agents never write h
 │            start counter), Healthy.bin, Rejected.bin (builds that never reached the game), Pending.log; Old__<name>
 │            beside each replaced program file until the new build reaches CMain_Load
 ```
+
+A Release build also writes `CrystalClient.zip` beside the output folder (target `StarterZip` in `Client.csproj`: program files + `Client\Distribution\Mir2Config.ini` / `README.txt`; Runbook §9).
 
 Data/Map/Sound are not part of the build; they are placed beside the exe or downloaded by the in-game patcher (`Client\Patching\`, `Knowledgebase/Future Ideas/InGame-Patcher-Plan.md`): `PatchService` (threads, §3.2 exception), `PatchPickup` (UI thread: `MLibrary.Reopen` + frames refresh, `MapControl.ReloadCells`, `SoundManager.InvalidateFile`, library array growth), `PatchStatus` → `IGameUi.PatchStatusChanged` (classic `PatchStatusStrip`, modern `Hud\DownloadStrip`), Options rows "Downloads" (Pause / Resume, Download everything). `[Launcher]` keys: `Host` (the relay URL including its mount, ending in `/`), `BackgroundDownloads`, `RefreshMinutes` (default 15), `ConcurrentDownloads` (default 4). The old `PList.gz` patcher (`Mode=Full`, `PatchFile`, `NeedLogin` / `Login` / `Password`, `Utils\FileHelper.cs`, the `AutoPatcher.gz` self-update) and AutoPatcherAdmin(V2) were retired 2026-10-20. Program updates (phase 4): `PatchApply` (BCL only; `Program.Main` calls `PatchApply.Startup` first, in its own method, before any Settings / Shared type: `--wait-pid`, then roll back a build whose proving start never reached `CMain_Load`), applied at the end of `Program.Run` after `PatchService.Stop` (lock still held), proven by `PatchApply.MarkHealthy` in `CMain_Load`; the prompt is `IGameUi.PatchUpdateReady` (`PatchUpdate`).
 

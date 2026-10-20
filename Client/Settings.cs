@@ -113,6 +113,11 @@ namespace Client
         //Network
         public static bool UseConfig = false;
         public static string IPAddress = "127.0.0.1";
+        /// <summary>
+        /// [Network] Relay: a WebRelay WebSocket URL (wss://host/mount/ws). When set the client reaches the game server through
+        /// the relay, as the web client does (no open game port needed), and IPAddress / Port are not used.
+        /// </summary>
+        public static string Relay = string.Empty;
         public static int Port = 7000;
         public const int TimeOut = 5000;
 
@@ -288,6 +293,7 @@ namespace Client
 
             //Network
             UseConfig = Reader.ReadBoolean("Network", "UseConfig", UseConfig);
+            Relay = Reader.ReadString("Network", "Relay", Relay).Trim();
             if (UseConfig)
             {
                 IPAddress = Reader.ReadString("Network", "IPAddress", IPAddress);
@@ -501,6 +507,7 @@ namespace Client
             Reader.Write("Launcher", "ConcurrentDownloads", P_Concurrency);
             Reader.Write("Launcher", "BackgroundDownloads", P_BackgroundDownloads);
             Reader.Write("Launcher", "RefreshMinutes", P_RefreshMinutes);
+            Reader.Write("Network", "Relay", Relay); // the only [Network] key Save writes ([Network] is otherwise load-only: Known debt)
         }
 
         public static void LoadTrackedQuests(string charName)

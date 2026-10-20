@@ -145,6 +145,7 @@ Shared is referenced for the enums and the generators only; relayed packets are 
 ### 3.2 Relay
 - **NEVER** let the relay write to the client folder or anything under `Build\` (read-only file opens only).
 - **NEVER** let the browser choose the version hash, the upstream address or a file outside the configured roots.
+- **Desktop clients on `/ws`** (2026-10-20): `Client.exe` with `[Network] Relay=wss://.../ws` uses the same WebSocket path as the browser (one frame per message, Origin = the relay's site, `C.ClientVersion` rewritten). Keep `/ws` transport-neutral: **NEVER** assume a browser behind it.
 - **Patch host** (`--patch-root`, `PatchIndex.cs`): **NEVER** serve a file that is not in the published index, and **NEVER** weaken the hard deny list (`*.ini` carries plaintext passwords). The hash cache stays outside the root (refused inside it). **ALWAYS** route `/api/patch` and `/patch/` before the general HTTP slots (they have their own pool). A new revision is published only when `PatchRevision.txt` changes; the desktop client checks every file's sha256 against the index that listed it.
 - **ALWAYS** keep the Origin check and the connection budget before the WebSocket upgrade.
 
