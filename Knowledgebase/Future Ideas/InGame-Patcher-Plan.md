@@ -8,7 +8,7 @@
 - *A review agent checked the plan against the code. All 10 findings were adopted, each tagged "review #n" where it changed the design: apply safety and rollback for program updates, one patcher per folder, frames refresh for special monsters, looping sounds, restart timing, AMain streaming, library bounds, relay slot order, path case and Trash names, and `ReloadCells` details.*
 - *Three items brought back from "Later": pre-requesting files from object packets, deleting files removed from the patch root, and installing program updates mid-session. That makes 4 phases.*
 
-**Status:** proposed — nothing is built. All decisions are made (§7, 2026-10-20); ready for phase 1.
+**Status:** phase 1 (relay patch host) built 2026-10-20: `WebRelay/PatchIndex.cs`, smoke checks (a)-(e) passed on a scratch root. Phases 2-4 not started. All decisions are made (§7, 2026-10-20).
 
 **Licensing:** Ametrine is decompiled third-party code. Borrow ideas only, never its code.
 

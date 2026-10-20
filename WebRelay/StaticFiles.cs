@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 
 namespace WebRelay;
 
@@ -27,7 +27,13 @@ internal sealed class StaticFiles
     {
         string? full = Resolve(urlPath);
         if (full == null) return false;
+        await ServeFileAsync(ctx, full).ConfigureAwait(false);
+        return true;
+    }
 
+    /// <summary>Streams an already resolved file (the caller has checked it lies inside a root).</summary>
+    public async Task ServeFileAsync(HttpListenerContext ctx, string full)
+    {
         var info = new FileInfo(full);
         string etag = $"\"{info.Length:x}-{info.LastWriteTimeUtc.Ticks:x}\"";
         var res = ctx.Response;
@@ -43,7 +49,7 @@ internal sealed class StaticFiles
         {
             res.StatusCode = 304;
             res.Close();
-            return true;
+            return;
         }
 
         long start = 0, end = info.Length - 1;
@@ -58,14 +64,14 @@ internal sealed class StaticFiles
             res.StatusCode = 416;
             res.Headers["Content-Range"] = $"bytes */{info.Length}";
             res.Close();
-            return true;
+            return;
         }
 
         long length = info.Length == 0 ? 0 : end - start + 1;
         res.StatusCode = partial ? 206 : 200;
         if (partial) res.Headers["Content-Range"] = $"bytes {start}-{end}/{info.Length}";
         res.ContentLength64 = length;
-        if (ctx.Request.HttpMethod == "HEAD") { res.Close(); return true; }
+        if (ctx.Request.HttpMethod == "HEAD") { res.Close(); return; }
 
         await using (var fs = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024, useAsync: true))
         {
@@ -81,7 +87,6 @@ internal sealed class StaticFiles
             }
         }
         res.Close();
-        return true;
     }
 
     /// <summary>Maps "/a/b.c" onto the first root holding it; null for traversal attempts or missing files.</summary>

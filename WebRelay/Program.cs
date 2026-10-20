@@ -72,12 +72,21 @@ internal sealed class RelayOptions
     public bool Public;
     public int AccountsPerHourPerIp = 3;
     public int CharactersPerHourPerIp = 5;
+    /// <summary>Desktop patch host (<see cref="PatchIndex"/>): a clean distributable copy of the client. Empty = off.</summary>
+    public string PatchRoot = "";
+    public string PatchTiersPath = "";
+    public PatchTiers.Rule[] PatchTierRules = Array.Empty<PatchTiers.Rule>();
+    /// <summary>The SHA-256 cache; never inside the patch root (the relay does not write to client folders).</summary>
+    public string PatchCachePath = "";
+    /// <summary>Slots for /api/patch + /patch/, separate from the 64 general HTTP slots so long downloads never starve the web client.</summary>
+    public int PatchSlots = 32;
 
     public const string Usage =
         "WebRelay --client-data <client folder> [--listen 127.0.0.1:5690] [--upstream 127.0.0.1:7000] [--version-path <Client.exe>]\n" +
         "         [--web-root <WebClient folder>] [--map-path <extra Maps folder>]... [--origin <url>]... [--max-per-ip 8] [--max-total 256]\n" +
         "         [--connects-per-minute 30] [--mount /portal/mir2webclient] [--trust-proxy-header CF-Connecting-IP]\n" +
-        "         [--public [--accounts-per-hour 3] [--characters-per-hour 5]]";
+        "         [--public [--accounts-per-hour 3] [--characters-per-hour 5]]\n" +
+        "         [--patch-root <clean client copy> [--patch-tiers <PatchTiers.txt>] [--patch-cache <file>] [--patch-slots 32]]";
 
     public static RelayOptions Parse(string[] args)
     {
@@ -112,6 +121,10 @@ internal sealed class RelayOptions
                 case "--public": o.Public = true; break;
                 case "--accounts-per-hour": o.AccountsPerHourPerIp = int.Parse(Next()); break;
                 case "--characters-per-hour": o.CharactersPerHourPerIp = int.Parse(Next()); break;
+                case "--patch-root": o.PatchRoot = Next(); break;
+                case "--patch-tiers": o.PatchTiersPath = Next(); break;
+                case "--patch-cache": o.PatchCachePath = Next(); break;
+                case "--patch-slots": o.PatchSlots = int.Parse(Next()); break;
                 default: throw new ArgumentException($"Unknown argument {args[i]}");
             }
         }
@@ -123,6 +136,20 @@ internal sealed class RelayOptions
             if (o.Origins.Count == 0 || o.Origins.Contains("*")) throw new ArgumentException("--public needs --origin <https://your.site>");
             if (string.IsNullOrEmpty(o.WebRoot)) throw new ArgumentException("--public needs --web-root (the published copy, tools\\publish-webclient.ps1)");
         }
+        if (o.PatchRoot.Length > 0)
+        {
+            if (!Directory.Exists(o.PatchRoot)) throw new ArgumentException($"--patch-root '{o.PatchRoot}' does not exist");
+            if (o.PatchTiersPath.Length > 0 && !File.Exists(o.PatchTiersPath)) throw new ArgumentException($"--patch-tiers '{o.PatchTiersPath}' does not exist");
+            if (o.PatchSlots < 1) throw new ArgumentException("--patch-slots must be at least 1");
+            o.PatchTierRules = PatchTiers.Load(o.PatchTiersPath);
+            if (o.PatchCachePath.Length == 0) o.PatchCachePath = Path.Combine(AppContext.BaseDirectory, "patch-hashes.bin");
+            o.PatchCachePath = Path.GetFullPath(o.PatchCachePath);
+            string root = Path.GetFullPath(o.PatchRoot).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (o.PatchCachePath.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("--patch-cache must be outside --patch-root (the relay never writes to a client folder)");
+        }
+        else if (o.PatchTiersPath.Length > 0 || o.PatchCachePath.Length > 0)
+            throw new ArgumentException("--patch-tiers / --patch-cache need --patch-root");
         if (string.IsNullOrEmpty(o.WebRoot))
             o.WebRoot = FindWebRoot();
         if (!Directory.Exists(o.WebRoot))

@@ -7,6 +7,7 @@ namespace WebRelay;
 ///   /ws                    WebSocket upgrade -> <see cref="RelaySession"/> (Origin check + per-IP budget first)
 ///   /play/*, /js/*         the web client from WebRoot (no-cache: edit, tsc, refresh); /play/ and /js/<build id>/* via
 ///                          <see cref="PageBuild"/> (hashed, immutable module URLs + modulepreload)
+///   /api/patch, /patch/*   the desktop patch host (<see cref="PatchIndex"/>, --patch-root), on its own slot pool
 ///   /data/*, /map/*, /sound/*  read-only client files from ClientDataPath (GET + single Range, ETag); with ?v= the
 ///                          checked, immutable <see cref="AssetHost"/> forms; /api/manifest and /libindex/* likewise
 /// With --mount (public relay behind the Cloudflare tunnel, which forwards paths unstripped) all of these live under the
@@ -25,6 +26,8 @@ internal sealed class RelayHost
     private readonly AssetHost _assets;
     private readonly PageBuild _page;
     private readonly SemaphoreSlim _httpSlots = new(64, 64);
+    private readonly PatchIndex? _patch;
+    private readonly SemaphoreSlim? _patchSlots;
     private int _sessionSeq;
 
     public RelayHost(RelayOptions options, byte[]? versionHash)
@@ -37,6 +40,11 @@ internal sealed class RelayHost
         _clientData = new StaticFiles(new[] { options.ClientDataPath }, cacheImmutable: true);
         _assets = new AssetHost(options, _clientData, _compression);
         _page = new PageBuild(options.WebRoot, _compression);
+        if (options.PatchRoot.Length > 0)
+        {
+            _patch = new PatchIndex(options, _compression);
+            _patchSlots = new SemaphoreSlim(options.PatchSlots, options.PatchSlots);
+        }
     }
 
     public async Task<int> RunAsync(CancellationToken ct)
@@ -56,6 +64,7 @@ internal sealed class RelayHost
         Console.WriteLine($"  origins:     {(_options.Origins.Count > 0 ? string.Join(", ", _options.Origins) : "the relay's own origin")}");
         if (_options.Mount.Length > 0) Console.WriteLine($"  mount:       {_options.Mount}");
         if (_options.TrustProxyHeader.Length > 0) Console.WriteLine($"  client IP:   {_options.TrustProxyHeader} (from loopback peers only)");
+        if (_patch != null) Console.WriteLine($"  patch root:  {_options.PatchRoot} (read-only; tiers {(_options.PatchTiersPath.Length > 0 ? _options.PatchTiersPath : "built-in")}, cache {_options.PatchCachePath}, {_options.PatchSlots} slots)");
         if (_guard != null) Console.WriteLine($"  public:      per-IP limits on (failed logins {PlayerGuard.FailedLoginLimit}/min, accounts {_options.AccountsPerHourPerIp}/h, characters {_options.CharactersPerHourPerIp}/h); the server needs [LoadTest] ExemptLoopback=True");
 
         using var reg = ct.Register(() => { try { listener.Stop(); } catch { } });
@@ -68,6 +77,7 @@ internal sealed class RelayHost
                 _guard?.PruneExpired();
             }
         }, ct);
+        if (_patch != null) _ = Task.Run(() => _patch.RunAsync(ct), ct);
 
         while (!ct.IsCancellationRequested)
         {
@@ -103,6 +113,13 @@ internal sealed class RelayHost
             if (path == "/ws")
             {
                 await HandleWebSocketAsync(ctx, ct).ConfigureAwait(false);
+                return;
+            }
+
+            // Patch downloads hold a patch slot only, never one of the general slots the web client needs.
+            if (_patch != null && (path == "/api/patch" || path.StartsWith("/patch/", StringComparison.Ordinal)))
+            {
+                await HandlePatchAsync(ctx, path, ct).ConfigureAwait(false);
                 return;
             }
 
@@ -169,6 +186,24 @@ internal sealed class RelayHost
             Console.Error.WriteLine($"[http] {path}: {ex.GetType().Name}: {ex.Message}");
             try { Respond(ctx, 500, "error"); } catch { }
         }
+    }
+
+    private async Task HandlePatchAsync(HttpListenerContext ctx, string path, CancellationToken ct)
+    {
+        if (!await _patchSlots!.WaitAsync(0, ct).ConfigureAwait(false))
+        {
+            ctx.Response.Headers["Retry-After"] = "2";
+            Respond(ctx, 503, "busy");
+            return;
+        }
+        try
+        {
+            ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
+            if (ctx.Request.HttpMethod != "GET" && ctx.Request.HttpMethod != "HEAD") Respond(ctx, 405, "method not allowed");
+            else if (path == "/api/patch") await _patch!.ServeManifestAsync(ctx).ConfigureAwait(false);
+            else await _patch!.ServeFileAsync(ctx, path["/patch/".Length..]).ConfigureAwait(false);
+        }
+        finally { _patchSlots.Release(); }
     }
 
     /// <summary>Maps: the client's Map\ folder first, then each --map-path (a scratch server's synthetic maps).</summary>
