@@ -79,6 +79,9 @@ namespace Client
 
         private void CMain_Load(object sender, EventArgs e)
         {
+            // In-game patcher: reaching the game window proves a freshly applied program update (drops its rollback copies).
+            Client.Patching.PatchApply.MarkHealthy();
+            if (Client.Patching.PatchApply.PendingLog != null) { SaveError(Client.Patching.PatchApply.PendingLog); Client.Patching.PatchApply.PendingLog = null; }
             this.Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.GameName);
             try
             {

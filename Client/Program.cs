@@ -18,6 +18,16 @@ namespace Client
         [STAThread]
         private static void Main(string[] args)
         {
+            // In-game patcher: wait for a restarting parent and recover from a program update that never reached the game.
+            // First, and in a method of its own, so it runs even when a new Client.dll and an old Shared.dll do not match.
+            PatchApply.Startup(args);
+            if (PatchApply.ExitNow) return;
+            Run(args);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void Run(string[] args)
+        {
             if (args.Length > 0)
             {
                 foreach (var arg in args)
@@ -50,6 +60,7 @@ namespace Client
                 AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
                     CMain.SaveError("Unhandled exception" + (e.IsTerminating ? " (terminating)" : "") + ": " + e.ExceptionObject);
                 Settings.Load();
+                if (PatchApply.PendingLog != null) { CMain.SaveError(PatchApply.PendingLog); PatchApply.PendingLog = null; }
                 if (renderTest) RenderTest.RenderTestRunner.ApplySettings();
 
                 Application.EnableVisualStyles();
@@ -69,10 +80,29 @@ namespace Client
                 if (Launch)
                     Application.Run(Form = new CMain());
 
-                PatchService.Shutdown(); // saves State.bin and releases patch.lock before any restart
+                PatchService.Stop(); // saves State.bin / Staged.bin; patch.lock is kept until a staged update is applied
 
-                if (renderTest) return; // test and smoke runs never write the user's ini
+                if (renderTest) // test and smoke runs never write the user's ini
+                {
+                    PatchService.ReleaseLock();
+                    return;
+                }
                 Settings.Save();
+
+                // In-game patcher, program updates: a complete staged set is applied on the way out (Restart or a normal
+                // exit), then, for Restart, the new build starts with --wait-pid.
+                if (PatchService.TakeApplySet(out var update))
+                {
+                    bool restartAfter = Restart || PatchService.RestartRequested;
+                    bool applied = PatchApply.Apply(update);
+                    PatchService.ReleaseLock();
+                    if (PatchApply.PendingLog != null) CMain.SaveError(PatchApply.PendingLog);
+                    if (applied && restartAfter) PatchApply.Restart(args);
+                    else if (!applied && restartAfter)
+                        MessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PatchUpdateFailed));
+                    return;
+                }
+                PatchService.ReleaseLock();
 
                 if (Restart)
                 {

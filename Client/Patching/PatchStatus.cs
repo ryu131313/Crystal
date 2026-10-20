@@ -18,7 +18,7 @@ namespace Client.Patching
         public static long EverythingLeft { get; private set; }
 
         private static int _files = -1, _megabytes = -1, _permille = -1, _faults = -1;
-        private static bool _paused, _map, _shown;
+        private static bool _paused, _map, _shown, _ready;
 
         public static void Update(bool waitingForMap)
         {
@@ -27,9 +27,10 @@ namespace Client.Patching
             long total = p.BytesDone + p.BytesLeft;
             int permille = total > 0 ? (int)(1000 * p.BytesDone / total) : 0;
             int megabytes = (int)(p.BytesLeft >> 20);
-            bool visible = p.FilesLeft > 0 || waitingForMap;
+            bool ready = PatchService.UpdateReady;
+            bool visible = p.FilesLeft > 0 || waitingForMap || ready;
             if (visible == _shown && p.FilesLeft == _files && megabytes == _megabytes && permille == _permille && p.Faults == _faults
-                && p.Paused == _paused && waitingForMap == _map) return;
+                && p.Paused == _paused && waitingForMap == _map && ready == _ready) return;
 
             _shown = visible;
             _files = p.FilesLeft;
@@ -38,13 +39,17 @@ namespace Client.Patching
             _faults = p.Faults;
             _paused = p.Paused;
             _map = waitingForMap;
+            _ready = ready;
 
             Visible = visible;
-            Fraction = permille / 1000f;
+            Fraction = p.FilesLeft == 0 && !waitingForMap ? 1f : permille / 1000f;
             if (visible)
             {
                 string text = waitingForMap ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PatchDownloadingMap)
-                    : GameLanguage.ClientTextMap.GetLocalization(p.Paused ? ClientTextKeys.PatchPausedStatus : ClientTextKeys.PatchDownloading, p.FilesLeft, Size(p.BytesLeft));
+                    : p.FilesLeft > 0 ? GameLanguage.ClientTextMap.GetLocalization(p.Paused ? ClientTextKeys.PatchPausedStatus : ClientTextKeys.PatchDownloading, p.FilesLeft, Size(p.BytesLeft))
+                    : string.Empty;
+                if (ready) text = text.Length == 0 ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PatchUpdateReadyLine)
+                    : text + " · " + GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PatchUpdateReadyLine);
                 if (p.Faults > 0) text += " · " + GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PatchFailed, p.Faults);
                 Text = text;
             }

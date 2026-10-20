@@ -712,11 +712,14 @@ Build\Client\<Configuration>\        (user's run folder — agents never write h
 ├── DirectX\  (WebView2 data for the launcher)
 ├── Patch\   in-game patcher (Mode=OnDemand): Manifest.bin (last /api/patch), State.bin (path → size + sha256 of every file
 │            it installed or verified; only those are ever deleted as "removed"), patch.lock (one patcher per folder),
-│            Temp\<sha>-<path hash>.part (resumable downloads), Trash\ (replaced / removed files, emptied at start)
+│            Temp\<sha>-<path hash>.part (resumable downloads), Trash\ (replaced / removed files, emptied at start);
+│            program updates (PatchApply, phase 4): Staged\ + Staged.bin (the next build), Applying.bin (set being proven,
+│            start counter), Healthy.bin, Rejected.bin (builds that never reached the game), Pending.log; Old__<name>
+│            beside each replaced program file until the new build reaches CMain_Load
 └── AutoPatcher.gz / .exe (optional, patcher self-update)
 ```
 
-Data/Map/Sound are not part of the build; they must be placed beside the exe — or, with `[Launcher] Mode=OnDemand`, downloaded by the in-game patcher (`Client\Patching\`, `Knowledgebase/Future Ideas/InGame-Patcher-Plan.md`): `PatchService` (threads, §3.2 exception), `PatchPickup` (UI thread: `MLibrary.Reopen` + frames refresh, `MapControl.ReloadCells`, `SoundManager.InvalidateFile`, library array growth), `PatchStatus` → `IGameUi.PatchStatusChanged` (classic `PatchStatusStrip`, modern `Hud\DownloadStrip`), Options rows "Downloads" (Pause / Resume, Download everything). `[Launcher]` keys: `Mode` (OnDemand / Full), `Host` (the relay URL including its mount, ending in `/`), `BackgroundDownloads`, `ConcurrentDownloads` (default 4 in OnDemand mode).
+Data/Map/Sound are not part of the build; they must be placed beside the exe — or, with `[Launcher] Mode=OnDemand`, downloaded by the in-game patcher (`Client\Patching\`, `Knowledgebase/Future Ideas/InGame-Patcher-Plan.md`): `PatchService` (threads, §3.2 exception), `PatchPickup` (UI thread: `MLibrary.Reopen` + frames refresh, `MapControl.ReloadCells`, `SoundManager.InvalidateFile`, library array growth), `PatchStatus` → `IGameUi.PatchStatusChanged` (classic `PatchStatusStrip`, modern `Hud\DownloadStrip`), Options rows "Downloads" (Pause / Resume, Download everything). `[Launcher]` keys: `Mode` (OnDemand / Full), `Host` (the relay URL including its mount, ending in `/`), `BackgroundDownloads`, `RefreshMinutes` (default 15), `ConcurrentDownloads` (default 4 in OnDemand mode). Program updates (phase 4): `PatchApply` (BCL only; `Program.Main` calls `PatchApply.Startup` first, in its own method, before any Settings / Shared type: `--wait-pid`, then roll back a build whose proving start never reached `CMain_Load`), applied at the end of `Program.Run` after `PatchService.Stop` (lock still held), proven by `PatchApply.MarkHealthy` in `CMain_Load`; the prompt is `IGameUi.PatchUpdateReady` (`PatchUpdate`).
 
 ---
 

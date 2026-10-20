@@ -2983,6 +2983,7 @@ namespace Client.MirScenes.Dialogs
             };
             DownloadsAll.Click += (o, e) =>
             {
+                if (Client.Patching.PatchService.UpdateReady) { Client.Patching.PatchUpdate.RestartNow(); return; }
                 Client.Patching.PatchService.DownloadEverything();
                 GameScene.Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PatchEverythingStarted), ChatType.Hint);
                 Redraw();
@@ -3138,7 +3139,9 @@ namespace Client.MirScenes.Dialogs
             if (DownloadsPause.Visible)
             {
                 DownloadsPause.Text = GameLanguage.ClientTextMap.GetLocalization(Settings.P_BackgroundDownloads ? ClientTextKeys.PatchPause : ClientTextKeys.PatchResume);
-                DownloadsAll.Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PatchGetAll, Client.Patching.PatchStatus.Size(Client.Patching.PatchStatus.EverythingLeft));
+                // While a program update is staged the second choice is "Restart to update" (the row has room for two).
+                DownloadsAll.Text = Client.Patching.PatchService.UpdateReady ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PatchRestartToUpdate)
+                    : GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PatchGetAll, Client.Patching.PatchStatus.Size(Client.Patching.PatchStatus.EverythingLeft));
             }
             if (Settings.SkillMode)
             {

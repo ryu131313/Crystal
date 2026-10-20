@@ -27,6 +27,24 @@ namespace Client.RenderTest
                 PatchStatus.SetForTest(false, string.Empty, 0f);
                 Expect(!PatchStripVisible(), "the download strip to hide");
             } });
+            AddPatchUpdateSteps(steps);
+        }
+
+        /// <summary>Phase 4: the "update ready, restart now?" prompt opens in the current UI (answered Later here: no restart).</summary>
+        private static void AddPatchUpdateSteps(List<Step> steps)
+        {
+            steps.Add(new Step { Name = "patch_update_prompt", Act = () =>
+            {
+                GameScene.Ui.PatchUpdateReady();
+                bool open = GameScene.Ui is ModernUi ? Client.MirScenes.Modern.Core.ModernRoot.Instance?.Popups.IsOpen == true : MessageBoxCount() == 1;
+                Expect(open, "the restart prompt");
+            } });
+            steps.Add(new Step { Name = "patch_update_later", Act = () =>
+            {
+                if (GameScene.Ui is ModernUi) Client.MirScenes.Modern.Core.ModernRoot.Instance?.Popups.CloseAll();
+                else CloseAllPrompts();
+                Expect(!Client.Patching.PatchService.RestartRequested, "no restart after Later");
+            } });
         }
 
         private static bool PatchStripVisible() =>

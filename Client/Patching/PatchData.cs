@@ -57,7 +57,7 @@ namespace Client.Patching
             }
         }
 
-        public void Save(string file) => PatchPaths.WriteAtomic(file, Raw);
+        public void Save(string file) => PatchFiles.WriteAtomic(file, Raw);
     }
 
     /// <summary>
@@ -107,7 +107,7 @@ namespace Client.Patching
                     writer.Write(Convert.FromHexString(pair.Value.Sha256));
                 }
             }
-            PatchPaths.WriteAtomic(file, ms.ToArray());
+            PatchFiles.WriteAtomic(file, ms.ToArray());
         }
     }
 
@@ -186,8 +186,14 @@ namespace Client.Patching
             return sb.Append("?v=").Append(Uri.EscapeDataString(version)).ToString();
         }
 
+    }
+
+    /// <summary>File helpers with no Settings dependency (PatchPaths' static fields read Settings; PatchApply must not).</summary>
+    internal static class PatchFiles
+    {
         public static void WriteAtomic(string file, byte[] bytes)
         {
+            Directory.CreateDirectory(Path.GetDirectoryName(file));
             string temp = file + ".tmp";
             File.WriteAllBytes(temp, bytes);
             File.Move(temp, file, overwrite: true);

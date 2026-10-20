@@ -21,7 +21,7 @@ namespace Client.Patching
     /// </summary>
     internal static class PatchService
     {
-        private static readonly TimeSpan RefreshInterval = TimeSpan.FromMinutes(15);
+        private static TimeSpan RefreshInterval => TimeSpan.FromMinutes(Settings.P_RefreshMinutes);
         private static readonly TimeSpan MinRefreshGap = TimeSpan.FromSeconds(30);
         private const long LockedRetryMs = 30_000, StaleRetryMs = 35_000;
         // Retry caps: a file in use 20 x 30 s, a busy relay 150 x 2 s, a stale/missing answer 3 times; then it is a fault.
@@ -29,6 +29,12 @@ namespace Client.Patching
 
         /// <summary>True once <see cref="Start"/> succeeded (holder or read-only). Read by the UI thread before any call.</summary>
         public static volatile bool Active;
+        /// <summary>A complete, current set of program files is staged: Restart (or exit) applies it.</summary>
+        public static bool UpdateReady => _updateReady;
+        /// <summary>The player chose Restart: Program.Main applies the staged set and starts the new build after the game closes.</summary>
+        public static bool RestartRequested { get { lock (_lock) return _restartRequested; } }
+        public static void RequestRestart() { lock (_lock) _restartRequested = true; }
+
         /// <summary>True when this process holds patch.lock and downloads.</summary>
         public static bool Holder { get; private set; }
         /// <summary>Bumped (under the lock) whenever a new manifest is applied; the UI thread grows library arrays on change.</summary>
@@ -45,7 +51,7 @@ namespace Client.Patching
         private static Thread _coordinator;
         private static readonly List<Thread> _workers = new List<Thread>();
         private static volatile bool _stopping;
-        private static bool _backgroundRunning, _paused, _everything, _allowProgram;
+        private static bool _backgroundRunning, _paused, _everything;
         private static DateTime _lastRefresh = DateTime.MinValue, _nextRefresh = DateTime.MinValue;
         private static bool _refreshRequested;
         private static readonly Stopwatch _clock = Stopwatch.StartNew();
@@ -60,11 +66,15 @@ namespace Client.Patching
         private static readonly Dictionary<string, int> _failures = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         private static Dictionary<string, int> _highest = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         private static readonly Dictionary<string, int> _retries = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        private static readonly List<(string Local, string Old, string Path)> _programSwaps = new List<(string, string, string)>();
+        // Program updates (phase 4): program files download into Patch\Staged\ (Staged.bin), never over the running build;
+        // PatchApply swaps the whole set at exit or on Restart. Builds that failed to start (Rejected.bin) are never staged again.
+        private static PatchState _staged = new PatchState();
+        private static bool _stagedDirty, _restartRequested;
+        private static HashSet<string> _rejected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private static volatile bool _updateReady;
         private static bool _replan;
         private static readonly ConcurrentQueue<string> _installed = new ConcurrentQueue<string>();
         private static long _queuedBytes, _doneBytes, _activeBytes, _inflight, _everythingLeft;
-        private static volatile bool _programInstalled;
         private static int _faults;
         private static long _nextStateSave;
         private static string _current = "";
@@ -106,6 +116,8 @@ namespace Client.Patching
             _firstUse = state == null;
             _state = state ?? new PatchState();
             _manifest = PatchManifest.TryLoad(ManifestFile);
+            _staged = PatchState.TryLoad(PatchApply.StagedFile) ?? new PatchState();
+            _rejected = PatchApply.LoadRejected();
             if (File.Exists(StateFile)) _stateStamp = File.GetLastWriteTimeUtc(StateFile);
             if (File.Exists(ManifestFile)) _manifestStamp = File.GetLastWriteTimeUtc(ManifestFile);
 
@@ -122,7 +134,12 @@ namespace Client.Patching
             {
                 EmptyTrash();
                 online = RefreshManifest(force: true);
-                lock (_lock) _nextRefresh = DateTime.UtcNow + RefreshInterval;
+                lock (_lock)
+                {
+                    _nextRefresh = DateTime.UtcNow + RefreshInterval;
+                    PruneStaged();
+                    RecomputeReady();
+                }
             }
             Active = true;
             return online;
@@ -130,7 +147,8 @@ namespace Client.Patching
 
         /// <summary>
         /// Launcher thread, holder only: download program files + tiers 0 and 1 that are not current, blocking until done.
-        /// Program files are installed by the Old__ swap (the caller restarts). Returns the number of files that failed.
+        /// Program files are staged (Patch\Staged\); programChanged = a complete set is staged, so the caller restarts and
+        /// Program.Main applies it on the way out. Returns the number of files that failed.
         /// </summary>
         public static int DownloadCore(out bool programChanged)
         {
@@ -142,15 +160,16 @@ namespace Client.Patching
             lock (_lock)
             {
                 if (_manifest == null) return 0;
-                _allowProgram = true;
-                _programSwaps.Clear();
                 foreach (var (file, standing) in survey)
                 {
                     if (standing == Standing.Current || !_manifest.Files.ContainsKey(file.Path)) continue;
-                    if (PatchPaths.IsProgramFile(file)) anyProgram = true;
+                    if (PatchPaths.IsProgramFile(file))
+                    {
+                        if (IsStaged(file) || _rejected.Contains(file.Sha256)) continue;
+                        anyProgram = true;
+                    }
                     core.Add(file.Path);
                 }
-                if (anyProgram) _programInstalled = false;
                 // Largest first into AddFirst, so the smallest end up at the head of the demand queue.
                 core.Sort((a, b) => _manifest.Files[b].Size.CompareTo(_manifest.Files[a].Size));
                 foreach (var path in core) Enqueue(path, demand: true);
@@ -180,7 +199,8 @@ namespace Client.Patching
                     {
                         _refreshRequested = false;
                         foreach (var (file, standing) in again)
-                            if (standing != Standing.Current && _manifest.Files.ContainsKey(file.Path) && !_queued.Contains(file.Path) && !_active.Contains(file.Path) && !DelayedContains(file.Path))
+                            if (standing != Standing.Current && _manifest.Files.ContainsKey(file.Path) && !_queued.Contains(file.Path) && !_active.Contains(file.Path) && !DelayedContains(file.Path)
+                                && !(PatchPaths.IsProgramFile(file) && (IsStaged(file) || _rejected.Contains(file.Sha256))))
                             {
                                 if (!core.Contains(file.Path)) core.Add(file.Path);
                                 Enqueue(file.Path, demand: true);
@@ -189,34 +209,9 @@ namespace Client.Patching
                 }
                 Thread.Sleep(100);
             }
-            lock (_lock)
-            {
-                _allowProgram = false;
-                // A program set is all or nothing: if any program file is not current, put every Old__ copy back.
-                bool programFailed = false;
-                foreach (var path in core)
-                    if (_manifest.Files.TryGetValue(path, out var file) && PatchPaths.IsProgramFile(file)
-                        && !(_state.Files.TryGetValue(path, out var rec) && rec.Sha256 == file.Sha256)) programFailed = true;
-                if (programFailed && _programSwaps.Count > 0)
-                {
-                    foreach (var (local, old, path) in _programSwaps)
-                    {
-                        try
-                        {
-                            if (File.Exists(local)) File.Delete(local);
-                            File.Move(old, local);
-                        }
-                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { LogOnce("[Patch] rollback " + local + ": " + ex.Message); }
-                        _state.Files.Remove(path);
-                    }
-                    _stateDirty = true;
-                    _programInstalled = false;
-                    LogOnce("[Patch] program update incomplete: rolled back");
-                }
-                _programSwaps.Clear();
-            }
+            lock (_lock) RecomputeReady();
             SaveStateIfDirty(force: true);
-            programChanged = _programInstalled;
+            programChanged = anyProgram && _updateReady;
             return Volatile.Read(ref _faults) - faultsBefore;
         }
 
@@ -242,15 +237,56 @@ namespace Client.Patching
         /// <summary>At exit (or before a restart): stop, save State.bin, release the lock. In-flight parts resume next start.</summary>
         public static void Shutdown()
         {
-            if (!Active) return;
+            Stop();
+            ReleaseLock();
+        }
+
+        /// <summary>Stops the threads and saves State.bin / Staged.bin, keeping patch.lock (Program.Main applies a staged update next).</summary>
+        public static void Stop()
+        {
+            if (!Active || _stopping) return;
             _stopping = true;
             lock (_lock) Monitor.PulseAll(_lock);
             // Workers check _stopping per 64 KB chunk and before installing; wait so none records after the save.
             foreach (var worker in _workers) worker.Join(3000);
             SaveStateIfDirty(force: true);
+        }
+
+        public static void ReleaseLock()
+        {
             _lockFile?.Dispose();
             _lockFile = null;
             Active = false;
+        }
+
+        /// <summary>
+        /// After Stop, holder only: the staged set as PatchApply entries (puts with the recorded old size / hash, and program
+        /// files the manifest no longer lists as removes), or false when no complete, current set is staged.
+        /// </summary>
+        public static bool TakeApplySet(out List<PatchApply.Entry> entries)
+        {
+            entries = null;
+            lock (_lock)
+            {
+                if (!Holder || _manifest == null) return false;
+                RecomputeReady();
+                if (!_updateReady) return false;
+                entries = new List<PatchApply.Entry>();
+                foreach (var file in _manifest.Files.Values)
+                {
+                    if (!PatchPaths.IsProgramFile(file) || !IsStaged(file)) continue;
+                    if (_state.Files.TryGetValue(file.Path, out var rec) && rec.Sha256 == file.Sha256) continue;
+                    var e = new PatchApply.Entry { Put = true, Path = file.Path, NewSize = file.Size, NewSha = file.Sha256 };
+                    if (rec.Sha256 != null) { e.OldSize = rec.Size; e.OldSha = rec.Sha256; }
+                    entries.Add(e);
+                }
+                foreach (var removed in RemovedProgramFiles())
+                {
+                    var rec = _state.Files[removed];
+                    entries.Add(new PatchApply.Entry { Put = false, Path = removed, OldSize = rec.Size, OldSha = rec.Sha256 });
+                }
+                return entries.Count > 0;
+            }
         }
 
         // — API (thread-safe) —
@@ -504,6 +540,11 @@ namespace Client.Patching
                 if (!changed) return true;
                 manifest.Save(ManifestFile);
                 ApplyManifest(manifest);
+                lock (_lock)
+                {
+                    PruneStaged();
+                    RecomputeReady();
+                }
                 bool plan;
                 lock (_lock) plan = _backgroundRunning;
                 if (plan) PlanBackground();
@@ -525,15 +566,24 @@ namespace Client.Patching
         /// </summary>
         private static void PlanBackground()
         {
-            var survey = Survey(f => !PatchPaths.IsProgramFile(f)); // phase 4: program updates mid-session
+            var survey = Survey(f => true);
             bool everything;
             lock (_lock) everything = _everything;
+            var program = new List<PatchFile>();
             var stale = new List<PatchFile>();
             var missing = new List<PatchFile>();
             long allLeft = 0;
             foreach (var (file, standing) in survey)
             {
                 if (standing == Standing.Current) continue;
+                if (PatchPaths.IsProgramFile(file))
+                {
+                    // Head of the background queue (after demand): staged, never installed over the running build.
+                    bool skip;
+                    lock (_lock) skip = IsStaged(file) || _rejected.Contains(file.Sha256);
+                    if (!skip) program.Add(file);
+                    continue;
+                }
                 allLeft += file.Size;
                 if (standing == Standing.Missing) { if (file.Tier <= 2 || everything) missing.Add(file); }
                 else stale.Add(file);
@@ -544,6 +594,7 @@ namespace Client.Patching
                 if (_manifest == null) return;
                 foreach (var path in _background) _queued.Remove(path);
                 _background.Clear();
+                foreach (var file in program) PlanOne(file);
                 foreach (var file in stale) PlanOne(file);
                 foreach (var file in missing) PlanOne(file);
                 RecountQueued();
@@ -725,19 +776,30 @@ namespace Client.Patching
         {
             if (!Holder) return;
             var copy = new PatchState();
+            PatchState staged = null;
             lock (_lock)
             {
-                if (!_stateDirty) return;
+                if (!_stateDirty && !_stagedDirty) return;
                 long now = _clock.ElapsedMilliseconds;
                 if (!force && now < _nextStateSave) return;
                 _nextStateSave = now + 2000;
+                if (_stagedDirty)
+                {
+                    staged = new PatchState();
+                    foreach (var pair in _staged.Files) staged.Files[pair.Key] = pair.Value;
+                    _stagedDirty = false;
+                }
                 _stateDirty = false;
                 foreach (var pair in _state.Files) copy.Files[pair.Key] = pair.Value;
             }
-            try { copy.Save(StateFile); }
+            try
+            {
+                copy.Save(StateFile);
+                staged?.Save(PatchApply.StagedFile);
+            }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                lock (_lock) _stateDirty = true;
+                lock (_lock) { _stateDirty = true; if (staged != null) _stagedDirty = true; }
                 LogOnce("[Patch] State.bin not saved: " + ex.Message);
             }
         }
@@ -778,7 +840,6 @@ namespace Client.Patching
                             if (_manifest == null || !_manifest.Files.TryGetValue(path, out file)) { file = null; continue; }
                             _queuedBytes -= file.Size;
                             program = PatchPaths.IsProgramFile(file);
-                            if (program && !_allowProgram) { file = null; continue; }
                             _active.Add(path);
                             _activeBytes += file.Size;
                             _current = path;
@@ -867,7 +928,7 @@ namespace Client.Patching
             string result = Download(file, part);
             if (result != "ok") return result;
             if (_stopping) return "later";
-            return Install(file, part, local, program);
+            return program ? Stage(file, part) : Install(file, part, local, program);
         }
 
         private static string Download(PatchFile file, string part)
@@ -953,17 +1014,7 @@ namespace Client.Patching
             Directory.CreateDirectory(Path.GetDirectoryName(local));
             try
             {
-                if (File.Exists(local))
-                {
-                    if (program)
-                    {
-                        string old = Path.Combine(Path.GetDirectoryName(local), "Old__" + Path.GetFileName(local));
-                        if (File.Exists(old)) File.Delete(old);
-                        File.Move(local, old);
-                        lock (_lock) _programSwaps.Add((local, old, file.Path));
-                    }
-                    else File.Move(local, TrashName(local));
-                }
+                if (File.Exists(local)) File.Move(local, TrashName(local));
                 File.Move(part, local);
             }
             catch (IOException) { return "later"; } // in use (a playing sound): retried, capped
@@ -973,9 +1024,86 @@ namespace Client.Patching
                 return "fault";
             }
             Record(file);
-            if (program) _programInstalled = true;
-            else _installed.Enqueue(file.Path);
+            _installed.Enqueue(file.Path);
             return "ok";
+        }
+
+        /// <summary>A program file: part → Patch\Staged\&lt;path&gt; (replacing an older staged copy), recorded in Staged.bin.</summary>
+        private static string Stage(PatchFile file, string part)
+        {
+            string target = StagedPath(file.Path);
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(target));
+                File.Move(part, target, overwrite: true);
+            }
+            catch (IOException) { return "later"; }
+            catch (UnauthorizedAccessException ex)
+            {
+                LogOnce("[Patch] cannot write " + target + ": " + ex.Message);
+                return "fault";
+            }
+            lock (_lock)
+            {
+                _staged.Files[file.Path] = (file.Size, file.Sha256);
+                _stagedDirty = true;
+                RecomputeReady();
+            }
+            return "ok";
+        }
+
+        private static string StagedPath(string rel) => Path.Combine(PatchApply.StagedDir, rel.Replace('/', Path.DirectorySeparatorChar));
+
+        /// <summary>Under the lock: staged with the manifest's hash (and still on disk).</summary>
+        private static bool IsStaged(PatchFile file) =>
+            _staged.Files.TryGetValue(file.Path, out var rec) && rec.Sha256 == file.Sha256 && File.Exists(StagedPath(file.Path));
+
+        /// <summary>Under the lock: program files this patcher recorded that the manifest no longer lists (removed at the next apply).</summary>
+        private static List<string> RemovedProgramFiles()
+        {
+            var removed = new List<string>();
+            foreach (var pair in _state.Files)
+            {
+                if (_manifest.Files.ContainsKey(pair.Key) || PatchPaths.IsDenied(pair.Key) || !PatchPaths.IsSafe(pair.Key)) continue;
+                if (PatchPaths.IsProgramFile(new PatchFile { Path = pair.Key })) removed.Add(pair.Key);
+            }
+            return removed;
+        }
+
+        /// <summary>Under the lock: a newer build replaces the staged one, so staged files the manifest no longer wants are dropped.</summary>
+        private static void PruneStaged()
+        {
+            if (_manifest == null) return;
+            foreach (var path in new List<string>(_staged.Files.Keys))
+            {
+                if (_manifest.Files.TryGetValue(path, out var file) && file.Sha256 == _staged.Files[path].Sha256) continue;
+                _staged.Files.Remove(path);
+                _stagedDirty = true;
+                try { File.Delete(StagedPath(path)); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            }
+        }
+
+        /// <summary>
+        /// Under the lock: ready when every program file the manifest lists is either recorded current or staged with its
+        /// hash, none of them is a rejected build, and there is something to apply.
+        /// </summary>
+        private static void RecomputeReady()
+        {
+            bool ready = false;
+            if (Holder && _manifest != null)
+            {
+                int pending = 0;
+                ready = true;
+                foreach (var file in _manifest.Files.Values)
+                {
+                    if (!PatchPaths.IsProgramFile(file)) continue;
+                    if (_state.Files.TryGetValue(file.Path, out var rec) && rec.Sha256 == file.Sha256) continue;
+                    if (_rejected.Contains(file.Sha256) || !IsStaged(file)) { ready = false; break; }
+                    pending++;
+                }
+                if (ready && pending == 0 && RemovedProgramFiles().Count == 0) ready = false;
+            }
+            _updateReady = ready;
         }
 
         private static void Record(PatchFile file)

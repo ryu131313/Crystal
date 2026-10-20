@@ -134,6 +134,14 @@ namespace Client.MirScenes.Modern
         public void MapChanged(int mapIndex) => ModernEvents.MapChanged.Emit(mapIndex);
         public void PatchStatusChanged() => DownloadStrip?.Refresh();
 
+        public void PatchUpdateReady()
+        {
+            ModernRoot.Instance?.Popups.Confirm(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PatchUpdateReadyPrompt), PopupButtons.YesNo, PopupKind.Question, (a, _) =>
+            {
+                if (a == PopupAnswer.Yes) Client.Patching.PatchUpdate.RestartNow();
+            }, false, GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PatchRestartToUpdate));
+        }
+
         public void ReincarnationRequest()
         {
             if (Root == null || Root.IsDisposed) return;

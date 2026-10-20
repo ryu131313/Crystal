@@ -51,6 +51,7 @@ namespace Client.Patching
                     PickUp(path);
 
                 PatchStatus.Update(map != null && !map.IsDisposed && map.WaitingForFile);
+                PatchUpdate.Process();
             }
             catch (Exception ex)
             {

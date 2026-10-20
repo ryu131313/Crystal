@@ -15,6 +15,14 @@ namespace Client.MirScenes
         /// <summary>IGameUi.PatchStatusChanged: the in-game patcher's download strip.</summary>
         internal void ClassicPatchStatusChanged() => PatchStrip?.Refresh();
 
+        /// <summary>IGameUi.PatchUpdateReady: Yes closes the game; Program.Main applies the update and starts the new build.</summary>
+        internal void ClassicPatchUpdateReady()
+        {
+            MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PatchUpdateReadyPrompt), MirMessageBoxButtons.YesNo);
+            messageBox.YesButton.Click += (o, e) => Client.Patching.PatchUpdate.RestartNow();
+            messageBox.Show();
+        }
+
         internal void ClassicConfirmQuit()
         {
             MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ExitTip), MirMessageBoxButtons.YesNo);

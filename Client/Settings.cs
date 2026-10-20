@@ -238,6 +238,8 @@ namespace Client
         public static bool P_OnDemand => string.Equals(P_Mode, "OnDemand", StringComparison.OrdinalIgnoreCase);
         /// <summary>[Launcher] BackgroundDownloads: false pauses the in-game background queue (demanded files still download).</summary>
         public static bool P_BackgroundDownloads = true;
+        /// <summary>[Launcher] RefreshMinutes: how often the in-game patcher re-reads /api/patch (1..1440, default 15).</summary>
+        public static int P_RefreshMinutes = 15;
 
         public static void Load()
         {
@@ -373,6 +375,7 @@ namespace Client
             P_BrowserAddress = Reader.ReadString("Launcher", "Browser", P_BrowserAddress);
             P_Mode = Reader.ReadString("Launcher", "Mode", P_Mode);
             P_BackgroundDownloads = Reader.ReadBoolean("Launcher", "BackgroundDownloads", P_BackgroundDownloads);
+            P_RefreshMinutes = Math.Clamp(Reader.ReadInt32("Launcher", "RefreshMinutes", P_RefreshMinutes), 1, 1440);
             P_Concurrency = Reader.ReadInt32("Launcher", "ConcurrentDownloads", P_OnDemand ? 4 : P_Concurrency);
 
 
@@ -518,6 +521,7 @@ namespace Client
             Reader.Write("Launcher", "ConcurrentDownloads", P_Concurrency);
             Reader.Write("Launcher", "Mode", P_Mode);
             Reader.Write("Launcher", "BackgroundDownloads", P_BackgroundDownloads);
+            Reader.Write("Launcher", "RefreshMinutes", P_RefreshMinutes);
         }
 
         public static void LoadTrackedQuests(string charName)

@@ -628,6 +628,10 @@ namespace Client.MirScenes.Modern.Windows
                     Desc = ClientTextKeys.PatchEverythingDesc, Kind = Kind.Action, ActionText = ClientTextKeys.PatchEverythingButton,
                     DescFn = () => W.T(ClientTextKeys.PatchEverythingDesc, Client.Patching.PatchStatus.Size(Client.Patching.PatchStatus.EverythingLeft)),
                     Run = () => { Client.Patching.PatchService.DownloadEverything(); ChatHint(ClientTextKeys.PatchEverythingStarted); }, Lock = PatchLock },
+                new Def { Id = "RestartToUpdate", Cat = Cat.Gameplay, Group = ClientTextKeys.PatchDownloads, Label = ClientTextKeys.PatchRestartToUpdate,
+                    Desc = ClientTextKeys.PatchRestartToUpdateDesc, Kind = Kind.Action, ActionText = ClientTextKeys.PatchRestartButton,
+                    Run = Client.Patching.PatchUpdate.RestartNow,
+                    Lock = () => PatchLock() is { Length: > 0 } why ? why : Client.Patching.PatchService.UpdateReady ? string.Empty : W.T(ClientTextKeys.PatchNoUpdate) },
                 Bool(Cat.Gameplay, gMove, "NewMove", ClientTextKeys.ModernWinOptNewMove, ClientTextKeys.ModernWinOptNewMoveDesc, () => Settings.NewMove,
                     v => { Settings.NewMove = v; ChatHint(v ? ClientTextKeys.NewMovementStyle : ClientTextKeys.OldMovementStyle); }, false),
                 // Audio

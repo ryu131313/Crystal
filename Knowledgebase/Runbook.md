@@ -159,4 +159,11 @@ Desktop clients with `[Launcher] Mode=OnDemand` (the default) download the raw c
 3. Start the relay with `--patch-root <copy> [--patch-tiers <file>] [--patch-cache <file outside the copy>] [--patch-slots 32]` besides its usual options (the public relay script does not pass them yet). The first start hashes every file (about a minute or two for 8.5 GB, then cached).
 4. Ship clients a `Mir2Config.ini` with `[Launcher] Host=<the relay URL including the mount>/` (the built-in default host has no patch routes). `[Launcher] Mode=Full` keeps the old `PList.gz` patcher.
 
-**Each client release:** copy the changed files into the root, then write `PatchRevision.txt` **last** (any text, e.g. the date). The relay publishes the new index only after the marker changes and the folder held still for a whole hash pass. Clients pick it up at their next start or within 15 minutes (program files at the next start, with a launcher restart).
+**Each client release:** copy the changed files into the root, then write `PatchRevision.txt` **last** (any text, e.g. the date). The relay publishes the new index only after the marker changes and the folder held still for a whole hash pass. Clients pick it up at their next start or within `[Launcher] RefreshMinutes` (default 15).
+
+**Publishing a client build** (program files: `Client.exe`, `*.dll`, `*.json` in the exe folder or `runtimes\`): copy the whole build output into the root, then the marker, as above. What players see:
+- In game, the new build downloads into `Patch\Staged\` (never over the running files). When the whole set is there: a "restart now?" prompt (Later = the strip line and Options "Restart to update"; the update is applied at exit anyway).
+- At the launcher, a changed build is staged, applied and the launcher restarts once (`--wait-pid`).
+- Apply keeps the replaced files as `Old__<name>` until the new build reaches the game window. A build that fails to get there is rolled back at the next start and **rejected** (`Patch\Rejected.bin`): clients stay on the old build until you publish a different one. A failed apply (a file locked by another program) restores everything and tells the player to restart the launcher.
+- If a build is bad, publish the previous build output again (same files = clients that have not updated yet do nothing; updated ones go back).
+- A build whose new `Client.dll` cannot even load (corrupt file, missing runtime) cannot roll itself back: the recovery code lives in `Client.dll`. Test a build on one client before publishing.

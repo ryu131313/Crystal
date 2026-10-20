@@ -114,9 +114,18 @@ namespace Launcher
                 _stopwatch = Stopwatch.StartNew();
                 if (PatchService.Start() && PatchService.Holder)
                 {
-                    int failed = PatchService.DownloadCore(out bool programChanged);
-                    if (programChanged) Restart = true;
-                    if (failed > 0) ErrorFound = true;
+                    if (PatchService.UpdateReady)
+                    {
+                        // A complete, still-current program set was staged before (last session, or a crash before applying):
+                        // apply it first (Program.Main, on the way out) and download the rest with the new build.
+                        Restart = true;
+                    }
+                    else
+                    {
+                        int failed = PatchService.DownloadCore(out bool programChanged);
+                        if (programChanged) Restart = true;
+                        if (failed > 0) ErrorFound = true;
+                    }
                 }
             }
             catch (Exception ex)
@@ -796,6 +805,14 @@ namespace Launcher
 
         private void RepairOldFiles()
         {
+            if (Settings.P_OnDemand)
+            {
+                // In-game patcher: while a program update is being proven, the Old__ files are its rollback copy (PatchApply).
+                if (PatchApply.Applying) return;
+                RepairOldFilesSafe();
+                return;
+            }
+
             var files = Directory.GetFiles(Settings.P_Client, "*", SearchOption.AllDirectories).Where(x => Path.GetFileName(x).StartsWith("Old__"));
 
             foreach (var oldFilename in files)
@@ -808,6 +825,28 @@ namespace Launcher
                 {
                     File.Delete(oldFilename);
                 }
+            }
+        }
+
+        /// <summary>RepairOldFiles for OnDemand mode: the same rules, but a locked or missing file is left for the next start.</summary>
+        private void RepairOldFilesSafe()
+        {
+            try
+            {
+                foreach (var oldFilename in Directory.GetFiles(Settings.P_Client, "Old__*", SearchOption.AllDirectories))
+                {
+                    try
+                    {
+                        string original = Path.Combine(Path.GetDirectoryName(oldFilename), Path.GetFileName(oldFilename).Substring("Old__".Length));
+                        if (!File.Exists(original)) File.Move(oldFilename, original);
+                        else File.Delete(oldFilename);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                SaveError("[Patch] Old__ clean-up: " + ex.Message);
             }
         }
 

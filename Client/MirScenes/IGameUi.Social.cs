@@ -35,5 +35,8 @@ namespace Client.MirScenes
 
         /// <summary>In-game patcher: Patching.PatchStatus changed (at most 4 times a second): show, update or hide the download strip.</summary>
         void PatchStatusChanged();
+
+        /// <summary>In-game patcher: a program update is fully staged; ask "restart now?" once (Yes = PatchService.RequestRestart + close the game).</summary>
+        void PatchUpdateReady();
     }
 }

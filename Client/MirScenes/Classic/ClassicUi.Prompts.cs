@@ -18,6 +18,7 @@ namespace Client.MirScenes.Classic
         public void ConfirmLogOut() => _scene.ClassicConfirmLogOut();
         public void MapChanged(int mapIndex) { } // the classic dialogs read MapControl when they draw
         public void PatchStatusChanged() => _scene.ClassicPatchStatusChanged();
+        public void PatchUpdateReady() => _scene.ClassicPatchUpdateReady();
 
         // S.FriendRequest is model-only (Models.Friends); the classic prompt listens to it like ModernUi's toast does
         private Action<FriendRequestInfo> _friendRequest;
