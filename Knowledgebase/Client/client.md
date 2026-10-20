@@ -61,6 +61,7 @@ exit: CMain_FormClosing → (cancelled while CMain.Time < GameScene.LogTime, unl
 | **Socket IO** (APM threadpool) | `Network.Connection` / `ReceiveData` / `SendData` (`MirNetwork/Network.cs`) | **decodes** packets (`Packet.ReceivePacket` → `ReadPacket`) and enqueues into `ConcurrentQueue<Packet> _receiveList` | `_rawData`, `CMain.BytesReceived`, `Network.Disconnect()` on error; on a refused connect, `Sleep(100)` + `Network.Connect()` retry — including creating the max-attempts `MirMessageBox` off the UI thread |
 | **NAudio playback** | `WaveOutEvent` (one shared `_OneShots` mixer + one per `LoopProvider`) | audio | NAudio internals |
 | **Patcher** | `AMain._workThread`, `Task.Run` HTTP (`Forms/AMain.cs`) | downloads before the game form exists | patcher only |
+| **Patch service** (`[Launcher] Mode=OnDemand`, in-game patcher 2026-10-20) | `PatchService` coordinator + `ConcurrentDownloads` workers (`Patching/PatchService.cs`) | HTTP from WebRelay `--patch-root`, file installs into the client folder, during the game too | `Patch\` files and the client folder only; installed paths → `PatchPickup` via a `ConcurrentQueue` |
 
 **Hand-off queues:** socket → main = `Network._receiveList` (`ConcurrentQueue<Packet>`); main → socket = `Network._sendList`, flushed by `Network.Process()`. Loader → main = the `Libraries.Loaded` flag (`SelectScene` waits on `Libraries.Loaded` before starting the game). **There is no render thread.**
 
@@ -271,6 +272,7 @@ Hot path = anything reached from `UpdateEnviroment` (every spin) or `RenderEnvir
 │                  Loaded flags                                    │
 │ Socket IO      → Packet.ReceivePacket/ReadPacket + enqueue       │
 │ Patcher (AMain)→ HTTP/Task before the game form exists           │
+│ PatchService   → HTTP + file installs, also in game (see below)  │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -283,6 +285,7 @@ Hot path = anything reached from `UpdateEnviroment` (every spin) or `RenderEnvir
 - **NEVER** reorder `MLibrary.Initialize()` so `_initialized = true` moves later without adding a lock (the early flag is what stops the main thread opening a second stream during background init); conversely never assume a game library is usable before `Libraries.Loaded`.
 - **NEVER** use `Control.Invoke`/`BeginInvoke` for game state.
 - **NEVER** add a new background thread for game logic; extend the existing hand-off queues instead.
+- **Exception (user-approved 2026-10-20, in-game patcher plan §7.1):** `Client/Patching/PatchService` may run its threads during the game. They may only do HTTP and file installs (`Patch\`, the client folder); they **NEVER** touch game state, `MLibrary`, scenes, sounds or the device. Results go to the UI thread through `PatchService.TryDequeueInstalled` (a `ConcurrentQueue`), drained by `PatchPickup.Process` from `CMain.UpdateEnviroment` at most every 250 ms, 8 paths a tick, only after `Libraries.Loaded`; that is the only place that calls `MLibrary.Reopen`, `MapControl.ReloadCells`, `SoundManager.InvalidateFile`. UI-thread calls into the service (`Demand`, `HighestIndex`, `Progress`) take its lock briefly and never wait on HTTP. The general rule above is unchanged.
 
 #### ALWAYS
 

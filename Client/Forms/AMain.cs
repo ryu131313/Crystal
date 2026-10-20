@@ -5,6 +5,7 @@ using Microsoft.Web.WebView2.Core;
 using System.Net.Http.Headers;
 using System.Net.Http.Handlers;
 using Client.Utils;
+using Client.Patching;
 
 namespace Launcher
 {
@@ -99,6 +100,57 @@ namespace Launcher
             }
 
             _stopwatch.Stop();
+        }
+
+        /// <summary>
+        /// [Launcher] Mode=OnDemand (in-game patcher plan §4.2): the relay's /api/patch, then program files + tiers 0-1
+        /// through <see cref="PatchService"/> (streamed, hashed, resumable). Relay unreachable or another client patching
+        /// this folder: launch with what is on disk. Everything else downloads in the game.
+        /// </summary>
+        private void StartOnDemand()
+        {
+            try
+            {
+                _stopwatch = Stopwatch.StartNew();
+                if (PatchService.Start() && PatchService.Holder)
+                {
+                    int failed = PatchService.DownloadCore(out bool programChanged);
+                    if (programChanged) Restart = true;
+                    if (failed > 0) ErrorFound = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                SaveError(ex.ToString());
+            }
+            Completed = true;
+        }
+
+        /// <summary>The launcher bars for OnDemand mode, from <see cref="PatchService.Progress"/>.</summary>
+        private void ShowOnDemandProgress()
+        {
+            if (!PatchService.Active) return;
+            var p = PatchService.Progress;
+            long total = p.BytesDone + p.BytesLeft;
+
+            ActionLabel.Visible = true;
+            SpeedLabel.Visible = true;
+            CurrentFile_label.Visible = true;
+            CurrentPercent_label.Visible = true;
+            TotalPercent_label.Visible = true;
+
+            if (LabelSwitch) ActionLabel.Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.FilesRemaining), p.FilesLeft);
+            else ActionLabel.Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.MBRemaining), p.BytesLeft / 1024 / 1024);
+            CurrentFile_label.Text = p.Current;
+            SpeedLabel.Text = ToSize(p.BytesDone / Math.Max(0.001, _stopwatch.Elapsed.TotalSeconds));
+            if (total > 0)
+            {
+                int percent = (int)(100 * p.BytesDone / total);
+                TotalProg_pb.Width = (int)(5.5 * percent);
+                ProgressCurrent_pb.Width = (int)(5.5 * percent);
+                TotalPercent_label.Text = percent + "%";
+                CurrentPercent_label.Text = percent + "%";
+            }
         }
 
         private void BeginDownload()
@@ -452,7 +504,7 @@ namespace Launcher
                 Name_label.Text = Settings.P_ServerName;
             }
 
-            _workThread = new Thread(Start) { IsBackground = true };
+            _workThread = new Thread(Settings.P_OnDemand ? StartOnDemand : Start) { IsBackground = true };
             _workThread.Start();
         }
 
@@ -615,12 +667,20 @@ namespace Launcher
                         Program.Restart = true;
 
                         Close();
+                        // OnDemand: restart into the new build first (AutoStart would launch the game on the old DLLs).
+                        if (Settings.P_OnDemand) return;
                     }
 
                     if (Settings.P_AutoStart)
                     {
                         Launch();
                     }
+                    return;
+                }
+
+                if (Settings.P_OnDemand)
+                {
+                    ShowOnDemandProgress();
                     return;
                 }
 

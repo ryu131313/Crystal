@@ -3,6 +3,7 @@ using Launcher;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using Client.Resolution;
+using Client.Patching;
 
 namespace Client
 {
@@ -62,8 +63,13 @@ namespace Client
                 else
                     Launch = true;
 
+                // In-game patcher: background downloads run while the game does (client.md §3.2 exception).
+                if (Launch) PatchService.StartBackground();
+
                 if (Launch)
                     Application.Run(Form = new CMain());
+
+                PatchService.Shutdown(); // saves State.bin and releases patch.lock before any restart
 
                 if (renderTest) return; // test and smoke runs never write the user's ini
                 Settings.Save();

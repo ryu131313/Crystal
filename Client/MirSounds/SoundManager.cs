@@ -120,6 +120,21 @@ namespace Client.MirSounds
             
         }
 
+        /// <summary>
+        /// In-game patcher (UI thread): a sound file was installed; drop the silent cache entries of every index that uses
+        /// it so the next PlaySound reads it.
+        /// </summary>
+        public static void InvalidateFile(string relativePath)
+        {
+            string name = Path.GetFileNameWithoutExtension(relativePath);
+            foreach (var pair in _indexList)
+            {
+                if (!string.Equals(Path.GetFileNameWithoutExtension(pair.Value), name, StringComparison.OrdinalIgnoreCase)) continue;
+                if (_cachedOneShots.TryGetValue(pair.Key, out var cached) && !(cached.AudioData?.Length > 0))
+                    _cachedOneShots.Remove(pair.Key);
+            }
+        }
+
         public static void StopSound(int index)
         {
             if (_loopingSounds.TryGetValue(index, out var sound))

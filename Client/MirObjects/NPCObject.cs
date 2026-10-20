@@ -1,6 +1,7 @@
 ﻿using Client.MirControls;
 using Client.MirGraphics;
 using Client.MirScenes;
+using Client.Patching;
 using S = ServerPackets;
 
 namespace Client.MirObjects
@@ -76,8 +77,12 @@ namespace Client.MirObjects
         {
             if (Image < Libraries.NPCs.Length)
                 BodyLibrary = Libraries.NPCs[Image];
-            else if (Image >= 1000 && Image < 1100)
+            else if (Image >= 1000 && Image < 1100 && Image - 1000 < Libraries.Flags.Length)
                 BodyLibrary = Libraries.Flags[Image - 1000];
+            else if (BodyLibrary == null)
+                BodyLibrary = Libraries.Empty; // in-game patcher: a number beyond the array (was a NullReferenceException)
+
+            if (PatchService.Active) BodyLibrary.Prefetch();
         }
 
         public override void Process()

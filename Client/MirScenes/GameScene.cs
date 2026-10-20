@@ -15,6 +15,7 @@ using Client.MirGraphics.Particles;
 using Client.MirScenes.Classic;
 using Client.MirScenes.Models;
 using Client.MirScenes.Modern;
+using Client.Patching;
 
 namespace Client.MirScenes
 {
@@ -6469,6 +6470,8 @@ namespace Client.MirScenes
         public CellInfo[,] M2CellInfo;
         public List<Door> Doors = new List<Door>();
         public int Width, Height;
+        /// <summary>In-game patcher: the .map is downloading; the blank fallback map is shown and movement input ignored until <see cref="ReloadCells"/>.</summary>
+        public bool WaitingForFile;
 
         public int Index;
         public string FileName = String.Empty;
@@ -6732,6 +6735,9 @@ namespace Client.MirScenes
             MapObject.TargetObjectID = 0;
             MapObject.MagicObjectID = 0;
 
+            // In-game patcher: a missing map keeps the blank fallback and is demanded (the file check only on a map change).
+            WaitingForFile = PatchService.Active && !File.Exists(FileName) && PatchService.Demand(FileName);
+
             MapReader Map = new MapReader(FileName);
             M2CellInfo = Map.MapCells;
             Width = Map.Width;
@@ -6759,6 +6765,34 @@ namespace Client.MirScenes
         }
 
 
+        /// <summary>
+        /// In-game patcher (UI thread, from <see cref="PatchPickup"/>): the current .map was installed. Swap the cells in
+        /// place instead of LoadMap, whose ResetMap would drop every object: new cells, size and PathFinder, doors cleared
+        /// as ResetMap does, the live objects re-added to their cells, and the floor, lights and map texture rebuilt. The
+        /// lighting, atmosphere and animation caches key on ReferenceEquals(M2CellInfo), so they rebuild themselves.
+        /// </summary>
+        public void ReloadCells()
+        {
+            WaitingForFile = false; // first: a bad file must not leave movement blocked
+            MapReader Map = new MapReader(FileName);
+            M2CellInfo = Map.MapCells;
+            Width = Map.Width;
+            Height = Map.Height;
+            PathFinder = new PathFinder(this);
+            Doors.Clear();
+
+            for (int i = 0; i < ObjectsList.Count; i++)
+            {
+                MapObject ob = ObjectsList[i];
+                if (ob == null || ob.MapLocation.X < 0 || ob.MapLocation.Y < 0 || ob.MapLocation.X >= Width || ob.MapLocation.Y >= Height) continue;
+                M2CellInfo[ob.MapLocation.X, ob.MapLocation.Y].AddObject(ob);
+            }
+
+            FloorValid = false;
+            LightsValid = false;
+            TextureValid = false;
+        }
+
         public void Process()
         {
             Processdoors();
@@ -6779,7 +6813,7 @@ namespace Client.MirScenes
             if (MapObject.MagicObject != null && MapObject.MagicObject is MonsterObject && MapObject.MagicObject.AI == 64)
                 MapObject.MagicObjectID = 0;
 
-            CheckInput();
+            if (!WaitingForFile) CheckInput();
 
             MapObject bestmouseobject = null;
             for (int y = MapLocation.Y + 2; y >= MapLocation.Y - 2; y--)

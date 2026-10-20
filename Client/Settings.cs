@@ -233,6 +233,11 @@ namespace Client
         public static string P_Client = Application.StartupPath + "\\";
         public static bool P_AutoStart = false;
         public static int P_Concurrency = 1;
+        /// <summary>[Launcher] Mode: "OnDemand" (WebRelay --patch-root, Client\Patching; in-game patcher plan) or "Full" (PList.gz).</summary>
+        public static string P_Mode = "OnDemand";
+        public static bool P_OnDemand => string.Equals(P_Mode, "OnDemand", StringComparison.OrdinalIgnoreCase);
+        /// <summary>[Launcher] BackgroundDownloads: false pauses the in-game background queue (demanded files still download).</summary>
+        public static bool P_BackgroundDownloads = true;
 
         public static void Load()
         {
@@ -366,7 +371,9 @@ namespace Client
             P_AutoStart = Reader.ReadBoolean("Launcher", "AutoStart", P_AutoStart);
             P_ServerName = Reader.ReadString("Launcher", "ServerName", P_ServerName);
             P_BrowserAddress = Reader.ReadString("Launcher", "Browser", P_BrowserAddress);
-            P_Concurrency = Reader.ReadInt32("Launcher", "ConcurrentDownloads", P_Concurrency);
+            P_Mode = Reader.ReadString("Launcher", "Mode", P_Mode);
+            P_BackgroundDownloads = Reader.ReadBoolean("Launcher", "BackgroundDownloads", P_BackgroundDownloads);
+            P_Concurrency = Reader.ReadInt32("Launcher", "ConcurrentDownloads", P_OnDemand ? 4 : P_Concurrency);
 
 
             if (!P_Host.EndsWith("/")) P_Host += "/";
@@ -509,6 +516,8 @@ namespace Client
             Reader.Write("Launcher", "Browser", P_BrowserAddress);
             Reader.Write("Launcher", "AutoStart", P_AutoStart);
             Reader.Write("Launcher", "ConcurrentDownloads", P_Concurrency);
+            Reader.Write("Launcher", "Mode", P_Mode);
+            Reader.Write("Launcher", "BackgroundDownloads", P_BackgroundDownloads);
         }
 
         public static void LoadTrackedQuests(string charName)

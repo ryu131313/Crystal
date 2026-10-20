@@ -419,6 +419,8 @@ namespace Client
             if (MirScene.ActiveScene != null)
                 MirScene.ActiveScene.Process();
 
+            Client.Patching.PatchPickup.Process(); // in-game patcher: installed files, ≤ every 250 ms
+
             for (int i = 0; i < MirAnimatedControl.Animations.Count; i++)
                 MirAnimatedControl.Animations[i].UpdateOffSet();
 

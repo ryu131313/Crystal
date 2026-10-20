@@ -1,6 +1,7 @@
 ﻿using Client.MirGraphics;
 using Client.MirScenes;
 using Client.MirSounds;
+using Client.Patching;
 using S = ServerPackets;
 using Client.MirControls;
 
@@ -205,9 +206,12 @@ namespace Client.MirObjects
                     BodyLibrary = Libraries.Monsters[(ushort)Monster.CaveStatue];
                     break;
                 default:
-                    BodyLibrary = Libraries.Monsters[(ushort)BaseImage];
+                    // In-game patcher: a number beyond the array (not on disk, not in the last manifest) draws nothing.
+                    BodyLibrary = (ushort)BaseImage < Libraries.Monsters.Length ? Libraries.Monsters[(ushort)BaseImage] : Libraries.Empty;
                     break;
             }
+
+            if (PatchService.Active) BodyLibrary?.Prefetch();
 
             if (Skeleton)
                 ActionFeed.Add(new QueuedAction { Action = MirAction.Skeleton, Direction = Direction, Location = CurrentLocation });

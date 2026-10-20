@@ -13,6 +13,7 @@ namespace Client.MirSounds.Libraries
         {
             Index = index;
 
+            string baseName = fileName;
             fileName = Path.Combine(Settings.SoundPath, fileName);
             string fileType = Path.GetExtension(fileName);
 
@@ -46,6 +47,11 @@ namespace Client.MirSounds.Libraries
                     }
                     AudioData = wholeFile.ToArray();
                 }
+            }
+            else if (Client.Patching.PatchService.Active)
+            {
+                // In-game patcher: once per index (this silent entry stays cached until SoundManager.InvalidateFile).
+                Client.Patching.PatchService.DemandSound(String.IsNullOrEmpty(Path.GetExtension(baseName)) ? baseName : Path.ChangeExtension(baseName, null));
             }
         }
     }

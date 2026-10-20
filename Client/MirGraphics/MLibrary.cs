@@ -4,6 +4,8 @@ using System.IO.Compression;
 using Frame = Client.MirObjects.Frame;
 using Client.MirObjects;
 using System.Text.RegularExpressions;
+using System.Runtime.CompilerServices;
+using Client.Patching;
 
 namespace Client.MirGraphics
 {
@@ -42,6 +44,10 @@ namespace Client.MirGraphics
 
         public static readonly MLibrary
             Dragon = new MLibrary(Settings.DataPath + "Dragon");
+
+        /// <summary>Stand-in for a library number beyond its array (in-game patcher: first offline start, or a new manifest
+        /// adding a number before the array grew). Draws nothing.</summary>
+        public static readonly MLibrary Empty = new MLibrary("");
 
         //Map
         public static readonly MLibrary[] MapLibs = new MLibrary[400];
@@ -196,8 +202,18 @@ namespace Client.MirGraphics
             thread.Start();
         }
 
-        static void InitLibrary(ref MLibrary[] library, string path, string toStringValue, string suffix = "")
+        /// <summary>One InitLibrary array, so <see cref="PatchPickup"/> can grow it when a new manifest adds a number.</summary>
+        internal sealed class ArraySpec
         {
+            public string Field, Path, Format, Suffix;
+        }
+
+        internal static readonly List<ArraySpec> ArraySpecs = new List<ArraySpec>();
+
+        static void InitLibrary(ref MLibrary[] library, string path, string toStringValue, string suffix = "", [CallerArgumentExpression("library")] string field = "")
+        {
+            ArraySpecs.Add(new ArraySpec { Field = field, Path = path, Format = toStringValue, Suffix = suffix });
+
             if (!Directory.Exists(path))
             {
                 Directory.CreateDirectory(path);
@@ -208,6 +224,8 @@ namespace Client.MirGraphics
             var lastFile = allFiles.Count() > 0 ? Path.GetFileName(allFiles.Last()) : "0";
 
             var count = int.Parse(Regex.Match(lastFile, @"\d+").Value) + 1;
+            // In-game patcher: a fresh install sizes the array from the manifest too (else Monsters.Length == 1).
+            count = Math.Max(count, PatchService.HighestIndex(path, suffix) + 1);
 
             library = new MLibrary[count];
 
@@ -491,6 +509,8 @@ namespace Client.MirGraphics
         private int[] _indexList;
         private int _count;
         private bool _initialized;
+        // In-game patcher: the file was missing at Initialize; _demanded = asked PatchService for it once.
+        private bool _missing, _demanded;
 
         private BinaryReader _reader;
         private FileStream _fStream;
@@ -522,16 +542,81 @@ namespace Client.MirGraphics
             _fileName = Path.ChangeExtension(filename, Extention);
         }
 
+        public string FileName => _fileName;
+
         public void Initialize()
         {
             _initialized = true;
 
-            if (!File.Exists(_fileName))
-                return;
-
             try
             {
-                _fStream = new FileStream(_fileName, FileMode.Open, FileAccess.Read);
+                Open();
+            }
+            catch (Exception)
+            {
+                _initialized = false;
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// In-game patcher, UI thread only, after <see cref="Libraries.Loaded"/>: the file was installed (or removed), so
+        /// drop the old stream and arrays and read the header again. _initialized stays true (client.md §3.2). Old
+        /// textures are freed by the normal DXManager.Clean expiry.
+        /// </summary>
+        public void Reopen()
+        {
+            _reader?.Dispose();
+            _reader = null;
+            _fStream = null;
+            _images = null;
+            _indexList = null;
+            _frames = null;
+            _count = 0;
+            _missing = false;
+            _demanded = false;
+            try
+            {
+                Open();
+            }
+            catch (Exception ex)
+            {
+                _reader?.Dispose();
+                _reader = null;
+                _fStream = null;
+                _images = null;
+                _indexList = null;
+                _frames = null;
+                _count = 0;
+                if (Settings.LogErrors) CMain.SaveError("[Patch] reopen " + _fileName + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// In-game patcher: ask for a missing library before it is drawn (object packets pick their libraries). The same
+        /// one-time demand as the first draw; a bool check otherwise. Never from Initialize (every library is initialised
+        /// at startup, which would queue the whole client).
+        /// </summary>
+        public void Prefetch()
+        {
+            if (_missing && !_demanded)
+            {
+                _demanded = true;
+                PatchService.Demand(_fileName);
+            }
+        }
+
+        private void Open()
+        {
+            if (!File.Exists(_fileName))
+            {
+                _missing = true;
+                return;
+            }
+
+            {
+                // FileShare.Delete: the patcher can move an open library to Patch\Trash and install the new one.
+                _fStream = new FileStream(_fileName, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
                 _reader = new BinaryReader(_fStream);
                 int currentVersion = _reader.ReadInt32();
                 if (currentVersion < 2)
@@ -570,11 +655,6 @@ namespace Client.MirGraphics
                     }
                 }
             }
-            catch (Exception)
-            {
-                _initialized = false;
-                throw;
-            }
         }
 
         private bool CheckImage(int index)
@@ -583,7 +663,10 @@ namespace Client.MirGraphics
                 Initialize();
 
             if (_images == null || index < 0 || index >= _images.Length)
+            {
+                if (_missing && !_demanded) Prefetch();
                 return false;
+            }
 
             if (_images[index] == null)
             {

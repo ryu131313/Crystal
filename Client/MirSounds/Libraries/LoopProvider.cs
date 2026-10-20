@@ -47,6 +47,9 @@ namespace Client.MirSounds.Libraries
             }
             else
             {
+                // In-game patcher: loops and music bypass CachedSound; music that lands mid-visit starts at the next map.
+                if (Client.Patching.PatchService.Active)
+                    Client.Patching.PatchService.DemandSound(Path.GetFileNameWithoutExtension(fileName));
                 return null;
             }
         }

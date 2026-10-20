@@ -3,6 +3,7 @@ using Client.MirNetwork;
 using Client.MirScenes;
 using Client.MirSounds;
 using Client.MirControls;
+using Client.Patching;
 using S = ServerPackets;
 using C = ClientPackets;
 using Client.MirScenes.Dialogs;
@@ -624,6 +625,18 @@ namespace Client.MirObjects
             DieSound = Gender == MirGender.Male ? SoundList.MaleDie : SoundList.FemaleDie;
             FlinchSound = Gender == MirGender.Male ? SoundList.MaleFlinch : SoundList.FemaleFlinch;
             #endregion
+
+            // In-game patcher: ask for every library this look needs before the first draw.
+            if (PatchService.Active)
+            {
+                BodyLibrary?.Prefetch();
+                HairLibrary?.Prefetch();
+                WeaponLibrary1?.Prefetch();
+                WeaponEffectLibrary1?.Prefetch();
+                WeaponLibrary2?.Prefetch();
+                WingLibrary?.Prefetch();
+                MountLibrary?.Prefetch();
+            }
         }
 
         public virtual void SetEffects()
