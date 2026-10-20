@@ -35,6 +35,9 @@ Program.Main() [STAThread]                                   Client/Program.cs
   │                               configured Resolution unsupported → MessageBox, reset to 1024, Settings.Save(), continue
   ├── Settings.P_Patcher ([Launcher] Enabled, default true)
   │     ? Application.Run(PForm = new AMain())   launcher/patcher (namespace Launcher, WebView2, HttpClient); sets Launch
+  │       [Launcher] Mode=OnDemand (default, in-game patcher 2026-10-20): PatchService.Start + DownloadCore (program files +
+  │       tiers 0-1 from WebRelay --patch-root), Old__ swap + restart on a program change; Mode=Full = PList.gz as before
+  ├── if (Launch) PatchService.StartBackground()                 background downloads during the game (§3.2 exception)
   │     : Launch = true
   ├── if (Launch) Application.Run(Form = new CMain())         game window + loop (AMain closed without launch → exit)
   │     CMain ctor: Application.Idle += Application_Idle, input events
@@ -707,10 +710,13 @@ Build\Client\<Configuration>\        (user's run folder — agents never write h
 ├── Sound\    SoundList.lst, *.wav / *.mp3
 ├── Screenshots\
 ├── DirectX\  (WebView2 data for the launcher)
+├── Patch\   in-game patcher (Mode=OnDemand): Manifest.bin (last /api/patch), State.bin (path → size + sha256 of every file
+│            it installed or verified; only those are ever deleted as "removed"), patch.lock (one patcher per folder),
+│            Temp\<sha>-<path hash>.part (resumable downloads), Trash\ (replaced / removed files, emptied at start)
 └── AutoPatcher.gz / .exe (optional, patcher self-update)
 ```
 
-Data/Map/Sound are not part of the build; they must be placed beside the exe.
+Data/Map/Sound are not part of the build; they must be placed beside the exe — or, with `[Launcher] Mode=OnDemand`, downloaded by the in-game patcher (`Client\Patching\`, `Knowledgebase/Future Ideas/InGame-Patcher-Plan.md`): `PatchService` (threads, §3.2 exception), `PatchPickup` (UI thread: `MLibrary.Reopen` + frames refresh, `MapControl.ReloadCells`, `SoundManager.InvalidateFile`, library array growth), `PatchStatus` → `IGameUi.PatchStatusChanged` (classic `PatchStatusStrip`, modern `Hud\DownloadStrip`), Options rows "Downloads" (Pause / Resume, Download everything). `[Launcher]` keys: `Mode` (OnDemand / Full), `Host` (the relay URL including its mount, ending in `/`), `BackgroundDownloads`, `ConcurrentDownloads` (default 4 in OnDemand mode).
 
 ---
 

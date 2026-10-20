@@ -132,6 +132,7 @@ namespace Client.MirScenes.Modern
         }
 
         public void MapChanged(int mapIndex) => ModernEvents.MapChanged.Emit(mapIndex);
+        public void PatchStatusChanged() => DownloadStrip?.Refresh();
 
         public void ReincarnationRequest()
         {

@@ -56,6 +56,8 @@ namespace Client.RenderTest
         static partial void AddCompanionSteps(List<Step> steps);
         // Classic-only prompts added after the seam (UiTestRunner.ClassicPrompts.cs), last so the earlier step numbers stay put.
         static partial void AddClassicPromptSteps(List<Step> steps);
+        // In-game patcher phase 3 (UiTestRunner.Patch.cs): the download strip in both UIs, last so earlier step numbers stay put.
+        static partial void AddPatchSteps(List<Step> steps);
         static partial void DumpModern(List<string> log);
 
         public static bool ParseArg(string arg, string[] args, ref int i)
@@ -174,6 +176,8 @@ namespace Client.RenderTest
         // ------------------------------------------------------------------ helpers
 
         private static GameScene Scene => GameScene.Scene;
+        /// <summary>The classic download strip (this file may name classic fields; UiTestRunner.Patch.cs may not).</summary>
+        private static bool ClassicPatchStripVisible => Scene?.PatchStrip != null && Scene.PatchStrip.Visible;
         private static void Feed(Packet p) => Scene.ProcessPacket(p);
 
         private static void PressBind(KeybindOptions function)
@@ -429,6 +433,7 @@ namespace Client.RenderTest
             AddSocialSteps(steps);
             AddCompanionSteps(steps);
             AddClassicPromptSteps(steps);
+            AddPatchSteps(steps);
             return steps;
         }
 

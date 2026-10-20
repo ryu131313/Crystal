@@ -12,6 +12,9 @@ namespace Client.MirScenes
     /// </summary>
     public sealed partial class GameScene
     {
+        /// <summary>IGameUi.PatchStatusChanged: the in-game patcher's download strip.</summary>
+        internal void ClassicPatchStatusChanged() => PatchStrip?.Refresh();
+
         internal void ClassicConfirmQuit()
         {
             MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ExitTip), MirMessageBoxButtons.YesNo);

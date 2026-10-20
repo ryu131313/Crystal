@@ -473,6 +473,7 @@ namespace Client.MirScenes
             StorageDialog = null;
             BeltDialog = null;
             MiniMapDialog = null;
+            PatchStrip = null;
             InspectDialog = null;
             OptionDialog = null;
             MenuDialog = null;

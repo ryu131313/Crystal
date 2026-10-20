@@ -63,7 +63,7 @@ namespace Client.Patching
         private static readonly List<(string Local, string Old, string Path)> _programSwaps = new List<(string, string, string)>();
         private static bool _replan;
         private static readonly ConcurrentQueue<string> _installed = new ConcurrentQueue<string>();
-        private static long _queuedBytes, _doneBytes, _activeBytes, _inflight;
+        private static long _queuedBytes, _doneBytes, _activeBytes, _inflight, _everythingLeft;
         private static volatile bool _programInstalled;
         private static int _faults;
         private static long _nextStateSave;
@@ -78,7 +78,7 @@ namespace Client.Patching
         public sealed class Snapshot
         {
             public int FilesLeft;
-            public long BytesLeft, BytesDone;
+            public long BytesLeft, BytesDone, EverythingLeft;
             public string Current;
             public int Faults;
             public bool Paused, Offline, ReadOnly;
@@ -332,6 +332,7 @@ namespace Client.Patching
                         FilesLeft = _queued.Count + _active.Count + _delayed.Count,
                         BytesLeft = Math.Max(0, _queuedBytes + _activeBytes - Interlocked.Read(ref _inflight)),
                         BytesDone = _doneBytes + Interlocked.Read(ref _inflight),
+                        EverythingLeft = Math.Max(0, _everythingLeft - Interlocked.Read(ref _inflight)),
                         Current = _current,
                         Faults = _faults,
                         Paused = _paused,
@@ -529,9 +530,11 @@ namespace Client.Patching
             lock (_lock) everything = _everything;
             var stale = new List<PatchFile>();
             var missing = new List<PatchFile>();
+            long allLeft = 0;
             foreach (var (file, standing) in survey)
             {
                 if (standing == Standing.Current) continue;
+                allLeft += file.Size;
                 if (standing == Standing.Missing) { if (file.Tier <= 2 || everything) missing.Add(file); }
                 else stale.Add(file);
             }
@@ -544,6 +547,7 @@ namespace Client.Patching
                 foreach (var file in stale) PlanOne(file);
                 foreach (var file in missing) PlanOne(file);
                 RecountQueued();
+                _everythingLeft = allLeft;
             }
         }
 
@@ -798,6 +802,7 @@ namespace Client.Patching
                     {
                         case "ok":
                             _doneBytes += file.Size;
+                            if (!program) _everythingLeft = Math.Max(0, _everythingLeft - file.Size);
                             _failures.Remove(file.Path);
                             _retries.Remove(file.Path);
                             _demanded.Remove(file.Path);

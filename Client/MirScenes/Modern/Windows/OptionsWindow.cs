@@ -49,6 +49,8 @@ namespace Client.MirScenes.Modern.Windows
             public ClientTextKeys ActionText;
             public Action Run;
             public Func<string> Lock;
+            /// <summary>A description with live values (read when the page is built); else W.T(Desc).</summary>
+            public Func<string> DescFn;
             public Func<bool> Mod;
             public Action Reset;
 
@@ -356,7 +358,7 @@ namespace Client.MirScenes.Modern.Windows
                 }
             }
 
-            string desc = W.T(d.Desc);
+            string desc = d.DescFn?.Invoke() ?? W.T(d.Desc);
             int lw = w - CtlW - 40;
             SizeF ds = ModernSkin.MeasureWrapped(desc, ModernSkin.Font(11), S(lw));
             int descH = Math.Max(14, (int)Math.Ceiling(ds.Height / ModernRoot.K) + 2);
@@ -491,6 +493,9 @@ namespace Client.MirScenes.Modern.Windows
             return string.Empty;
         }
 
+        private static string PatchLock() =>
+            Client.Patching.PatchService.Active && Client.Patching.PatchService.Holder ? string.Empty : W.T(ClientTextKeys.PatchNotActive);
+
         private static void ApplyTheme()
         {
             ModernTheme.ApplySettings(); // every built window is laid out again (WindowManager)
@@ -615,6 +620,14 @@ namespace Client.MirScenes.Modern.Windows
                 Bool(Cat.Interface, gClassic, "ExpandedHeroBuffWindow", ClientTextKeys.ModernWinOptExpandedHeroBuffs, ClientTextKeys.ModernWinOptExpandedHeroBuffsDesc, () => Settings.ExpandedHeroBuffWindow, v => Settings.ExpandedHeroBuffWindow = v, true),
                 // Gameplay
                 Bool(Cat.Gameplay, gCombat, "TargetDead", ClientTextKeys.ModernWinOptTargetDead, ClientTextKeys.ModernWinOptTargetDeadDesc, () => Settings.TargetDead, v => Settings.TargetDead = v, false),
+                // In-game patcher (OnDemand mode, the client that holds Patch\patch.lock)
+                new Def { Id = "BackgroundDownloads", Cat = Cat.Gameplay, Group = ClientTextKeys.PatchDownloads, Label = ClientTextKeys.PatchBackground,
+                    Desc = ClientTextKeys.PatchBackgroundDesc, Kind = Kind.Toggle, DefB = true, GetB = () => Settings.P_BackgroundDownloads,
+                    SetB = v => { Settings.P_BackgroundDownloads = v; Client.Patching.PatchService.SetPaused(!v); }, Lock = PatchLock },
+                new Def { Id = "DownloadEverything", Cat = Cat.Gameplay, Group = ClientTextKeys.PatchDownloads, Label = ClientTextKeys.PatchEverything,
+                    Desc = ClientTextKeys.PatchEverythingDesc, Kind = Kind.Action, ActionText = ClientTextKeys.PatchEverythingButton,
+                    DescFn = () => W.T(ClientTextKeys.PatchEverythingDesc, Client.Patching.PatchStatus.Size(Client.Patching.PatchStatus.EverythingLeft)),
+                    Run = () => { Client.Patching.PatchService.DownloadEverything(); ChatHint(ClientTextKeys.PatchEverythingStarted); }, Lock = PatchLock },
                 Bool(Cat.Gameplay, gMove, "NewMove", ClientTextKeys.ModernWinOptNewMove, ClientTextKeys.ModernWinOptNewMoveDesc, () => Settings.NewMove,
                     v => { Settings.NewMove = v; ChatHint(v ? ClientTextKeys.NewMovementStyle : ClientTextKeys.OldMovementStyle); }, false),
                 // Audio

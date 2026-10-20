@@ -49,6 +49,8 @@ namespace Client.Patching
 
                 for (int i = 0; i < PerTick && PatchService.TryDequeueInstalled(out string path); i++)
                     PickUp(path);
+
+                PatchStatus.Update(map != null && !map.IsDisposed && map.WaitingForFile);
             }
             catch (Exception ex)
             {

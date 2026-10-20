@@ -148,3 +148,15 @@ Two relays, same program (`WebRelay`), mirroring WoOOLcraft's private/public spl
 **After a client patch** (`Build\Client\Release` updated): nothing to do. The relay reads `Data\`, `Map\` and `Sound\` per request and versions them by size + write time; open pages get a 412 for a changed file and show "The game files were updated. Reload the page". If the server turns on `CheckVersion`, restart the public relay so it re-hashes the server's `VersionPath` file.
 
 **Known gaps (alpha):** no autostart; a refusal by the relay's limits shows as "connection lost" in the browser; a first visit still downloads each sprite from home until Cloudflare's edge has it (Cache Rule 2).
+
+## 9. Desktop in-game patcher (WebRelay as patch host, 2026-10-20)
+
+Desktop clients with `[Launcher] Mode=OnDemand` (the default) download the raw client files from a WebRelay started with `--patch-root`. A new player gets the core + starter files before launch (program files, UI libraries, the first map) and everything else in the background or when the game needs it. Design: `Knowledgebase/Future Ideas/InGame-Patcher-Plan.md`.
+
+**One-time setup:**
+1. Make a **clean distributable copy** of the client (never a folder someone plays from; the relay refuses `*.ini`, `Error.txt`, `Data\UserData\`, `Screenshots\`, `DirectX\`, `Patch\`, `Old__*` anyway): a client build output + `Data\`, `Map\`, `Sound\`. Run the client from it once before publishing, so `Localization\*.json` is in the form the client writes back (else every client re-downloads it at each start).
+2. Optional `PatchTiers.txt` (relay config, outside the root): `glob = 0|1|2|3|x` per line, first match wins (0 core and 1 starter = before launch, 2 background, 3 only when needed or "Download everything", x never). Without it the built-in list in `WebRelay\PatchIndex.cs` (`PatchTiers.Default`) applies.
+3. Start the relay with `--patch-root <copy> [--patch-tiers <file>] [--patch-cache <file outside the copy>] [--patch-slots 32]` besides its usual options (the public relay script does not pass them yet). The first start hashes every file (about a minute or two for 8.5 GB, then cached).
+4. Ship clients a `Mir2Config.ini` with `[Launcher] Host=<the relay URL including the mount>/` (the built-in default host has no patch routes). `[Launcher] Mode=Full` keeps the old `PList.gz` patcher.
+
+**Each client release:** copy the changed files into the root, then write `PatchRevision.txt` **last** (any text, e.g. the date). The relay publishes the new index only after the marker changes and the folder held still for a whole hash pass. Clients pick it up at their next start or within 15 minutes (program files at the next start, with a launcher restart).

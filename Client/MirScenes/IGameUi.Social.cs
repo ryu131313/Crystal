@@ -32,5 +32,8 @@ namespace Client.MirScenes
 
         /// <summary>S.MapInformation / S.MapChanged, after MapControl loaded the map and (S.MapChanged) the user was placed (classic: nothing).</summary>
         void MapChanged(int mapIndex);
+
+        /// <summary>In-game patcher: Patching.PatchStatus changed (at most 4 times a second): show, update or hide the download strip.</summary>
+        void PatchStatusChanged();
     }
 }

@@ -17,6 +17,8 @@ namespace Client.MirScenes.Modern
         internal HeroFrame HeroFrame { get; private set; }
         internal PartyFrames PartyFrames { get; private set; }
         internal HudOutputs HudOutputs { get; private set; }
+        /// <summary>The in-game patcher's download strip (Hud\DownloadStrip.cs).</summary>
+        internal DownloadStrip DownloadStrip { get; private set; }
 
         partial void BuildHud()
         {
@@ -26,6 +28,7 @@ namespace Client.MirScenes.Modern
             HeroFrame = new HeroFrame { Parent = Root.Hud };
             PartyFrames = new PartyFrames { Parent = Root.Hud };
             HudOutputs = new HudOutputs { Parent = Root.Hud };
+            DownloadStrip = new DownloadStrip { Parent = Root.Hud };
             HudRig.HeroFrame = HeroFrame;
             HudRig.Party = PartyFrames;
             HudRig.Outputs = HudOutputs;

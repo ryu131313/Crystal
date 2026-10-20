@@ -2661,6 +2661,7 @@ namespace Client.MirScenes.Dialogs
         public MirButton ObserveOn, ObserveOff;
         // Desktop-Modern-UI-Plan phase 1b: the interface style switch (Settings.UiStyle; takes effect at the next log in).
         public MirLabel UiStyleLabel, UiStyleClassic, UiStyleModern;
+        public MirLabel DownloadsLabel, DownloadsPause, DownloadsAll; // in-game patcher (OnDemand mode only)
         public MirImageControl SoundBar, MusicSoundBar;
         public MirImageControl VolumeBar, MusicVolumeBar;
 
@@ -2941,6 +2942,52 @@ namespace Client.MirScenes.Dialogs
             };
             UiStyleModern.Click += (o, e) => ChangeUiStyle(UiStyle.Modern);
 
+            // In-game patcher: pause / resume background downloads, fetch everything. Shown only while this client patches.
+            bool patching = Client.Patching.PatchService.Active && Client.Patching.PatchService.Holder;
+            DownloadsLabel = new MirLabel
+            {
+                Parent = this,
+                AutoSize = true,
+                Location = new Point(36, 336),
+                ForeColour = Color.FromArgb(214, 198, 160),
+                Font = new Font(Settings.FontName, 8F, FontStyle.Bold),
+                Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PatchDownloads).ToUpperInvariant(),
+                NotControl = true,
+                Visible = patching,
+            };
+            DownloadsPause = new MirLabel
+            {
+                Parent = this,
+                AutoSize = true,
+                Location = new Point(120, 336),
+                Font = new Font(Settings.FontName, 8F),
+                ForeColour = Color.Gold,
+                Sound = SoundList.ButtonA,
+                Visible = patching,
+            };
+            DownloadsPause.Click += (o, e) =>
+            {
+                Settings.P_BackgroundDownloads = !Settings.P_BackgroundDownloads;
+                Client.Patching.PatchService.SetPaused(!Settings.P_BackgroundDownloads);
+                Redraw();
+            };
+            DownloadsAll = new MirLabel
+            {
+                Parent = this,
+                AutoSize = true,
+                Location = new Point(176, 336),
+                Font = new Font(Settings.FontName, 8F),
+                ForeColour = Color.Gold,
+                Sound = SoundList.ButtonA,
+                Visible = patching,
+            };
+            DownloadsAll.Click += (o, e) =>
+            {
+                Client.Patching.PatchService.DownloadEverything();
+                GameScene.Models.Chat.Add(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PatchEverythingStarted), ChatType.Hint);
+                Redraw();
+            };
+
             ObserveOn = new MirButton
             {
                 Library = Libraries.Prguse2,
@@ -3088,6 +3135,11 @@ namespace Client.MirScenes.Dialogs
             bool modern = Settings.UiStyle == UiStyle.Modern;
             UiStyleClassic.ForeColour = modern ? Color.Gray : Color.Gold;
             UiStyleModern.ForeColour = modern ? Color.Gold : Color.Gray;
+            if (DownloadsPause.Visible)
+            {
+                DownloadsPause.Text = GameLanguage.ClientTextMap.GetLocalization(Settings.P_BackgroundDownloads ? ClientTextKeys.PatchPause : ClientTextKeys.PatchResume);
+                DownloadsAll.Text = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PatchGetAll, Client.Patching.PatchStatus.Size(Client.Patching.PatchStatus.EverythingLeft));
+            }
             if (Settings.SkillMode)
             {
                 SkillModeOn.Index = 452;

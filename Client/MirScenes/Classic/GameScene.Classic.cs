@@ -28,6 +28,7 @@ namespace Client.MirScenes
         public MiniMapDialog MiniMapDialog;
         public InspectDialog InspectDialog;
         public OptionDialog OptionDialog;
+        public PatchStatusStrip PatchStrip;
         public MenuDialog MenuDialog;
         public NPCDialog NPCDialog;
         public NPCGoodsDialog NPCGoodsDialog;
@@ -172,6 +173,9 @@ namespace Client.MirScenes
             AddLiveOverlay(Bar1);
             AddLiveOverlay(Bar2);
             AddLiveOverlay(MiniMapDialog);
+            // In-game patcher: the download strip changes up to 4 times a second, so it re-renders only itself.
+            PatchStrip = new PatchStatusStrip { Parent = this };
+            AddLiveOverlay(PatchStrip);
             ChatOptionDialog = new ChatOptionDialog { Parent = this, Visible = false };
             ChatNoticeDialog = new ChatNoticeDialog { Parent = this, Visible = false };
 

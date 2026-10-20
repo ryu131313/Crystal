@@ -20,6 +20,7 @@ BeltDialog
 MiniMapDialog
 InspectDialog
 OptionDialog
+PatchStrip
 MenuDialog
 NPCDialog
 NPCGoodsDialog
@@ -88,6 +89,7 @@ OutputLines
 MapInfoList
 
 # Classes declared in MirScenes\Dialogs\ (statics and types)
+PatchStatusStrip
 AssignKeyPanel
 AuctionRow
 BigButton
