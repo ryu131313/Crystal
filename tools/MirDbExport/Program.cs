@@ -26,6 +26,18 @@ Usage:
   MirDbExport gaps
       Prints the completeness report: public model members no exported column carries.
 
+  MirDbExport import <folder-with-Server.MirDB> <SystemData.db>
+      Loads Server.MirDB (as above) and writes the server's SQLite store ([Database] Backend=Sqlite, roadmap P7)
+      with the server's own codec. Refuses to overwrite an existing store.
+
+  MirDbExport export-binary <SystemData.db> <out-folder> [--force]
+      The rollback: writes <out-folder>\Server.MirDB from a SQLite store.
+
+  MirDbExport roundtrip <folder> [<store.db>]
+      The shadow check: loads <store.db> (default <folder>\SystemData.shadow.db), writes it as binary and
+      compares the bytes with the Server.MirDB or Back Up\Database\*.bak in <folder> whose SHA-256 the store
+      recorded. Exit 0 only when identical.
+
 Never point it at a live server folder that is being written; copy the file first (the tool only reads it).";
 
         public static int Main(string[] args)
@@ -35,6 +47,10 @@ Never point it at a live server folder that is being written; copy the file firs
                 if (args.Length == 3 && args[0] == "export") return RunExport(args[1], args[2]);
                 if (args.Length == 3 && args[0] == "verify") return RunVerify(args[1], args[2]);
                 if (args.Length == 1 && args[0] == "gaps") return RunGaps();
+                if (args.Length == 3 && args[0] == "import") return StoreCommands.Import(args[1], args[2]);
+                if ((args.Length == 3 || (args.Length == 4 && args[3] == "--force")) && args[0] == "export-binary")
+                    return StoreCommands.ExportBinary(args[1], args[2], args.Length == 4);
+                if ((args.Length == 2 || args.Length == 3) && args[0] == "roundtrip") return StoreCommands.Roundtrip(args[1], args.Length == 3 ? args[2] : null);
                 Console.Error.WriteLine(Usage);
                 return 2;
             }
@@ -42,6 +58,11 @@ Never point it at a live server folder that is being written; copy the file firs
             {
                 Console.Error.WriteLine("ERROR: " + ex.Message);
                 return 2;
+            }
+            catch (InvalidDataException ex)
+            {
+                Console.Error.WriteLine("ERROR: " + ex.Message);
+                return 1;
             }
         }
 

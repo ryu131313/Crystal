@@ -74,6 +74,11 @@ foreach ($key in $Projects.Keys) {
     Write-Host "=== build $key -> $out" -ForegroundColor Cyan
     & dotnet build $proj -o $out -nologo -v:minimal
     if ($LASTEXITCODE -ne 0) { $failed += "build:$key" }
+    # Server.exe is AnyCPU: the SQLite store (roadmap P7) needs the native e_sqlite3.dll beside it, under runtimes\win-x64.
+    if ($key -eq 'Server' -and $LASTEXITCODE -eq 0 -and -not (Test-Path (Join-Path $out 'runtimes\win-x64\native\e_sqlite3.dll'))) {
+        Write-Host "Server build has no runtimes\win-x64\native\e_sqlite3.dll" -ForegroundColor Red
+        $failed += "native:e_sqlite3"
+    }
 }
 
 if (-not $NoTests) {

@@ -10,7 +10,12 @@ namespace Server.MirEnvir.Storage
     {
         private static MessageQueue MessageQueue => MessageQueue.Instance;
 
-        public void SaveDesign(Envir e, string backupFileName)
+        public void SaveDesign(Envir e, string backupFileName) => Save(e, backupFileName, hash: false);
+
+        /// <summary>Saves and returns the SHA-256 of the file written (shadow mode, roadmap P7 phase 7.2).</summary>
+        internal string SaveDesignAndHash(Envir e, string backupFileName) => Save(e, backupFileName, hash: true);
+
+        private string Save(Envir e, string backupFileName, bool hash)
         {
             // Crash-safe save (roadmap P2): write a complete temp file, then swap it in with File.Replace, which also
             // moves the previous file into Back Up\Database. Server.MirDB is never truncated in place, so a crash or an
@@ -77,6 +82,8 @@ namespace Server.MirEnvir.Storage
                     e.GTMapList[i].Save(writer);
             }
 
+            var sha = hash ? SqliteWorldStore.Sha256(tempPath) : null;
+
             if (File.Exists(Envir.DatabasePath))
             {
                 if (!Directory.Exists(Envir.DatabaseBackUpPath)) Directory.CreateDirectory(Envir.DatabaseBackUpPath);
@@ -94,6 +101,8 @@ namespace Server.MirEnvir.Storage
             {
                 File.Move(tempPath, Envir.DatabasePath);
             }
+
+            return sha;
         }
 
         public bool LoadDesign(Envir e)

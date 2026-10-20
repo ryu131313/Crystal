@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Server.MirDatabase;
 using Server.MirEnvir;
+using Server.MirEnvir.Storage;
 using Server.WebAdmin.GameData;
 
 namespace Server.WebAdmin.Routes
@@ -58,12 +59,14 @@ namespace Server.WebAdmin.Routes
                     return new KindSpec
                     {
                         Kind = Database,
-                        Label = "Database (Server.MirDB)",
+                        // With [Database] Backend=Sqlite (roadmap P7) the live system data is SystemData.db and its backups are
+                        // VACUUM INTO copies taken by the store's writer thread, named like the binary ones.
+                        Label = Envir.StoreIsSqlite ? "Database (SystemData.db)" : "Database (Server.MirDB)",
                         Root = Full(Envir.DatabaseBackUpPath),
-                        LiveFile = Full(Envir.DatabasePath),
+                        LiveFile = Full(Envir.StoreIsSqlite ? SqliteWorldStore.DatabasePath : Envir.DatabasePath),
                         Creatable = true,
                         Restorable = true,
-                        HasHeader = true,
+                        HasHeader = !Envir.StoreIsSqlite, // SQLite files have no Version/CustomVersion header (restore checks schema_version)
                     };
                 case Accounts:
                     return new KindSpec
@@ -264,7 +267,22 @@ namespace Server.WebAdmin.Routes
             string name;
             long size;
 
-            if (spec.Kind == Database)
+            if (spec.Kind == Database && Envir.Store is SqliteWorldStore store)
+            {
+                // The writer thread takes the copy between saves, so it is never torn; no EditLock needed.
+                name = await Task.Run(() =>
+                {
+                    lock (BackupGate)
+                    {
+                        Directory.CreateDirectory(spec.Root);
+                        var n = BackupStore.NewName(spec.Root, "Manual", DateTime.Now);
+                        store.BackupTo(Path.Combine(spec.Root, n));
+                        return n;
+                    }
+                }).ConfigureAwait(false);
+                size = new FileInfo(Path.Combine(spec.Root, name)).Length;
+            }
+            else if (spec.Kind == Database)
             {
                 // EditLock is taken on a worker thread (never on the game thread); see ReadDatabaseForBackup.
                 var data = await Task.Run(() => ReadDatabaseForBackup(spec.LiveFile)).ConfigureAwait(false);
@@ -419,7 +437,7 @@ namespace Server.WebAdmin.Routes
                         {
                             EnsureStoppedForRestore(spec);
                             CheckBackupHeader(spec, path);
-                            preName = SwapIn(req, spec, name, path, reason);
+                            preName = WithStoreClosed(() => SwapIn(req, spec, name, path, reason));
 
                             editReloaded = ReloadEditDatabase();
                             if (!editReloaded)
@@ -427,7 +445,7 @@ namespace Server.WebAdmin.Routes
                                 // Put the previous database back so the editor copy and the file stay consistent.
                                 if (preName != null)
                                 {
-                                    BackupStore.ReplaceFile(Path.Combine(spec.Root, preName), spec.LiveFile);
+                                    WithStoreClosed(() => { BackupStore.ReplaceFile(Path.Combine(spec.Root, preName), spec.LiveFile); return 0; });
                                     ReloadEditDatabase();
                                 }
 
@@ -514,8 +532,40 @@ namespace Server.WebAdmin.Routes
                 throw new WebAdminException(409, "An account save is still being written; try again in a moment");
         }
 
+        /// <summary>
+        /// Runs a file swap of the live database. With the SQLite store it runs on the writer thread with the connection closed (the next
+        /// load reopens it and runs integrity_check); the writer takes no web admin lock, so waiting here under EditLock + LoadLock is safe.
+        /// </summary>
+        private static T WithStoreClosed<T>(Func<T> swap)
+        {
+            if (Envir.Store is not SqliteWorldStore store) return swap();
+            return store.Writer.Run(w =>
+            {
+                w.CloseConnection();
+                return swap();
+            });
+        }
+
         private static void CheckBackupHeader(KindSpec spec, string path)
         {
+            if (spec.Kind == Database && Envir.StoreIsSqlite)
+            {
+                if (!SqliteWorldFile.LooksLikeSqlite(path))
+                    throw new WebAdminException(422, "The backup is a binary Server.MirDB file; the server stores system data in SystemData.db now. Import it offline with MirDbExport (Knowledgebase/Runbook.md)");
+                try
+                {
+                    using var conn = SqliteWorldFile.Open(path, create: false);
+                    SqliteWorldFile.CheckIntegrity(conn);
+                    SqliteWorldFile.CheckSchema(conn);
+                }
+                catch (Exception ex) when (ex is InvalidDataException || ex is IOException || ex is Microsoft.Data.Sqlite.SqliteException)
+                {
+                    throw new WebAdminException(422, "The backup is not a usable SystemData database: " + ex.Message);
+                }
+
+                return;
+            }
+
             if (!BackupStore.TryReadHeader(path, out var version, out _))
                 throw new WebAdminException(422, "The backup is not a valid " + spec.Kind + " file (unreadable header)");
             if (!VersionSupported(version))
@@ -891,6 +941,8 @@ namespace Server.WebAdmin.Routes
         public static bool TryReadHeader(string path, out int version, out int customVersion)
         {
             version = customVersion = 0;
+
+            if (SqliteWorldFile.LooksLikeSqlite(path)) return false; // "SQLi" would read as version 1766609235
 
             try
             {

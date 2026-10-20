@@ -126,6 +126,8 @@ namespace Server
 
         //Database
         public static int SaveDelay = 5;
+        public static string DatabaseBackend = "Binary"; // [Database] Backend: Binary (Server.MirDB) or Sqlite (SystemData.db), roadmap P7; read once per process
+        public static bool DatabaseShadow = false;      // [Database] Shadow: with Backend=Binary, mirror every Edit save into SystemData.shadow.db (roadmap P7)
         public static short CredxGold = 30;
 
         //Game
@@ -488,6 +490,8 @@ namespace Server
 
             //Database
             SaveDelay = Reader.ReadInt32("Database", "SaveDelay", SaveDelay);
+            DatabaseBackend = Reader.ReadString("Database", "Backend", DatabaseBackend);
+            DatabaseShadow = Reader.ReadBoolean("Database", "Shadow", DatabaseShadow);
             CredxGold = Reader.ReadInt16("Database", "CredxGold", CredxGold);
 
             //Game
@@ -811,6 +815,8 @@ namespace Server
 
             //Database
             Reader.Write("Database", "SaveDelay", SaveDelay);
+            Reader.Write("Database", "Backend", DatabaseBackend);
+            Reader.Write("Database", "Shadow", DatabaseShadow);
             Reader.Write("Database", "CredxGold", CredxGold);
 
             //Game

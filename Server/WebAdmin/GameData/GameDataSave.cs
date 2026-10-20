@@ -123,6 +123,13 @@ namespace Server.WebAdmin.GameData
         {
             if (io == null) throw new ArgumentNullException(nameof(io));
 
+            // SQLite store (roadmap P7): Main never writes design data and every file access goes through the store's writer thread, so
+            // there is nothing to keep apart from Main's save; running here keeps the game thread from waiting on the writer.
+            if (Envir.StoreIsSqlite)
+            {
+                lock (Envir.LoadLock) return io();
+            }
+
             for (var attempt = 0; attempt < 3; attempt++)
             {
                 var w = WebAdminGame.World;

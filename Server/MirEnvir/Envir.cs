@@ -57,8 +57,15 @@ namespace Server.MirEnvir
 
         public static Envir Edit { get; } = new Envir();
 
-        /// <summary>Where system data is loaded from and saved to (roadmap P7). Binary Server.MirDB is the only backend so far.</summary>
-        internal static IWorldStore Store { get; } = new BinaryWorldStore();
+        /// <summary>Where system data is loaded from and saved to (roadmap P7): [Database] Backend, read once per process.</summary>
+        internal static IWorldStore Store => LazyStore.Value;
+
+        internal static bool StoreIsSqlite => Store is SqliteWorldStore;
+
+        private static readonly Lazy<IWorldStore> LazyStore = new Lazy<IWorldStore>(() =>
+            string.Equals(Settings.DatabaseBackend, "Sqlite", StringComparison.OrdinalIgnoreCase) ? new SqliteWorldStore()
+            : string.Equals(Settings.DatabaseBackend, "Binary", StringComparison.OrdinalIgnoreCase) ? new BinaryWorldStore()
+            : throw new InvalidOperationException("[Database] Backend=" + Settings.DatabaseBackend + " is not Binary or Sqlite"));
 
         protected static MessageQueue MessageQueue => MessageQueue.Instance;
 
@@ -2328,7 +2335,9 @@ namespace Server.MirEnvir
                             // Each save is isolated (roadmap P5): since P2 a failed save leaves the previous file intact.
                             for (var i = 0; i < Players.Count; i++) Players[i].FoldPlayTime(); // v119: a crash loses little play time
                             BeginSaveAccounts();
-                            try { if (!SystemDataStale) SaveDB(); } //WebAdmin: never overwrite newer system data saved by the Edit envir
+                            // WebAdmin: never overwrite newer system data saved by the Edit envir. With the SQLite store Main's save only
+                            // posts the respawn counter (runtime_state), so it always runs.
+                            try { if (!SystemDataStale || StoreIsSqlite) SaveDB(); }
                             catch (Exception ex) { WorldErrors.Record("SaveDB", ex); }
                             try { SaveGuilds(); } catch (Exception ex) { WorldErrors.Record("SaveGuilds", ex); }
                             try { SaveGoods(); } catch (Exception ex) { WorldErrors.Record("SaveGoods", ex); }
@@ -3085,7 +3094,10 @@ namespace Server.MirEnvir
         /// </summary>
         public void SaveDB(string backupFileName)
         {
-            Store.SaveDesign(this, backupFileName);
+            if (Settings.DatabaseShadow && this == Edit && Store is BinaryWorldStore binary)
+                ShadowMirror.AfterBinarySave(this, binary.SaveDesignAndHash(this, backupFileName));
+            else
+                Store.SaveDesign(this, backupFileName);
 
             //WebAdmin: once the Edit envir has written Server.MirDB, Main's in-memory system data is stale until it reloads.
             if (this == Edit) _systemDataStale = true;
@@ -3497,7 +3509,15 @@ namespace Server.MirEnvir
         {
             lock (LoadLock)
             {
-                if (!Store.LoadDesign(this)) return false;
+                IWorldStore store;
+                try { store = Store; }
+                catch (InvalidOperationException ex)
+                {
+                    MessageQueue.Enqueue(ex.Message);
+                    return false;
+                }
+
+                if (!store.LoadDesign(this)) return false;
                 WorldBinder.Bind(this);
             }
 

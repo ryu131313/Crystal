@@ -342,7 +342,7 @@ Add a regression script with relative thresholds.
 >
 > **No time gates (user, 2026-10-20).** The server isn't open to players yet, so no phase waits for days or weeks on live. Every gate below is a set of checks (tests, a scratch soak, a drill) that is done when it passes. This overrides the P7 waits in `roadmap.md` ("≥1 week shadow, ≥4 weeks burn-in") and its §7 soak classes for P7.
 >
-> **Status:** 7.1 done 2026-10-20 (uncommitted). 7.2-7.4 not started.
+> **Status:** 7.1 done 2026-10-20 (`1d1b2403`). 7.2 done 2026-10-21. 7.3-7.4 not started.
 
 ### Decisions this plan relies on
 
@@ -451,6 +451,18 @@ Add a regression script with relative thresholds.
 
 **Gate:** the smoke passes with a restart and web Game Data saves, 0 shadow write failures, `roundtrip` exit 0, and the step 1 `verify` on a copy of the live data with 0 mismatches. Rollback: `Shadow=false` (no data depends on the shadow file).
 
+**Done 2026-10-21.** Code: `Server/MirEnvir/Storage/{SqliteWorldCodec,SqliteWorldFile,SqliteWriter,SqliteWorldStore,ShadowMirror}.cs`; `Envir.Store` from `[Database] Backend`; `[Database] Backend` / `Shadow` in `Settings` + `SettingsCatalog`; `RunFileIo` inline in Sqlite mode; web backups/restore in Sqlite mode (`VACUUM INTO`, restore with the writer's connection closed); `Microsoft.Data.Sqlite` 10.0.12 in Server.Library and MirDbExport (pulls SQLitePCLRaw 2.1.12: NU1903 gone); `MirDbExport import / export-binary / roundtrip`; `verify.ps1` fails a server build without `runtimes\win-x64\native\e_sqlite3.dll`. Tests: `Server.Persistence.Tests/SqliteStoreTests.cs` (7), `tools/MirDbExport.Tests/StoreCommandsTests.cs` (2). `verify.ps1` all green (WebAdmin 983, Shared 73 ×2, Persistence 45, MirDbExport 21).
+- **Evidence:** binary → SQLite → binary is byte-identical on the v118 and v119 fixtures, on a synthetic world with every child table, explicit zero stats, a `Spell.None` row, a non-BMP name and a uint above `int.MaxValue`, and **on a copy of the live `Server.MirDB`** (549,407 bytes, 11,779 rows; import then export-binary, `cmp` equal). Smoke: a scratch server with `Backend=Sqlite` imported on its first boot, loaded from SQLite on the second, left `Server.MirDB` untouched, and export-binary gave back its file byte for byte. Shadow: an Edit save mirrored and `roundtrip` exit 0 (test).
+- **Step 1 `verify` can't run on the live data:** its exporter keys `maprespawns` by `RespawnIndex`, and the live file has 424 duplicate `RespawnIndex` values (several respawns share 0 and many share 1-119, 261-316, 689-718). The store keys rows by position, so it is unaffected; the byte round trip above replaces that gate. The duplicates are a data oddity worth a look: anything that finds a respawn by `RespawnIndex` (respawn save state, the web grid key) can pick the wrong one.
+- **Differences from the plan above:**
+  - **The three linked files stay files and move to 7.4** (first group). The audit found `RandomItemStatsList` and `MineSetList` are edited in place on the game thread, web workers and WinForms and only read by `Settings.Load`, and routes are edited as script files; moving them is file-data work. So `--export-binary` writes only Server.MirDB, and nothing about them changes in Sqlite mode.
+  - **Shadow mirrors Edit saves only** (no game-thread encode, no budget needed); no health-endpoint counter, `ShadowMirror.Failures` and the `[Diag] Shadow` debug line instead.
+  - **Keys:** every table is keyed `(parent_position, position)`, top-level tables included (parent_position 0), with the record's own index in `key`. A child links to its parent by the parent's position, so duplicate indexes (as in the live respawns) can't mis-attach rows.
+  - **Import / export / roundtrip are `MirDbExport` commands**, not Server.exe flags; the server imports on its own only at the first `Backend=Sqlite` start.
+  - **Backups** in Sqlite mode use the binary names (`Database yyyy-MM-dd HH-mm-ss.bak`, SQLite content), so `BackupRetention` prunes them unchanged; the web backup list shows them without a version (no binary header).
+- **Review (1 reviewer) fixes:** `RespawnTimer.CurrentDelay` set on decode (0 made an empty server tick every loop); web backups/restore usable in Sqlite mode (no binary header read from SQLite files); a store older than `Server.MirDB` is refused (a Binary rollback in between); a leftover `.tmp` from a crashed first import no longer blocks starts; `UpdateMagicInfo` runs when importing a file ≤ v70; one exception type from `SqliteWriter.Run`. Checked and kept: `DragonInfo.Level` (both constructors set 1).
+- **Known gaps carried to 7.3:** `MonsterTunerForm` / `DragonInfoForm` edit Main and call `Main.SaveDB()` when LiveDb is off; in Sqlite mode that save writes only the respawn counter, so their edits aren't stored (they already skip the save when LiveDb is on). Runbook steps (flip, rollback with `export-binary`, restoring a SQLite backup by hand) are written in 7.3 with the drill.
+
 ### Phase 7.3 — Flip and retire (an operation, then one deletion commit)
 
 **Goal:** SQLite becomes the store of record for system data. Once the soak and the rollback drill pass, the binary writer goes.
@@ -480,6 +492,7 @@ Add a regression script with relative thresholds.
 **Goal:** the design data in loose files moves into the store, with name links replaced by Index links.
 
 **Groups, in order** (each: tables + exporter/verifier specs + loader switch + its editors + `--export-files` for rollback):
+0. **The linked files (moved from 7.2):** `RandomItemStats.ini`, `Mines.ini` and `Envir\Routes\*.txt`, with the 7.2 review's rules: sentinels are NULL links (`RandomStatsId = 255` or past the list, mine 0, an empty or missing route), the two lists are process-wide statics edited in place (`BalanceRoutes` / `SystemsRoutes` on the game thread, `BalanceConfigForm` / `MiningInfoForm` on the UI thread) and saved through their own jobs, `Settings.Load` reads them before any store is open, and routes are preloaded so the game thread never queries the store. `export-binary` then also writes the three files.
 1. **Drops:** `Envir\Drops\<Monster>.txt`, plus Fishing, Awakening, Strongbox, Blackstone and `DragonItem.txt` (`Envir.cs` ~6855-6883, `DragonInfo.cs` ~91). Linked to monsters by Index; every name that doesn't resolve is listed at import and fails the import (no silent skip).
 2. **Quest bodies:** `Envir\Quests\*.txt` (`QuestInfo.LoadInfo`): tasks, rewards, carry items and text, as child tables of `quests`.
 3. **Recipes, exp and stat tables:** `Envir\Recipe\*.txt` (`RecipeInfo.cs`); `ExpList`, `OrbsExpList`, `HeroExpList`, `BaseStats<Job>`, `HeroBaseStats<Job>`.

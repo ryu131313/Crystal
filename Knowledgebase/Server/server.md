@@ -179,6 +179,7 @@ Shutdown tail: `CloseAdminQueue(); StopNetwork(); StopEnvir() [SaveGoods(true), 
 | File (cwd-relative) | Writer / Reader | Notes |
 |---|---|---|
 | `.\Server.MirDB` (system data) | `Envir.SaveDB` (~L2452) / `LoadDB` (~L2839) | Header `Version, CustomVersion`, index counters, then MapInfo, ItemInfo, MonsterInfo, NPCInfo, QuestInfo, DragonInfo, MagicInfo, GameShopItem, ConquestInfo, RespawnTimer, GTMap. **GTMap block is written but never read back.** |
+| `.\SystemData.db` (system data, `[Database] Backend=Sqlite`, roadmap P7) | `Envir.Store` = `SqliteWorldStore` (`Server/MirEnvir/Storage/`) | The same data as Server.MirDB minus the GTMap block, one STRICT table per Game Data registry endpoint keyed by `(parent_position, position)` (`SqliteWorldCodec`, schema_version 2) plus `meta`, `index_counters`, `respawn_tick(_options)` and `runtime_state` (the respawn tick counter). One writer thread owns the file; Edit is the only design writer, Main's save writes `runtime_state` only. The first start imports Server.MirDB (left untouched). Default `Backend=Binary`; `[Database] Shadow=True` mirrors Edit saves into `SystemData.shadow.db` (checked offline with `MirDbExport roundtrip`). Offline tools: `MirDbExport import / export-binary / roundtrip` |
 | `.\Server.MirADB` (user data) | `BeginSaveAccounts`/`SaveAccounts` / `LoadAccounts` (~L2962) | Counters, HeroList (before accounts), AccountList (embeds CharacterInfo incl. mail), auctions, mail id, GameshopLog, SavedSpawns, MarketSales (v119: `Dictionary<int ItemIndex, MarketSaleHistory>`, last 14 sales each) |
 | `.\Guilds\{i}.mgd` | `SaveGuilds`/`LoadGuilds` | **File name = position in `GuildList`**, not GuildIndex; sentinel `int.MaxValue` + version header; v119 appends the guild log (`GuildLogEntry` list, cap 100) |
 | `.\Envir\Goods\{npcIndex}.msd` | `SaveGoods` | sentinel 9999 + version |
@@ -364,6 +365,7 @@ Crystal keeps plain `List<T>` on `Envir` (`AccountList`, `CharacterList`, `ItemI
 | Web admin handlers | `async Task` | `WebAdminHost` per-request tasks; await `WebAdminGame.RunAsync` |
 | World start/stop from web | `Task.Run` | `ServerControlRoutes` (never the game thread) |
 | Save file writes | APM `BeginWrite` | existing `BeginSaveAccounts`/`SaveGuilds`/`SaveGoods`/`SaveConquests` |
+| SQLite system-data writer (roadmap P7) | its own background thread per file (`SqliteWriter`: `SystemData.db`, `SystemData.shadow.db`) | Owns the only connection; takes no web admin or Envir lock and never posts to the game thread, so callers may `Run` (wait) under EditLock/LoadLock. The game thread only `Post`s (Main's runtime save); it waits only in `StartEnvir`'s `Main.LoadDB`, before the loop runs. Encode/decode happen on the caller's thread. Drained on ProcessExit |
 | Game simulation, packet handlers, monster AI | **Forbidden** | sync only |
 
 #### Known debt — existing breaches

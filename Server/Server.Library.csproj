@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <PackageReference Include="log4net" Version="3.3.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
   </ItemGroup>
 
   <ItemGroup>
@@ -24,6 +25,7 @@
     <InternalsVisibleTo Include="Server.WebAdmin.Tests" />
     <InternalsVisibleTo Include="Server.Persistence.Tests" />
     <InternalsVisibleTo Include="MirDbExport" />
+    <InternalsVisibleTo Include="MirDbExport.Tests" />
   </ItemGroup>
 
 </Project>
