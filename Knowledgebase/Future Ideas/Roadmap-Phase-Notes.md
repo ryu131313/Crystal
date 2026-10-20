@@ -338,66 +338,175 @@ Add a regression script with relative thresholds.
 
 ## P7 — SQLite for system data · Known debt · ⚠ AGENTS.md "new saved fields bump `Envir.Version`"
 
-**Schema changes (⚠, roadmap §8).** A new system-data field becomes an additive column plus a `meta.schema_version` bump, with no `Envir.Version` bump. Accounts, guilds, goods and conquests keep the `Envir.Version` rule.
+> **Plan written 2026-10-20** (P7 step 1, the exporter and verifier, is done: `P7-SQLite-Export.md`). Four phases, each one deploy or one operation, each with one smoke check and at most two Opus 5.5 medium-effort subagents (memory: lean plans and testing). Line numbers checked 2026-10-20 against the working tree (±30). Reviewed the same day by one Opus 5.5 subagent; its findings are folded in.
+>
+> **No time gates (user, 2026-10-20).** The server isn't open to players yet, so no phase waits for days or weeks on live. Every gate below is a set of checks (tests, a scratch soak, a drill) that is done when it passes. This overrides the P7 waits in `roadmap.md` ("≥1 week shadow, ≥4 weeks burn-in") and its §7 soak classes for P7.
+>
+> **Status:** 7.1 done 2026-10-20 (uncommitted). 7.2-7.4 not started.
 
-**Exporter and independent verifier** (agent background from P4):
-- **Schema source:** columns come from `Server/WebAdmin` `GameDataRegistry`/`GameDataCodec`.
-- **Encoding rules:**
-  - enums stored as their underlying INTEGER;
-  - links stored as INTEGER Index;
-  - positional child rows (map, conquest children) keyed by `(ParentIndex, Position)`;
-  - `meta` (schema_version) and `index_counters` tables (MapIndex…RespawnIndex, never recomputed from `max(Index)`);
-  - total, loud decode.
-- **Verifier:** re-implements the encoding (never calls the codec).
-- **Round trip:** binary → SQLite → load → SQLite must be byte-identical.
-- **Delivery:** an offline CLI in `tools/`.
+### Decisions this plan relies on
 
-**Storage seam (its own deploy).** Move the save/load code (`Envir.cs` ~2452-3205, about 750 lines including the account, guild, goods and conquest code that stays binary) into `BinaryWorldStore` behind `IWorldStore`.
-- Entry points that stay unchanged:
-  - the 16 WinForms `SaveDB` call sites. 14 of them are on `Envir.Edit`. `DragonInfoForm` and `MonsterTunerForm` call `Envir.Main.SaveDB()` from the UI thread (Known debt) and must be **rerouted**.
-  - `AccountInfoForm`'s `SaveAccounts`, and SMain's Edit `LoadDB`.
-  - `GameDataSave.RunFileIo` (`GameDataSave.cs` ~107) and the web routes.
-- `LoadVersion` stays set under `LoadLock`.
-- No silent defect fixes.
+**Already made:**
+- **Scope (widened 2026-10-20).** The file-based design data comes in too: RandomItemStats, Mines, Routes, drops, quest bodies, recipes, exp and stat tables, the `*System.ini` files and the game half of `Setup.ini`. The inventory and the order are in `P7-SQLite-Export.md` § "Scope widened 2026-10-20". Accounts, guilds, goods and conquests stay binary. NPC scripts and `.map` files stay files.
+- **Schema changes (⚠, roadmap §8).** A new system-data field becomes an additive column plus a `meta.schema_version` bump, with no `Envir.Version` bump. Accounts, guilds, goods and conquests keep the `Envir.Version` rule. This takes effect at the retire commit (7.3 step 5). Until then the schema is **frozen**, so `--export-binary` can always write everything back, and the old rule holds.
+- **Provider and journal:** `Microsoft.Data.Sqlite`, rollback journal (not WAL), in Server.Library only.
+- **Editors:** the WinForms editors keep working through the seam. Retire one only after a capability parity audit.
+- **Load side effects** (game-shop drops, duplicate-spell drops, `FillMagicInfoList`, archiving): preserved inside the seam, unchanged.
 
-**Shadow mode.**
-- After each save, take a snapshot on the game thread.
-- Write the SQLite mirror and run the diff **off the game thread** (server.md §3.2).
-- Run ≥1 week, covering a restart and a web Game Data save.
+**Proposed here (confirm at the start of the phase named):**
 
-**`SqliteWorldStore` of record** (`[Database] Backend=Binary|Sqlite`):
-- **Library and file:**
-  - `Microsoft.Data.Sqlite` in Server.Library only.
-  - Rollback journal (not WAL).
-  - Refuse a 0-byte or missing file.
-- **Migration:**
-  - The first boot imports the binary and leaves it as the rollback.
-  - `--export-binary` writes it back.
-  - Drop the GTMap block, which is written but never read.
-- **One writer thread owns the file.**
-  - Editor and web saves go to the design tables.
-  - Main's runtime state (the respawn tick counter) goes to a separate `runtime_state` table, so editor saves can't roll it back.
-  - `Main` no longer saves design data, which retires the periodic Main `SaveDB` and `SystemDataStale` in this mode.
-- **Backups and restore:** use `VACUUM INTO` or the backup API in the same change, never `File.Copy` of an open DB (today's web admin `BackupRoutes` copies the file).
-- **Post-load bindings** must run identically on both backends: `BindGameShop`, `ItemInfo` random stats and `LinkGuildCreationItems`.
+| # | Decision | Recommendation | Phase |
+|---|---|---|---|
+| D1 | Shadow check | The server only writes the mirror and records the SHA-256 of the binary bytes in its `meta`. The check is offline: `MirDbExport roundtrip` loads the mirror in its own process, writes binary and compares with the file (live or `Back Up\Database`) that has that hash. No online cell compare: it would compare a snapshot with itself. Entity work never runs on a worker thread, because the binary model ctors read `Envir.Main/Edit` lists and the static `Envir.LoadVersion` (`MapInfo.cs` ~63, `MonsterInfo.cs` ~62) | 7.2 |
+| D2 | Child-row keys | `PRIMARY KEY (parent_index, position)` for the positional children; drop the `parent*10000+pos` synthetic key from the store schema (keep it in the step 1 export for its tests) | 7.2 |
+| D3 | `MagicInfo` rows with `Spell == 0` | Keep them: one more row in `magic` with key 0. Dropping them is a silent defect fix | 7.2 |
+| D4 | Full rewrite vs row diff per save | Full rewrite of the design tables in one transaction per save (the file is a few MB). The three linked lists are not in it: each has its own save job (they are process-wide statics, see 7.2). Row-level saves (`__rev`) are LiveDb-lite work, after P7 | 7.2 |
+| D5 | Package version | Newest stable `Microsoft.Data.Sqlite` 10.0.x (clears NU1903), or 9.0.0 plus a pinned fixed `SQLitePCLRaw.bundle_e_sqlite3`. Move `tools/MirDbExport` to the same version | 7.2 |
+| D6 | Old-backup importer | No reimplementation of the ~50 version gates. Keep `Envir.LoadDB` (the reader) for good and import through it offline, as `MirDbExport` already does. Only the `Envir.SaveDB` body is deleted; the models' `Save(BinaryWriter)` methods stay (the byte harness, `MirDbExport` and `--export-binary` need them) | 7.3 |
+| D7 | Optional files (`DisabledChars.txt`, `LineMessage.txt`, `Notice.txt`, `SET [].txt`, GETRANDOMTEXT files) | Leave them as files; not in P7 | 7.4 |
+| D8 | `Setup.ini` split | The `[Game]` and `[Items]` keys go to a `settings` table; everything else stays in the ini. The exact key list is agreed in 7.4 before any code | 7.4 |
 
-**Flip, burn-in, retire:**
-1. Scratch soak under StressClient load, with web edits.
-2. Snapshot.
-3. Flip (never in the C5 week).
-4. ≥4 weeks of burn-in, with one rollback drill.
-5. Delete the binary system-data writer and `SystemDataStale`.
-6. Keep a standalone importer for old `Server.MirDB` backups, with the system-data subset (about 50) of Crystal's 111 version gates.
-7. Add row-level Game Data saves from the grids (`__rev`).
-8. Lift the freeze.
-9. Rewrite server.md §2.6/§3.4/§4.3 and the AGENTS.md new-saved-fields rule.
+### Rules this phase touches (extract before coding, AGENTS.md directive 3)
 
-**WoOOLcraft lessons:**
-- **Enums by name plus a swallowed catch** zeroed `MonsterInfo.Image` within a week.
-- **Recomputed `max(Index)`** reuses deleted indexes.
-- **Two in-memory copies** with a live mirror caused H1, even after SQLite. The single writer is what fixed it, not the file format.
-- **A 0-byte file** silently became an empty DB.
-- **Unpruned backups** reached 12 GB.
+- **Threads (server.md §3.2):** the game thread never blocks on SQLite, never waits on the writer and never takes a new lock. It only posts to a queue. The writer thread is new: add it to the §3.2 async-zones table in the commit that adds it.
+- **Lock order** stays `EditLock` → `LoadLock` → `AccountLock` (`Server/WebAdmin/README.md`). **Invariant:** the writer thread never takes `EditLock`, `LoadLock` or `AccountLock`, and never posts to the game thread. That makes it safe to wait for the writer while holding any of them (the web restore route holds `EditLock` and `LoadLock` around `ReloadEditDatabase`, `BackupRoutes.cs` ~413-424, and `LoadDB` takes `LoadLock` itself).
+- **WinForms forms** call `SaveDB()` on the UI thread with no `EditLock` and no `RunFileIo` (e.g. `MapInfoForm.cs` ~44). After the flip they block the UI thread for one commit (milliseconds). Accepted; it isn't the game thread.
+- **Persistence (server.md §3.4, §4.3):** binary layouts don't change in P7 (no `Envir.Version` bump), so the harness stays byte-identical in every phase. `Server.Persistence.Tests` after every phase.
+- **Logging (server.md §5.2):** log4net 3.3.0 only. New lines are `[Diag] Shadow …` and `[Store] …`, with fields only appended.
+- **Build (AGENTS.md):** `tools\verify.ps1` only, never into `Build\`. Deploys are user-run (`tools\deploy-with-backup.ps1`). Server.exe is AnyCPU, so the native `e_sqlite3.dll` (`runtimes\win-x64\native\`) must reach the run folder: `verify.ps1`'s server build fails if it's missing from the output, and the deploy script copies `runtimes\`.
+- **Known debt fixed by name in this phase** (approve at phase start, directive 5): Main's periodic design `SaveDB`, `SystemDataStale`, `GameDataSave.RunFileIo`'s game-thread branch, the GTMap block, the File.Replace backup of `Server.MirDB`. Nothing else.
+
+### Phase 7.1 — Storage seam (binary only, its own deploy)
+
+**Goal:** the save/load code moves behind an interface with **no behaviour change**. After this, adding a backend is one class.
+
+**Work:**
+1. **`IWorldStore`** in `Server/MirEnvir/Storage/`:
+   - `LoadDesign(Envir target)`, `SaveDesign(Envir source, string backupFileName)`, `SaveRuntime(Envir source)` (the respawn tick counter).
+   - Accounts, guilds, goods and conquests are **not** in the interface. Their code stays in `Envir` (it stays binary for good).
+2. **`BinaryWorldStore`:** moves `SaveDB(string)` (`Envir.cs` ~3082-3170) and `LoadDB` (~3573-3702, all of it system data; accounts are in `LoadAccounts`) out of `Envir` verbatim.
+   - `SaveDB()` / `SaveDB(string)` / `LoadDB()` stay as one-line forwarders, so the 29 `SaveDB()` calls in 19 files (18 in 13 WinForms forms, 11 in 6 web admin files; tests and `tools/scratch-world` add 4) and SMain's Edit `LoadDB` don't change. Re-count them at phase start.
+   - Serialise to a `MemoryStream`, then write the file (the P2 temp-file + `File.Replace` swap stays). The bytes are what shadow mode (7.2) fingerprints.
+   - `LoadVersion` stays set under `LoadLock`. The F4 published respawn tick (`_publishedRespawnTick`, ~3138) moves with the code unchanged.
+3. **`WorldBinder`:** the post-load bindings, called after `LoadDesign` for every backend, in today's order:
+   - `FillMagicInfoList` / `UpdateMagicInfo`, `BindGameShop` (keeps dropping unbound items, now with a log line per dropped item), `ItemInfo.RandomStats`, `SafeZoneInfo.Info`, `Settings.LinkGuildCreationItems` (~3698), and the quest / drop / dragon `.txt` loads.
+   - Write down the current call order (including where `Settings.LoadRandomItemStats` / `LoadMines` run relative to `LoadDB`) in a comment at the top of the class. 7.2 and 7.4 depend on it.
+   - **Two traps to keep:** `BindGameShop` always binds to `Edit.ItemInfoList`, even for Main (`Envir.cs` ~5813, server.md ~443), so Edit must load before Main. `UpdateMagicInfo` is gated on the static `LoadVersion <= 70` (~3668), so a non-binary load must set `LoadVersion = Version` under `LoadLock`.
+4. **Selection:** `Envir.Store` is set once at startup from `[Database] Backend` (only `Binary` accepted in 7.1; any other value refuses to start with a clear message).
+
+**Tests and smoke check:**
+- `tools\verify.ps1` (all keys). `Server.Persistence.Tests` byte harness and oracle unchanged on the v118 and v119 fixtures. `Server.WebAdmin.Tests`.
+- New test: `WorldBinder` runs the same bindings in the same order for a fixture as the old `LoadDB` (oracle equal).
+- **Smoke:** a scratch server (`tools\start-scratch-server.ps1`), one web Game Data save, one restart, oracle of the restarted world equals the oracle before.
+
+**Subagents (1):** the main session does the move (it's mechanical). **Reviewer** (server persistence): diff the moved code against the old `Envir.cs` region line by line, list any behaviour change, and check that no `SaveDB`/`LoadDB` caller changed thread or lock.
+
+**Gate and rollback:** the tests and the smoke check pass. Rollback: previous binaries.
+
+**Done 2026-10-20 (uncommitted).** `Server/MirEnvir/Storage/{IWorldStore,BinaryWorldStore,WorldBinder}.cs`; `Envir.SaveDB(string)` / `LoadDB()` are forwarders; `Server.Persistence.Tests/WorldBinderTests.cs` (2 tests). `tools\verify.ps1` passed (all builds; WebAdmin 983, Shared 73 ×2, Persistence 38, MirDbExport 19). Smoke: a scratch server booted, stopped and rebooted on the moved load path (the scratch stop doesn't save, so the save path is proven by the persistence byte harness, not the smoke run). One reviewer: no must-fix; a partial-load note was added to `WorldBinder`. Differences from the plan above, all to keep 7.1 free of behaviour changes:
+- `IWorldStore` has only `LoadDesign` and `SaveDesign`. `SaveRuntime` comes with the SQLite store (7.2), where it has a meaning.
+- `Envir.Store` is a static `BinaryWorldStore`; the `[Database] Backend` key comes in 7.2 with its second value.
+- The save still streams straight to the temp file (no `MemoryStream`): 7.2's shadow hash can be computed while writing.
+- `BindGameShop` drops still aren't logged.
+- The quest / drop / recipe / dragon `.txt` loads stay in `StartEnvir` (they were never in `LoadDB`); `WorldBinder` holds only what `LoadDB` bound.
+
+### Phase 7.2 — `SqliteWorldStore` and shadow mode (deployed with `Backend=Binary`, `Shadow=true`)
+
+**Goal:** the whole SQLite store is built and exercised on live data every save, while the binary file stays the store of record.
+
+**Work:**
+1. **Package (D5)** in Server.Library. Confirm the native DLL lands in a `verify.ps1` server build output.
+2. **Schema v2** (`meta.schema_version = 2`), built from the step 1 schema:
+   - The 19 registry tables, with D2's keys for the map and conquest children.
+   - `respawn_tick (BaseSpawnRate)` and `respawn_tick_options (position, UserCount, DelayLoss)`: design data missing from step 1.
+   - `runtime_state (name TEXT PRIMARY KEY, value ANY)`: `RespawnTick.CurrentTickcounter` (ulong; error if > `long.MaxValue`). Only Main writes it.
+   - `index_counters` as loaded, never recomputed. `meta` as step 1, plus `source` (`import` / `save`).
+   - **The three linked files** (rows point at them by position or name, so they move with the DB): `random_item_stats` (position = today's `RandomStatsId`), `mines` (keyed by the same position the mine zones use today), `routes` + `route_points` (keyed by route name for now; `RespawnInfo.RoutePath` stays a name until 7.4 replaces name links).
+   - **Sentinels are NULL links, not errors:** `RandomStatsId = 255` (new items, `Envir.cs` ~5584) or any id past the list (`LoadDB` skips it, ~3638), mine index 0 ("no mine": `Map.cs` ~705 uses `MineIndex - 1`), and an empty or missing route (`MapRespawn.LoadRoutes` returns silently and skips bad lines, `Map.cs` ~2720-2732).
+   - **The three lists are process-wide statics** (`Settings.RandomItemStatsList`, `MineSetList`), mutated in place from web threads (`BalanceRoutes.cs` ~530) and forms (`MiningInfoForm.cs` ~150) and read live by Main. Each gets its own save job, encoded on the editing thread. `Settings.Load` (`Settings.cs` ~684) runs before any store is open: either open the store first, or defer those loads until it is (decide from the auditor's list).
+   - **Routes** are preloaded into memory at design load. `MapRespawn`'s ctor (`Map.cs` ~2701) and `LiveDbHooks.cs` ~478 read that cache; the game thread never queries the store.
+   - The GTMap block is not carried (written, never read). Main writes a non-empty one (built in `StartEnvir`, ~4382-4403) and Edit an empty one, so the byte round trip compares up to the GT trailer.
+3. **`SqliteWorldStore : IWorldStore`:**
+   - **One writer thread** owns the only connection (`Pooling=False`, rollback journal, `synchronous=FULL`). Jobs come through a `BlockingCollection`. Each save job is one transaction: delete and re-insert the design tables (D4).
+   - **Encode** on the calling thread, into a detached `WorldRows` snapshot (primitives, strings, `int[]`; no model references), using the step 1 encoding rules. The writer only sees `WorldRows`.
+   - **Decode** builds the model objects directly (no binary ctors; the only static it sets is `LoadVersion = Version`, under `LoadLock`), then `WorldBinder` runs as for the binary store. Loads go through the writer thread too, so they are ordered after pending saves. Loud decode: an unknown column, a NULL in a NOT NULL column or a type mismatch fails the load with table, key and column. A link that is neither valid nor a sentinel is logged with table, key and column and counted, but doesn't fail the boot (today's loader skips it too).
+   - **File rules:** refuse a missing or 0-byte file unless importing; `PRAGMA integrity_check` on open; `.tmp` + move for the first creation.
+   - **Import** (`--import-binary`, or first boot with `Backend=Sqlite` and no `.db`): load `Server.MirDB` through `BinaryWorldStore`, save through `SqliteWorldStore`, run the verifier against it, and only then move the `.db` into place. `Server.MirDB` is left untouched as the rollback. **Automatic import only when there is no prior `.db` evidence** (no `.db` in `Back Up\Database`, no `.db.tmp`), mirroring `HasPriorDataEvidence` (`Envir.cs` ~3579). Otherwise refuse to start, so a lost `.db` never silently re-imports a stale `Server.MirDB`.
+   - **Export** (`--export-binary <folder>`): load from SQLite, write `Server.MirDB` through `BinaryWorldStore` **and** the three linked files (`RandomItemStats.ini`, `Mines.ini`, the route `.txt` files) through their existing `Save*` code. Never overwrites existing files without `--force`.
+   - **Backups and restore (code here, switched on at the flip):** `VACUUM INTO 'Back Up\Database\<name>.db'` on the writer thread, with today's retention (check that `BackupRetention`'s file patterns match `.db`). The web admin `BackupRoutes` backup asks the writer. Its restore route (`SwapIn`, `CheckBackupHeader`, `ReloadEditDatabase`, ~418-445) gets a store path: the writer closes the connection, the file is swapped, the writer reopens it and runs `integrity_check`, then Edit reloads. While `Backend=Binary`, both stay as they are today.
+4. **Shadow mode** (`[Database] Shadow=true`, Backend=Binary):
+   - After every binary design save (Main's periodic save, Edit saves from the web and from the forms), the saving thread builds `WorldRows` and posts it with the SHA-256 of the binary bytes. The linked lists post their own rows after their saves. Cost on the game thread: one encode, measured by the P6 profiler as part of `save ms`. Budget: under 5 ms p99. If it's over, shadow only Edit saves (with LiveDb, Main skips its design saves once Edit has saved anyway).
+   - The writer writes `Server.MirDB.shadow.db` with the hash in `meta.source_sha256`. Output: a `[Diag] Shadow` line per save (encode ms, write ms, rows); a write failure logs at error level.
+   - **The check (D1):** a new `MirDbExport roundtrip <folder>` loads the shadow `.db` through `SqliteWorldStore` in its own process, saves it through `BinaryWorldStore` to a temp file and compares the bytes (up to the GT trailer) with whichever of `Server.MirDB` and `Back Up\Database\*` has the recorded hash, so it never races Main's next save. It compares the linked files too. It runs at the end of the 7.2 smoke and the 7.3 soak; on a mismatch it lists table, key and column (the step 1 verifier's output).
+5. **Byte-identical round trip** (from `P7-SQLite-Export.md` "Next steps" 3): binary → SQLite → load → binary must give the same bytes. Handle explicit `Stats` zero entries by storing them (a `stats_zero` flag per row is enough), not by normalising.
+
+**Tests and smoke check:**
+- `Server.Persistence.Tests`: round trip on the v118 and v119 fixtures and on `SyntheticWorld` with every child kind; the 10 corruption cases from step 1 now fail the **load** loudly; a 0-byte or missing file is refused; automatic import refuses when a `.db` backup exists; import then export gives the same bytes and linked files; sentinel links (255, mine 0, missing route) load as today; the SQLite decode calls no binary ctor.
+- `tools/MirDbExport.Tests` on the new package version. `Server.WebAdmin.Tests` (BackupRoutes).
+- **Smoke:** scratch server with `Shadow=true` under 50 StressClient bots for 30 min plus 5 web Game Data saves: `[Diag] Shadow` shows no write failures and the encode stays inside the budget; then `MirDbExport roundtrip` on the scratch folder exits 0.
+
+**Subagents (2):**
+- **Auditor (at the start, read-only):** list every reader and writer of the three linked files (Settings loaders, `ConfigRoutes`, WinForms forms, `MapRespawn.LoadRoutes`), the exact load order, and every `Envir` static that a model ctor or `Save` touches. The store and the binder are designed from this list.
+- **Reviewer (at the end, server):** writer-thread ownership, lock order, the game thread never waiting, loud decode, and the import path never touching `Server.MirDB`.
+
+**Gate:** the smoke passes with a restart and web Game Data saves, 0 shadow write failures, `roundtrip` exit 0, and the step 1 `verify` on a copy of the live data with 0 mismatches. Rollback: `Shadow=false` (no data depends on the shadow file).
+
+### Phase 7.3 — Flip and retire (an operation, then one deletion commit)
+
+**Goal:** SQLite becomes the store of record for system data. Once the soak and the rollback drill pass, the binary writer goes.
+
+**Steps:**
+1. **Scratch soak:** `Backend=Sqlite` on a scratch copy of live data, 200 StressClient bots for 60 min, web edits during the run, one restart, one `--export-binary` and a binary boot from it (the rollback path), one `VACUUM INTO` backup restored.
+2. **Snapshot** of the live folder (Runbook), then the user flips live: `Backend=Sqlite`. First boot imports. Not in the same deploy as a C5 or P9 change.
+3. **What changes at the flip (code shipped in 7.2, switched by the flag):**
+   - Edit is the only writer of design data. Editor and web saves go to the writer and wait for its commit; a failure reaches the web user and the form as an error, as file errors do today.
+   - **`GameDataSave.RunFileIo` (~122) always runs inline on the caller's thread in this mode.** Today it runs the IO on the game thread whenever `!SystemDataStale`, and the reload route calls `RunFileIo(() => edit.LoadDB())` (`GameDataRoutes.cs` ~523). With SQLite that would make the game thread wait for the writer.
+   - Main no longer saves design data. Its periodic save posts only `runtime_state` (no wait), so an editor save can't roll the respawn counter back and Main can't overwrite newer design data. `SystemDataStale` stops mattering in this mode.
+   - Settings loaders for the three linked files read the store; their editors write the store. Backups switch to `VACUUM INTO` and the restore route to the store path.
+4. **Rollback drill** on a scratch copy: `--export-binary`, boot `Backend=Binary`, oracle equal. The live log shows 0 decode errors and 0 `[Store]` save failures after the flip.
+5. **Retire (one commit, after the drill):**
+   - Delete the `Envir.SaveDB` body (the server never writes `Server.MirDB` again), Main's design save path, `SystemDataStale`, `RunFileIo`'s game-thread branch and the shadow code. Keep `BinaryWorldStore`'s **reader** for import and old backups, and the models' `Save(BinaryWriter)` methods (D6).
+   - `--export-binary` stays, served from `tools/MirDbExport`, outside the server. The schema unfreezes: additive columns from here on.
+6. **Lift the freeze** on new MirCraft game-data editing. Rewrite server.md §2.6, §3.4, §4.3, the AGENTS.md new-saved-fields rule and the Runbook restore section. Update `roadmap.md` status.
+
+**Tests and smoke check:** the 7.2 suites, minus the shadow tests. **Smoke:** after the retire commit, a scratch server boots from a `VACUUM INTO` backup and passes one web save and one restart.
+
+**Subagents (1):** **Reviewer** of the retire commit: nothing still writes `Server.MirDB` on the server, `SaveAccounts` and the guild/goods/conquest saves are untouched, and every deleted call site has a store replacement.
+
+**Gate:** the soak and the rollback drill pass, 0 decode errors. Rollback before the retire commit: `--export-binary` (DB and linked files; nothing is lost because the schema is frozen), then the previous build with `Backend=Binary`.
+
+### Phase 7.4 — The remaining file-based design data (one group per deploy)
+
+**Goal:** the design data in loose files moves into the store, with name links replaced by Index links.
+
+**Groups, in order** (each: tables + exporter/verifier specs + loader switch + its editors + `--export-files` for rollback):
+1. **Drops:** `Envir\Drops\<Monster>.txt`, plus Fishing, Awakening, Strongbox, Blackstone and `DragonItem.txt` (`Envir.cs` ~6855-6883, `DragonInfo.cs` ~91). Linked to monsters by Index; every name that doesn't resolve is listed at import and fails the import (no silent skip).
+2. **Quest bodies:** `Envir\Quests\*.txt` (`QuestInfo.LoadInfo`): tasks, rewards, carry items and text, as child tables of `quests`.
+3. **Recipes, exp and stat tables:** `Envir\Recipe\*.txt` (`RecipeInfo.cs`); `ExpList`, `OrbsExpList`, `HeroExpList`, `BaseStats<Job>`, `HeroBaseStats<Job>`.
+4. **Feature settings:** the `*System.ini` files, `GuildSettings`, `HeroSettings`, `MonsterRarity`, `WorldMap` (`Settings.cs` ~1028-1830), then the `Setup.ini` `[Game]` / `[Items]` keys (D8). Each becomes a `settings_<group>` key/value table with typed values; `ConfigRoutes.cs` and `ConfigForm` write the store for these keys and the ini for the rest.
+5. Then `RespawnInfo.RoutePath` becomes a route Index.
+
+**Per group:**
+- The text loader stays the importer and the source of truth for the row shape. `--export-files` writes the original text format back, byte-compared with the source on the fixtures.
+- Shadow per group on a scratch server: the file stays of record and the table is mirrored for the smoke run, then switch the group (`[Database] Files=<group list>`).
+- Tests: import → export-files gives the same text on synthetic fixtures; a dangling name fails loudly.
+- **Smoke:** scratch server with the group switched: kill one monster per drop file kind, complete one quest, craft one recipe, level one character, as relevant to the group.
+
+**Subagents (2):** **Builder:** the exporter/verifier specs and `--export-files` for the group, in `tools/MirDbExport` only (no file overlap with the main session's loader work). **Reviewer:** the loader switch and the name-to-Index import.
+
+**Gate per group:** the shadowed smoke has 0 mismatches and the switched smoke has 0 decode errors. Rollback: `--export-files`, then drop the group from `Files=`.
+
+### Not in P7
+
+Row-level Game Data saves with `__rev` (LiveDb-lite), `Envir\Values`, `Envir\NameLists` (they wait for table-backed NPC commands), `Archive\*.MirCA`, the optional files (D7), `BuffInfo` (code), and the unsaved runtime state listed in `P7-SQLite-Export.md` ("Not saved at all").
+
+### WoOOLcraft lessons (built into the steps above)
+
+- **Enums by name plus a swallowed catch** zeroed `MonsterInfo.Image` within a week → integer enums, loud decode (7.2).
+- **Recomputed `max(Index)`** reuses deleted indexes → `index_counters` as loaded (7.2).
+- **Two in-memory copies** with a live mirror caused H1, even after SQLite. The single writer is what fixed it, not the file format → Edit is the only design writer, Main writes `runtime_state` only (7.3).
+- **A 0-byte file** silently became an empty DB → refuse it (7.2).
+- **Unpruned backups** reached 12 GB → `VACUUM INTO` with today's retention (7.2).
 
 ---
 

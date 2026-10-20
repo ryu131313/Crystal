@@ -264,7 +264,10 @@ Client track · parallel from week 1
 5. **Burn-in.** At least 4 weeks, with a rollback drill. Then delete the binary writer, keeping a standalone importer for old backups.
 
 Other details:
-- **Scope:** accounts, guilds, goods and conquests stay binary. NPC scripts, drops and quests stay as text.
+- **Scope (widened 2026-10-20, user decision):** everything the server treats as design data comes into SQLite, not only `Server.MirDB`. That covers the loose files that DB rows point at, drops, quest bodies, recipes, the exp and base-stat tables, the `*System.ini` files and the game-tuning half of `Setup.ini`. The inventory, its order and the open questions are in `Future Ideas/P7-SQLite-Export.md` § "Scope widened 2026-10-20".
+  - These stay binary: accounts, guilds, goods and conquests.
+  - These stay as files: NPC scripts (including `SystemScripts`), `.map` files and previews.
+  - `Envir\Values` and `Envir\NameLists` are player and world state. They move later, once the NPC commands write to a table instead of to a script-supplied file path.
 - **WoOOLcraft lessons built in:** integer enums, loud decode errors, persisted index counters, and refusing to create an empty DB.
 - **Gate:** the verifier shows 0 mismatches, the shadow week is clean, the restore drill passes, and the burn-in has 0 decode errors.
 
@@ -440,7 +443,7 @@ Later decisions are listed per phase in the phase notes. **Answered 2026-10-09:*
 | P4 Server .NET 10 | Live 2026-10-10 on .NET 10 Desktop Runtime 10.0.11 | `Future Ideas/Overnight-Log-2026-10-10.md` D43 | 2026-10-10 |
 | P5 Safety net | Live 2026-10-10 (runtime fault injection still open) | `Future Ideas/Overnight-Log-2026-10-10.md` D43 | 2026-10-10 |
 | P6 Measurement | Tools, baseline and 60-min 300-bot soak done 2026-10-10; loop changes live | `Future Optimisation/Baseline-2026-10-10.md`, `Soak-2026-10-10.md`, `tools/run-baseline.ps1`, `tools/run-soak.ps1` | 2026-10-10 |
-| P7 SQLite system data | Step 1 (exporter + verifier) done 2026-10-10; seam/shadow/flip need live data | `Future Ideas/P7-SQLite-Export.md` | — |
+| P7 SQLite system data | Step 1 (exporter + verifier) done 2026-10-10. Scope widened 2026-10-20 to the file-based design data, which the exporter doesn't cover yet. No time gates (user, 2026-10-20: not open to players yet). Phase 7.1 (storage seam) done 2026-10-20; plan in `Future Ideas/Roadmap-Phase-Notes.md` P7 | `Future Ideas/P7-SQLite-Export.md` | — |
 | P8 Security | Live 2026-10-10 (v2 hashes off by default; X1-17 decision + X1-20 retire decision open) | `Future Ideas/Overnight-Log-2026-10-10.md` D37, D39 | 2026-10-10 |
 | P9 Optimisation | Started 2026-10-10; P9-01/02 live | P9-01 encode-once, P9-02 player process interval (`Future Optimisation/P9-0*.md`) | Gate: quiet-machine rerun + 2 h soak |
 | C1 Client fixes + goldens | Done 2026-10-10: fixes, shaders, golden harness (15 scenarios, goldens outside git), frame profiler | `Client/D3D11-Parity.md` | — |

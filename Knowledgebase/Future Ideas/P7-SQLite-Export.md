@@ -183,3 +183,79 @@ The verifier compares against the same loaded state, so it can't see these drops
    - The `ToolTip` null flag (`writer.Write(ToolTip != null)`) is carried by TEXT NULL.
 4. **Shadow mode:** run this exporter's encoding (or the store's) off the game thread on a snapshot, then this verifier's comparison. Its output already names table, key and column per mismatch.
 5. **Gate tooling:** exit codes are CI-friendly. Point `verify` at a copy of the live `Server.MirDB` (never `Build\` in place) to get the P7 step 1 gate number on real data.
+
+## Scope widened 2026-10-20: data outside `Server.MirDB`
+
+**Decision (user, 2026-10-20):** P7 brings in all the design data the server reads from loose files, not only the binary `Server.MirDB`. This replaces the roadmap's earlier scope ("NPC scripts, drops and quests stay as text"). The inventory below was surveyed and then checked by a separate review pass (code references are approximate).
+
+### Design data to move, in order
+
+**First: files that DB rows point at by number or name.** Today a row in the DB depends on a separate file.
+
+| Data | Today | Linked from |
+|---|---|---|
+| Random item stats | `Configs\RandomItemStats.ini` (`Settings.LoadRandomItemStats`) | `ItemInfo.RandomStatsId`, a position in `Settings.RandomItemStatsList` |
+| Mines | `Configs\Mines.ini` (`Settings.LoadMines`) | map mine zones, by position |
+| Monster respawn routes | `Envir\Routes\*.txt` (`MapRespawn.LoadRoutes`, `Map.cs` ~2715) | `RespawnInfo.RoutePath`, by name |
+
+**Then: other design data.**
+- **Drops:** `Envir\Drops\<Monster>.txt` (by `Name`, or `DropPath`), plus the Fishing, Awakening, Strongbox and Blackstone files and `DragonItem.txt` (`Envir.cs` ~6855-6883, `DragonInfo.cs` ~91). They're linked by monster name, so a rename silently breaks a monster's drops.
+- **Quest bodies:** `Envir\Quests\*.txt` (`QuestInfo.LoadInfo`). The DB holds only the header. Tasks, rewards, carry items and all the text are in the file.
+- **Recipes:** `Envir\Recipe\*.txt` (`Envir.cs` ~4363, `RecipeInfo.cs`).
+- **Exp and stat tables:** `ExpList`, `OrbsExpList`, `HeroExpList`, `BaseStats<Job>`, `HeroBaseStats<Job>` `.ini`.
+- **Feature settings:** the `*System.ini` files (Awakening, Fishing, Mail, Refine, Marriage, Mentor, Gem, Goods), plus `GuildSettings`, `HeroSettings`, `MonsterRarity` and `WorldMap`.
+- **`Setup.ini` `[Game]` and `[Items]`:** about 76 rate and starting-value keys. The ops half stays in the ini: network, paths, `[WebAdmin]`, threading. The web admin (`ConfigRoutes.cs`) and `ConfigForm` write `Setup.ini` at runtime, so the split decides which store each key's edit goes to.
+- **Respawn tick design data:** `BaseSpawnRate` and the `RespawnTickOption` list. They're already in `Server.MirDB`, but the exporter skips them (see "Completeness report").
+- **Optional:**
+  - `DisabledChars.txt`, `LineMessage.txt`, `Notice.txt`;
+  - `Envir\SET [].txt` (the flag-name catalog, read by the web admin `CharacterRoutes.cs` and `PlayerInfoForm`);
+  - the GETRANDOMTEXT files under `Envir\NPCs`.
+
+**Not moved:**
+- **`BuffInfo`:** 59 entries hard-coded in `BuffInfo.Load()`. They're code, so moving them means rewriting that method, not exporting a file.
+- **Magic defaults:** `FillMagicInfoList` is only a seed. After that the spells live in the DB.
+
+### Stays as files
+
+- NPC scripts, including `SystemScripts\`. Scripts `#INCLUDE`/`#INSERT` it, and the web admin edits it.
+- `.map` files, previews and minimaps.
+- The web admin's own files: `admins.dat`, the audit and LiveDb JSONL logs, chat logs, and `Back Up\WebAdmin\`.
+
+### Player and world state outside both DBs (not P7 design data)
+
+- **`Envir\Values\*`:** NPC `LOADVALUE`/`SAVEVALUE` (`NPCSegment.cs` ~3958-3985, ~4771-4786).
+  - The write is synchronous, isn't atomic and isn't backed up with `Server.MirADB`, and the path comes from the script.
+  - The live folder holds global state too: `GlobalVariables.txt`, `Gems.txt`, `ApPoint.txt`.
+  - No live script uses these commands today.
+- **`Envir\NameLists\*.txt`:** `ADDNAMELIST` and related commands (5 live uses), plus guild name lists. The web admin `NamelistRoutes` and the legacy `HttpServer` also write these files.
+- **Moving `Values` and `NameLists`:** they move only after the NPC commands get a table-backed API, mapping a path to a key. Split per-player state (it goes with accounts) from global state (it goes with world runtime state).
+- **`Archive\*.MirCA`:** full deleted or archived `CharacterInfo` records that can be restored (`Envir.cs` ~3172-3210). This is account data, so it belongs with accounts.
+- **Guild, conquest and goods side files** (`.mgd`, `.mcd`, `.msd`) stay binary under the roadmap scope.
+
+### Not saved at all (lost on restart)
+
+| State | Notes |
+|---|---|
+| `CharacterInfo.ChatBanned` / `ChatBanExpiryDate` | **Bug.** Never written by `CharacterInfo.Save`. Being fixed separately as a `Server.MirADB` change (an `Envir.Version` bump), outside P7 |
+| `Envir.IPBlocks` (manual and web-admin IP bans) | Static, memory only. Decide whether bans should survive a restart |
+| `Envir.GuildsAtWar` | Active wars end on restart |
+| `Envir.Timers` (global and per-player script timers) | Relative to `Envir.Time`, so they can't be saved as they are |
+| `MapObject.NPCVar`, `Poisons`, `MentalStateLvl` | Probably intended |
+| `ConquestObject` war in progress (`WarStartTime` / `WarEndTime` / `StartType`) | A forced or running war is lost |
+| `DragonInfo.Level` / `Experience`, `Envir.ScriptIndex` | Runtime only |
+
+### Unused files in the live folder
+
+No C# code in `Server`, `Server.MirForms` or `Shared` reads these, and that includes the web admin:
+- in `Configs\`: `Attributes.ini`, `BeneConfig.ini`, `BloodDice.ini`, `SWBuffConfig.ini`, `StatueBuffConfig.ini`, `HeroConfig.info`, `BaseStats.ini` (the copy without a class name), `Language.ini`, `FilterWords.txt`;
+- in `Envir\`: `BannedIPs.txt`, `LoginNotice.txt`, `Events\`.
+
+Nothing imports them, and they can be ignored. The user removes them from the live folder; agents never touch `Build\`.
+
+### What this adds to the next steps
+
+- **Exporter and verifier:** they need tables and specs for each moved file before shadow mode can cover it.
+  - The text-file loaders are the source of truth for their row shapes.
+  - Keep the same loud loss checks. For example, a drop line naming an item that doesn't exist must fail the export, not be skipped.
+- **Storage seam:** the file loads join the post-load bindings. During the binary period both backends must produce the same in-memory lists.
+- **Keys:** replace name links with Index links when importing (monster → drops, `RespawnInfo.RoutePath` → route). Report every name that doesn't resolve.

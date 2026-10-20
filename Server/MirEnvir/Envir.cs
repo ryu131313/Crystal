@@ -2,6 +2,7 @@ using ClientPackets;
 using Server.Library.MirDatabase;
 using Server.Library.Utils;
 using Server.MirDatabase;
+using Server.MirEnvir.Storage;
 using Server.MirNetwork;
 using Server.MirObjects;
 using Server.MirObjects.Monsters;
@@ -55,6 +56,9 @@ namespace Server.MirEnvir
         public static Envir Main { get; } = new Envir();
 
         public static Envir Edit { get; } = new Envir();
+
+        /// <summary>Where system data is loaded from and saved to (roadmap P7). Binary Server.MirDB is the only backend so far.</summary>
+        internal static IWorldStore Store { get; } = new BinaryWorldStore();
 
         protected static MessageQueue MessageQueue => MessageQueue.Instance;
 
@@ -231,7 +235,7 @@ namespace Server.MirEnvir
 
         private long warTime, guildTime, conquestTime, rentalItemsTime, auctionTime, spawnTime, robotTime, timerTime;
         private int dailyTime = DateTime.UtcNow.Day;
-        private bool MagicExists(Spell spell)
+        internal bool MagicExists(Spell spell)
         {
             for (var i = 0; i < MagicInfoList.Count; i++)
             {
@@ -240,7 +244,7 @@ namespace Server.MirEnvir
             return false;
         }
 
-        private void UpdateMagicInfo()
+        internal void UpdateMagicInfo()
         {
             for (var i = 0; i < MagicInfoList.Count; i++)
             {
@@ -322,7 +326,7 @@ namespace Server.MirEnvir
             }
         }
 
-        private void FillMagicInfoList()
+        internal void FillMagicInfoList()
         {
             //Warrior
             if (!MagicExists(Spell.Fencing))
@@ -3081,88 +3085,7 @@ namespace Server.MirEnvir
         /// </summary>
         public void SaveDB(string backupFileName)
         {
-            // Crash-safe save (roadmap P2): write a complete temp file, then swap it in with File.Replace, which also
-            // moves the previous file into Back Up\Database. Server.MirDB is never truncated in place, so a crash or an
-            // exception mid-write leaves the last good file (and a stale Server.MirDBn) instead of a half-written DB.
-            var tempPath = DatabasePath + "n";
-
-            using (var stream = File.Create(tempPath))
-            using (var writer = new BinaryWriter(stream))
-            {
-                writer.Write(Version);
-                writer.Write(CustomVersion);
-                writer.Write(MapIndex);
-                writer.Write(ItemIndex);
-                writer.Write(MonsterIndex);
-                writer.Write(NPCIndex);
-                writer.Write(QuestIndex);
-                writer.Write(GameshopIndex);
-                writer.Write(ConquestIndex);
-                writer.Write(RespawnIndex);
-
-                writer.Write(MapInfoList.Count);
-                for (var i = 0; i < MapInfoList.Count; i++)
-                    MapInfoList[i].Save(writer);
-
-                writer.Write(ItemInfoList.Count);
-                for (var i = 0; i < ItemInfoList.Count; i++)
-                    ItemInfoList[i].Save(writer);
-
-                writer.Write(MonsterInfoList.Count);
-                for (var i = 0; i < MonsterInfoList.Count; i++)
-                    MonsterInfoList[i].Save(writer);
-
-                writer.Write(NPCInfoList.Count);
-                for (var i = 0; i < NPCInfoList.Count; i++)
-                    NPCInfoList[i].Save(writer);
-
-                writer.Write(QuestInfoList.Count);
-                for (var i = 0; i < QuestInfoList.Count; i++)
-                    QuestInfoList[i].Save(writer);
-
-                DragonInfo.Save(writer);
-                writer.Write(MagicInfoList.Count);
-                for (var i = 0; i < MagicInfoList.Count; i++)
-                    MagicInfoList[i].Save(writer);
-
-                writer.Write(GameShopList.Count);
-                for (var i = 0; i < GameShopList.Count; i++)
-                    GameShopList[i].Save(writer);
-
-                writer.Write(ConquestInfoList.Count);
-                for (var i = 0; i < ConquestInfoList.Count; i++)
-                    ConquestInfoList[i].Save(writer);
-
-                // F4 (LiveDb): Edit is the only writer of system data once it has saved (SystemDataStale), but the respawn tick
-                // counter only advances in Main: write Main's published counter instead of Edit's frozen copy.
-                var published = Interlocked.Read(ref _publishedRespawnTick);
-                if (this == Edit && published >= 0)
-                    RespawnTick.Save(writer, (ulong)published);
-                else
-                    RespawnTick.Save(writer);
-
-                writer.Write(GTMapList.Count);
-                for (var i = 0; i < GTMapList.Count; i++)
-                    GTMapList[i].Save(writer);
-            }
-
-            if (File.Exists(DatabasePath))
-            {
-                if (!Directory.Exists(DatabaseBackUpPath)) Directory.CreateDirectory(DatabaseBackUpPath);
-
-                var fileName = !string.IsNullOrWhiteSpace(backupFileName)
-                    ? Path.GetFileName(backupFileName)
-                    : $"Database {Now.Year:0000}-{Now.Month:00}-{Now.Day:00} {Now.Hour:00}-{Now.Minute:00}-{Now.Second:00}.bak";
-
-                var backupFile = Path.Combine(DatabaseBackUpPath, fileName);
-
-                if (File.Exists(backupFile)) File.Delete(backupFile);
-                File.Replace(tempPath, DatabasePath, backupFile);
-            }
-            else
-            {
-                File.Move(tempPath, DatabasePath);
-            }
+            Store.SaveDesign(this, backupFileName);
 
             //WebAdmin: once the Edit envir has written Server.MirDB, Main's in-memory system data is stale until it reloads.
             if (this == Edit) _systemDataStale = true;
@@ -3258,7 +3181,7 @@ namespace Server.MirEnvir
         /// True when a missing live file is more likely lost than new: temp files from a save, or backups, exist.
         /// Used to refuse creating an empty database over data that should be restored instead (roadmap P2).
         /// </summary>
-        private static bool HasPriorDataEvidence(string livePath, string backupDir)
+        internal static bool HasPriorDataEvidence(string livePath, string backupDir)
         {
             if (File.Exists(livePath + "n") || File.Exists(livePath + "o")) return true;
             return Directory.Exists(backupDir) && Directory.EnumerateFiles(backupDir, "*.bak").Any();
@@ -3574,128 +3497,8 @@ namespace Server.MirEnvir
         {
             lock (LoadLock)
             {
-                if (!File.Exists(DatabasePath))
-                {
-                    if (HasPriorDataEvidence(DatabasePath, DatabaseBackUpPath))
-                    {
-                        // Fail closed (roadmap P2): a missing Server.MirDB next to backups/temp files means data was lost, not
-                        // that this is a new server. Creating an empty DB here would let the next save bury the real one.
-                        MessageQueue.Enqueue("[Load] Server.MirDB is missing but Back Up\\Database or Server.MirDBn exists. Refusing to create an empty database: restore the newest backup (Knowledgebase/Runbook.md).");
-                        return false;
-                    }
-                    SaveDB();
-                }
-
-                using (var stream = File.OpenRead(DatabasePath))
-                using (var reader = new BinaryReader(stream))
-                {
-                    LoadVersion = reader.ReadInt32();
-                    LoadCustomVersion = reader.ReadInt32();
-
-                    if (LoadVersion < MinVersion)
-                    {
-                        MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.CannotLoadDatabaseMinSupported), LoadVersion, MinVersion));
-                        return false;
-                    }
-                    else if (LoadVersion > Version)
-                    {
-                        MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.CannotLoadDatabaseMaxSupported), LoadVersion, Version));
-                        return false;
-                    }
-
-                    MapIndex = reader.ReadInt32();
-                    ItemIndex = reader.ReadInt32();
-                    MonsterIndex = reader.ReadInt32();
-
-                    NPCIndex = reader.ReadInt32();
-                    QuestIndex = reader.ReadInt32();
-
-                    if (LoadVersion >= 63)
-                    {
-                        GameshopIndex = reader.ReadInt32();
-                    }
-
-                    if (LoadVersion >= 66)
-                    {
-                        ConquestIndex = reader.ReadInt32();
-                    }
-
-                    if (LoadVersion >= 68)
-                        RespawnIndex = reader.ReadInt32();
-
-
-                    var count = reader.ReadInt32();
-                    MapInfoList.Clear();
-                    MapDetailsCache.Clear();
-                    for (var i = 0; i < count; i++)
-                        MapInfoList.Add(new MapInfo(reader));
-
-                    count = reader.ReadInt32();
-                    ItemInfoList.Clear();
-                    for (var i = 0; i < count; i++)
-                    {
-                        ItemInfoList.Add(new ItemInfo(reader, LoadVersion, LoadCustomVersion));
-                        if (ItemInfoList[i] != null && ItemInfoList[i].RandomStatsId < Settings.RandomItemStatsList.Count)
-                        {
-                            ItemInfoList[i].RandomStats = Settings.RandomItemStatsList[ItemInfoList[i].RandomStatsId];
-                        }
-                    }
-                    count = reader.ReadInt32();
-                    MonsterInfoList.Clear();
-                    for (var i = 0; i < count; i++)
-                        MonsterInfoList.Add(new MonsterInfo(reader));
-
-                    count = reader.ReadInt32();
-                    NPCInfoList.Clear();
-                    for (var i = 0; i < count; i++)
-                        NPCInfoList.Add(new NPCInfo(reader));
-
-                    count = reader.ReadInt32();
-                    QuestInfoList.Clear();
-                    for (var i = 0; i < count; i++)
-                        QuestInfoList.Add(new QuestInfo(reader));
-
-                    DragonInfo = new DragonInfo(reader);
-                    count = reader.ReadInt32();
-                    for (var i = 0; i < count; i++)
-                    {
-                        var m = new MagicInfo(reader, LoadVersion, LoadCustomVersion);
-                        if (!MagicExists(m.Spell))
-                            MagicInfoList.Add(m);
-                    }
-
-                    FillMagicInfoList();
-                    if (LoadVersion <= 70)
-                        UpdateMagicInfo();
-
-                    if (LoadVersion >= 63)
-                    {
-                        count = reader.ReadInt32();
-                        GameShopList.Clear();
-                        for (var i = 0; i < count; i++)
-                        {
-                            var item = new GameShopItem(reader, LoadVersion, LoadCustomVersion);
-                            if (Main.BindGameShop(item))
-                            {
-                                GameShopList.Add(item);
-                            }
-                        }
-                    }
-
-                    if (LoadVersion >= 66)
-                    {
-                        ConquestInfoList.Clear();
-                        count = reader.ReadInt32();
-                        for (var i = 0; i < count; i++)
-                        {
-                            ConquestInfoList.Add(new ConquestInfo(reader));
-                        }
-                    }
-
-                    if (LoadVersion > 67)
-                        RespawnTick = new RespawnTimer(reader);
-                }
-                Settings.LinkGuildCreationItems(ItemInfoList);
+                if (!Store.LoadDesign(this)) return false;
+                WorldBinder.Bind(this);
             }
 
             return true;
@@ -4046,6 +3849,8 @@ namespace Server.MirEnvir
 
         /// <summary>Main's RespawnTick.CurrentTickcounter, published by the game thread after RespawnTick.Process(); -1 until then (F4).</summary>
         private static long _publishedRespawnTick = -1;
+
+        internal static long PublishedRespawnTick => Interlocked.Read(ref _publishedRespawnTick);
 
         private static int _editorFormsOpen;
 
