@@ -19,6 +19,7 @@
 .PARAMETER Maps       World maps (start-scratch-server -Maps). Default 1.
 .PARAMETER MapsFrom   Copy real .map files from this folder (read-only) instead of synthetic maps; bots then get
                       --map-folder for A* on the real collision. Needs a fresh world, so the first scenario resets.
+.PARAMETER Scratch    Scratch root passed to start/stop-scratch-server.ps1. Default %TEMP%\mir2-p6-server.
 .PARAMETER BotArgs    Extra StressClient arguments for every bot scenario, e.g. '--no-director --roam-radius 30' for the
                       P9 "town" crowd (every new character starts at the world's start point).
 #>
@@ -32,13 +33,14 @@ param(
     [string]$Label = '',
     [ValidateRange(1, 20)][int]$Maps = 1,
     [string]$MapsFrom = '',
-    [string]$BotArgs = ''
+    [string]$BotArgs = '',
+    [string]$Scratch = (Join-Path $env:TEMP 'mir2-p6-server')
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $start = Join-Path $PSScriptRoot 'start-scratch-server.ps1'
 $stop = Join-Path $PSScriptRoot 'stop-scratch-server.ps1'
-$scratch = Join-Path $env:TEMP 'mir2-p6-server'
+$scratch = [IO.Path]::GetFullPath($Scratch)
 $runDir = Join-Path $scratch 'run'
 $pidFile = Join-Path $scratch 'server.pid'
 if (-not $Out) { $Out = Join-Path $repo ("Knowledgebase\Future Optimisation\Baseline-" + (Get-Date -Format 'yyyy-MM-dd') + ".md") }
@@ -64,7 +66,7 @@ function Get-DiagLines([datetime]$since) {
 
 function Summarize($lines) {
     # average numeric fields across the window's lines
-    $keys = 'it','busy','attributed','conn','mob','obj','maps','envir','admin','saves','park','other','pin','pout','bout','alloc','send','sends','bcast','scan','recv','ehit','emiss','coal','alone','batched'
+    $keys = 'it','busy','attributed','conn','mob','obj','maps','envir','admin','saves','park','other','pin','pout','bout','alloc','send','sends','bcast','scan','recv','ehit','emiss','coal','alone','batched','senc','scall','ssend','sarr','sbusy'
     $sum = @{}; $n = 0; $maxIt = 0.0
     foreach ($l in $lines) {
         $n++
@@ -81,9 +83,9 @@ function Summarize($lines) {
 
 $results = @()
 function Run-Scenario([string]$name, [bool]$mt, [int]$bots) {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $stop 2>$null | Out-Null
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $stop -Scratch $scratch 2>$null | Out-Null
     $reset = $script:results.Count -eq 0
-    $startParams = @{ Port = $Port; Multithreaded = $mt; ExtraIni = $ExtraIni; Maps = $Maps }
+    $startParams = @{ Scratch = $scratch; Port = $Port; Multithreaded = $mt; ExtraIni = $ExtraIni; Maps = $Maps }
     if ($MapsFrom) { $startParams.MapsFrom = $MapsFrom }
     if ($reset) { $startParams.Reset = $true } else { $startParams.NoBuild = $true }
     & $start @startParams | Out-Null   # same session: "exit" in the script only ends that script
@@ -123,7 +125,7 @@ try {
     foreach ($b in $Bots) { Run-Scenario "$b bots, Multithreaded on" $true $b }
 }
 finally {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $stop 2>$null | Out-Null
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $stop -Scratch $scratch 2>$null | Out-Null
 }
 
 $sb = New-Object System.Text.StringBuilder
@@ -150,14 +152,14 @@ foreach ($r in $results) {
 [void]$sb.AppendLine('')
 [void]$sb.AppendLine('Send path and wakes (P9-06; per second, averaged; `send` is ms/s of the end-of-iteration send pass, 0 when FlushAtEnd is off):')
 [void]$sb.AppendLine('')
-[void]$sb.AppendLine('| Scenario | ms/s conn + send | send | sends/s | broadcasts/s | players scanned/s | recipients/s | scanned per recipient | encodes/s | encode hits/s | coalesced/s | alone AI runs/s | batched moves/s |')
-[void]$sb.AppendLine('|---|---|---|---|---|---|---|---|---|---|---|---|---|')
+[void]$sb.AppendLine('| Scenario | ms/s conn + send | send | encode+copy | send call | sender sends/s | sender arrays/s | sender busy ms/s | sends/s | broadcasts/s | players scanned/s | recipients/s | scanned per recipient | encodes/s | encode hits/s | coalesced/s | alone AI runs/s | batched moves/s |')
+[void]$sb.AppendLine('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|')
 foreach ($r in $results) {
     $d = $r.Diag
     if (-not $d) { continue }
     $ratio = if ($d.recv -gt 0) { [math]::Round($d.scan / $d.recv, 2) } else { '' }
-    [void]$sb.AppendLine(("| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12} |" -f `
-        $r.Name, [math]::Round($d.conn + $d.send, 2), $d.send, $d.sends, $d.bcast, $d.scan, $d.recv, $ratio, $d.emiss, $d.ehit, $d.coal, $d.alone, $d.batched))
+    [void]$sb.AppendLine(("| {0} | {1} | {2} | {13} | {14} | {15} | {16} | {17} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12} |" -f `
+        $r.Name, [math]::Round($d.conn + $d.send, 2), $d.send, $d.sends, $d.bcast, $d.scan, $d.recv, $ratio, $d.emiss, $d.ehit, $d.coal, $d.alone, $d.batched, $d.senc, $d.scall, $d.ssend, $d.sarr, $d.sbusy))
 }
 [void]$sb.AppendLine('')
 [void]$sb.AppendLine('Bot client tail per run:')

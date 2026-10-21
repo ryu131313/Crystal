@@ -23,6 +23,7 @@ namespace Server.MirEnvir
         private static long _iterations, _iterationStart, _mark, _maxIterationTicks;
         private static long _packetsIn, _packetsOut, _bytesOut;
         private static long _sends, _encodeHits, _encodeMisses, _coalesced, _batchedMoves;
+        private static long _sendEncodeTicks, _sendCallTicks;
 
         /// <summary>
         /// Counters bumped from any thread that runs world code (game thread and mob threads), one instance per thread so the
@@ -95,6 +96,13 @@ namespace Server.MirEnvir
             public long AloneRuns { get; init; }
             /// <summary>Turn/walk/run packets sent inside an S.ObjectMoveBatch instead of on their own (P9-08).</summary>
             public long BatchedMoves { get; init; }
+            /// <summary>Game-thread ms in connection flushes (P9-09): encode + copy into the send array, and the socket send call.</summary>
+            public double SendEncodeMs { get; init; }
+            public double SendCallMs { get; init; }
+            /// <summary>Sender threads (P9-09): socket sends issued, flush arrays they carried, and sender thread busy ms.</summary>
+            public long SenderSends { get; init; }
+            public long SenderArrays { get; init; }
+            public double SenderBusyMs { get; init; }
         }
 
         /// <summary>The most recent one-second snapshot (null until the first publish).</summary>
@@ -135,6 +143,8 @@ namespace Server.MirEnvir
         public static void CountEncode(bool hit) { if (hit) _encodeHits++; else _encodeMisses++; }
         public static void CountCoalesced() => _coalesced++;
         public static void CountBatchedMoves(int moves) => _batchedMoves += moves;
+        /// <summary>One flush's Stopwatch ticks: encode + copy, and the socket send call (P9-09). Game thread only.</summary>
+        public static void CountSendTiming(long encodeTicks, long callTicks) { _sendEncodeTicks += encodeTicks; _sendCallTicks += callTicks; }
 
         /// <summary>One broadcast: <paramref name="scanned"/> players checked, <paramref name="recipients"/> enqueued. Any world thread.</summary>
         public static void CountBroadcast(int scanned, int recipients)
@@ -181,6 +191,8 @@ namespace Server.MirEnvir
                 c.Broadcasts = 0; c.Scanned = 0; c.Recipients = 0; c.AloneRuns = 0;
             }
 
+            Server.MirNetwork.SocketSender.TakeStats(out var senderSends, out var senderArrays, out var senderBusyMs);
+
             var snap = new Snapshot
             {
                 Utc = DateTime.UtcNow,
@@ -210,6 +222,11 @@ namespace Server.MirEnvir
                 Coalesced = _coalesced,
                 AloneRuns = aloneRuns,
                 BatchedMoves = _batchedMoves,
+                SendEncodeMs = Math.Round(ToMs(_sendEncodeTicks), 3),
+                SendCallMs = Math.Round(ToMs(_sendCallTicks), 3),
+                SenderSends = senderSends,
+                SenderArrays = senderArrays,
+                SenderBusyMs = Math.Round(senderBusyMs, 3),
             };
             Last = snap;
 
@@ -218,6 +235,7 @@ namespace Server.MirEnvir
             Array.Clear(_buckets);
             _iterations = 0; _maxIterationTicks = 0; _packetsIn = 0; _packetsOut = 0; _bytesOut = 0;
             _sends = 0; _encodeHits = 0; _encodeMisses = 0; _coalesced = 0; _batchedMoves = 0;
+            _sendEncodeTicks = 0; _sendCallTicks = 0;
 
             if (Settings.LogLoopProfile)
                 MessageQueue.Instance.EnqueueDebugging(Format(snap));
@@ -233,7 +251,8 @@ namespace Server.MirEnvir
                    $"pin={s.PacketsIn} pout={s.PacketsOut} bout={s.BytesOut} gc={s.Gen0}/{s.Gen1}/{s.Gen2} alloc={s.AllocatedBytes} gcpause={s.GcPauseMs}ms " +
                    $"hist={string.Join(",", s.Histogram.Values)} " +
                    $"send={p["Send"]} sends={s.Sends} bcast={s.Broadcasts} scan={s.BroadcastScanned} recv={s.BroadcastRecipients} " +
-                   $"ehit={s.EncodeHits} emiss={s.EncodeMisses} coal={s.Coalesced} alone={s.AloneRuns} batched={s.BatchedMoves}";
+                   $"ehit={s.EncodeHits} emiss={s.EncodeMisses} coal={s.Coalesced} alone={s.AloneRuns} batched={s.BatchedMoves} " +
+                   $"senc={s.SendEncodeMs} scall={s.SendCallMs} ssend={s.SenderSends} sarr={s.SenderArrays} sbusy={s.SenderBusyMs}";
         }
 
         private static string FormatUs(long us) => us >= 1000 ? (us / 1000) + "ms" : (us / 1000.0).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + "ms";

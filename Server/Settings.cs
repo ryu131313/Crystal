@@ -90,6 +90,7 @@ namespace Server
         public static bool FlushAtEnd = true;          // [Optimisation] FlushAtEnd: in-game sends go out at the end of the loop iteration, after monsters/objects/maps (P9-06)
         public static int SendFlushMs = 0;             // [Optimisation] SendFlushMs: with FlushAtEnd, in-game sends are grouped into one shared flush every N ms (0-5; 0 = every iteration) (P9-06)
         public static bool SendCoalesce = true;        // [Optimisation] SendCoalesce: an older pending health/name/colour/poison packet for the same object is dropped from a flush (P9-06)
+        public static int SendThreads = 1;             // [Optimisation] SendThreads: socket sends run on N dedicated sender threads instead of the game thread (0 = off, 1-4) (P9-09)
         public static int HumanIdleCapMs = 250;        // [Optimisation] HumanIdleCapMs: players with nothing urgent run Process when a timer is due, at least every N ms (0 = every HumanProcessMs) (P9-08)
         public static bool MoveBatch = false;          // [Optimisation] MoveBatch: send runs of turn/walk/run packets as one S.ObjectMoveBatch; needs clients built from the same commit (P9-08)
         public static bool SectorGrid = true;          // [Optimisation] SectorGrid: each map keeps its players by 8x8 sector for broadcasts and alone checks; read at world start (P9-07)
@@ -467,6 +468,8 @@ namespace Server
             SendFlushMs = Math.Max(0, Reader.ReadInt32("Optimisation", "SendFlushMs", SendFlushMs));
             if (SendFlushMs > 5) SendFlushMs = 5;
             SendCoalesce = Reader.ReadBoolean("Optimisation", "SendCoalesce", SendCoalesce);
+            SendThreads = Math.Max(0, Reader.ReadInt32("Optimisation", "SendThreads", SendThreads));
+            if (SendThreads > MirNetwork.SocketSender.MaxThreads) SendThreads = MirNetwork.SocketSender.MaxThreads;
             AloneCeiling = Reader.ReadBoolean("Optimisation", "AloneCeiling", AloneCeiling);
             HumanIdleCapMs = Math.Max(0, Reader.ReadInt32("Optimisation", "HumanIdleCapMs", HumanIdleCapMs));
             if (HumanIdleCapMs > 1000) HumanIdleCapMs = 1000;
@@ -802,6 +805,7 @@ namespace Server
             Reader.Write("Optimisation", "FlushAtEnd", FlushAtEnd);
             Reader.Write("Optimisation", "SendFlushMs", SendFlushMs);
             Reader.Write("Optimisation", "SendCoalesce", SendCoalesce);
+            Reader.Write("Optimisation", "SendThreads", SendThreads);
             Reader.Write("Optimisation", "AloneCeiling", AloneCeiling);
             Reader.Write("Optimisation", "HumanIdleCapMs", HumanIdleCapMs);
             Reader.Write("Optimisation", "MoveBatch", MoveBatch);

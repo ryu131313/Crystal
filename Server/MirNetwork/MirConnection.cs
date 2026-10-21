@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Drawing;
 using System.Net.Sockets;
 using Server.MirDatabase;
@@ -242,6 +243,14 @@ namespace Server.MirNetwork
         {
             if (!Connected || data.Length == 0) return;
 
+            // P9-09: hand the array to a sender thread. Arrays still queued there keep later sends on that path after the
+            // switch is turned off, so a direct send can never overtake them.
+            if (Settings.SendThreads > 0 || Volatile.Read(ref _queuedArrays) > 0)
+            {
+                QueueSend(data);
+                return;
+            }
+
             //Interlocked.Add(ref Network.Sent, data.Length);
 
             try
@@ -262,7 +271,176 @@ namespace Server.MirNetwork
             catch
             { }
         }
-        
+
+        #region Sender thread path (P9-09, [Optimisation] SendThreads)
+
+        /// <summary>Queued-but-unsent bytes above which the client counts as too slow and is disconnected.</summary>
+        private const long MaxQueuedBytes = 4 * 1024 * 1024;
+        private const int MaxArraysPerSend = 64;
+
+        // Written by any thread that sends (game thread; a WinForms kick), read by the sender side.
+        private readonly ConcurrentQueue<byte[]> _outbox = new ConcurrentQueue<byte[]>();
+        private int _queuedArrays;          // queued + in flight (Interlocked)
+        private long _queuedBytes;          // queued + in flight (Interlocked)
+        private volatile bool _sendFaulted; // a send failed or the client fell too far behind; the game thread disconnects
+        private int _sendState;             // 0 idle, 1 owned by a sender thread or a send completion (Interlocked)
+        private int _closed;                // 1 once the sender side has disposed the socket
+        private long _closeDeadline;        // Environment.TickCount64; written by Disconnect before CloseWhenDrained
+
+        // Owned by whoever holds _sendState.
+        private SocketAsyncEventArgs _sendArgs;
+        private readonly List<ArraySegment<byte>> _sendSegments = new List<ArraySegment<byte>>();
+        private int _inFlightArrays, _inFlightBytes;
+
+        /// <summary>Queues one flush's bytes for a sender thread, in order. Any thread; no locks.</summary>
+        private void QueueSend(byte[] data)
+        {
+            if (_sendFaulted) return;
+
+            if (Interlocked.Add(ref _queuedBytes, data.Length) > MaxQueuedBytes)
+            {
+                // Dropping a part of the stream corrupts it, so nothing more is sent: the game thread disconnects (Process).
+                Interlocked.Add(ref _queuedBytes, -data.Length);
+                _sendFaulted = true;
+                MessageQueue.Enqueue($"[Optimisation] SendThreads: {IPAddress} has more than {MaxQueuedBytes / 1024} KB waiting to be sent; disconnecting a client that is too slow.");
+                return;
+            }
+
+            Interlocked.Increment(ref _queuedArrays);
+            _outbox.Enqueue(data);
+            if (Interlocked.CompareExchange(ref _sendState, 1, 0) == 0)
+                SocketSender.Schedule(this);
+        }
+
+        /// <summary>
+        /// Sends what the outbox holds, one send in flight at a time, until it is empty or a send is pending (its completion
+        /// continues). Called by the holder of <see cref="_sendState"/> only: a sender thread, or a send completion.
+        /// </summary>
+        internal void PumpSends()
+        {
+            while (true)
+            {
+                if (_outbox.IsEmpty)
+                {
+                    // Full fence (not Volatile.Write): the release must be visible before the re-check below, or an array
+                    // queued meanwhile could see 1, skip scheduling, and be stranded. A queued array that found 1: take it back.
+                    Interlocked.Exchange(ref _sendState, 0);
+                    if (_outbox.IsEmpty || Interlocked.CompareExchange(ref _sendState, 1, 0) != 0) return;
+                    continue;
+                }
+                if (!StartSend()) return;
+            }
+        }
+
+        /// <summary>Starts one send of up to <see cref="MaxArraysPerSend"/> queued arrays. True when it finished at once.</summary>
+        private bool StartSend()
+        {
+            byte[] first = null;
+            var bytes = 0;
+            _sendSegments.Clear();
+            while (_sendSegments.Count < MaxArraysPerSend && _outbox.TryDequeue(out var a))
+            {
+                first ??= a;
+                _sendSegments.Add(new ArraySegment<byte>(a));
+                bytes += a.Length;
+            }
+            _inFlightArrays = _sendSegments.Count;
+            _inFlightBytes = bytes;
+
+            if (_sendFaulted || Volatile.Read(ref _closed) == 1)
+            {
+                CompleteSend(true); // dropped: the stream is already broken or closed
+                return true;
+            }
+
+            try
+            {
+                if (_sendArgs == null)
+                {
+                    _sendArgs = new SocketAsyncEventArgs();
+                    _sendArgs.Completed += SendCompleted;
+                }
+                if (_sendSegments.Count == 1)
+                {
+                    _sendArgs.BufferList = null;
+                    _sendArgs.SetBuffer(first, 0, first.Length);
+                }
+                else
+                {
+                    _sendArgs.SetBuffer(null, 0, 0);
+                    _sendArgs.BufferList = _sendSegments;
+                }
+                SocketSender.CountSend(_inFlightArrays);
+                if (_socket.SendAsync(_sendArgs)) return false;
+            }
+            catch (ObjectDisposedException)
+            {
+                CompleteSend(false);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                MessageQueue.Enqueue(ex);
+                CompleteSend(false);
+                return true;
+            }
+
+            CompleteSend(_sendArgs.SocketError == SocketError.Success && _sendArgs.BytesTransferred == bytes);
+            return true;
+        }
+
+        private void SendCompleted(object sender, SocketAsyncEventArgs args)
+        {
+            // IO completion thread: nothing may escape (an unhandled exception here ends the process).
+            try
+            {
+                CompleteSend(args.SocketError == SocketError.Success && args.BytesTransferred == _inFlightBytes);
+                PumpSends();
+            }
+            catch (Exception ex)
+            {
+                _sendFaulted = true;
+                MessageQueue.Enqueue(ex);
+            }
+        }
+
+        private void CompleteSend(bool ok)
+        {
+            if (!ok) _sendFaulted = true;
+            Interlocked.Add(ref _queuedBytes, -_inFlightBytes);
+            Interlocked.Add(ref _queuedArrays, -_inFlightArrays);
+            _inFlightArrays = 0;
+            _inFlightBytes = 0;
+            _sendSegments.Clear();
+            // Let go of the sent arrays (a login burst can be MBs), so an idle connection holds none.
+            if (_sendArgs != null)
+            {
+                if (_sendArgs.BufferList != null) _sendArgs.BufferList = null;
+                else _sendArgs.SetBuffer(null, 0, 0);
+            }
+        }
+
+        /// <summary>
+        /// Sender thread, for a connection that <see cref="Disconnect"/> handed over: disposes the socket once every queued
+        /// send has finished, or at the deadline. True when done.
+        /// </summary>
+        internal bool TryFinishClose(long now)
+        {
+            if (Volatile.Read(ref _queuedArrays) > 0 && now < Volatile.Read(ref _closeDeadline)) return false;
+            Volatile.Write(ref _closed, 1);
+            try
+            {
+                _socket.Dispose();
+            }
+            catch (Exception ex)
+            {
+                MessageQueue.Enqueue(ex);
+            }
+            return true;
+        }
+
+        #endregion
+
         public void Enqueue(Packet p)
         {
             if (p == null) return;
@@ -346,6 +524,8 @@ namespace Server.MirNetwork
                 return;
             }
 
+            if (_sendFaulted) Disconnecting = true; // P9-09: a sender-thread send failed or the client fell too far behind
+
             var handled = false;
             while (!_receiveList.IsEmpty && !Disconnecting)
             {
@@ -427,6 +607,7 @@ namespace Server.MirNetwork
             // Encode first, then copy into one exact-size array: no List<byte> growth and no ToArray copy.
             // The array is handed to the socket, so it can't be reused; the scratch list only holds references.
             byte[] data;
+            var encodeStart = Stopwatch.GetTimestamp();
             try
             {
                 var total = 0;
@@ -469,7 +650,9 @@ namespace Server.MirNetwork
                 }
             }
 
+            var sendStart = Stopwatch.GetTimestamp();
             BeginSend(data);
+            LoopProfiler.CountSendTiming(sendStart - encodeStart, Stopwatch.GetTimestamp() - sendStart);
         }
 
         /// <summary>
@@ -1140,7 +1323,16 @@ namespace Server.MirNetwork
             _retryList = null;
             _rawData = null;
 
-            if (_client != null) _client.Client.Dispose();
+            if (_client != null)
+            {
+                // P9-09: sends still queued on a sender thread (S.Disconnect, a kick message) go out before the socket closes.
+                if (Volatile.Read(ref _queuedArrays) > 0)
+                {
+                    Volatile.Write(ref _closeDeadline, Environment.TickCount64 + SocketSender.CloseDrainMs);
+                    SocketSender.CloseWhenDrained(this);
+                }
+                else _client.Client.Dispose();
+            }
             _client = null;
         }
         /// <summary>

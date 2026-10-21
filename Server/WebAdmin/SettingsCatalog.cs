@@ -240,6 +240,8 @@ namespace Server.WebAdmin
                 "With 'Send at the end of each tick' on, in-game packets for all players are sent together at most every N ms, so a packet shared by many players is encoded once and duplicate state updates can be dropped. Adds up to N ms of delay. 0 = send every iteration.", min: 0, max: 5);
             Add(N, "Optimisation", "SendCoalesce", "SendCoalesce", B, "Drop superseded state updates",
                 "When a player has an older health, name, name-colour or poison update for the same object still waiting to be sent, the older one is dropped and only the newest is sent. Movement, attacks and effects are never dropped or reordered.");
+            Add(N, "Optimisation", "SendThreads", "SendThreads", I32, "Sender threads",
+                "Socket sends run on this many dedicated sender threads instead of the game loop. The loop still builds every player's packets; a sender thread hands them to the network within microseconds, in order. Packets that queue up for a player while a send is in progress leave together. A player more than 4 MB behind is disconnected. 0 = send on the game loop (old behaviour).", min: 0, max: 4);
             Add(N, "Optimisation", "HumanIdleCapMs", "HumanIdleCapMs", I32, "Idle player processing cap (ms)",
                 "A player with nothing urgent going on runs its housekeeping only when one of its timers (buffs, poison, regen, durability, mount, fishing, ...) is due, and at least every N ms, instead of every 'Player processing interval'. Sending a packet, being poisoned or getting a buff wakes the player at once. Heroes are not affected. 0 = off (old behaviour).", min: 0, max: 1000);
             Add(N, "Optimisation", "MoveBatch", "MoveBatch", B, "Batch movement packets",
