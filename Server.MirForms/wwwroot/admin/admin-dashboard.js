@@ -36,7 +36,8 @@
     { key: 'Maps', label: 'Maps', color: '#5fd38a' },
     { key: 'EnvirProcess', label: 'Envir', color: '#c38bff' },
     { key: 'AdminDrain', label: 'Admin', color: '#4fd1c5' },
-    { key: 'Saves', label: 'Saves', color: '#e0524d' }
+    { key: 'Saves', label: 'Saves', color: '#e0524d' },
+    { key: 'Send', label: 'Send', color: '#e8b04a' }
   ];
   // Series colours for threads: game thread first, then mob threads.
   var THREAD_COLORS = ['#ff7a1f', '#6cb6ff', '#5fd38a', '#c38bff', '#e8b04a', '#4fd1c5', '#ff8fb1', '#e8d3a0', '#9fd36c', '#b0a3ff'];

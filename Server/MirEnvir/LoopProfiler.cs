@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace Server.MirEnvir
 {
@@ -11,8 +12,8 @@ namespace Server.MirEnvir
     /// </summary>
     public static class LoopProfiler
     {
-        public enum Phase { Connections, MobBarrier, Objects, Maps, EnvirProcess, AdminDrain, Saves, Park, Other }
-        private const int PhaseCount = 9;
+        public enum Phase { Connections, MobBarrier, Objects, Maps, EnvirProcess, AdminDrain, Saves, Park, Other, Send }
+        private const int PhaseCount = 10;
 
         // iteration duration histogram upper bounds in microseconds; the last bucket is "everything slower"
         private static readonly long[] BucketUpperUs = { 100, 1000, 5000, 10000, 20000, 50000, 100000 };
@@ -21,6 +22,33 @@ namespace Server.MirEnvir
         private static readonly long[] _buckets = new long[BucketUpperUs.Length + 1];
         private static long _iterations, _iterationStart, _mark, _maxIterationTicks;
         private static long _packetsIn, _packetsOut, _bytesOut;
+        private static long _sends, _encodeHits, _encodeMisses, _coalesced;
+
+        /// <summary>
+        /// Counters bumped from any thread that runs world code (game thread and mob threads), one instance per thread so the
+        /// hot path is a plain field write. <see cref="Publish"/> sums and resets them while the mob threads are parked at the
+        /// barrier (P9-06).
+        /// </summary>
+        public sealed class ThreadCounters
+        {
+            public long Broadcasts, Scanned, Recipients, AloneRuns;
+        }
+
+        [ThreadStatic] private static ThreadCounters _local;
+        private static readonly ConcurrentQueue<ThreadCounters> _allCounters = new ConcurrentQueue<ThreadCounters>();
+
+        /// <summary>This thread's counters (registered once per thread).</summary>
+        public static ThreadCounters Local
+        {
+            get
+            {
+                var c = _local;
+                if (c != null) return c;
+                c = _local = new ThreadCounters();
+                _allCounters.Enqueue(c);
+                return c;
+            }
+        }
         private static long _lastPublish = Stopwatch.GetTimestamp();
         private static int _gen0, _gen1, _gen2;
         private static long _allocated;
@@ -52,6 +80,19 @@ namespace Server.MirEnvir
             public MobThreadLoad[] MobThreads { get; init; }
             /// <summary>Distinct monsters that ran AI in the window (due scheduler; -1 when not counted).</summary>
             public int MonstersAwake { get; init; } = -1;
+            /// <summary>Socket sends (one per connection flush).</summary>
+            public long Sends { get; init; }
+            /// <summary>Broadcast calls, players checked by them, and players they enqueued to (P9-06).</summary>
+            public long Broadcasts { get; init; }
+            public long BroadcastScanned { get; init; }
+            public long BroadcastRecipients { get; init; }
+            /// <summary>Encode-once cache hits and misses (a miss is one real encode).</summary>
+            public long EncodeHits { get; init; }
+            public long EncodeMisses { get; init; }
+            /// <summary>Superseded state packets dropped by SendCoalesce.</summary>
+            public long Coalesced { get; init; }
+            /// <summary>Monster AI runs that found the monster alone (no player near) and did nothing.</summary>
+            public long AloneRuns { get; init; }
         }
 
         /// <summary>The most recent one-second snapshot (null until the first publish).</summary>
@@ -88,7 +129,18 @@ namespace Server.MirEnvir
         }
 
         public static void CountPacketIn() => _packetsIn++;
-        public static void CountPacketsOut(int packets, int bytes) { _packetsOut += packets; _bytesOut += bytes; }
+        public static void CountPacketsOut(int packets, int bytes) { _packetsOut += packets; _bytesOut += bytes; _sends++; }
+        public static void CountEncode(bool hit) { if (hit) _encodeHits++; else _encodeMisses++; }
+        public static void CountCoalesced() => _coalesced++;
+
+        /// <summary>One broadcast: <paramref name="scanned"/> players checked, <paramref name="recipients"/> enqueued. Any world thread.</summary>
+        public static void CountBroadcast(int scanned, int recipients)
+        {
+            var c = Local;
+            c.Broadcasts++;
+            c.Scanned += scanned;
+            c.Recipients += recipients;
+        }
 
         /// <summary>Publishes and resets the window without mob thread data.</summary>
         public static void Publish() => Publish(null, -1);
@@ -119,6 +171,13 @@ namespace Server.MirEnvir
             var alloc = GC.GetTotalAllocatedBytes();
             var pause = GC.GetTotalPauseDuration();
 
+            long broadcasts = 0, scanned = 0, recipients = 0, aloneRuns = 0;
+            foreach (var c in _allCounters)
+            {
+                broadcasts += c.Broadcasts; scanned += c.Scanned; recipients += c.Recipients; aloneRuns += c.AloneRuns;
+                c.Broadcasts = 0; c.Scanned = 0; c.Recipients = 0; c.AloneRuns = 0;
+            }
+
             var snap = new Snapshot
             {
                 Utc = DateTime.UtcNow,
@@ -139,6 +198,14 @@ namespace Server.MirEnvir
                 GcPauseMs = Math.Round((pause - _gcPause).TotalMilliseconds, 3),
                 MobThreads = mobThreads,
                 MonstersAwake = monstersAwake,
+                Sends = _sends,
+                Broadcasts = broadcasts,
+                BroadcastScanned = scanned,
+                BroadcastRecipients = recipients,
+                EncodeHits = _encodeHits,
+                EncodeMisses = _encodeMisses,
+                Coalesced = _coalesced,
+                AloneRuns = aloneRuns,
             };
             Last = snap;
 
@@ -146,6 +213,7 @@ namespace Server.MirEnvir
             Array.Clear(_phaseTicks);
             Array.Clear(_buckets);
             _iterations = 0; _maxIterationTicks = 0; _packetsIn = 0; _packetsOut = 0; _bytesOut = 0;
+            _sends = 0; _encodeHits = 0; _encodeMisses = 0; _coalesced = 0;
 
             if (Settings.LogLoopProfile)
                 MessageQueue.Instance.EnqueueDebugging(Format(snap));
@@ -159,7 +227,9 @@ namespace Server.MirEnvir
                    $"conn={p["Connections"]} mob={p["MobBarrier"]} obj={p["Objects"]} maps={p["Maps"]} envir={p["EnvirProcess"]} " +
                    $"admin={p["AdminDrain"]} saves={p["Saves"]} park={p["Park"]} other={p["Other"]} " +
                    $"pin={s.PacketsIn} pout={s.PacketsOut} bout={s.BytesOut} gc={s.Gen0}/{s.Gen1}/{s.Gen2} alloc={s.AllocatedBytes} gcpause={s.GcPauseMs}ms " +
-                   $"hist={string.Join(",", s.Histogram.Values)}";
+                   $"hist={string.Join(",", s.Histogram.Values)} " +
+                   $"send={p["Send"]} sends={s.Sends} bcast={s.Broadcasts} scan={s.BroadcastScanned} recv={s.BroadcastRecipients} " +
+                   $"ehit={s.EncodeHits} emiss={s.EncodeMisses} coal={s.Coalesced} alone={s.AloneRuns}";
         }
 
         private static string FormatUs(long us) => us >= 1000 ? (us / 1000) + "ms" : (us / 1000.0).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + "ms";

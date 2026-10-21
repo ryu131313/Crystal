@@ -2212,7 +2212,8 @@ namespace Server.MirEnvir
                             LoopProfiler.Publish(mobLoad, awake);
                         }
 
-                        if (conTime != Time)
+                        var connPass = conTime != Time;
+                        if (connPass)
                         {
                             conTime = Time;
 
@@ -2446,6 +2447,14 @@ namespace Server.MirEnvir
                                 Type = ChatType.LineMessage
                             });
                         }
+
+                        LoopProfiler.Mark(LoopProfiler.Phase.Other);
+
+                        // P9-06: in-game sends go out here, after monsters, objects and maps ran, so this iteration's world
+                        // packets leave this iteration. One pass over all connections keeps encode-once to one encode.
+                        if (connPass && Settings.FlushAtEnd)
+                            FlushEndOfTick();
+                        LoopProfiler.Mark(LoopProfiler.Phase.Send);
 
                         LoopProfiler.EndIteration();
 
@@ -3034,6 +3043,39 @@ namespace Server.MirEnvir
                     WaitForSubThreads(false);
                     Info.Stop = true;
                 }
+            }
+        }
+
+        /// <summary>Next shared send tick for [Optimisation] SendFlushMs (game thread only).</summary>
+        private long _nextSendFlush;
+
+        /// <summary>
+        /// End-of-iteration send pass (P9-06, [Optimisation] FlushAtEnd). With SendFlushMs above 0 every in-game connection
+        /// sends on the same tick, so a packet broadcast to many players is still encoded once.
+        /// </summary>
+        private void FlushEndOfTick()
+        {
+            var flushMs = Settings.SendFlushMs;
+            var tick = flushMs <= 0 || Time >= _nextSendFlush;
+            if (tick && flushMs > 0) _nextSendFlush = Time - Time % flushMs + flushMs;
+
+            lock (Connections)
+            {
+                for (var i = Connections.Count - 1; i >= 0; i--)
+                {
+                    if (i >= Connections.Count) continue; // an isolated disconnect below may shrink the list
+                    var connection = Connections[i];
+                    try
+                    {
+                        connection.FlushEndOfTick(tick);
+                    }
+                    catch (Exception ex)
+                    {
+                        WorldErrors.Record(WorldErrors.Describe(connection), ex);
+                        IsolateConnection(connection);
+                    }
+                }
+                MirConnection.EndEncodePass();
             }
         }
 

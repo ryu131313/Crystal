@@ -1255,6 +1255,12 @@ namespace Server.MirObjects
         {
             long time = Envir.Time + 2000;
 
+            // P9-06 AloneCeiling: a monster alone with nobody near does nothing in Process until its next CheckAlone, so it
+            // sleeps until then instead of waking at the 2 s ceiling. Types with their own Process/ProcessAI/CheckAlone keep 2 s.
+            if (Settings.AloneCeiling && Alone && !Settings.MonsterProcessWhenAlone && Master == null && Target == null && !Dead
+                && AloneTime > time && !HasOwnAiLoop())
+                time = AloneTime;
+
             if (AloneTime < time && AloneTime > Envir.Time)
                 time = AloneTime;
 
@@ -1752,6 +1758,25 @@ namespace Server.MirObjects
                 ProcessRoam();
                 ProcessTarget();
             }
+            else
+                LoopProfiler.Local.AloneRuns++;
+        }
+
+        /// <summary>Monster types that override Process, ProcessAI or CheckAlone (they may act while alone); computed once per type.</summary>
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, bool> OwnAiLoopTypes = new System.Collections.Concurrent.ConcurrentDictionary<Type, bool>();
+        private sbyte _ownAiLoop = -1;
+
+        private bool HasOwnAiLoop()
+        {
+            if (_ownAiLoop < 0)
+                _ownAiLoop = (sbyte)(OwnAiLoopTypes.GetOrAdd(GetType(), static type =>
+                    Declares(type, nameof(Process), System.Reflection.BindingFlags.Public)
+                    || Declares(type, nameof(ProcessAI), System.Reflection.BindingFlags.NonPublic)
+                    || Declares(type, nameof(CheckAlone), System.Reflection.BindingFlags.NonPublic)) ? 1 : 0);
+            return _ownAiLoop == 1;
+
+            static bool Declares(Type type, string name, System.Reflection.BindingFlags visibility) =>
+                type.GetMethod(name, System.Reflection.BindingFlags.Instance | visibility, Type.EmptyTypes)?.DeclaringType != typeof(MonsterObject);
         }
 
         protected virtual void CheckAlone()

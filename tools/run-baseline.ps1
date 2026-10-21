@@ -16,6 +16,11 @@
 .PARAMETER ExtraIni   Setup.ini lines added to every scenario (A/B runs), e.g. '[Optimisation]','EncodeOnce=False'.
 .PARAMETER NoIdle     Skip the two idle scenarios.
 .PARAMETER Label      Text added to the report heading.
+.PARAMETER Maps       World maps (start-scratch-server -Maps). Default 1.
+.PARAMETER MapsFrom   Copy real .map files from this folder (read-only) instead of synthetic maps; bots then get
+                      --map-folder for A* on the real collision. Needs a fresh world, so the first scenario resets.
+.PARAMETER BotArgs    Extra StressClient arguments for every bot scenario, e.g. '--no-director --roam-radius 30' for the
+                      P9 "town" crowd (every new character starts at the world's start point).
 #>
 param(
     [string]$Out = '',
@@ -24,7 +29,10 @@ param(
     [int]$Port = 17000,
     [string[]]$ExtraIni = @(),
     [switch]$NoIdle,
-    [string]$Label = ''
+    [string]$Label = '',
+    [ValidateRange(1, 20)][int]$Maps = 1,
+    [string]$MapsFrom = '',
+    [string]$BotArgs = ''
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
@@ -56,7 +64,7 @@ function Get-DiagLines([datetime]$since) {
 
 function Summarize($lines) {
     # average numeric fields across the window's lines
-    $keys = 'it','busy','attributed','conn','mob','obj','maps','envir','admin','saves','park','other','pin','pout','bout','alloc'
+    $keys = 'it','busy','attributed','conn','mob','obj','maps','envir','admin','saves','park','other','pin','pout','bout','alloc','send','sends','bcast','scan','recv','ehit','emiss','coal','alone'
     $sum = @{}; $n = 0; $maxIt = 0.0
     foreach ($l in $lines) {
         $n++
@@ -75,7 +83,8 @@ $results = @()
 function Run-Scenario([string]$name, [bool]$mt, [int]$bots) {
     & powershell -NoProfile -ExecutionPolicy Bypass -File $stop 2>$null | Out-Null
     $reset = $script:results.Count -eq 0
-    $startParams = @{ Port = $Port; Multithreaded = $mt; ExtraIni = $ExtraIni }
+    $startParams = @{ Port = $Port; Multithreaded = $mt; ExtraIni = $ExtraIni; Maps = $Maps }
+    if ($MapsFrom) { $startParams.MapsFrom = $MapsFrom }
     if ($reset) { $startParams.Reset = $true } else { $startParams.NoBuild = $true }
     & $start @startParams | Out-Null   # same session: "exit" in the script only ends that script
     if ($LASTEXITCODE -ne 0) { throw "scratch server failed to start for $name" }
@@ -85,6 +94,8 @@ function Run-Scenario([string]$name, [bool]$mt, [int]$bots) {
     $botProc = $null
     if ($bots -gt 0) {
         $botArgs = "--port $Port --bots $bots --ramp 25 --duration $($Seconds + 20) --prefix bl$bots"
+        if ($MapsFrom) { $botArgs += " --map-folder `"$(Join-Path $runDir 'Maps')`"" }
+        if ($BotArgs) { $botArgs += " $BotArgs" }
         $botProc = Start-Process -FilePath $stress -ArgumentList $botArgs -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $scratch "bots-$bots.txt")
         Start-Sleep -Seconds ([math]::Ceiling($bots / 25) + 10) # ramp + settle
     }
@@ -119,6 +130,10 @@ $sb = New-Object System.Text.StringBuilder
 [void]$sb.AppendLine("# Server baseline (roadmap P6) - $(Get-Date -Format 'yyyy-MM-dd HH:mm')$(if ($Label) { ' - ' + $Label })")
 if ($ExtraIni.Count -gt 0) { [void]$sb.AppendLine(''); [void]$sb.AppendLine("Extra Setup.ini: ``$($ExtraIni -join ' ')``") }
 [void]$sb.AppendLine('')
+if ($MapsFrom -or $BotArgs) {
+    $worldText = if ($MapsFrom) { "$Maps real map(s) copied from ``$MapsFrom``" } else { "$Maps synthetic map(s)" }
+    [void]$sb.AppendLine(''); [void]$sb.AppendLine("World: $worldText; bot args: ``$BotArgs``")
+}
 [void]$sb.AppendLine("> Scratch server (synthetic 200x200 map, tools/scratch-world), net10, idle park on, MobThreadOnePass on, ThreadLimit 2. Window $Seconds s per scenario. CPU is % of ONE core over the window. Bots and server share this machine. Produced by ``tools/run-baseline.ps1``.")
 [void]$sb.AppendLine('')
 [void]$sb.AppendLine('| Scenario | CPU % (1 core) | WS MB | it/s | busy | attributed | ms/s conn | mob | obj | maps | envir | saves | park | pkts in/s | pkts out/s | KB out/s | alloc MB/s | max iter ms | isolated errors | crash files |')
@@ -131,6 +146,18 @@ foreach ($r in $results) {
     } else {
         [void]$sb.AppendLine("| $($r.Name) | $($r.CpuPctOneCore) | $($r.WorkingSetMB) | (no [Diag] lines) | | | | | | | | | | | | | | | $($r.IsolatedErrors) | $($r.CrashFiles) |")
     }
+}
+[void]$sb.AppendLine('')
+[void]$sb.AppendLine('Send path and wakes (P9-06; per second, averaged; `send` is ms/s of the end-of-iteration send pass, 0 when FlushAtEnd is off):')
+[void]$sb.AppendLine('')
+[void]$sb.AppendLine('| Scenario | ms/s conn + send | send | sends/s | broadcasts/s | players scanned/s | recipients/s | scanned per recipient | encodes/s | encode hits/s | coalesced/s | alone AI runs/s |')
+[void]$sb.AppendLine('|---|---|---|---|---|---|---|---|---|---|---|---|')
+foreach ($r in $results) {
+    $d = $r.Diag
+    if (-not $d) { continue }
+    $ratio = if ($d.recv -gt 0) { [math]::Round($d.scan / $d.recv, 2) } else { '' }
+    [void]$sb.AppendLine(("| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} |" -f `
+        $r.Name, [math]::Round($d.conn + $d.send, 2), $d.send, $d.sends, $d.bcast, $d.scan, $d.recv, $ratio, $d.emiss, $d.ehit, $d.coal, $d.alone))
 }
 [void]$sb.AppendLine('')
 [void]$sb.AppendLine('Bot client tail per run:')

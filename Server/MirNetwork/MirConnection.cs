@@ -2,6 +2,7 @@
 using System.Net.Sockets;
 using Server.MirDatabase;
 using Server.MirEnvir;
+using Server.MirEnvir.Storage;
 using Server.MirObjects;
 using C = ClientPackets;
 using S = ServerPackets;
@@ -295,14 +296,23 @@ namespace Server.MirNetwork
 
         internal static byte[] Encode(Packet p)
         {
-            if (!Settings.EncodeOnce) return ToBytes(p);
+            if (!Settings.EncodeOnce)
+            {
+                LoopProfiler.CountEncode(false);
+                return ToBytes(p);
+            }
             if (!EncodedThisPass.TryGetValue(p, out var bytes))
             {
                 bytes = ToBytes(p);
                 EncodedThisPass[p] = bytes;
+                LoopProfiler.CountEncode(false);
             }
-            else if (++_encodeHits % EncodeCheckEvery == 0)
-                CheckNotMutated(p, bytes);
+            else
+            {
+                LoopProfiler.CountEncode(true);
+                if (++_encodeHits % EncodeCheckEvery == 0)
+                    CheckNotMutated(p, bytes);
+            }
             return bytes;
         }
 
@@ -335,6 +345,7 @@ namespace Server.MirNetwork
                 return;
             }
 
+            var handled = false;
             while (!_receiveList.IsEmpty && !Disconnecting)
             {
                 Packet p;
@@ -346,6 +357,7 @@ namespace Server.MirNetwork
                 LastPacketIndex = p.Index; // identity for isolated-error logs (roadmap P5)
                 LoopProfiler.CountPacketIn();
                 ProcessPacket(p);
+                handled = true;
 
                 if (_receiveList == null)
                     return;
@@ -367,7 +379,45 @@ namespace Server.MirNetwork
                 return;
             }
 
-            if (_sendList == null || _sendList.IsEmpty) return;
+            // P9-06: in game, world packets go out at the end of the iteration (FlushEndOfTick), after monsters, objects and maps
+            // ran. Replies to packets this client just sent go out here, as before, so no reply waits for the world phase;
+            // with a shared send window only a KeepAlive reply does.
+            if (!Settings.FlushAtEnd || Stage != GameStage.Game || _flushNow || (handled && Settings.SendFlushMs <= 0)) Flush(true);
+        }
+
+        /// <summary>
+        /// End-of-iteration send (P9-06, [Optimisation] FlushAtEnd). <paramref name="tick"/> is the shared SendFlushMs tick: off
+        /// it, packets wait in the pending list unless a KeepAlive reply or a full list forces the send. Game thread only.
+        /// </summary>
+        internal void FlushEndOfTick(bool tick)
+        {
+            if (Stage == GameStage.Game) Flush(tick);
+        }
+
+        /// <summary>Pending packets above which a connection sends even off the shared tick.</summary>
+        private const int FlushAtPending = 256;
+        private const int PendingTrimAbove = 1024;
+        private const int PendingKeep = 64;
+
+        /// <summary>
+        /// Moves queued packets into the pending list (dropping superseded state packets when SendCoalesce is on) and, when
+        /// <paramref name="due"/>, sends the pending list as one array. Game thread only: encodes through the per-pass cache.
+        /// </summary>
+        private void Flush(bool due, bool useEncodeCache = true)
+        {
+            var queue = _sendList;
+            if (queue == null) return;
+
+            while (queue.TryDequeue(out var p))
+            {
+                if (p == null) continue;
+                if (Settings.SendCoalesce) Supersede(p);
+                _pending.Add(p);
+            }
+
+            if (_pending.Count == 0) return;
+            if (!due && !_flushNow && _pending.Count < FlushAtPending) return;
+            _flushNow = false;
 
             // Encode first, then copy into one exact-size array: no List<byte> growth and no ToArray copy.
             // The array is handed to the socket, so it can't be reused; the scratch list only holds references.
@@ -375,10 +425,11 @@ namespace Server.MirNetwork
             try
             {
                 var total = 0;
-                while (_sendList.TryDequeue(out var p))
+                for (int i = 0; i < _pending.Count; i++)
                 {
-                    if (p == null) continue;
-                    var bytes = Encode(p);
+                    var p = _pending[i];
+                    if (p == null) continue; // superseded (SendCoalesce)
+                    var bytes = useEncodeCache ? Encode(p) : ToBytes(p);
                     SendScratch.Add(bytes);
                     total += bytes.Length;
                 }
@@ -398,10 +449,52 @@ namespace Server.MirNetwork
             {
                 // Always cleared, so an isolated encode failure can't leak this connection's bytes into the next flush.
                 SendScratch.Clear();
+                _pending.Clear();
+                // Give back the capacity a burst (login object list, mass broadcast) left behind, as EndEncodePass does.
+                if (_pending.Capacity > PendingTrimAbove) _pending.Capacity = PendingKeep;
+                if (_coalesceIndex != null && _coalesceIndex.Count > 0)
+                {
+                    if (_coalesceIndex.Count > PendingTrimAbove) _coalesceIndex = null;
+                    else _coalesceIndex.Clear();
+                }
             }
 
             BeginSend(data);
         }
+
+        /// <summary>
+        /// SendCoalesce (P9-06): when <paramref name="p"/> is a "latest state" packet and an older one for the same object is
+        /// still pending, the older one is nulled in place. The newer one keeps its later position, so nothing moves earlier.
+        /// Only packets whose client handlers just overwrite state (GameScene.ProcessPacket and the web client) are listed.
+        /// </summary>
+        private void Supersede(Packet p)
+        {
+            uint objectId;
+            switch (p.Index)
+            {
+                case (short)ServerPacketIds.ObjectHealth: objectId = ((S.ObjectHealth)p).ObjectID; break;
+                case (short)ServerPacketIds.ObjectColourChanged: objectId = ((S.ObjectColourChanged)p).ObjectID; break;
+                case (short)ServerPacketIds.ObjectPoisoned: objectId = ((S.ObjectPoisoned)p).ObjectID; break;
+                case (short)ServerPacketIds.ObjectName: objectId = ((S.ObjectName)p).ObjectID; break;
+                default: return;
+            }
+
+            var key = ((long)(ushort)p.Index << 32) | objectId;
+            _coalesceIndex ??= new Dictionary<long, int>();
+            if (_coalesceIndex.TryGetValue(key, out var at))
+            {
+                _pending[at] = null;
+                LoopProfiler.CountCoalesced();
+            }
+            _coalesceIndex[key] = _pending.Count; // the index p is about to get
+        }
+
+        /// <summary>Packets drained from the send queue and not yet sent (game thread only; see <see cref="Flush"/>).</summary>
+        private readonly List<Packet> _pending = new List<Packet>();
+        /// <summary>SendCoalesce: (packet id, object id) → index in <see cref="_pending"/>; cleared after every send.</summary>
+        private Dictionary<long, int> _coalesceIndex;
+        /// <summary>Send at the next flush even off the shared tick (a KeepAlive reply). Game thread only.</summary>
+        private bool _flushNow;
 
         /// <summary>Encoded packets of the connection being flushed. Game thread only (Process); cleared after every flush.</summary>
         private static readonly List<byte[]> SendScratch = new List<byte[]>();
@@ -1024,6 +1117,11 @@ namespace Server.MirNetwork
             
             Disconnecting = true;
 
+            // P9-06: queued packets (a kick or ban message) go out before S.Disconnect. Off the game thread (a WinForms
+            // editor, Known debt) the pending list can't be touched, so the old order stays there.
+            // Encoded without the per-pass cache: this may run mid world phase (a GM kick, a login takeover), and cached
+            // bytes would then outlive the pass they belong to.
+            if (DesignStore.OnGameThread) Flush(true, useEncodeCache: false);
             BeginSend(ToBytes(new S.Disconnect { Reason = reason }));
             SoftDisconnect(reason);
         }
@@ -1057,6 +1155,7 @@ namespace Server.MirNetwork
                 {
                     Disconnecting = true;
 
+                    Flush(true, useEncodeCache: false); // P9-06: anything queued goes out first (game thread: ProcessPacket)
                     BeginSend(ToBytes(new S.ClientVersion { Result = 0 }));
                     SoftDisconnect(10);
                     MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.PlayerDisconnectedWrongClientVersion), SessionID));
@@ -1075,6 +1174,7 @@ namespace Server.MirNetwork
             {
                 Time = p.Time
             });
+            _flushNow = true; // P9-06: the reply skips the shared send window, so the client's ping stays honest
         }
         private void NewAccount(C.NewAccount p)
         {

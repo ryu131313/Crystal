@@ -234,6 +234,14 @@ namespace Server.WebAdmin
                 SettingRestart.World);
             Add(N, "Optimisation", "MapRespawnCheckMs", "MapRespawnCheckMs", I32, "Map respawn check interval (ms)",
                 "Each map checks its respawns at most every N ms (maps staggered) instead of on every loop iteration. Respawn delays are in minutes, so the extra delay is unnoticeable; a respawn added live spawns within N ms. Doors and map spell actions still run on time. 0 = every iteration (old behaviour).", min: 0, max: 5000);
+            Add(N, "Optimisation", "FlushAtEnd", "FlushAtEnd", B, "Send at the end of each tick",
+                "In-game packets are sent after monsters, objects and maps have run in the same loop iteration, so what the world did this tick goes out this tick instead of on the next one (about 1-2 ms sooner). Off = send during the connection pass (old behaviour).");
+            Add(N, "Optimisation", "SendFlushMs", "SendFlushMs", I32, "Shared send window (ms)",
+                "With 'Send at the end of each tick' on, in-game packets for all players are sent together at most every N ms, so a packet shared by many players is encoded once and duplicate state updates can be dropped. Adds up to N ms of delay. 0 = send every iteration.", min: 0, max: 5);
+            Add(N, "Optimisation", "SendCoalesce", "SendCoalesce", B, "Drop superseded state updates",
+                "When a player has an older health, name, name-colour or poison update for the same object still waiting to be sent, the older one is dropped and only the newest is sent. Movement, attacks and effects are never dropped or reordered.");
+            Add(N, "Optimisation", "AloneCeiling", "AloneCeiling", B, "Sleep monsters with nobody near",
+                "A monster with no player nearby (and no master or target) sleeps until its next 'anyone near?' check instead of waking every 2 s for nothing. Monster types with their own AI loop keep waking every 2 s. Gameplay is unchanged.");
             Add(N, "Diag", "LogLoopProfile", "LogLoopProfile", B, "Log loop profile",
                 "Write one [Diag] Loop line per second to the Debug log (per-phase ms, iterations, packets, GC). The numbers are always on the dashboard status.");
             Add(N, "Network", "StartHTTPService", "StartHTTPService", B, "Legacy HTTP service",

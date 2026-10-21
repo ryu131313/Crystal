@@ -87,6 +87,10 @@ namespace Server
         public static int HumanProcessMs = 10;         // [Optimisation] HumanProcessMs: players/heroes run Process at most every N ms; 0 = every iteration (roadmap P9)
         public static bool DueScheduler = true;        // [Optimisation] DueScheduler: process objects from per-thread due-time heaps instead of walking every object every tick; read at world start (roadmap P9-05)
         public static int MapRespawnCheckMs = 1000;    // [Optimisation] MapRespawnCheckMs: maps check respawns and doors at most every N ms; 0 = every iteration (roadmap P9)
+        public static bool FlushAtEnd = true;          // [Optimisation] FlushAtEnd: in-game sends go out at the end of the loop iteration, after monsters/objects/maps (P9-06)
+        public static int SendFlushMs = 0;             // [Optimisation] SendFlushMs: with FlushAtEnd, in-game sends are grouped into one shared flush every N ms (0-5; 0 = every iteration) (P9-06)
+        public static bool SendCoalesce = true;        // [Optimisation] SendCoalesce: an older pending health/name/colour/poison packet for the same object is dropped from a flush (P9-06)
+        public static bool AloneCeiling = true;        // [Optimisation] AloneCeiling: monsters alone with nobody near sleep until their next alone check instead of waking every 2 s (P9-06)
         public static bool LogLoopProfile = false;     // [Diag] LogLoopProfile: one "[Diag] Loop" line per second (Debug log)
         public static int LoadTestLoopbackMaxPacket = 0; // 0 = use MaxPacket
 
@@ -453,6 +457,11 @@ namespace Server
             DueScheduler = Reader.ReadBoolean("Optimisation", "DueScheduler", DueScheduler);
             MapRespawnCheckMs = Math.Max(0, Reader.ReadInt32("Optimisation", "MapRespawnCheckMs", MapRespawnCheckMs));
             if (MapRespawnCheckMs > 5000) MapRespawnCheckMs = 5000;
+            FlushAtEnd = Reader.ReadBoolean("Optimisation", "FlushAtEnd", FlushAtEnd);
+            SendFlushMs = Math.Max(0, Reader.ReadInt32("Optimisation", "SendFlushMs", SendFlushMs));
+            if (SendFlushMs > 5) SendFlushMs = 5;
+            SendCoalesce = Reader.ReadBoolean("Optimisation", "SendCoalesce", SendCoalesce);
+            AloneCeiling = Reader.ReadBoolean("Optimisation", "AloneCeiling", AloneCeiling);
             LogLoopProfile = Reader.ReadBoolean("Diag", "LogLoopProfile", LogLoopProfile);
             LoadTestLoopbackMaxPacket = Math.Max(0, Reader.ReadInt32("LoadTest", "LoopbackMaxPacket", LoadTestLoopbackMaxPacket));
 
@@ -777,6 +786,10 @@ namespace Server
             Reader.Write("Optimisation", "HumanProcessMs", HumanProcessMs);
             Reader.Write("Optimisation", "DueScheduler", DueScheduler);
             Reader.Write("Optimisation", "MapRespawnCheckMs", MapRespawnCheckMs);
+            Reader.Write("Optimisation", "FlushAtEnd", FlushAtEnd);
+            Reader.Write("Optimisation", "SendFlushMs", SendFlushMs);
+            Reader.Write("Optimisation", "SendCoalesce", SendCoalesce);
+            Reader.Write("Optimisation", "AloneCeiling", AloneCeiling);
             Reader.Write("Diag", "LogLoopProfile", LogLoopProfile);
             Reader.Write("LoadTest", "LoopbackMaxPacket", LoadTestLoopbackMaxPacket);
 

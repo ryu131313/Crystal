@@ -81,7 +81,7 @@ finally {
 # ---- loop profile: first vs last 10 minutes ----
 function Get-Diag([datetime]$from, [datetime]$to) {
     $dbg = Get-ChildItem (Join-Path $runDir 'Logs\Debug') -Filter *.log -ErrorAction SilentlyContinue
-    $keys = 'busy', 'conn', 'obj', 'mob', 'alloc', 'pout'
+    $keys = 'busy', 'conn', 'send', 'obj', 'mob', 'alloc', 'pout'
     $sum = @{}; $n = 0; $max = 0.0
     foreach ($f in $dbg) {
         foreach ($l in (Get-Content $f.FullName | Where-Object { $_ -match '\[Diag\] Loop' })) {
@@ -143,11 +143,11 @@ if ($first -and $last) {
 [void]$sb.AppendLine('')
 [void]$sb.AppendLine('Loop profile averages ([Diag] Loop lines):')
 [void]$sb.AppendLine('')
-[void]$sb.AppendLine('| Window | samples | busy % | ms/s conn | ms/s obj | ms/s mob | alloc MB/s | pkts out/s | max iter ms |')
+[void]$sb.AppendLine('| Window | samples | busy % | ms/s conn + send | ms/s obj | ms/s mob | alloc MB/s | pkts out/s | max iter ms |')
 [void]$sb.AppendLine('|---|---|---|---|---|---|---|---|---|')
 foreach ($w in @(@('first 10 min after ramp', $early), @('last 10 min', $late))) {
     $d = $w[1]
-    if ($d) { [void]$sb.AppendLine("| $($w[0]) | $($d.samples) | $($d.busy) | $($d.conn) | $($d.obj) | $($d.mob) | $([math]::Round($d.alloc / 1MB, 2)) | $($d.pout) | $($d.max) |") }
+    if ($d) { [void]$sb.AppendLine("| $($w[0]) | $($d.samples) | $($d.busy) | $([math]::Round($d.conn + $d.send, 2)) | $($d.obj) | $($d.mob) | $([math]::Round($d.alloc / 1MB, 2)) | $($d.pout) | $($d.max) |") }
     else { [void]$sb.AppendLine("| $($w[0]) | 0 | (no [Diag] lines) | | | | | | |") }
 }
 [void]$sb.AppendLine('')

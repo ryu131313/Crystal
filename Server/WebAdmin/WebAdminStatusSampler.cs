@@ -43,7 +43,7 @@ namespace Server.WebAdmin
         public long[] MobLateMs { get; set; }
 
         /// <summary>Loop profiler phases charted on the dashboard (Park and Other are left out).</summary>
-        public static readonly string[] PhaseNames = { "Connections", "MobBarrier", "Objects", "Maps", "EnvirProcess", "AdminDrain", "Saves" };
+        public static readonly string[] PhaseNames = { "Connections", "MobBarrier", "Objects", "Maps", "EnvirProcess", "AdminDrain", "Saves", "Send" };
     }
 
     /// <summary>Fixed-capacity ring of <see cref="StatusSample"/> (oldest overwritten), thread-safe. Pure; unit tested.</summary>

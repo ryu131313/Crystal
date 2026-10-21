@@ -2585,27 +2585,36 @@ namespace Server.MirEnvir
         {
             if (p == null) return;
 
+            var sent = 0;
             for (int i = Players.Count - 1; i >= 0; i--)
             {
                 PlayerObject player = Players[i];
 
                 if (Functions.InRange(location, player.CurrentLocation, Globals.DataRange))
-                    player.Enqueue(p);                   
+                {
+                    player.Enqueue(p);
+                    sent++;
+                }
             }
+            LoopProfiler.CountBroadcast(Players.Count, sent);
         }
 
         public void BroadcastNPC(Packet p, Point location)
         {
             if (p == null) return;
 
+            var sent = 0;
             for (int i = Players.Count - 1; i >= 0; i--)
             {
                 PlayerObject player = Players[i];
 
                 if (Functions.InRange(location, player.CurrentLocation, Globals.DataRange))
+                {
                     player.Enqueue(p);
-
+                    sent++;
+                }
             }
+            LoopProfiler.CountBroadcast(Players.Count, sent);
         }
 
 
