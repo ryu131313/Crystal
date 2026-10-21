@@ -1450,6 +1450,23 @@ namespace Server.MirObjects
             }
             RefreshCreaturesTimeLeft();
         }
+        /// <summary>P9-08: flags PlayerObject.Process acts on as soon as they are set.</summary>
+        protected override bool NeedsFastProcess() =>
+            base.NeedsFastProcess() || PoisonStatusDirty || PoisonList.Count != _poisonStatusCount || NewMail || _parcelsReleased
+            || (!IsGM && CurrentMap?.Info?.RequiredGroup == true);
+
+        protected override long NextTimerDue(long now, long cap)
+        {
+            var next = base.NextTimerDue(now, cap);
+            if (PendingFriendRequests.Count > 0) Fold(ref next, now, _nextFriendRequestCheck);
+            if (GroupMembers != null && GroupStatusDirty) Fold(ref next, now, Math.Max(_nextGroupStatusTime, now + 1));
+            if (_friendLevelNotifyPending) Fold(ref next, now, Math.Max(_nextFriendLevelNotify, now + 1));
+            if (Settings.RestedPeriod > 0) Fold(ref next, now, RestedTime + 1);
+            if (Fishing) Fold(ref next, now, FishingTime + 1);
+            if (Info.IntelligentCreatures.Count > 0) Fold(ref next, now, CreatureTimeLeftTicker + 1);
+            return next;
+        }
+
         public override void Process(DelayedAction action)
         {
             if (action.FlaggedToRemove)

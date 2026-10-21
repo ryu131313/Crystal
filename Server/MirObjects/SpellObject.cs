@@ -67,6 +67,7 @@ namespace Server.MirObjects
                 {
                     ((HumanObject)Caster).ReincarnationReady = true;
                     ((HumanObject)Caster).ReincarnationExpireTime = Envir.Time + 6000;
+                    Caster.OperateTime = 0; // P9-08: Process watches ReincarnationReady
                 }
 
                 if ((Spell == Spell.Blizzard || Spell == Spell.MeteorStrike) &&  Caster != null)
@@ -142,6 +143,7 @@ namespace Server.MirObjects
                         if (ob.Race == ObjectType.Player || ob.Race == ObjectType.Hero || (ob.Race == ObjectType.Monster && ob.Master.Race == ObjectType.Player))
                         {
                             ob.HealAmount += 25;
+                            ob.OperateTime = 0; // P9-08: an idle player sleeps up to HumanIdleCapMs; start the heal now
                             Broadcast(new S.ObjectEffect { ObjectID = ob.ObjectID, Effect = SpellEffect.Healing });
                         }
 
@@ -421,6 +423,9 @@ namespace Server.MirObjects
 
             if (TickTime < time && TickTime > Envir.Time)
                 time = TickTime;
+
+            if (StartTime < time && StartTime > Envir.Time) // P9-08: the spell starts acting at StartTime
+                time = StartTime;
 
             if (OwnerTime < time && OwnerTime > Envir.Time)
                 time = OwnerTime;

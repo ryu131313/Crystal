@@ -905,6 +905,9 @@ namespace Client.MirScenes
                 case (short)ServerPacketIds.ObjectRun:
                     ObjectRun((S.ObjectRun)p);
                     break;
+                case (short)ServerPacketIds.ObjectMoveBatch:
+                    ObjectMoveBatch((S.ObjectMoveBatch)p);
+                    break;
                 case (short)ServerPacketIds.Chat:
                     ReceiveChat((S.Chat)p);
                     break;
@@ -1957,6 +1960,27 @@ namespace Client.MirScenes
             if (MapControl.Objects.TryGetValue(p.ObjectID, out MapObject ob))
                 ob.Remove();
         }
+        /// <summary>P9-08: a server-side batch of turn/walk/run updates; each is applied in order exactly as its single packet.</summary>
+        private void ObjectMoveBatch(S.ObjectMoveBatch p)
+        {
+            for (int i = 0; i < p.Moves.Count; i++)
+            {
+                var m = p.Moves[i];
+                switch (m.Kind)
+                {
+                    case S.ObjectMoveBatch.Turn:
+                        ObjectTurn(new S.ObjectTurn { ObjectID = m.ObjectID, Location = m.Location, Direction = m.Direction });
+                        break;
+                    case S.ObjectMoveBatch.Walk:
+                        ObjectWalk(new S.ObjectWalk { ObjectID = m.ObjectID, Location = m.Location, Direction = m.Direction });
+                        break;
+                    case S.ObjectMoveBatch.Run:
+                        ObjectRun(new S.ObjectRun { ObjectID = m.ObjectID, Location = m.Location, Direction = m.Direction });
+                        break;
+                }
+            }
+        }
+
         private void ObjectTurn(S.ObjectTurn p)
         {
             if (p.ObjectID == User.ObjectID && !Observing) return;

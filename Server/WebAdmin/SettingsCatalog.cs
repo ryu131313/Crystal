@@ -240,6 +240,10 @@ namespace Server.WebAdmin
                 "With 'Send at the end of each tick' on, in-game packets for all players are sent together at most every N ms, so a packet shared by many players is encoded once and duplicate state updates can be dropped. Adds up to N ms of delay. 0 = send every iteration.", min: 0, max: 5);
             Add(N, "Optimisation", "SendCoalesce", "SendCoalesce", B, "Drop superseded state updates",
                 "When a player has an older health, name, name-colour or poison update for the same object still waiting to be sent, the older one is dropped and only the newest is sent. Movement, attacks and effects are never dropped or reordered.");
+            Add(N, "Optimisation", "HumanIdleCapMs", "HumanIdleCapMs", I32, "Idle player processing cap (ms)",
+                "A player with nothing urgent going on runs its housekeeping only when one of its timers (buffs, poison, regen, durability, mount, fishing, ...) is due, and at least every N ms, instead of every 'Player processing interval'. Sending a packet, being poisoned or getting a buff wakes the player at once. Heroes are not affected. 0 = off (old behaviour).", min: 0, max: 1000);
+            Add(N, "Optimisation", "MoveBatch", "MoveBatch", B, "Batch movement packets",
+                "Consecutive turn/walk/run updates going to one player are sent as one compact packet (about half the bytes). ONLY turn this on when every game client (desktop and web) has been updated from the same build as this server: older clients cannot read the batch and will lose their connection data.");
             Add(N, "Optimisation", "SectorGrid", "SectorGrid", B, "Player sector grid",
                 "Each map keeps its players in 8x8-cell sectors, so broadcasts and 'anyone near?' checks on a busy map look only at nearby players instead of everyone on the map. Off = scan the whole map's player list (old behaviour). Applies when the world starts.",
                 SettingRestart.World);

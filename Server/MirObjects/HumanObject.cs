@@ -418,11 +418,57 @@ namespace Server.MirObjects
                 return;
             }
 
-            var next = Envir.Time + interval;
+            var now = Envir.Time;
+            var next = now + interval;
+
+            // P9-08 [Optimisation] HumanIdleCapMs: a player with nothing urgent runs Process only when one of its timers is due,
+            // at the latest every HumanIdleCapMs, instead of every HumanProcessMs. Heroes keep the fixed interval (their AI
+            // runs inside Process). Packet handling, poison and new buffs wake the player at once (OperateTime = 0).
+            var cap = Settings.HumanIdleCapMs;
+            if (cap > interval && Race == ObjectType.Player && !NeedsFastProcess())
+                next = NextTimerDue(now, now + cap);
+
             for (int i = 0; i < ActionList.Count; i++)
                 if (ActionList[i].Time < next) next = ActionList[i].Time;
 
-            OperateTime = Math.Max(next, Envir.Time) - 1;
+            OperateTime = Math.Max(next, now) - 1;
+        }
+
+        /// <summary>State that Process checks on every run rather than on a timer: keep the fixed short interval (P9-08).</summary>
+        protected virtual bool NeedsFastProcess() => Sneaking || ReincarnationReady || ActiveReincarnation || Stacking;
+
+        /// <summary>Earliest timer Process acts on, no later than <paramref name="cap"/> (P9-08). Process tests most of them with
+        /// "Time &gt; X", so a timer is due at X + 1.</summary>
+        protected virtual long NextTimerDue(long now, long cap)
+        {
+            var next = cap;
+            Fold(ref next, now, RegenTime);
+            // ProcessRegen re-arms these every time they come due, so fold them only while something is pending (review M1);
+            // a heal from another object wakes the target (Heal spell, Healing Circle).
+            if (PotHealthAmount > 0 || PotManaAmount > 0) Fold(ref next, now, PotTime + 1);
+            if (HealAmount > 0) Fold(ref next, now, HealTime + 1);
+            if (VampAmount > 0) Fold(ref next, now, VampTime + 1);
+            Fold(ref next, now, ItemExpireTime + 1);
+            Fold(ref next, now, TorchTime + 1);
+            Fold(ref next, now, DuraTime + 1);
+            if (FlamingSword) Fold(ref next, now, FlamingSwordTime);
+            if (CounterAttack) Fold(ref next, now, CounterAttackTime);
+            if (_runCounter > 0) Fold(ref next, now, RunTime + 1);
+            if (_stepCounter > 0) Fold(ref next, now, CellTime + 701);
+            if (Mount.HasMount) Fold(ref next, now, IncreaseLoyaltyTime + 1);
+            if (PKPoints > 0) Fold(ref next, now, PKPointTime + 1);
+            if (LastHitter != null) Fold(ref next, now, LastHitTime + 1);
+            if (EXPOwner != null) Fold(ref next, now, EXPOwnerTime + 1);
+            Fold(ref next, now, BrownTime);
+            if (ExplosionInflictedTime > 0) Fold(ref next, now, ExplosionInflictedTime + 1);
+            for (int i = 0; i < PoisonList.Count; i++) Fold(ref next, now, PoisonList[i].TickTime + 1);
+            for (int i = 0; i < Buffs.Count; i++) Fold(ref next, now, Buffs[i].NextTime);
+            return next;
+        }
+
+        protected static void Fold(ref long next, long now, long due)
+        {
+            if (due > now && due < next) next = due;
         }
         public override void Die() { }
         protected virtual void ProcessBuffs()
@@ -7452,6 +7498,7 @@ namespace Server.MirObjects
 
         public override void ApplyPoison(Poison p, MapObject Caster = null, bool NoResist = false, bool ignoreDefence = true)
         {
+            OperateTime = 0; // P9-08: a new poison tick timer; run Process on the next pass
             if (Caster != null && !NoResist)
             {
                 if (((Caster.Race != ObjectType.Player) || Settings.PvpCanResistPoison) && (Envir.Random.Next(Settings.PoisonResistWeight) < Stats[Stat.PoisonResist]))
@@ -7561,6 +7608,7 @@ namespace Server.MirObjects
 
         public override Buff AddBuff(BuffType type, MapObject owner, int duration, Stats stats, bool refreshStats = true, bool updateOnly = false, params int[] values)
         {
+            OperateTime = 0; // P9-08: a new buff timer; run Process on the next pass
             Buff b = base.AddBuff(type, owner, duration, stats, refreshStats, updateOnly, values);
             GroupStatusDirty = true;
 

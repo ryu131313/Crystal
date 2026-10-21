@@ -7778,4 +7778,84 @@ namespace ServerPackets
             writer.Write(Flags);
         }
     }
+
+    /// <summary>
+    /// P9-08 ([Optimisation] MoveBatch): a run of consecutive <see cref="ObjectTurn"/> / <see cref="ObjectWalk"/> /
+    /// <see cref="ObjectRun"/> packets for one client, built by the server when it flushes that client's queue. The receiver
+    /// applies each move in order exactly as the single packet it replaces. 9 bytes per move instead of 17.
+    /// </summary>
+    public sealed class ObjectMoveBatch : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.ObjectMoveBatch; } }
+
+        public const byte Turn = 0, Walk = 1, Run = 2;
+
+        /// <summary>Most moves one batch carries (keeps the packet far below 65 535 bytes).</summary>
+        public const int MaxMoves = 1000;
+
+        public struct Move
+        {
+            public byte Kind; // Turn, Walk or Run
+            public uint ObjectID;
+            public Point Location;
+            public MirDirection Direction;
+        }
+
+        public readonly List<Move> Moves = new List<Move>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            int count = reader.ReadUInt16();
+            for (int i = 0; i < count; i++)
+            {
+                byte kindDir = reader.ReadByte();
+                Moves.Add(new Move
+                {
+                    Kind = (byte)(kindDir >> 3),
+                    Direction = (MirDirection)(kindDir & 7),
+                    ObjectID = reader.ReadUInt32(),
+                    Location = new Point(reader.ReadUInt16(), reader.ReadUInt16()),
+                });
+            }
+        }
+
+        /// <summary>
+        /// The whole frame (length, id, payload) written straight into one exact-size array: byte-identical to
+        /// <see cref="Packet.GetPacketBytes"/>, without its two MemoryStreams and copies. The server builds one batch per
+        /// client per flush, so this is on its send path (P9-08).
+        /// </summary>
+        public byte[] ToFrame()
+        {
+            var length = 4 + 2 + Moves.Count * 9;
+            var frame = new byte[length];
+            var span = frame.AsSpan();
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(span, (ushort)length);
+            System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(span.Slice(2), Index);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(span.Slice(4), (ushort)Moves.Count);
+            var o = 6;
+            for (int i = 0; i < Moves.Count; i++)
+            {
+                var m = Moves[i];
+                frame[o] = (byte)((m.Kind << 3) | ((byte)m.Direction & 7));
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(o + 1), m.ObjectID);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(span.Slice(o + 5), (ushort)m.Location.X);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(span.Slice(o + 7), (ushort)m.Location.Y);
+                o += 9;
+            }
+            return frame;
+        }
+
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write((ushort)Moves.Count);
+            for (int i = 0; i < Moves.Count; i++)
+            {
+                var m = Moves[i];
+                writer.Write((byte)((m.Kind << 3) | ((byte)m.Direction & 7)));
+                writer.Write(m.ObjectID);
+                writer.Write((ushort)m.Location.X);
+                writer.Write((ushort)m.Location.Y);
+            }
+        }
+    }
 }

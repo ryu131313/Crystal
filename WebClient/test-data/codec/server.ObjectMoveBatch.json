@@ -1,0 +1,37 @@
+{
+  "name": "ObjectMoveBatch",
+  "dir": "server",
+  "id": 301,
+  "hex": "21002D0103000B4D0000007B00C8011700286BEEFFFF000000010000000000E703",
+  "fields": {
+    "Moves": [
+      {
+        "Kind": 1,
+        "ObjectID": 77,
+        "Location": {
+          "X": 123,
+          "Y": 456
+        },
+        "Direction": 3
+      },
+      {
+        "Kind": 2,
+        "ObjectID": 4000000000,
+        "Location": {
+          "X": 65535,
+          "Y": 0
+        },
+        "Direction": 7
+      },
+      {
+        "Kind": 0,
+        "ObjectID": 1,
+        "Location": {
+          "X": 0,
+          "Y": 999
+        },
+        "Direction": 0
+      }
+    ]
+  }
+}

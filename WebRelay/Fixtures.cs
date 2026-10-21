@@ -72,6 +72,11 @@ internal static class Fixtures
         yield return new S.ObjectGold { ObjectID = 502, Gold = 4_000_000_000, Location = p };
         yield return new S.ObjectTurn { ObjectID = 77, Location = p, Direction = MirDirection.Up };
         yield return new S.ObjectWalk { ObjectID = 77, Location = p, Direction = MirDirection.DownRight };
+        var moveBatch = new S.ObjectMoveBatch();
+        moveBatch.Moves.Add(new S.ObjectMoveBatch.Move { Kind = S.ObjectMoveBatch.Walk, ObjectID = 77, Location = p, Direction = MirDirection.DownRight });
+        moveBatch.Moves.Add(new S.ObjectMoveBatch.Move { Kind = S.ObjectMoveBatch.Run, ObjectID = 4_000_000_000, Location = new Point(65535, 0), Direction = MirDirection.UpLeft });
+        moveBatch.Moves.Add(new S.ObjectMoveBatch.Move { Kind = S.ObjectMoveBatch.Turn, ObjectID = 1, Location = new Point(0, 999), Direction = MirDirection.Up });
+        yield return moveBatch;
         yield return new S.ObjectRun { ObjectID = 77, Location = p, Direction = MirDirection.UpLeft };
         yield return new S.ObjectAttack { ObjectID = 77, Location = p, Direction = MirDirection.Left, Spell = Spell.Slaying, Level = 3, Type = 1 };
         yield return new S.Struck { AttackerID = 66 };

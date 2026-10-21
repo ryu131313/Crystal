@@ -300,6 +300,7 @@ S	297	SentMail	SentMail	0	BC3146B7
 S	298	FriendRequest	FriendRequest	0	AFCF382A
 S	299	FriendRequestResult	FriendRequestResult	0	85399F49
 S	300	AllowToggles	AllowToggles	0	E747B3D2
+S	301	ObjectMoveBatch	ObjectMoveBatch	1	4E408ADF
 C	0	ClientVersion	ClientVersion	1	BA76D321
 C	1	Disconnect	Disconnect	1	E3B0C442
 C	2	KeepAlive	KeepAlive	1	1AC00927

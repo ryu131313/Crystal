@@ -64,7 +64,7 @@ function Get-DiagLines([datetime]$since) {
 
 function Summarize($lines) {
     # average numeric fields across the window's lines
-    $keys = 'it','busy','attributed','conn','mob','obj','maps','envir','admin','saves','park','other','pin','pout','bout','alloc','send','sends','bcast','scan','recv','ehit','emiss','coal','alone'
+    $keys = 'it','busy','attributed','conn','mob','obj','maps','envir','admin','saves','park','other','pin','pout','bout','alloc','send','sends','bcast','scan','recv','ehit','emiss','coal','alone','batched'
     $sum = @{}; $n = 0; $maxIt = 0.0
     foreach ($l in $lines) {
         $n++
@@ -150,14 +150,14 @@ foreach ($r in $results) {
 [void]$sb.AppendLine('')
 [void]$sb.AppendLine('Send path and wakes (P9-06; per second, averaged; `send` is ms/s of the end-of-iteration send pass, 0 when FlushAtEnd is off):')
 [void]$sb.AppendLine('')
-[void]$sb.AppendLine('| Scenario | ms/s conn + send | send | sends/s | broadcasts/s | players scanned/s | recipients/s | scanned per recipient | encodes/s | encode hits/s | coalesced/s | alone AI runs/s |')
-[void]$sb.AppendLine('|---|---|---|---|---|---|---|---|---|---|---|---|')
+[void]$sb.AppendLine('| Scenario | ms/s conn + send | send | sends/s | broadcasts/s | players scanned/s | recipients/s | scanned per recipient | encodes/s | encode hits/s | coalesced/s | alone AI runs/s | batched moves/s |')
+[void]$sb.AppendLine('|---|---|---|---|---|---|---|---|---|---|---|---|---|')
 foreach ($r in $results) {
     $d = $r.Diag
     if (-not $d) { continue }
     $ratio = if ($d.recv -gt 0) { [math]::Round($d.scan / $d.recv, 2) } else { '' }
-    [void]$sb.AppendLine(("| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} |" -f `
-        $r.Name, [math]::Round($d.conn + $d.send, 2), $d.send, $d.sends, $d.bcast, $d.scan, $d.recv, $ratio, $d.emiss, $d.ehit, $d.coal, $d.alone))
+    [void]$sb.AppendLine(("| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12} |" -f `
+        $r.Name, [math]::Round($d.conn + $d.send, 2), $d.send, $d.sends, $d.bcast, $d.scan, $d.recv, $ratio, $d.emiss, $d.ehit, $d.coal, $d.alone, $d.batched))
 }
 [void]$sb.AppendLine('')
 [void]$sb.AppendLine('Bot client tail per run:')

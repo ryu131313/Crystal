@@ -22,7 +22,7 @@ namespace Server.MirEnvir
         private static readonly long[] _buckets = new long[BucketUpperUs.Length + 1];
         private static long _iterations, _iterationStart, _mark, _maxIterationTicks;
         private static long _packetsIn, _packetsOut, _bytesOut;
-        private static long _sends, _encodeHits, _encodeMisses, _coalesced;
+        private static long _sends, _encodeHits, _encodeMisses, _coalesced, _batchedMoves;
 
         /// <summary>
         /// Counters bumped from any thread that runs world code (game thread and mob threads), one instance per thread so the
@@ -93,6 +93,8 @@ namespace Server.MirEnvir
             public long Coalesced { get; init; }
             /// <summary>Monster AI runs that found the monster alone (no player near) and did nothing.</summary>
             public long AloneRuns { get; init; }
+            /// <summary>Turn/walk/run packets sent inside an S.ObjectMoveBatch instead of on their own (P9-08).</summary>
+            public long BatchedMoves { get; init; }
         }
 
         /// <summary>The most recent one-second snapshot (null until the first publish).</summary>
@@ -132,6 +134,7 @@ namespace Server.MirEnvir
         public static void CountPacketsOut(int packets, int bytes) { _packetsOut += packets; _bytesOut += bytes; _sends++; }
         public static void CountEncode(bool hit) { if (hit) _encodeHits++; else _encodeMisses++; }
         public static void CountCoalesced() => _coalesced++;
+        public static void CountBatchedMoves(int moves) => _batchedMoves += moves;
 
         /// <summary>One broadcast: <paramref name="scanned"/> players checked, <paramref name="recipients"/> enqueued. Any world thread.</summary>
         public static void CountBroadcast(int scanned, int recipients)
@@ -206,6 +209,7 @@ namespace Server.MirEnvir
                 EncodeMisses = _encodeMisses,
                 Coalesced = _coalesced,
                 AloneRuns = aloneRuns,
+                BatchedMoves = _batchedMoves,
             };
             Last = snap;
 
@@ -213,7 +217,7 @@ namespace Server.MirEnvir
             Array.Clear(_phaseTicks);
             Array.Clear(_buckets);
             _iterations = 0; _maxIterationTicks = 0; _packetsIn = 0; _packetsOut = 0; _bytesOut = 0;
-            _sends = 0; _encodeHits = 0; _encodeMisses = 0; _coalesced = 0;
+            _sends = 0; _encodeHits = 0; _encodeMisses = 0; _coalesced = 0; _batchedMoves = 0;
 
             if (Settings.LogLoopProfile)
                 MessageQueue.Instance.EnqueueDebugging(Format(snap));
@@ -229,7 +233,7 @@ namespace Server.MirEnvir
                    $"pin={s.PacketsIn} pout={s.PacketsOut} bout={s.BytesOut} gc={s.Gen0}/{s.Gen1}/{s.Gen2} alloc={s.AllocatedBytes} gcpause={s.GcPauseMs}ms " +
                    $"hist={string.Join(",", s.Histogram.Values)} " +
                    $"send={p["Send"]} sends={s.Sends} bcast={s.Broadcasts} scan={s.BroadcastScanned} recv={s.BroadcastRecipients} " +
-                   $"ehit={s.EncodeHits} emiss={s.EncodeMisses} coal={s.Coalesced} alone={s.AloneRuns}";
+                   $"ehit={s.EncodeHits} emiss={s.EncodeMisses} coal={s.Coalesced} alone={s.AloneRuns} batched={s.BatchedMoves}";
         }
 
         private static string FormatUs(long us) => us >= 1000 ? (us / 1000) + "ms" : (us / 1000.0).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + "ms";

@@ -150,6 +150,7 @@ namespace Server.MirEnvir
             if (RecipientInfo.Player != null)
             {
                 RecipientInfo.Player.NewMail = true; //notify player of new mail  --check in player process
+                RecipientInfo.Player.OperateTime = 0; // P9-08: an idle player sleeps up to HumanIdleCapMs
             }
 
             DateSent = Envir.Now;

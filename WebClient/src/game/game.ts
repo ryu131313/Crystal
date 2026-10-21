@@ -1083,6 +1083,12 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
       case "ObjectTurn": objects.get(p.ObjectID)?.queue(A.Standing, p.Direction, p.Location); break;
       case "ObjectWalk": objects.get(p.ObjectID)?.queue(A.Walking, p.Direction, p.Location); break;
       case "ObjectRun": objects.get(p.ObjectID)?.queue(A.Running, p.Direction, p.Location); break;
+      case "ObjectMoveBatch": // P9-08: the server's batch of the three packets above, in order
+        for (const m of p.Moves) {
+          if (m.Kind > 2) continue; // unknown kind: skip, like the desktop client
+          objects.get(m.ObjectID)?.queue(m.Kind === 2 ? A.Running : m.Kind === 1 ? A.Walking : A.Standing, m.Direction, m.Location);
+        }
+        break;
       case "ObjectAttack":
       { // GameScene.ObjectAttack: a monster's Type 1-4 is Attack2-5
         const atk = objects.get(p.ObjectID);

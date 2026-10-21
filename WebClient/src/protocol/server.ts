@@ -1161,6 +1161,17 @@ const decoders = {
    *  Sent at login and after any toggle change (C.SwitchGroup, C.ChangeTrade, C.SetAllowToggle, NPC @ALLOW* commands, ...).
    *  Test a bit with allowToggleOn(Flags, AllowToggle.Trade). */
   AllowToggles: (r: Reader) => ({ Flags: r.readU16() }),
+  /** S.ObjectMoveBatch (P9-08, [Optimisation] MoveBatch): consecutive ObjectTurn/ObjectWalk/ObjectRun the server packed at
+   *  flush; apply each in order exactly as the single packet. Kind 0 = turn, 1 = walk, 2 = run (ObjectMoveBatch.Turn/Walk/Run). */
+  ObjectMoveBatch: (r: Reader) => {
+    const count = r.readU16();
+    const Moves: { Kind: number; ObjectID: number; Location: WirePoint; Direction: number }[] = [];
+    for (let i = 0; i < count; i++) {
+      const kindDir = r.readU8();
+      Moves.push({ Kind: kindDir >> 3, ObjectID: r.readU32(), Location: { X: r.readU16(), Y: r.readU16() }, Direction: kindDir & 7 });
+    }
+    return { Moves };
+  },
 } satisfies Record<string, (r: Reader) => object>;
 
 /** S.FriendRequestResult.Result codes (byte constants on the C# class, not an enum). */

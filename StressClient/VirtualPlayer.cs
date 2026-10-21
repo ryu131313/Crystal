@@ -788,6 +788,9 @@ internal sealed class VirtualPlayer
             case S.ObjectWalk ow: World.Track(ow.ObjectID, ow.Location, ow.Direction); break;
             case S.ObjectRun orn: World.Track(orn.ObjectID, orn.Location, orn.Direction); break;
             case S.ObjectTurn ot: World.Track(ot.ObjectID, ot.Location, ot.Direction); break;
+            case S.ObjectMoveBatch mb: // P9-08: server-side batch of turn/walk/run, same effect as the single packets
+                for (int i = 0; i < mb.Moves.Count; i++) World.Track(mb.Moves[i].ObjectID, mb.Moves[i].Location, mb.Moves[i].Direction);
+                break;
 
             case S.ObjectHealth oh:
                 if (World.Monsters.TryGetValue(oh.ObjectID, out var hurt)) hurt.HPPercent = oh.Percent;

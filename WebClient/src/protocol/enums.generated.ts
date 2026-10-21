@@ -303,6 +303,7 @@ export const ServerPacketIds = {
   FriendRequest: 298,
   FriendRequestResult: 299,
   AllowToggles: 300,
+  ObjectMoveBatch: 301,
 } as const;
 export type ServerPacketIds = (typeof ServerPacketIds)[keyof typeof ServerPacketIds];
 export const ServerPacketIdsName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(ServerPacketIds).map(([k, v]) => [v, k]));

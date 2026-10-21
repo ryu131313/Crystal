@@ -102,7 +102,7 @@ namespace Server.MirObjects
             var time = OperateTime;
 
             if (CreatureTime < time && CreatureTime > Envir.Time)
-                time = RoamTime;
+                time = CreatureTime; // P9-08: assigned RoamTime before (Known defect, fixed with the user's approval 2026-10-21)
 
             if (OperateTime <= Envir.Time || time < OperateTime)
                 OperateTime = time;

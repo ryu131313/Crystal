@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Drawing;
 using System.Net.Sockets;
 using Server.MirDatabase;
 using Server.MirEnvir;
@@ -363,6 +364,10 @@ namespace Server.MirNetwork
                     return;
             }
 
+            // P9-08: a handler may have started a timer or set a flag Process acts on; with the idle cap the player could
+            // otherwise sleep up to HumanIdleCapMs.
+            if (handled && Settings.HumanIdleCapMs > 0 && Player != null) Player.OperateTime = 0;
+
             while (_retryList.Count > 0)
                 _receiveList.Enqueue(_retryList.Dequeue());
 
@@ -425,11 +430,16 @@ namespace Server.MirNetwork
             try
             {
                 var total = 0;
+                var batchMoves = Settings.MoveBatch && Stage != GameStage.None && Stage != GameStage.Login && Stage != GameStage.Select;
                 for (int i = 0; i < _pending.Count; i++)
                 {
                     var p = _pending[i];
                     if (p == null) continue; // superseded (SendCoalesce)
-                    var bytes = useEncodeCache ? Encode(p) : ToBytes(p);
+                    byte[] bytes;
+                    if (batchMoves && TryBatchMoves(ref i))
+                        bytes = MoveBatchScratch.ToFrame(); // per connection, so never through the shared encode cache
+                    else
+                        bytes = useEncodeCache ? Encode(p) : ToBytes(p);
                     SendScratch.Add(bytes);
                     total += bytes.Length;
                 }
@@ -461,6 +471,58 @@ namespace Server.MirNetwork
 
             BeginSend(data);
         }
+
+        /// <summary>
+        /// MoveBatch (P9-08): when <see cref="_pending"/>[<paramref name="i"/>] starts a run of two or more turn/walk/run
+        /// packets (superseded nulls inside the run are skipped), fills <see cref="MoveBatchScratch"/> with the run, moves
+        /// <paramref name="i"/> to its last packet and returns true. The batch takes the run's place, so the order of every
+        /// packet the client receives is unchanged. Game thread only.
+        /// </summary>
+        private bool TryBatchMoves(ref int i)
+        {
+            if (!AsMove(_pending[i], out _)) return false;
+
+            var moves = MoveBatchScratch.Moves;
+            moves.Clear();
+            var j = i;
+            for (; j < _pending.Count && moves.Count < S.ObjectMoveBatch.MaxMoves; j++)
+            {
+                var p = _pending[j];
+                if (p == null) continue;
+                if (!AsMove(p, out var move)) break;
+                moves.Add(move);
+            }
+
+            if (moves.Count < 2) return false;
+            LoopProfiler.CountBatchedMoves(moves.Count);
+            i = j - 1;
+            return true;
+        }
+
+        private static bool AsMove(Packet p, out S.ObjectMoveBatch.Move move)
+        {
+            uint id; Point location; MirDirection direction; byte kind;
+            switch (p.Index)
+            {
+                case (short)ServerPacketIds.ObjectTurn: { var t = (S.ObjectTurn)p; id = t.ObjectID; location = t.Location; direction = t.Direction; kind = S.ObjectMoveBatch.Turn; break; }
+                case (short)ServerPacketIds.ObjectWalk: { var w = (S.ObjectWalk)p; id = w.ObjectID; location = w.Location; direction = w.Direction; kind = S.ObjectMoveBatch.Walk; break; }
+                case (short)ServerPacketIds.ObjectRun: { var r = (S.ObjectRun)p; id = r.ObjectID; location = r.Location; direction = r.Direction; kind = S.ObjectMoveBatch.Run; break; }
+                default: move = default; return false;
+            }
+
+            // The batch carries coordinates as ushort and the direction in 3 bits; anything else goes as the single packet.
+            if (location.X < 0 || location.Y < 0 || location.X > ushort.MaxValue || location.Y > ushort.MaxValue || (byte)direction > 7)
+            {
+                move = default;
+                return false;
+            }
+
+            move = new S.ObjectMoveBatch.Move { Kind = kind, ObjectID = id, Location = location, Direction = direction };
+            return true;
+        }
+
+        /// <summary>The batch being built by <see cref="TryBatchMoves"/>; encoded at once, so one instance serves every flush (game thread).</summary>
+        private static readonly S.ObjectMoveBatch MoveBatchScratch = new S.ObjectMoveBatch();
 
         /// <summary>
         /// SendCoalesce (P9-06): when <paramref name="p"/> is a "latest state" packet and an older one for the same object is

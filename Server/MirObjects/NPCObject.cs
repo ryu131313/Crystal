@@ -283,6 +283,17 @@ namespace Server.MirObjects
             if (TurnTime < time && TurnTime > Envir.Time)
                 time = TurnTime;
 
+            // P9-08: timers Process checks with "Time > X" (day-of-week/time visibility, speech, buy-back goods), so they no
+            // longer wait for the 2 s ceiling.
+            if (VisTime + 1 < time && VisTime + 1 > Envir.Time)
+                time = VisTime + 1;
+
+            if (Speech.Count > 0 && SpeechTime + 1 < time && SpeechTime + 1 > Envir.Time)
+                time = SpeechTime + 1;
+
+            if (UsedGoodsTime + 1 < time && UsedGoodsTime + 1 > Envir.Time)
+                time = UsedGoodsTime + 1;
+
             if (OwnerTime < time && OwnerTime > Envir.Time)
                 time = OwnerTime;
 
@@ -341,6 +352,7 @@ namespace Server.MirObjects
                     {
                         player.StackingTime = Envir.Time + 1000;
                         player.Stacking = true;
+                        player.OperateTime = 0; // P9-08: Process moves the player off the NPC
                     }
                 }
             }

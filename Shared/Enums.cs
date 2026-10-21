@@ -1734,6 +1734,7 @@ public enum ServerPacketIds : short
     FriendRequest, // someone online asks to be your friend; reply C.FriendRequestReply (phase 2.7); append-only
     FriendRequestResult, // outcome of a friend request this player sent: accepted / declined / expired / ... (phase 2.7); append-only
     AllowToggles, // the player's social allow toggles as AllowToggle bit flags, at login and after every change (phase 2.8); append-only
+    ObjectMoveBatch, // consecutive ObjectTurn/ObjectWalk/ObjectRun for one client in one compact packet, built at flush ([Optimisation] MoveBatch, P9-08); append-only
 }
 
 public enum ClientPacketIds : short
