@@ -370,7 +370,8 @@ namespace Server.MirEnvir.Storage
                     }
 
                     if (entity is SafeZoneInfo zone) zone.Info = (MapInfo)parent;
-                    if (entity is QuestInfo quest) quest.LoadInfo(); // the binary QuestInfo ctor loads the quest .txt body too
+                    // QuestInfo.LoadInfo needs ItemInfoList/MonsterInfoList (kill and item tasks resolve by name), and
+                    // those are only swapped into Envir after every table has been built: defer it to the end.
                     entities.Add(entity);
                     if (parent != null) spec.ChildList(parent).Add(entity);
                 }
@@ -386,6 +387,7 @@ namespace Server.MirEnvir.Storage
             Replace(e.MonsterInfoList, built["monsters"]);
             Replace(e.NPCInfoList, built["npcs"]);
             Replace(e.QuestInfoList, built["quests"]);
+            foreach (var entity in built["quests"]) ((QuestInfo)entity).LoadInfo(); // after the item/monster lists are in place
             foreach (MagicInfo m in built["magic"])
                 if (!e.MagicExists(m.Spell)) e.MagicInfoList.Add(m);
             Replace(e.GameShopList, built["gameshop"]);
