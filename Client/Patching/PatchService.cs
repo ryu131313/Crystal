@@ -7,11 +7,11 @@ using System.Collections.Concurrent;
 namespace Client.Patching
 {
     /// <summary>
-    /// The on-demand patcher (`[Launcher] Mode=OnDemand`, in-game patcher plan §4.2): downloads the relay's raw client
-    /// files (WebRelay --patch-root) into the client folder, in the launcher (core + starter) and then in the background
-    /// while the game runs.
+    /// The in-game patcher (in-game patcher plan §4.2): downloads the relay's raw client files (WebRelay --patch-root) into
+    /// the client folder in the background while the game runs (no launcher window since 2026-10-20: core and starter files
+    /// are simply first in the queue, and anything the game draws is demanded).
     ///
-    /// Threads (client.md §3.2 exception, approved 2026-10-20): one coordinator thread + <see cref="Settings.P_Concurrency"/>
+    /// Threads (client.md §3.2 exception, approved 2026-10-20): one coordinator thread + 2 priority + <see cref="Settings.P_Concurrency"/>
     /// workers. They only do HTTP and file installs: they never touch game state, <see cref="MirGraphics.MLibrary"/>,
     /// scenes or the device. Installed paths reach the UI thread through <see cref="TryDequeueInstalled"/> (a
     /// ConcurrentQueue drained by <see cref="PatchPickup.Process"/>). Everything else crosses under <see cref="_lock"/>.
@@ -97,7 +97,76 @@ namespace Client.Patching
         // — lifetime —
 
         /// <summary>
-        /// Launcher thread: take the lock (retrying a few seconds, a restarting client may still hold it), load
+        /// Program.Run, before the game window: everything below on a thread of its own, so the game starts at once —
+        /// left-over Old__ files, then <see cref="Start"/> (lock, State.bin, Manifest.bin, the live manifest), then
+        /// <see cref="StartBackground"/>. Files the game draws before the manifest arrives are demanded once it has
+        /// (PatchPickup grows the library arrays on the manifest change).
+        /// </summary>
+        public static void StartInBackground()
+        {
+            // The last run's list, synchronously (a small file): the Libraries arrays are sized from it when the game
+            // window opens, so NPC / monster numbers have a slot from the first frame.
+            lock (_lock)
+            {
+                _manifest = PatchManifest.TryLoad(ManifestFile);
+                if (_manifest != null) _manifestVersion++;
+            }
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    RepairOldFiles();
+                    Start();
+                    StartBackground();
+                }
+                catch (Exception ex)
+                {
+                    LogOnce("[Patch] start: " + ex.Message);
+                }
+                finally
+                {
+                    _started.Set();
+                }
+            }) { IsBackground = true, Name = "PatchStart" };
+            thread.Start();
+
+            // A fresh install has no list yet: wait a few seconds for the first one so the arrays are sized from it (there is
+            // no art to show before that anyway). Later starts never wait here.
+            bool cached;
+            lock (_lock) cached = _manifest != null;
+            if (!cached) _started.Wait(TimeSpan.FromSeconds(8));
+        }
+
+        private static readonly ManualResetEventSlim _started = new ManualResetEventSlim(false);
+
+        /// <summary>
+        /// Left-over Old__ files: put back when the original is missing, else deleted; a locked file is left for the next
+        /// start. Skipped while a program update is being proven: its Old__ files are the rollback copy (PatchApply).
+        /// </summary>
+        private static void RepairOldFiles()
+        {
+            if (PatchApply.Applying) return;
+            try
+            {
+                foreach (var oldFilename in Directory.GetFiles(Settings.P_Client, "Old__*", SearchOption.AllDirectories))
+                {
+                    try
+                    {
+                        string original = Path.Combine(Path.GetDirectoryName(oldFilename), Path.GetFileName(oldFilename).Substring("Old__".Length));
+                        if (!File.Exists(original)) File.Move(oldFilename, original);
+                        else File.Delete(oldFilename);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                LogOnce("[Patch] Old__ clean-up: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Start thread: take the lock (retrying a few seconds, a restarting client may still hold it), load
         /// State.bin + Manifest.bin and fetch the live manifest. Returns false when the relay was not reachable (the client
         /// then runs on what is on disk, sized from the last manifest).
         /// </summary>
@@ -115,7 +184,7 @@ namespace Client.Patching
             var state = PatchState.TryLoad(StateFile);
             _firstUse = state == null;
             _state = state ?? new PatchState();
-            _manifest = PatchManifest.TryLoad(ManifestFile);
+            lock (_lock) _manifest ??= PatchManifest.TryLoad(ManifestFile); // StartInBackground loaded it already
             _staged = PatchState.TryLoad(PatchApply.StagedFile) ?? new PatchState();
             _rejected = PatchApply.LoadRejected();
             if (File.Exists(StateFile)) _stateStamp = File.GetLastWriteTimeUtc(StateFile);
@@ -130,6 +199,7 @@ namespace Client.Patching
             { Timeout = Timeout.InfiniteTimeSpan };
 
             bool online = false;
+            Active = true; // before the first fetch, so the status line can say "Connecting..." while it runs
             if (Holder)
             {
                 EmptyTrash();
@@ -141,78 +211,7 @@ namespace Client.Patching
                     RecomputeReady();
                 }
             }
-            Active = true;
             return online;
-        }
-
-        /// <summary>
-        /// Launcher thread, holder only: download program files + tiers 0 and 1 that are not current, blocking until done.
-        /// Program files are staged (Patch\Staged\); programChanged = a complete set is staged, so the caller restarts and
-        /// Program.Main applies it on the way out. Returns the number of files that failed.
-        /// </summary>
-        public static int DownloadCore(out bool programChanged)
-        {
-            programChanged = false;
-            bool anyProgram = false;
-            if (!Holder) return 0;
-            var core = new List<string>();
-            var survey = Survey(IsCoreFile);
-            lock (_lock)
-            {
-                if (_manifest == null) return 0;
-                foreach (var (file, standing) in survey)
-                {
-                    if (standing == Standing.Current || !_manifest.Files.ContainsKey(file.Path)) continue;
-                    if (PatchPaths.IsProgramFile(file))
-                    {
-                        if (IsStaged(file) || _rejected.Contains(file.Sha256)) continue;
-                        anyProgram = true;
-                    }
-                    core.Add(file.Path);
-                }
-                // Largest first into AddFirst, so the smallest end up at the head of the demand queue.
-                core.Sort((a, b) => _manifest.Files[b].Size.CompareTo(_manifest.Files[a].Size));
-                foreach (var path in core) Enqueue(path, demand: true);
-            }
-            StartWorkers();
-            int faultsBefore = Volatile.Read(ref _faults);
-            bool refreshed = false;
-            while (true)
-            {
-                // No coordinator yet: retries and a stale-file manifest refresh are pumped from here.
-                bool refresh;
-                lock (_lock)
-                {
-                    PumpDelayed();
-                    refresh = _refreshRequested && !refreshed;
-                    bool busy = false;
-                    foreach (var path in core)
-                        if (_queued.Contains(path) || _active.Contains(path) || DelayedContains(path)) { busy = true; break; }
-                    if (!busy && !refresh) break;
-                }
-                if (refresh)
-                {
-                    refreshed = true;
-                    RefreshManifest(force: true);
-                    var again = Survey(IsCoreFile);
-                    lock (_lock)
-                    {
-                        _refreshRequested = false;
-                        foreach (var (file, standing) in again)
-                            if (standing != Standing.Current && _manifest.Files.ContainsKey(file.Path) && !_queued.Contains(file.Path) && !_active.Contains(file.Path) && !DelayedContains(file.Path)
-                                && !(PatchPaths.IsProgramFile(file) && (IsStaged(file) || _rejected.Contains(file.Sha256))))
-                            {
-                                if (!core.Contains(file.Path)) core.Add(file.Path);
-                                Enqueue(file.Path, demand: true);
-                            }
-                    }
-                }
-                Thread.Sleep(100);
-            }
-            lock (_lock) RecomputeReady();
-            SaveStateIfDirty(force: true);
-            programChanged = anyProgram && _updateReady;
-            return Volatile.Read(ref _faults) - faultsBefore;
         }
 
         /// <summary>After launch: the coordinator (refresh, plan, deletions, state saves) and, for the holder, the workers.</summary>
@@ -385,7 +384,7 @@ namespace Client.Patching
         /// </summary>
         public static int HighestIndex(string folder, string suffix)
         {
-            if (!Active) return -1;
+            if (_manifest == null) return -1; // also before Start finished: the cached list loaded by StartInBackground
             string dir = PatchPaths.Normalize(folder).TrimEnd('/') + "/";
             string key = dir + "|" + suffix;
             lock (_lock)
@@ -460,7 +459,8 @@ namespace Client.Patching
                         lock (_lock)
                         {
                             var now = DateTime.UtcNow;
-                            refresh = now >= _nextRefresh || (_refreshRequested && now - _lastRefresh >= MinRefreshGap);
+                            refresh = now >= _nextRefresh || (_refreshRequested && now - _lastRefresh >= MinRefreshGap)
+                                || (_manifest == null && now - _lastRefresh >= TimeSpan.FromSeconds(15)); // relay down or still indexing
                         }
                         if (refresh)
                         {
@@ -679,9 +679,6 @@ namespace Client.Patching
             return result;
         }
 
-        /// <summary>Launcher set: program files wherever their tier, plus tiers 0 and 1.</summary>
-        private static bool IsCoreFile(PatchFile file) => file.Tier <= 1 || PatchPaths.IsProgramFile(file);
-
         /// <summary>
         /// Files this patcher installed or verified that the new manifest no longer lists are moved to Trash (an open .Lib
         /// can move thanks to FileShare.Delete) and queued for the UI thread. Never: unrecorded files, the deny list,
@@ -806,22 +803,27 @@ namespace Client.Patching
 
         // — workers —
 
+        private const int PriorityWorkers = 2;
+
         private static void StartWorkers()
         {
             lock (_lock)
             {
                 if (_workers.Count > 0) return;
-                int count = Math.Clamp(Settings.P_Concurrency, 1, 16);
+                // PriorityWorkers workers take requested files only (what the game is drawing / about to draw), so a queue of
+                // large background files can never hold them; [Launcher] ConcurrentDownloads more do the background queue.
+                int count = PriorityWorkers + Math.Clamp(Settings.P_Concurrency, 1, 16);
                 for (int i = 0; i < count; i++)
                 {
-                    var thread = new Thread(WorkerLoop) { IsBackground = true, Name = "PatchWorker" + i };
+                    bool demandOnly = i < PriorityWorkers;
+                    var thread = new Thread(() => WorkerLoop(demandOnly)) { IsBackground = true, Name = demandOnly ? "PatchWorkerDemand" : "PatchWorker" + i };
                     _workers.Add(thread);
                     thread.Start();
                 }
             }
         }
 
-        private static void WorkerLoop()
+        private static void WorkerLoop(bool demandOnly)
         {
             while (!_stopping)
             {
@@ -833,7 +835,7 @@ namespace Client.Patching
                     {
                         string path = null;
                         if (_demand.First != null) { path = _demand.First.Value; _demand.RemoveFirst(); }
-                        else if (_background.Count > 0 && !_paused) { path = _background[0]; _background.RemoveAt(0); }
+                        else if (!demandOnly && _background.Count > 0 && !_paused) { path = _background[0]; _background.RemoveAt(0); }
                         if (path != null)
                         {
                             _queued.Remove(path);
@@ -928,7 +930,9 @@ namespace Client.Patching
             string result = Download(file, part);
             if (result != "ok") return result;
             if (_stopping) return "later";
-            return program ? Stage(file, part) : Install(file, part, local, program);
+            // A program file this folder does not have yet is not loaded by anything: install it now, no restart needed.
+            // Only one that exists (the running build's) is staged for PatchApply.
+            return program && File.Exists(local) ? Stage(file, part) : Install(file, part, local, program);
         }
 
         private static string Download(PatchFile file, string part)
@@ -1006,8 +1010,8 @@ namespace Client.Patching
 
         /// <summary>
         /// Old file → Trash (works while the game has it open: libraries use FileShare.Delete), part → target, record,
-        /// queue for the UI thread. A sharing violation (a playing sound) is "later", not a failure. Program files instead
-        /// keep the launcher's Old__ copy (restored by AMain if the move fails).
+        /// queue for the UI thread. A sharing violation (a playing sound) is "later", not a failure. Program files never come
+        /// here: they are staged (Stage) and applied by PatchApply.
         /// </summary>
         private static string Install(PatchFile file, string part, string local, bool program)
         {
@@ -1084,8 +1088,9 @@ namespace Client.Patching
         }
 
         /// <summary>
-        /// Under the lock: ready when every program file the manifest lists is either recorded current or staged with its
-        /// hash, none of them is a rejected build, and there is something to apply.
+        /// Under the lock: ready when every program file the manifest lists is recorded current, staged with its hash, or not
+        /// in this folder yet (those are installed directly); none is a rejected build; and at least one changed file the
+        /// running build uses is staged (a new-only or removal-only change never asks for a restart).
         /// </summary>
         private static void RecomputeReady()
         {
@@ -1098,10 +1103,12 @@ namespace Client.Patching
                 {
                     if (!PatchPaths.IsProgramFile(file)) continue;
                     if (_state.Files.TryGetValue(file.Path, out var rec) && rec.Sha256 == file.Sha256) continue;
+                    if (!File.Exists(PatchPaths.Local(file.Path))) continue; // new to this folder: installed directly (Fetch), no restart
                     if (_rejected.Contains(file.Sha256) || !IsStaged(file)) { ready = false; break; }
                     pending++;
                 }
-                if (ready && pending == 0 && RemovedProgramFiles().Count == 0) ready = false;
+                // Only a changed program file the running build uses asks for a restart; removals ride along with it.
+                if (pending == 0) ready = false;
             }
             _updateReady = ready;
         }

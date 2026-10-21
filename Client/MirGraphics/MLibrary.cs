@@ -509,8 +509,10 @@ namespace Client.MirGraphics
         private int[] _indexList;
         private int _count;
         private bool _initialized;
-        // In-game patcher: the file was missing at Initialize; _demanded = asked PatchService for it once.
-        private bool _missing, _demanded;
+        // In-game patcher: the file was missing at Initialize; _demandVersion = the patch list version it was last asked
+        // for under (asked again only when a newer list arrived, e.g. the first one after a start before the relay answered).
+        private bool _missing;
+        private int _demandVersion = -1;
 
         private BinaryReader _reader;
         private FileStream _fStream;
@@ -574,7 +576,7 @@ namespace Client.MirGraphics
             _frames = null;
             _count = 0;
             _missing = false;
-            _demanded = false;
+            _demandVersion = -1;
             try
             {
                 Open();
@@ -599,11 +601,11 @@ namespace Client.MirGraphics
         /// </summary>
         public void Prefetch()
         {
-            if (_missing && !_demanded)
-            {
-                _demanded = true;
-                PatchService.Demand(_fileName);
-            }
+            if (!_missing) return;
+            int version = PatchService.ManifestVersion;
+            if (version == _demandVersion) return;
+            _demandVersion = version;
+            PatchService.Demand(_fileName);
         }
 
         private void Open()
@@ -664,7 +666,7 @@ namespace Client.MirGraphics
 
             if (_images == null || index < 0 || index >= _images.Length)
             {
-                if (_missing && !_demanded) Prefetch();
+                if (_missing) Prefetch();
                 return false;
             }
 
@@ -704,7 +706,10 @@ namespace Client.MirGraphics
             if (!_initialized) Initialize();
 
             if (_images == null || index < 0 || index >= _images.Length)
+            {
+                if (_missing) Prefetch(); // in-game patcher: a size / offset query asks for a missing library like a draw does
                 return Point.Empty;
+            }
 
             if (_images[index] == null)
             {
@@ -718,7 +723,10 @@ namespace Client.MirGraphics
         {
             if (!_initialized) Initialize();
             if (_images == null || index < 0 || index >= _images.Length)
+            {
+                if (_missing) Prefetch(); // in-game patcher: a size query asks for a missing library like a draw does
                 return Size.Empty;
+            }
 
             if (_images[index] == null)
             {
@@ -734,7 +742,10 @@ namespace Client.MirGraphics
                 Initialize();
 
             if (_images == null || index < 0 || index >= _images.Length)
+            {
+                if (_missing) Prefetch(); // in-game patcher: a size query asks for a missing library like a draw does
                 return Size.Empty;
+            }
 
             if (_images[index] == null)
             {

@@ -1,4 +1,5 @@
-﻿using System.Net;
+﻿using System.Buffers;
+using System.Net;
 
 namespace WebRelay;
 
@@ -73,20 +74,37 @@ internal sealed class StaticFiles
         res.ContentLength64 = length;
         if (ctx.Request.HttpMethod == "HEAD") { res.Close(); return; }
 
-        await using (var fs = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024, useAsync: true))
+        await using (var fs = OpenRead(full))
         {
             fs.Seek(start, SeekOrigin.Begin);
-            var buffer = new byte[64 * 1024];
+            await CopyAsync(fs, res.OutputStream, length).ConfigureAwait(false);
+        }
+        res.Close();
+    }
+
+    private const int ChunkSize = 1024 * 1024;
+
+    /// <summary>Unbuffered async read: <see cref="CopyAsync"/> reads in 1 MB chunks, so a FileStream buffer would only copy twice.</summary>
+    internal static FileStream OpenRead(string path) =>
+        new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, bufferSize: 0, useAsync: true);
+
+    /// <summary>Copies <paramref name="length"/> bytes in chunks of up to 1 MB through a pooled buffer.</summary>
+    internal static async Task CopyAsync(Stream source, Stream output, long length)
+    {
+        if (length <= 0) return;
+        byte[] buffer = ArrayPool<byte>.Shared.Rent((int)Math.Min(ChunkSize, length));
+        try
+        {
             long left = length;
             while (left > 0)
             {
-                int n = await fs.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, left))).ConfigureAwait(false);
+                int n = await source.ReadAsync(buffer.AsMemory(0, (int)Math.Min(Math.Min(buffer.Length, ChunkSize), left))).ConfigureAwait(false);
                 if (n == 0) break;
-                await res.OutputStream.WriteAsync(buffer.AsMemory(0, n)).ConfigureAwait(false);
+                await output.WriteAsync(buffer.AsMemory(0, n)).ConfigureAwait(false);
                 left -= n;
             }
         }
-        res.Close();
+        finally { ArrayPool<byte>.Shared.Return(buffer); }
     }
 
     /// <summary>Maps "/a/b.c" onto the first root holding it; null for traversal attempts or missing files.</summary>

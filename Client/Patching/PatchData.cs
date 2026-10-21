@@ -161,8 +161,8 @@ namespace Client.Patching
         }
 
         /// <summary>
-        /// Program files, by location and extension whatever their tier (exe folder or runtimes\, .exe/.dll/.json): swapped
-        /// only by the launcher, then a restart; never by the background queue.
+        /// Program files, by location and extension whatever their tier (exe folder or runtimes\, .exe/.dll/.json): staged
+        /// and swapped by PatchApply at exit / Restart; never installed over the running build.
         /// </summary>
         public static bool IsProgramFile(PatchFile file)
         {

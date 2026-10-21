@@ -558,7 +558,7 @@ namespace Client.MirScenes.Modern.Windows
                 {
                     Id = "Lighting", Cat = Cat.Graphics, Group = gLight, Label = ClientTextKeys.ModernWinOptLighting, Desc = ClientTextKeys.ModernWinOptLightingDesc, Kind = Kind.Seg,
                     Options = new[] { new Choice<string>("Classic", W.T(ClientTextKeys.ModernWinOptClassic)), new Choice<string>("Enhanced", W.T(ClientTextKeys.ModernWinOptEnhanced)) },
-                    DefS = "Classic", GetS = () => Settings.Lighting == LightingMode.Enhanced ? "Enhanced" : "Classic",
+                    DefS = "Enhanced", GetS = () => Settings.Lighting == LightingMode.Enhanced ? "Enhanced" : "Classic",
                     SetS = v =>
                     {
                         // ChatDialog.TryLightingCommand (@LIGHT NEW / OLD)

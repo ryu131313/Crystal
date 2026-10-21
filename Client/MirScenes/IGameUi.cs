@@ -5,7 +5,7 @@ namespace Client.MirScenes
     /// <summary>[Interface] UiStyle (Settings.UiStyle; Desktop-Modern-UI-Plan D6).</summary>
     public enum UiStyle : byte
     {
-        /// <summary>The build's default: Classic until phase 5 flips it to Modern.</summary>
+        /// <summary>The build's default: Modern (since 2026-10-20).</summary>
         Default = 0,
         Modern = 1,
         Classic = 2,
@@ -13,8 +13,8 @@ namespace Client.MirScenes
 
     public static class UiStyles
     {
-        /// <summary>Resolves Settings.UiStyle. Default = Classic until phase 5; a saved Classic always wins.</summary>
-        public static bool IsModern => Settings.UiStyle == UiStyle.Modern;
+        /// <summary>Resolves Settings.UiStyle: Default = Modern (since 2026-10-20); a saved Classic always wins.</summary>
+        public static bool IsModern => Settings.UiStyle != UiStyle.Classic;
     }
 
     /// <summary>

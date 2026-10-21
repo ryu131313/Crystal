@@ -1,6 +1,6 @@
 # Crystal Mir2 Game Client — AI Agent Reference
 
-> **Scope:** `Client\` (`Client.exe`) — `Program.cs`, `Forms\` (`CMain` game window, `AMain` launcher/patcher, `Config`), `MirGraphics\`, `MirControls\`, `MirScenes\` + `MirScenes\Dialogs\`, `MirNetwork\`, `MirObjects\`, `MirSounds\`, `Settings.cs`, `KeyBindSettings.cs`, `Localization\`, `Resolution\`, `Utils\` — and the client-side use of `Shared\`. `LibraryEditor\` / `LibraryViewer\` appear only as the `.Lib` asset tools.
+> **Scope:** `Client\` (`Client.exe`) — `Program.cs`, `Forms\` (`CMain` game window), `Patching\` (in-game patcher), `MirGraphics\`, `MirControls\`, `MirScenes\` + `MirScenes\Dialogs\`, `MirNetwork\`, `MirObjects\`, `MirSounds\`, `Settings.cs`, `KeyBindSettings.cs`, `Localization\`, `Resolution\`, `Utils\` — and the client-side use of `Shared\`. `LibraryEditor\` / `LibraryViewer\` appear only as the `.Lib` asset tools.
 > **Not in scope:** `Server\`, `Server.MirForms\` (see `Knowledgebase/Server/server.md`).
 > **Cross-boundary:** `Shared\` (packets, packet-id enums, `Monster`/`Stat`/`ItemType` enums, `Shared/Data` models, `Language.cs`) is ONE assembly compiled into both Client and Server. Any `Shared\` change is a client **and** server change and both must be rebuilt and deployed together.
 
@@ -32,13 +32,10 @@ Program.Main() [STAThread]                                   Client/Program.cs
   ├── Packet.IsServer = false;  Settings.Load()               (must precede any receive)
   ├── CheckResolutionSetting()  → mode enumeration fails → MessageBox + Environment.Exit;
   │                               configured Resolution unsupported → MessageBox, reset to 1024, Settings.Save(), continue
-  ├── Settings.P_Patcher ([Launcher] Enabled, default true)
-  │     ? Application.Run(PForm = new AMain())   launcher/patcher (namespace Launcher, WebView2, HttpClient); sets Launch
-  │       in-game patcher (2026-10-20; the PList.gz patcher was retired the same day): PatchService.Start + DownloadCore
-  │       (program files staged + tiers 0-1 from WebRelay --patch-root); a staged program set → restart (PatchApply)
-  ├── if (Launch) PatchService.StartBackground()                 background downloads during the game (§3.2 exception)
-  │     : Launch = true
-  ├── if (Launch) Application.Run(Form = new CMain())         game window + loop (AMain closed without launch → exit)
+  ├── [Launcher] Enabled → PatchService.StartInBackground()   in-game patcher on its own threads (§3.2 exception); no launcher
+  │                                                           window since 2026-10-20 (AMain, Config, WebView2 removed)
+  ├── Application.Run(Form = new CMain())                     game window + loop
+  ├── end: PatchService.Stop → a complete staged program set is applied (PatchApply) → restart if the player chose Restart
   │     CMain ctor: Application.Idle += Application_Idle, input events
   │     CMain_Load: ClientSize 1024x768, cursors, SlimDX.Configuration.EnableObjectTracking = true,
   │                 DXManager.Create(), SoundManager.Create()
@@ -62,7 +59,6 @@ exit: CMain_FormClosing → (cancelled while CMain.Time < GameScene.LogTime, unl
 | **Library loader** (`IsBackground`) | `Libraries` static ctor, `new Thread(LoadGameLibraries)` (`MirGraphics/MLibrary.cs`) | `MLibrary.Initialize()` on map/monster/armour/... libraries, bumps the unused `Libraries.Progress`, sets `Libraries.Loaded = true` | `.Lib` headers only. **No locks.** |
 | **Socket IO** (APM threadpool) | `Network.Connection` / `ReceiveData` / `SendData` (`MirNetwork/Network.cs`) | **decodes** packets (`Packet.ReceivePacket` → `ReadPacket`) and enqueues into `ConcurrentQueue<Packet> _receiveList` | `_rawData`, `CMain.BytesReceived`, `Network.Disconnect()` on error; on a refused connect, `Sleep(100)` + `Network.Connect()` retry — including creating the max-attempts `MirMessageBox` off the UI thread |
 | **NAudio playback** | `WaveOutEvent` (one shared `_OneShots` mixer + one per `LoopProvider`) | audio | NAudio internals |
-| **Patcher** | `AMain._workThread`, `Task.Run` HTTP (`Forms/AMain.cs`) | downloads before the game form exists | patcher only |
 | **Patch service** (in-game patcher 2026-10-20) | `PatchService` coordinator + `ConcurrentDownloads` workers (`Patching/PatchService.cs`) | HTTP from WebRelay `--patch-root`, file installs into the client folder, during the game too | `Patch\` files and the client folder only; installed paths → `PatchPickup` via a `ConcurrentQueue` |
 
 **Hand-off queues:** socket → main = `Network._receiveList` (`ConcurrentQueue<Packet>`); main → socket = `Network._sendList`, flushed by `Network.Process()`. Loader → main = the `Libraries.Loaded` flag (`SelectScene` waits on `Libraries.Loaded` before starting the game). **There is no render thread.**
@@ -118,8 +114,9 @@ private static void Application_Idle(object sender, EventArgs e)
 | **Select** | `Client/MirScenes/SelectScene.cs` | character select/create; waits for `Libraries.Loaded`; picks resolution |
 | **Game** | `Client/MirScenes/GameScene.cs` (~12.5k lines) | gameplay; owns `MapControl` (declared in the same file, ~L10275) |
 
-- `MirScene.ActiveScene` is a static initialised `= new LoginScene()` (`MirControls/MirScene.cs`).
-- Switch: `ActiveScene = new XScene(...)` **then** `Dispose()` the old scene (`SelectScene` case 4, `GameScene.LogOutSuccess` → `new SelectScene`, `GameScene.ReturnToLogin` → `new LoginScene()`). No `ReturnToLogin()` helper exists.
+- `MirScene.ActiveScene` is a static initialised `= AccountScenes.Login()` (`MirControls/MirScene.cs`). `Modern/Screens/AccountScenes` picks the scene of the interface in use (`UiStyles.IsModern`, read at every switch): `ModernLoginScene` / `ModernSelectScene` (new UI, default) or the classic `LoginScene` / `SelectScene`. `GameScene.LogOutSuccess` → `AccountScenes.Select(...)`, `GameScene.ReturnToLogin` → `AccountScenes.Login()` + `AccountScenes.Notice(...)`. The classic scenes chain only to each other.
+- Switch: `ActiveScene = new XScene(...)` **then** `Dispose()` the old scene (`SelectScene` case 4, the two `GameScene` cases above). No `ReturnToLogin()` helper exists.
+- New-UI account flow (Desktop-Modern-UI-Plan phase 5, 2026-10-20): `ModernLoginScene` (connect + version check like `LoginScene`, card views login / three-step create / change password, server card with ping from `S.KeepAlive`, ban countdowns, `S.LoginFailed` tries left, the ChrSel 0-18 door) → `ModernSelectScene` (roster, ChrSel preview + 560 glow, details from `S.SelectDetails`, class gating from `S.ServerRules`; both arrive during the door and are kept in `AccountState`) → `GameScene`, where `Hud/LoadingOverlay` covers the world until the map, the character, the first frame and the patcher's downloads (≤ 6 s) are in, then waits for "press any key". Each modern account screen has a footer link to the classic one on the same connection (`LoginScene(bool connected)`).
 - **Resolution:** Login/Select are always 1024x768. Entering the game, `SelectScene` uses `min(server p.Resolution, Settings.Resolution)` and calls `CMain.SetResolution(1024,768 | 1280,800 | 1366,768 | 1920,1080)` — note the enum says `w1280h720` but the game uses **1280x800**. Logout/return-to-login reset to 1024x768.
 
 ### 2.4 Rendering Stack
@@ -187,14 +184,13 @@ private static void Application_Idle(object sender, EventArgs e)
 
 | File (CWD-relative) | Owner | Contents |
 |---|---|---|
-| `.\Mir2Config.ini` (Release) / `.\Mir2Test.ini` (Debug or `-tc`) | `Settings.Load/Save` via `InIReader` (`Shared/Functions/IniReader.cs`) | `[Graphics]` FullScreen, Borderless, MouseClip, AlwaysOnTop, FPSCap, Resolution, DebugMode, UseMouseCursors, Renderer, RebuildOptimisations, Lighting (Classic/Enhanced); `[Network]` UseConfig, IPAddress, Port, Relay (a WebRelay `ws(s)://.../ws` URL: when set, `Network` connects through the relay's WebSocket instead of TCP, one frame per message; 2026-10-20); `[Logs]`; `[Sound]` Volume, SoundOverLap, Music, CleanMinutes; `[Game]` AccountID, **Password (plaintext)**, view toggles, FontName, Language, `Skillbar{i}X/Y`, ...; `[Chat]`, `[Filter]`; `[Launcher]` Enabled, Host (the WebRelay patch host), BackgroundDownloads, RefreshMinutes, ConcurrentDownloads (default 4, 1..100), AutoStart, ServerName, Browser (the launcher page) |
+| `.\Mir2Config.ini` (Release) / `.\Mir2Test.ini` (Debug or `-tc`) | `Settings.Load/Save` via `InIReader` (`Shared/Functions/IniReader.cs`) | `[Graphics]` FullScreen, Borderless, MouseClip, AlwaysOnTop, FPSCap, Resolution, DebugMode, UseMouseCursors, Renderer, RebuildOptimisations, Lighting (Classic/Enhanced); `[Network]` UseConfig, IPAddress, Port, Relay (a WebRelay `ws(s)://.../ws` URL: when set, `Network` connects through the relay's WebSocket instead of TCP, one frame per message; 2026-10-20); `[Logs]`; `[Sound]` Volume, SoundOverLap, Music, CleanMinutes; `[Game]` AccountID, **Password (plaintext)**, view toggles, FontName, Language, `Skillbar{i}X/Y`, ...; `[Chat]`, `[Filter]`; `[Launcher]` Enabled, Host (the WebRelay patch host), BackgroundDownloads, RefreshMinutes, ConcurrentDownloads (background workers, default 6, plus 2 priority workers), AutoStart, ServerName, Browser (the launcher page) |
 | `.\KeyBinds.ini` | `KeyBindSettings` (`CMain.InputKeys`) | one section per `KeybindOptions` member **name** |
 | `.\Data\UserData\QuestTracking.ini` | `Settings.LoadTrackedQuests/SaveTrackedQuests(charName)` | tracked quests per character |
 | `.\Localization\<Language>.json` | `GameLanguage.LoadClientLanguage` | UI strings (`Settings.DbLanguageJsonPath` is a declared but unused const) |
-| `.\Error.txt` | `CMain.SaveError` / `AMain.SaveError` | appended errors, ≤ 100 entries per process |
+| `.\Error.txt` | `CMain.SaveError` | appended errors, ≤ 100 entries per process |
 | `<exe dir>\Screenshots\Image N.png` | `CMain.CreateScreenShot` | screenshots (`Application.StartupPath` — the one exe-relative path) |
 | `.\Data\`, `.\Map\`, `.\Sound\` (`SoundList.lst`), `.\Data\Shaders\`, `.\Data\Cursors\` | `Settings.*Path` consts | assets |
-| `.\DirectX\` (`Settings.ResourcePath`) | `AMain` | WebView2 user-data folder for the launcher |
 
 - **Everything except screenshots is CWD-relative** (`Settings` path consts, `Error.txt`, ini). Launching from another working directory breaks asset loading and creates empty `Data`/`Map`/`Sound` dirs there.
 - Not ini-backed (static defaults only): `MaxFPS` 100, `ScreenWidth/ScreenHeight` 1024x768, `FontSize` 8F, `CleanDelay` 600000, `TimeOut` 5000, `RemainingErrorLogs` 100.
@@ -207,7 +203,7 @@ private static void Application_Idle(object sender, EventArgs e)
 | Project | `Client/Client.csproj` (SDK-style), assembly `Client.exe` / `Client.dll` |
 | TFM | `net8.0-windows7.0`, `WinExe`, `UseWindowsForms`, **`PlatformTarget x64`**, `AllowUnsafeBlocks`, `Nullable disable`, **`ImplicitUsings enable`**, default LangVersion |
 | Output | `BaseOutputPath ..\Build\Client\` + `AppendTargetFrameworkToOutputPath=false` → `Build\Client\Debug\` / `Build\Client\Release\` |
-| Refs | ProjectReference `..\Shared\Shared.csproj` (net8.0); `Reference SlimDX` HintPath `..\Components\SlimDX.dll`; NuGet `NAudio 2.2.1`, `Microsoft.Web.WebView2 1.0.2903.40`, `Microsoft.AspNet.WebApi.Client 6.0.0` |
+| Refs | ProjectReference `..\Shared\Shared.csproj` (net8.0); `Reference SlimDX` HintPath `..\Components\SlimDX.dll`; NuGet `NAudio 2.2.1`, `Vortice.Direct3D11` / `DXGI` / `D3DCompiler 3.8.3` (WebView2 and WebApi.Client removed with the launcher, 2026-10-20) |
 | Copied | `Localization\English.json`, `Chinese.json`, `MIR2.ICO` (`CopyToOutputDirectory=Always` — the repo JSON overwrites the output copy on every build) |
 | Native prereqs | SlimDX D3DX (`Sprite`, `Line`, `ShaderBytecode`) needs the DirectX 9 `d3dx9_43.dll` runtime; SlimDX's mixed-mode assembly needs a VC++ runtime (exact versions unverified) |
 | Solution | `Legend of Mir.sln` defines only `Debug|Any CPU` / `Release|Any CPU`; the client csproj's conditional groups only set `GenerateAssemblyInfo` / `NoWarn` |
@@ -274,7 +270,6 @@ Hot path = anything reached from `UpdateEnviroment` (every spin) or `RenderEnvir
 │ Library loader → MLibrary.Initialize() + Libraries.Progress/     │
 │                  Loaded flags                                    │
 │ Socket IO      → Packet.ReceivePacket/ReadPacket + enqueue       │
-│ Patcher (AMain)→ HTTP/Task before the game form exists           │
 │ PatchService   → HTTP + file installs, also in game (see below)  │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -288,7 +283,7 @@ Hot path = anything reached from `UpdateEnviroment` (every spin) or `RenderEnvir
 - **NEVER** reorder `MLibrary.Initialize()` so `_initialized = true` moves later without adding a lock (the early flag is what stops the main thread opening a second stream during background init); conversely never assume a game library is usable before `Libraries.Loaded`.
 - **NEVER** use `Control.Invoke`/`BeginInvoke` for game state.
 - **NEVER** add a new background thread for game logic; extend the existing hand-off queues instead.
-- **Exception (user-approved 2026-10-20, in-game patcher plan §7.1):** `Client/Patching/PatchService` may run its threads during the game. They may only do HTTP and file installs (`Patch\`, the client folder); they **NEVER** touch game state, `MLibrary`, scenes, sounds or the device. Results go to the UI thread through `PatchService.TryDequeueInstalled` (a `ConcurrentQueue`), drained by `PatchPickup.Process` from `CMain.UpdateEnviroment` at most every 250 ms, 8 paths a tick, only after `Libraries.Loaded`; that is the only place that calls `MLibrary.Reopen`, `MapControl.ReloadCells`, `SoundManager.InvalidateFile`. UI-thread calls into the service (`Demand`, `HighestIndex`, `Progress`) take its lock briefly and never wait on HTTP. The general rule above is unchanged.
+- **Exception (user-approved 2026-10-20, in-game patcher plan §7.1):** `Client/Patching/PatchService` may run its threads during the game. They may only do HTTP and file installs (`Patch\`, the client folder); they **NEVER** touch game state, `MLibrary`, scenes, sounds or the device. Results go to the UI thread through `PatchService.TryDequeueInstalled` (a `ConcurrentQueue`), drained by `PatchPickup.Process` from `CMain.UpdateEnviroment` every 250 ms for up to 4 ms of UI time, and every 16 ms while paths are left (user-approved 2026-10-20: the old 8 paths a tick left a fresh install's art minutes behind the download), one map invalidation + UI redraw per drain, only after `Libraries.Loaded`; that is the only place that calls `MLibrary.Reopen`, `MapControl.ReloadCells`, `SoundManager.InvalidateFile`. UI-thread calls into the service (`Demand`, `HighestIndex`, `Progress`) take its lock briefly and never wait on HTTP. The general rule above is unchanged.
 
 #### ALWAYS
 
@@ -304,7 +299,6 @@ Hot path = anything reached from `UpdateEnviroment` (every spin) or `RenderEnvir
 - **`CMain.BytesReceived`/`BytesSent`** are `double`s updated non-atomically from the socket thread (debug stat only).
 - `.Lib` version < 2 → `MessageBox` + `Application.Exit()` called from the loader thread; a corrupt/truncated `.Lib` makes `Initialize` rethrow on the loader thread → unhandled → process exit.
 - `Network.Connection` (BeginConnect callback, threadpool) creates `_receiveList`/`_sendList` and, on `SocketException`, does `Thread.Sleep(100); Connect();` on the socket thread — which can build the max-attempts `MirMessageBox` (parents to `ActiveScene`) off the UI thread and burn the 20 attempts far faster than one per 5 s.
-- `AMain` blocks on `.Result` for WebView2 environment creation.
 
 ### 3.3 Rendering & Device Rules
 
@@ -433,6 +427,22 @@ Hot path = anything reached from `UpdateEnviroment` (every spin) or `RenderEnvir
 - ~~Looping-sound duplicate key / leaks~~ — **fixed 2026-10-10 (C1)**: replay restarts the loop, `StopSound` removes, timeout cleanup disposes. Original note: **`SoundManager.PlaySound(index, loop: true)`** did `_loopingSounds.Add` (throws on a duplicate key); `StopSound` disposes but doesn't remove; `CheckSoundTimeOut` removes loop entries without disposing. **Live:** `ElementsEffect` (`Effect.cs` ~L275/296) passes `loop: true` for the user's own type-3/4 elemental orbs (`GameScene.cs` ~L5582); a repeat for the same orb before the 30 s timeout check throws `ArgumentException` from `_loopingSounds.Add` into the `Application_Idle` catch.
 - `SelectScene` overwrites the user's `Settings.Resolution` with the server cap when lower, and that is saved on exit.
 
+### 3.6 New UI (`MirScenes/Modern/`) rules
+
+The new UI (Desktop-Modern-UI-Plan, default since 2026-10-20; a saved `[Interface] UiStyle=Classic` still wins) is ported by copy from `WebClient/src/ui/modern/` onto the kit in `Modern/Core` (decisions in the plan; kit facts in the class headers).
+
+- **ALWAYS** put a new-UI window, HUD piece or account screen in `Modern/{Windows,Hud,Screens}` with a header line naming the TS source; strings are `Modern...` `ClientTextKeys` in both JSONs and the `Language.cs` defaults (Chinese gets the English text until translated).
+- **ALWAYS** size and place in HUD px through `ModernRoot.S` (scale applied at layout time); a window rebuilds everything in `Build`, subscribes to models in `Shown` and unsubscribes in `Closed`.
+- **ALWAYS** draw new chrome through `ModernControl.Paint` (GDI+ into a cached texture, repainted by `Invalidate()` on a real change only) and group it in a `ModernSurface` (its own render target; a change re-renders that surface, never the scene). `DXManager` / `Libraries.X.Draw` calls go in a `DrawControl` override (portraits, the loading spinner).
+- **NEVER** reference a classic dialog from `Modern/` (§3.5 seam rule); state comes from `GameScene.Models`, window calls from `IGameUi`.
+- **ALWAYS** route bulk sends (item moves, sorts, sell junk, …) through `ModernUi.Pacer` (`SendPacer`), and prompts through `ModernRoot.Popups` (no `MirMessageBox` in new code).
+- An account scene derives from `ModernAccountScene` (owns a `ModernRoot`, draws it after the scene texture, routes keys popup-first, never while a text box has the keyboard); per-frame work goes in `Tick()`.
+
+#### Known gaps (not ported; 2026-10-20)
+
+- The on-screen keyboard, ember / fog animation and theme picker of the web login; "Back to log in" on the select screen (the server has no select-to-login step).
+- `Network.Connect`'s "maximum attempts" box and `MirScene` `S.Disconnect` messages are still classic `MirMessageBox`es on every scene.
+
 ---
 
 ## 4. CODE STYLE & PATTERNS
@@ -442,14 +452,14 @@ Hot path = anything reached from `UpdateEnviroment` (every spin) or `RenderEnvir
 - `net8.0-windows7.0`, default LangVersion (C# 12). **`ImplicitUsings` enabled** — existing files rely on implicit `System`, `System.Drawing`, `System.Windows.Forms` usings.
 - `Nullable` disabled — don't enable per file.
 - `AllowUnsafeBlocks` — confine to texture-locking helpers (`DXManager`, `MLibrary`, `MirLabel`, `MirTextBox`); comment why.
-- UI is `MirControl`. Real WinForms only for: the `CMain` host, `MirTextBox`'s hidden native `TextBox`, `AMain` launcher, `Config` form.
+- UI is `MirControl`. Real WinForms only for: the `CMain` host, `MirTextBox`'s hidden native `TextBox`, (no launcher or Config form since 2026-10-20).
 - Block-scoped `namespace X { }` in existing files; match the file you edit. Preserve UTF-8 BOM and line endings.
 
 ### 4.2 Project Conventions
 
 | Area | Convention |
 |---|---|
-| Namespaces | `Client`, `Client.MirControls`, `Client.MirScenes`, `Client.MirScenes.Dialogs`, `Client.MirObjects`, `Client.MirGraphics`, `Client.MirGraphics.Particles`, `Client.MirNetwork`, `Client.MirSounds`, `Client.MirSounds.Libraries`, `Client.Resolution`, `Client.Utils`, `Client.Resources`; `Launcher` (AMain). Global namespace: `KeyBindSettings.cs`, `MirObjects/Frames.cs`, `MirObjects/MapCode.cs`, `MirControls/MirAnimatedButton.cs`, `MirAnimatedControl.cs`, and most Shared types |
+| Namespaces | `Client`, `Client.MirControls`, `Client.MirScenes`, `Client.MirScenes.Dialogs`, `Client.MirObjects`, `Client.MirGraphics`, `Client.MirGraphics.Particles`, `Client.MirNetwork`, `Client.MirSounds`, `Client.MirSounds.Libraries`, `Client.Resolution`, `Client.Utils`, `Client.Resources`. Global namespace: `KeyBindSettings.cs`, `MirObjects/Frames.cs`, `MirObjects/MapCode.cs`, `MirControls/MirAnimatedButton.cs`, `MirAnimatedControl.cs`, and most Shared types |
 | Packet aliases | `using S = ServerPackets; using C = ClientPackets;` (no `G`) |
 | Config | static `Settings` + `InIReader`, explicit `Reader.ReadX/Write` lines in `Load/Save` |
 | Time | `CMain.Time` (long ms) |
@@ -701,14 +711,13 @@ No profiler, perf log, packet monitor, ILogger or telemetry exists.
 ```
 Build\Client\<Configuration>\        (user's run folder — agents never write here)
 ├── Client.exe / Client.dll / Shared.dll / SlimDX.dll
-├── NAudio*.dll, Microsoft.Web.WebView2*.dll, ...
+├── NAudio*.dll, Vortice*.dll, ...
 ├── Localization\English.json, Chinese.json   (overwritten each build)
 ├── Mir2Config.ini | Mir2Test.ini, KeyBinds.ini, Error.txt   (generated)
 ├── Data\     *.Lib, per-class subdirs, Monster\NNN.Lib, Shaders\*.ps, Cursors\*.CUR, UserData\QuestTracking.ini
 ├── Map\      *.map
 ├── Sound\    SoundList.lst, *.wav / *.mp3
 ├── Screenshots\
-├── DirectX\  (WebView2 data for the launcher)
 ├── Patch\   in-game patcher: Manifest.bin (last /api/patch), State.bin (path → size + sha256 of every file
 │            it installed or verified; only those are ever deleted as "removed"), patch.lock (one patcher per folder),
 │            Temp\<sha>-<path hash>.part (resumable downloads), Trash\ (replaced / removed files, emptied at start);
@@ -719,7 +728,7 @@ Build\Client\<Configuration>\        (user's run folder — agents never write h
 
 A Release build also writes `CrystalClient.zip` beside the output folder (target `StarterZip` in `Client.csproj`: program files + `Client\Distribution\Mir2Config.ini` / `README.txt`; Runbook §9).
 
-Data/Map/Sound are not part of the build; they are placed beside the exe or downloaded by the in-game patcher (`Client\Patching\`, `Knowledgebase/Future Ideas/InGame-Patcher-Plan.md`): `PatchService` (threads, §3.2 exception), `PatchPickup` (UI thread: `MLibrary.Reopen` + frames refresh, `MapControl.ReloadCells`, `SoundManager.InvalidateFile`, library array growth), `PatchStatus` → `IGameUi.PatchStatusChanged` (classic `PatchStatusStrip`, modern `Hud\DownloadStrip`), Options rows "Downloads" (Pause / Resume, Download everything). `[Launcher]` keys: `Host` (the relay URL including its mount, ending in `/`), `BackgroundDownloads`, `RefreshMinutes` (default 15), `ConcurrentDownloads` (default 4). The old `PList.gz` patcher (`Mode=Full`, `PatchFile`, `NeedLogin` / `Login` / `Password`, `Utils\FileHelper.cs`, the `AutoPatcher.gz` self-update) and AutoPatcherAdmin(V2) were retired 2026-10-20. Program updates (phase 4): `PatchApply` (BCL only; `Program.Main` calls `PatchApply.Startup` first, in its own method, before any Settings / Shared type: `--wait-pid`, then roll back a build whose proving start never reached `CMain_Load`), applied at the end of `Program.Run` after `PatchService.Stop` (lock still held), proven by `PatchApply.MarkHealthy` in `CMain_Load`; the prompt is `IGameUi.PatchUpdateReady` (`PatchUpdate`).
+Data/Map/Sound are not part of the build; they are placed beside the exe or downloaded by the in-game patcher (`Client\Patching\`, `Knowledgebase/Future Ideas/InGame-Patcher-Plan.md`): `PatchService` (threads, §3.2 exception), `PatchPickup` (UI thread: `MLibrary.Reopen` + frames refresh, `MapControl.ReloadCells`, `SoundManager.InvalidateFile`, library array growth), `PatchStatus` → `IGameUi.PatchStatusChanged` (classic `PatchStatusStrip`, modern `Hud\DownloadStrip`), Options rows "Downloads" (Pause / Resume, Download everything). `[Launcher]` keys: `Host` (the relay URL including its mount, ending in `/`), `BackgroundDownloads`, `RefreshMinutes` (default 15), `ConcurrentDownloads` (background workers, default 6; 2 more priority workers take only files the game needs now). The old `PList.gz` patcher (`Mode=Full`, `PatchFile`, `NeedLogin` / `Login` / `Password`, `Utils\FileHelper.cs`, the `AutoPatcher.gz` self-update) and AutoPatcherAdmin(V2) were retired 2026-10-20. Program updates (phase 4): `PatchApply` (BCL only; `Program.Main` calls `PatchApply.Startup` first, in its own method, before any Settings / Shared type: `--wait-pid`, then roll back a build whose proving start never reached `CMain_Load`), applied at the end of `Program.Run` after `PatchService.Stop` (lock still held), proven by `PatchApply.MarkHealthy` in `CMain_Load`; the prompt is `IGameUi.PatchUpdateReady` (`PatchUpdate`).
 
 ---
 
@@ -737,7 +746,7 @@ Does this code run under CMain.Application_Idle (update, render, handler, input)
           │     → decode + enqueue only; never touch client statics or UI.
           ├── Library loader (LoadGameLibraries)
           │     → MLibrary.Initialize() only; publish via Libraries.Loaded.
-          └── Patcher (AMain) → async/HTTP fine; never touches game state.
+          └── Patcher (Client/Patching, §3.2 exception) → blocking HTTP on its own threads; never touches game state.
 Does it change Shared\ ?
 └── YES → cross-boundary: append enum ids, factory case, rebuild + ship client AND server.
 ```
@@ -747,7 +756,6 @@ Does it change Shared\ ?
 | Term | Meaning |
 |---|---|
 | **CMain** | Game window (`SlimDX.Windows.RenderForm`) + static loop/time/input state (`Forms/CMain.cs`) |
-| **AMain** | Launcher/patcher form (namespace `Launcher`) shown before `CMain` when `[Launcher] Enabled` |
 | **Application_Idle** | The game loop: `UpdateEnviroment` every spin, `RenderEnvironment` when `IsDrawTime()` |
 | **CMain.Time** | Monotonic ms since start (`Stopwatch`); the game clock |
 | **ActiveScene** | `MirScene.ActiveScene` — Login / Select / Game |

@@ -17,8 +17,27 @@ namespace Client.Patching
         /// <summary>Bytes left if every file were fetched (tier 3 too): the Options "Download everything" size.</summary>
         public static long EverythingLeft { get; private set; }
 
-        private static int _files = -1, _megabytes = -1, _permille = -1, _faults = -1;
-        private static bool _paused, _map, _shown, _ready;
+        private static int _files = -1, _megabytes = -1, _permille = -1, _faults = -1, _speedTenths = -1;
+
+        // Download speed: bytes done sampled every Update (every 250 ms); the rate over the oldest sample kept, about 3 s ago.
+        private const int SpeedSamples = 12;
+        private static readonly long[] _sampleTime = new long[SpeedSamples], _sampleBytes = new long[SpeedSamples];
+        private static int _sampleNext, _sampleCount;
+
+        /// <summary>The rate over the last ~3 s in tenths of a MB/s (0 until two samples exist).</summary>
+        private static int SpeedTenths(long bytesDone)
+        {
+            long now = CMain.Time;
+            _sampleTime[_sampleNext] = now;
+            _sampleBytes[_sampleNext] = bytesDone;
+            _sampleNext = (_sampleNext + 1) % SpeedSamples;
+            if (_sampleCount < SpeedSamples) _sampleCount++;
+            int oldest = _sampleCount < SpeedSamples ? 0 : _sampleNext;
+            long ms = now - _sampleTime[oldest], bytes = bytesDone - _sampleBytes[oldest];
+            if (ms <= 0 || bytes <= 0) return 0;
+            return (int)Math.Round(bytes * 1000.0 / ms / (1 << 20) * 10);
+        }
+        private static bool _paused, _map, _shown, _ready, _offline;
 
         public static void Update(bool waitingForMap)
         {
@@ -28,11 +47,16 @@ namespace Client.Patching
             int permille = total > 0 ? (int)(1000 * p.BytesDone / total) : 0;
             int megabytes = (int)(p.BytesLeft >> 20);
             bool ready = PatchService.UpdateReady;
-            bool visible = p.FilesLeft > 0 || waitingForMap || ready;
-            if (visible == _shown && p.FilesLeft == _files && megabytes == _megabytes && permille == _permille && p.Faults == _faults
-                && p.Paused == _paused && waitingForMap == _map && ready == _ready) return;
+            bool offline = p.Offline && !p.ReadOnly; // no patch list yet: the relay is down or still indexing (retried every 15 s)
+            bool visible = p.FilesLeft > 0 || waitingForMap || ready || offline;
+            bool downloading = p.FilesLeft > 0 && !p.Paused && !offline;
+            int speedTenths = downloading ? SpeedTenths(p.BytesDone) : 0;
+            if (!downloading) _sampleCount = 0; // a pause or an idle spell must not drag the next rate down
+            if (speedTenths == _speedTenths && visible == _shown && p.FilesLeft == _files && megabytes == _megabytes && permille == _permille && p.Faults == _faults
+                && p.Paused == _paused && waitingForMap == _map && ready == _ready && offline == _offline) return;
 
             _shown = visible;
+            _speedTenths = speedTenths;
             _files = p.FilesLeft;
             _megabytes = megabytes;
             _permille = permille;
@@ -40,14 +64,17 @@ namespace Client.Patching
             _paused = p.Paused;
             _map = waitingForMap;
             _ready = ready;
+            _offline = offline;
 
             Visible = visible;
             Fraction = p.FilesLeft == 0 && !waitingForMap ? 1f : permille / 1000f;
             if (visible)
             {
-                string text = waitingForMap ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PatchDownloadingMap)
+                string text = offline ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PatchConnecting)
+                    : waitingForMap ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PatchDownloadingMap)
                     : p.FilesLeft > 0 ? GameLanguage.ClientTextMap.GetLocalization(p.Paused ? ClientTextKeys.PatchPausedStatus : ClientTextKeys.PatchDownloading, p.FilesLeft, Size(p.BytesLeft))
                     : string.Empty;
+                if (speedTenths > 0 && p.FilesLeft > 0 && !waitingForMap) text += " · " + (speedTenths / 10.0).ToString("0.0") + " MB/s";
                 if (ready) text = text.Length == 0 ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PatchUpdateReadyLine)
                     : text + " · " + GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PatchUpdateReadyLine);
                 if (p.Faults > 0) text += " · " + GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PatchFailed, p.Faults);

@@ -391,6 +391,11 @@ namespace Client.MirScenes.Modern.Hud
         protected internal override void DrawControl()
         {
             DXManager.Flush();
+            // Inside a new-UI render target alpha "over" is on, which keeps the destination alpha (One / InverseSourceAlpha):
+            // the corners outside the shape then stay opaque and turn black (the minimap's black square). Off while the
+            // mask draws, so the multiply takes the alpha down to (near) zero as well.
+            bool oldOver = DXManager.AlphaOver;
+            DXManager.SetAlphaOver(false);
             DXManager.SetLightMultiplyBlend();
             try
             {
@@ -399,6 +404,7 @@ namespace Client.MirScenes.Modern.Hud
             finally
             {
                 DXManager.RestartSpriteAlphaBlend();
+                DXManager.SetAlphaOver(oldOver);
             }
         }
 

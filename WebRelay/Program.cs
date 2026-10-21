@@ -78,15 +78,19 @@ internal sealed class RelayOptions
     public PatchTiers.Rule[] PatchTierRules = Array.Empty<PatchTiers.Rule>();
     /// <summary>The SHA-256 cache; never inside the patch root (the relay does not write to client folders).</summary>
     public string PatchCachePath = "";
+    /// <summary>Brotli copies of the compressible patch files, named by sha256: next to the hash cache, never inside the patch root.</summary>
+    public string PatchCompressedPath = "";
     /// <summary>Slots for /api/patch + /patch/, separate from the 64 general HTTP slots so long downloads never starve the web client.</summary>
-    public int PatchSlots = 32;
+    public int PatchSlots = 256;
+    /// <summary>--patch-auto: publish whenever the patch root changed and then held still (no PatchRevision.txt needed).</summary>
+    public bool PatchAuto;
 
     public const string Usage =
         "WebRelay --client-data <client folder> [--listen 127.0.0.1:5690] [--upstream 127.0.0.1:7000] [--version-path <Client.exe>]\n" +
         "         [--web-root <WebClient folder>] [--map-path <extra Maps folder>]... [--origin <url>]... [--max-per-ip 8] [--max-total 256]\n" +
         "         [--connects-per-minute 30] [--mount /portal/mir2webclient] [--trust-proxy-header CF-Connecting-IP]\n" +
         "         [--public [--accounts-per-hour 3] [--characters-per-hour 5]]\n" +
-        "         [--patch-root <clean client copy> [--patch-tiers <PatchTiers.txt>] [--patch-cache <file>] [--patch-slots 32]]";
+        "         [--patch-root <clean client copy> [--patch-tiers <PatchTiers.txt>] [--patch-cache <file>] [--patch-slots 256] [--patch-auto]]";
 
     public static RelayOptions Parse(string[] args)
     {
@@ -125,6 +129,7 @@ internal sealed class RelayOptions
                 case "--patch-tiers": o.PatchTiersPath = Next(); break;
                 case "--patch-cache": o.PatchCachePath = Next(); break;
                 case "--patch-slots": o.PatchSlots = int.Parse(Next()); break;
+                case "--patch-auto": o.PatchAuto = true; break;
                 default: throw new ArgumentException($"Unknown argument {args[i]}");
             }
         }
@@ -147,9 +152,13 @@ internal sealed class RelayOptions
             string root = Path.GetFullPath(o.PatchRoot).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
             if (o.PatchCachePath.StartsWith(root, StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException("--patch-cache must be outside --patch-root (the relay never writes to a client folder)");
+            o.PatchCompressedPath = Path.Combine(Path.GetDirectoryName(o.PatchCachePath)!, Path.GetFileNameWithoutExtension(o.PatchCachePath) + "-br");
+            if ((o.PatchCompressedPath + Path.DirectorySeparatorChar).StartsWith(root, StringComparison.OrdinalIgnoreCase)
+                || root.StartsWith(o.PatchCompressedPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException($"the compressed copies folder '{o.PatchCompressedPath}' (next to --patch-cache) must not overlap --patch-root");
         }
-        else if (o.PatchTiersPath.Length > 0 || o.PatchCachePath.Length > 0)
-            throw new ArgumentException("--patch-tiers / --patch-cache need --patch-root");
+        else if (o.PatchTiersPath.Length > 0 || o.PatchCachePath.Length > 0 || o.PatchAuto)
+            throw new ArgumentException("--patch-tiers / --patch-cache / --patch-auto need --patch-root");
         if (string.IsNullOrEmpty(o.WebRoot))
             o.WebRoot = FindWebRoot();
         if (!Directory.Exists(o.WebRoot))

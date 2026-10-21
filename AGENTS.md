@@ -39,18 +39,19 @@ All projects are in `Legend of Mir.sln` (configs `Debug|Any CPU` / `Release|Any 
 | **Shared** | `Shared/Shared.csproj` | `Shared.dll` | net8.0 | AnyCPU | `Shared/bin` | Packets, packet-ID enums, all shared enums, `Shared/Data` models, `Language.cs` — **one assembly used by both sides** |
 | **Server.Library** | `Server/Server.Library.csproj` (folder `Server\`) | `Server.Library.dll` | net10.0 (`$(ServerTfm)`) | AnyCPU | `Server/bin` (safe) | **All** game logic: `MirEnvir`, `MirObjects`, `MirDatabase`, `MirNetwork`, `Settings`, the MirCraft web admin backend `Server/WebAdmin` |
 | **Server** | `Server.MirForms/Server.csproj` (folder `Server.MirForms\`) | `Server.exe` | net10.0-windows7.0 (`$(ServerWinTfm)`) WinForms | AnyCPU | **`Build\Server\Release\` = LIVE run folder** (the user builds Release in VS and runs from there, 2026-10-11); `Build\Server\Debug\` = older data copy, also never touch | WinForms host `SMain`, DB editor forms, `wwwroot/` web admin frontend, `log4net.config`, `Localization/*.json` |
-| **Client** | `Client/Client.csproj` | `Client.exe` / `Client.dll` | net8.0-windows7.0 WinForms | **x64** | `Build\Client\Release\` (live); `Build\Client\Debug\` (read-only data reference for render tests) | Game client: render seam with Direct3D 11 via Vortice (default) or SlimDX Direct3D 9 (`[Graphics] Renderer=D3D9`, until C5), NAudio, built-in launcher/patcher `AMain` (WebView2). Golden render tests: `tools\rendertest.ps1` |
+| **Client** | `Client/Client.csproj` | `Client.exe` / `Client.dll` | net8.0-windows7.0 WinForms | **x64** | `Build\Client\Release\` (live); `Build\Client\Debug\` (read-only data reference for render tests) | Game client: render seam with Direct3D 11 via Vortice (default) or SlimDX Direct3D 9 (`[Graphics] Renderer=D3D9`, until C5), NAudio, in-game patcher `Client/Patching/` (no launcher window since 2026-10-20). Golden render tests: `tools\rendertest.ps1` |
 | **Server.WebAdmin.Tests** | `Server.WebAdmin.Tests/…csproj` | — | net10.0 | AnyCPU | own `bin` (safe) | xUnit 2.9.2; web admin tests (fork-only) |
 | **Shared.Tests** | `Shared.Tests/…csproj` | — | `$(SharedTfm)`;net10.0 | AnyCPU | own `bin` (safe) | Packet safety net: factory cases, round trips, append-only wire manifest `packet-manifest.txt` (roadmap P1) |
 | **Server.Persistence.Tests** | `Server.Persistence.Tests/…csproj` | — | `$(ServerTfm)` | AnyCPU | own `bin` (safe) | DB harness: byte round trip + semantic oracle of `Server.MirDB`/`Server.MirADB` on synthetic data, or on a copy of real data via `MIR2_PERSISTENCE_DATA` (roadmap P1) |
-| **StressClient** | `StressClient/StressClient.csproj` | `StressClient.exe` | `$(ServerTfm)` | AnyCPU | own `bin` (safe) | Bot load generator on the real Shared codec (roadmap P6). Scratch servers only: `Knowledgebase/StressClient/stressclient.md` |
+| **StressClient** | `StressClient/StressClient.csproj` | `StressClient.exe` | `$(ServerTfm)` | AnyCPU | own `bin` (safe) | Bot load generator on the real Shared codec (roadmap P6): worker-pump orchestrator, per-bot world model, A* movement on real map collision, combat/survival, loot and gear, merchant town runs, quests, chat/party, Director. Scratch servers only: `Knowledgebase/StressClient/stressclient.md` |
+| **StressClient.Tests** | `StressClient.Tests/…csproj` | — | `$(ServerTfm)` | AnyCPU | own `bin` (safe) | Map-collision parser fixtures (formats 0-7/100) and A* tests for the bot harness |
 | **WebRelay** | `WebRelay/WebRelay.csproj` | `WebRelay.exe` | `$(ServerTfm)` | AnyCPU | own `bin` (safe) | Web client sidecar (roadmap W): WebSocket <-> TCP relay of raw Crystal frames + read-only `Data\`/`Map\` serving for `WebClient/` (TypeScript/WebGL2, `tsc`, not in the sln): `Knowledgebase/WebClient/webclient.md`. Also the desktop patch host (`--patch-root`, in-game patcher 2026-10-20): `/api/patch` + `/patch/<path>?v=` |
-| **ScratchWorld** | `tools/scratch-world/ScratchWorld.csproj` | `ScratchWorld.exe` | `$(ServerTfm)` | AnyCPU | own `bin` (safe) | Generates a synthetic map + `Server.MirDB` for scratch servers (`tools/start-scratch-server.ps1` / `stop-scratch-server.ps1`) |
+| **ScratchWorld** | `tools/scratch-world/ScratchWorld.csproj` | `ScratchWorld.exe` | `$(ServerTfm)` | AnyCPU | own `bin` (safe) | Generates a synthetic map + `Server.MirDB` for scratch servers, or copies real server maps (`--maps-from`) with a walkable start point (`tools/start-scratch-server.ps1` / `stop-scratch-server.ps1`) |
 | **MirDbExport** (+ `.Tests`) | `tools/MirDbExport/MirDbExport.csproj` | `MirDbExport.exe` | `$(ServerTfm)` | AnyCPU | own `bin` (safe) | Read-only SQLite export + independent verifier of `Server.MirDB` (roadmap P7 step 1): `Knowledgebase/Future Ideas/P7-SQLite-Export.md` |
 | **LibraryEditor** | `LibraryEditor/…csproj` | `LibraryEditor.exe` | net8.0-windows7.0 | **x64** | `Build\Server Tools\LibraryEditor\` | `.Lib` sprite library editor (writes v3 frames; Squish + zlib) |
 | **LibraryViewer** | `LibraryViewer/…csproj` | `CMirLibraryViewer.exe` | net8.0-windows7.0 | AnyCPU | `Build\Server Tools\LibraryViewer\` | Read-only `.Lib` browser |
 | **CustomFormControl** | `Controls/FixedListViewControl/CustomFormControl.csproj` | `CustomFormControl.dll` | net8.0-windows7.0 | AnyCPU | `Components\Debug\` (untracked) | WinForms list control; source is built into LibraryEditor/LibraryViewer via ProjectReference; **Server.exe references the prebuilt `Components\CustomFormControl.dll`, not this build** |
-| **PatcherWebSite** | `PatcherWebSite\` (.NET Framework 4.8 Web Site) | — | — | — | — | Static launcher page `mir2-patchsite/`; not built by the dotnet CLI (skipped with warning MSB4078) |
+| **PatcherWebSite** | `PatcherWebSite\` (.NET Framework 4.8 Web Site) | — | — | — | — | Static page `mir2-patchsite/` (was the old launcher's page; the client no longer shows it); not built by the dotnet CLI (skipped with warning MSB4078) |
 
 Solution folders: `Utils` (LibraryEditor, LibraryViewer, PatcherWebSite, `Controls`), `Controls` (CustomFormControl), `Notes` (root `.txt` files).
 
@@ -83,7 +84,7 @@ Solution folders: `Utils` (LibraryEditor, LibraryViewer, PatcherWebSite, `Contro
 
 ### [Client](Knowledgebase/Client/client.md) — `Knowledgebase/Client/client.md`
 
-**When to read:** rendering (`DXManager`, `MapControl`), UI (`MirControl`/`MirScene`, dialogs), input/keybinds, client packet handlers (`GameScene.ProcessPacket`), `.Lib` assets and `Libraries`, sound, `Mir2Config.ini`, the built-in launcher/patcher `AMain`, monster frames/appearance.
+**When to read:** rendering (`DXManager`, `MapControl`), UI (`MirControl`/`MirScene`, classic dialogs, the new UI `Client/MirScenes/Modern/` incl. the account screens `Modern/Screens/`, default since 2026-10-20: rules in client.md §3.6), input/keybinds, client packet handlers (`GameScene.ProcessPacket`), `.Lib` assets and `Libraries`, sound, `Mir2Config.ini`, the in-game patcher `Client/Patching/`, monster frames/appearance.
 
 | | |
 |--|--|
@@ -106,7 +107,7 @@ Solution folders: `Utils` (LibraryEditor, LibraryViewer, PatcherWebSite, `Contro
 
 | Area | Code | Notes |
 |---|---|---|
-| Player launcher/patcher | `Client/Forms/AMain.cs` (namespace `Launcher`), chosen in `Client/Program.cs` when `[Launcher] Enabled` | `Client/Patching/` against WebRelay `--patch-root`, also in game (client.md §2.1, §3.2 exception, §5.4; Runbook §9). The old `PList.gz` patcher, `[Launcher] Mode` and AutoPatcherAdmin(V2) were retired 2026-10-20 (in-game patcher plan §8): publishing = copying files into the patch root + `PatchRevision.txt` |
+| Player patcher | `Client/Patching/` (in game; `Program.cs` starts it in the background when `[Launcher] Enabled`) | Against WebRelay `--patch-root` (client.md §2.1, §3.2 exception, §5.4; Runbook §9). The launcher window (`AMain`, its Config form, WebView2), the old `PList.gz` patcher and AutoPatcherAdmin(V2) were removed 2026-10-20 |
 | Patcher web page | `PatcherWebSite/mir2-patchsite/` | Static HTML/CSS |
 | `.Lib` tools | `LibraryEditor/` (`Graphics/MLibraryV2.cs`), `LibraryViewer/` | Reader side + format rules in `client.md` §2.5 / §3.3 |
 | Weapon art | `tools/weaponpose/` (Python 3, stdlib only; README) | Poses one upright weapon picture into the 832 frames of a `CWeapon` library using a reference weapon's lines; read-only on the client folder. Browser port in the Scene Lab Weapon tester (`WebClient/play/weaponPose.ts`) |
@@ -138,8 +139,8 @@ What are you editing?
 ├─ WebClient/, WebRelay/   (browser client + its relay)
 │     → Knowledgebase/WebClient/webclient.md (+ BOTH child docs when a ported packet changes)
 │
-├─ PatcherWebSite/, Client/Forms/AMain.cs, Client/Patching/
-│     → no child doc for the page; AMain + Patching: client.md §2.1, §5.4; the relay side: webclient.md §2.1
+├─ PatcherWebSite/, Client/Patching/
+│     → no child doc for the page (no longer shown by the client); Patching: client.md §2.1, §5.4; the relay side: webclient.md §2.1
 │
 ├─ Components/ (vendored DLLs), Legend of Mir.sln, *.csproj
 │     → this index (Build & Output Rules) + the affected child doc
@@ -216,7 +217,7 @@ C:\Mir2\
 ├── Client/                 → client.md   (Forms/, MirGraphics/, MirControls/, MirScenes/,
 │                                          MirNetwork/, MirObjects/, MirSounds/, Localization/)
 ├── WebClient/, WebRelay/  → Knowledgebase/WebClient/webclient.md (browser client + relay)
-├── PatcherWebSite/        → this index (no child doc; the launcher's web page)
+├── PatcherWebSite/        → this index (no child doc; the old launcher's web page, unused by the client)
 ├── LibraryEditor/, LibraryViewer/                            → client.md §2.5, §3.3 (.Lib format) + §3.5 (MirAction)
 ├── Controls/FixedListViewControl/   → CustomFormControl source (built into LibraryEditor/Viewer; Server uses the Components\ copy)
 ├── Components/             → vendored DLLs: SlimDX (Client), CustomFormControl + VB PowerPacks (Server),
@@ -241,7 +242,7 @@ C:\Mir2\
 | **Client UI thread** | `CMain.Application_Idle` busy loop: update, render, input, `Network.Process` packet **handling** | **No** |
 | **Client socket thread** | APM `Network.ReceiveData`: decode + enqueue into `ConcurrentQueue<Packet>` | No |
 | **Client loader thread** | `Libraries` → `LoadGameLibraries`: `MLibrary.Initialize()` only; publishes `Libraries.Loaded`/`Progress` | No |
-| **Patcher** | Client `AMain` work thread (before the game form) + `Client/Patching/PatchService` threads (also in game; client.md §3.2 exception): HTTP + file installs only | No async needed (blocking HTTP on its own threads); never game state |
+| **Patcher** | `Client/Patching/PatchService` threads (start thread + coordinator + workers, during the game; client.md §3.2 exception): HTTP + file installs only | No async needed (blocking HTTP on its own threads); never game state |
 | **Web client** | WebRelay: async pool threads, two pumps per session (no game state). Browser: one `requestAnimationFrame` loop + async loads | **Yes** (relay); n/a (browser) |
 
 Server details: `server.md` §2.3, §3.2. Client details: `client.md` §2.1, §3.2.
@@ -268,7 +269,7 @@ Server details: `server.md` §2.3, §3.2. Client details: `client.md` §2.1, §3
 | `Knowledgebase/Client/D3D11-Parity.md` | **2026-10-10** — render seam, D3D9/D3D11 backends, golden harness, the D3DX behaviours the D3D11 backend reproduces, waivers, rollout |
 | `Knowledgebase/roadmap.md` | **Proposed 2026-10-08** — ordered modernisation plan (.NET 10, SQLite, server optimisation, DX11 client track), phase gates, rule overrides (⚠), open decisions, status table. Check it before starting any modernisation phase; per-phase mechanics and evidence are in `Future Ideas/Roadmap-Phase-Notes.md` |
 | `Knowledgebase/PatchHost/` | Empty placeholder (the patch host is WebRelay `--patch-root`: webclient.md §2.1, Runbook §9; the client side is `Client/Patching/`, client.md §5.4) |
-| `Knowledgebase/StressClient/` | `stressclient.md` (2026-10-10): the bot load generator, scratch servers, the baseline script |
+| `Knowledgebase/StressClient/` | `stressclient.md` (updated 2026-10-21): the bot harness (worker pump, world model, A*, Director), scratch servers, baseline/soak scripts |
 | `Knowledgebase/WebClient/` | `webclient.md` (2026-10-16): browser client + WebRelay, packet-port recipe, the scene-lab UI as the default web UI, known gaps (roadmap W) |
 | `Knowledgebase/Websites/` | Empty placeholder (web admin rules live in `server.md` §2.7 / §3.7 / §4.10 + `Server/WebAdmin/README.md`) |
 | `Knowledgebase/Future Ideas/` | `Roadmap-Phase-Notes.md` (per-phase notes for `roadmap.md`), the overnight decisions log (`Overnight-Log-2026-10-10.md`, D1–D39+), `X1-Security-Review.md`, `Packet-Mutation-Audit.md`, `Review-P2-P6-Threading.md`, `P7-SQLite-Export.md`, `Ametrine-Client-Comparison.md` (2026-10-13: what the Mir Ametrine client does better than ours, adoption order — ideas only), `InGame-Patcher-Plan.md` (2026-10-20: proposed in-game patcher with on-demand whole-file downloads from WebRelay serving the raw client files, phases B0-B6, open decisions) |

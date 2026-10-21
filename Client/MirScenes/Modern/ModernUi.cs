@@ -37,7 +37,12 @@ namespace Client.MirScenes.Modern
             RegisterWindows();
             BuildHud();          // ModernUi.Hud.cs: the bottom HUD, party / hero frames, game menu
             BuildChatHud();      // ModernUi.Chat.cs: chat, minimap, quest tracker (+ the big map window)
+            // over everything until the player continues; not in the offline UI test (its steps drive keys and take screenshots)
+            if (!RenderTest.UiTestRunner.Enabled) Loading = new Hud.LoadingOverlay(MapData) { Parent = Root.Menu };
         }
+
+        /// <summary>The loading screen (Hud\LoadingOverlay.cs) until the player continues; null after.</summary>
+        internal Hud.LoadingOverlay Loading { get; private set; }
 
         /// <summary>The window catalog (window keys → factories; a window is built on its first open).</summary>
         private void RegisterWindows()
@@ -86,6 +91,11 @@ namespace Client.MirScenes.Modern
         {
             if (Root == null || Root.IsDisposed) return;
             Root.KeepOnTop();
+            if (Loading != null)
+            {
+                if (Loading.IsDisposed) Loading = null;
+                else Loading.Process();
+            }
             Root.Process();
             Root.Wm.Process();
             Pacer.Process();
@@ -160,6 +170,11 @@ namespace Client.MirScenes.Modern
         /// <summary>Esc closes the front window, Shift+Esc all; the front window's own keys first (wm.ts handleKey).</summary>
         public bool CapturesKey(KeyEventArgs e)
         {
+            if (Loading != null && !Loading.IsDisposed && Root != null && !Root.Popups.IsOpen && Loading.HandleKey(e))
+            {
+                e.SuppressKeyPress = true;
+                return true;
+            }
             if (Root == null || Root.IsDisposed || !Root.Wm.HandleKey(e)) return false;
             e.SuppressKeyPress = true; // consumed: its KeyPress must not reach the chat box (Enter / Space open the input)
             return true;

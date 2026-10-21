@@ -60,7 +60,6 @@ namespace Client
                             TransformEffectPath = @".\Data\TransformEffect\",
                             TransformWeaponEffectPath = @".\Data\TransformWeaponEffect\",
                             MouseCursorPath = @".\Data\Cursors\",
-                            ResourcePath = @".\DirectX\",
                             UserDataPath = @".\Data\UserData\",
                             DbLanguageJsonPath = @".\DbLanguage.json";
 
@@ -70,7 +69,7 @@ namespace Client
         public static int RemainingErrorLogs = 100;
 
         //Graphics
-        public static bool FullScreen = true, Borderless = true, TopMost = true, MouseClip = false;
+        public static bool FullScreen = false, Borderless = false, TopMost = true, MouseClip = false; // windowed by default (2026-10-20)
         public static string FontName = "Arial"; //"MS Sans Serif"
         public static float FontSize = 8F;
         public static bool UseMouseCursors = true;
@@ -78,13 +77,13 @@ namespace Client
         public static bool FPSCap = true;
         public static int MaxFPS = 100;
         public static RendererType Renderer = RendererType.D3D11; // [Graphics] Renderer: D3D11 (default since roadmap C4 QA, falls back to D3D9 if it cannot start) or D3D9
-        // [Interface] UiStyle: Default / Modern / Classic (Desktop-Modern-UI-Plan D6). Default resolves to Classic until phase 5;
-        // a saved Classic always wins. Read once per GameScene (UiStyles.IsModern), so a change takes effect on the next log in.
+        // [Interface] UiStyle: Default / Modern / Classic (Desktop-Modern-UI-Plan D6). Default resolves to Modern (the new UI is
+        // the default since 2026-10-20); a saved Classic always wins. Read once per GameScene (UiStyles.IsModern), so a change takes effect on the next log in.
         public static UiStyle UiStyle = UiStyle.Default;
         // [Interface] the modern UI (Desktop-Modern-UI-Plan phase 1b): theme preset name (ModernTheme.Presets, saved by name) and
         // custom overrides (a negative number / empty string = use the preset's), HUD scale (UiScale x screen height / 768 when
         // UiAutoScale), window opacity, stat plates, and window positions in HUD px ("key=x,y;key=x,y").
-        public static string UiTheme = "Midnight electric";
+        public static string UiTheme = "Royal gold";
         public static float UiCustomHue = -1, UiCustomSat = -1, UiCustomLit = -1, UiCustomGlow = -1, UiCustomRadius = -1;
         public static string UiCustomAccent = "", UiCustomFrame = "", UiCustomText = "";
         public static float UiScale = 1F;
@@ -98,13 +97,13 @@ namespace Client
         /// big-map layers (names); waypoints "character|map|x.y,x.y;…"; read help topics (ids); quest tracker folded.</summary>
         public static string UiChat = "", UiMinimap = "", UiBigMap = "", UiWaypoints = "", UiHelpRead = "";
         public static bool UiTrackerFolded = false;
-        public static int Resolution = 1024;
+        public static int Resolution = 1920; // 1920x1080 by default; Program.CheckResolutionSetting falls back when the screen cannot show it
         public static bool DebugMode = false;
         // [Graphics] RebuildOptimisations: fewer UI/map render-target rebuilds (live skill-bar/minimap overlays, no blind 100 ms map
         // tick, off-screen frames skipped). False restores the old invalidation behaviour for A/B checks and rollback.
         public static bool RebuildOptimisations = true;
         // [Graphics] Lighting: Classic (default) or Enhanced (D3D11 only; D3D9 always draws Classic). In game: @light new / @light old.
-        public static LightingMode Lighting = LightingMode.Classic;
+        public static LightingMode Lighting = LightingMode.Enhanced; // enhanced lighting + weather by default (2026-10-20; D3D9 falls back)
         // [Graphics] Atmosphere: shader rain and lightning on weather maps (D3D11 + Enhanced lighting only). In game: @weather on / @weather off.
         public static bool Atmosphere = true;
         // [Graphics] Reflections: wet-ground reflections of objects and lamps (D3D11 + Enhanced lighting only; no in-game command).
@@ -232,10 +231,8 @@ namespace Client
         /// default has no patch routes: a server ships Mir2Config.ini with its own (else the client runs on what is on disk).</summary>
         public static string P_Host = @"http://mirfiles.com/mir2/cmir/patch/";
         public static string P_ServerName = string.Empty;
-        public static string P_BrowserAddress = "https://www.lomcn.org/mir2-patchsite/";
         public static string P_Client = Application.StartupPath + "\\";
-        public static bool P_AutoStart = false;
-        public static int P_Concurrency = 4;
+        public static int P_Concurrency = 6; // [Launcher] ConcurrentDownloads: background download workers (2 more are kept for priority files)
         /// <summary>[Launcher] BackgroundDownloads: false pauses the in-game background queue (demanded files still download).</summary>
         public static bool P_BackgroundDownloads = true;
         /// <summary>[Launcher] RefreshMinutes: how often the in-game patcher re-reads /api/patch (1..1440, default 15).</summary>
@@ -367,9 +364,7 @@ namespace Client
             //AutoPatcher
             P_Patcher = Reader.ReadBoolean("Launcher", "Enabled", P_Patcher);
             P_Host = Reader.ReadString("Launcher", "Host", P_Host);
-            P_AutoStart = Reader.ReadBoolean("Launcher", "AutoStart", P_AutoStart);
             P_ServerName = Reader.ReadString("Launcher", "ServerName", P_ServerName);
-            P_BrowserAddress = Reader.ReadString("Launcher", "Browser", P_BrowserAddress);
             P_BackgroundDownloads = Reader.ReadBoolean("Launcher", "BackgroundDownloads", P_BackgroundDownloads);
             P_RefreshMinutes = Math.Clamp(Reader.ReadInt32("Launcher", "RefreshMinutes", P_RefreshMinutes), 1, 1440);
             P_Concurrency = Reader.ReadInt32("Launcher", "ConcurrentDownloads", P_Concurrency);
@@ -377,7 +372,6 @@ namespace Client
 
             if (!P_Host.EndsWith("/")) P_Host += "/";
             if (P_Host.StartsWith("www.", StringComparison.OrdinalIgnoreCase)) P_Host = P_Host.Insert(0, "http://");
-            if (P_BrowserAddress.StartsWith("www.", StringComparison.OrdinalIgnoreCase)) P_BrowserAddress = P_BrowserAddress.Insert(0, "http://");
 
             if (P_Concurrency < 1) P_Concurrency = 1;
             if (P_Concurrency > 100) P_Concurrency = 100;
@@ -502,8 +496,6 @@ namespace Client
             Reader.Write("Launcher", "Enabled", P_Patcher);
             Reader.Write("Launcher", "Host", P_Host);
             Reader.Write("Launcher", "ServerName", P_ServerName);
-            Reader.Write("Launcher", "Browser", P_BrowserAddress);
-            Reader.Write("Launcher", "AutoStart", P_AutoStart);
             Reader.Write("Launcher", "ConcurrentDownloads", P_Concurrency);
             Reader.Write("Launcher", "BackgroundDownloads", P_BackgroundDownloads);
             Reader.Write("Launcher", "RefreshMinutes", P_RefreshMinutes);

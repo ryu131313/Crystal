@@ -64,7 +64,7 @@ internal sealed class RelayHost
         Console.WriteLine($"  origins:     {(_options.Origins.Count > 0 ? string.Join(", ", _options.Origins) : "the relay's own origin")}");
         if (_options.Mount.Length > 0) Console.WriteLine($"  mount:       {_options.Mount}");
         if (_options.TrustProxyHeader.Length > 0) Console.WriteLine($"  client IP:   {_options.TrustProxyHeader} (from loopback peers only)");
-        if (_patch != null) Console.WriteLine($"  patch root:  {_options.PatchRoot} (read-only; tiers {(_options.PatchTiersPath.Length > 0 ? _options.PatchTiersPath : "built-in")}, cache {_options.PatchCachePath}, {_options.PatchSlots} slots)");
+        if (_patch != null) Console.WriteLine($"  patch root:  {_options.PatchRoot} (read-only; {(_options.PatchAuto ? "auto-publish" : "publish on PatchRevision.txt")}; tiers {(_options.PatchTiersPath.Length > 0 ? _options.PatchTiersPath : "built-in")}, cache {_options.PatchCachePath}, {_options.PatchSlots} slots)");
         if (_guard != null) Console.WriteLine($"  public:      per-IP limits on (failed logins {PlayerGuard.FailedLoginLimit}/min, accounts {_options.AccountsPerHourPerIp}/h, characters {_options.CharactersPerHourPerIp}/h); the server needs [LoadTest] ExemptLoopback=True");
 
         using var reg = ct.Register(() => { try { listener.Stop(); } catch { } });

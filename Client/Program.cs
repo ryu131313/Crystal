@@ -1,5 +1,4 @@
 ﻿using System.Diagnostics;
-using Launcher;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using Client.Resolution;
@@ -10,10 +9,6 @@ namespace Client
     internal static class Program
     {
         public static CMain Form;
-        public static AMain PForm;
-
-        public static bool Restart;
-        public static bool Launch;
 
         [STAThread]
         private static void Main(string[] args)
@@ -66,17 +61,11 @@ namespace Client
 
                 if (!renderTest) CheckResolutionSetting();
 
-                Launch = false;
-                if (Settings.P_Patcher)
-                    Application.Run(PForm = new AMain());
-                else
-                    Launch = true;
+                // In-game patcher: no launcher window. The game starts at once; the patcher starts on its own thread and
+                // downloads while the game runs (client.md §3.2 exception). [Launcher] Enabled=False turns it off.
+                if (Settings.P_Patcher && !renderTest) PatchService.StartInBackground();
 
-                // In-game patcher: background downloads run while the game does (client.md §3.2 exception).
-                if (Launch) PatchService.StartBackground();
-
-                if (Launch)
-                    Application.Run(Form = new CMain());
+                Application.Run(Form = new CMain());
 
                 PatchService.Stop(); // saves State.bin / Staged.bin; patch.lock is kept until a staged update is applied
 
@@ -91,7 +80,7 @@ namespace Client
                 // exit), then, for Restart, the new build starts with --wait-pid.
                 if (PatchService.TakeApplySet(out var update))
                 {
-                    bool restartAfter = Restart || PatchService.RestartRequested;
+                    bool restartAfter = PatchService.RestartRequested;
                     bool applied = PatchApply.Apply(update);
                     PatchService.ReleaseLock();
                     if (PatchApply.PendingLog != null) CMain.SaveError(PatchApply.PendingLog);
@@ -101,11 +90,6 @@ namespace Client
                     return;
                 }
                 PatchService.ReleaseLock();
-
-                if (Restart)
-                {
-                    Application.Restart();
-                }
             }
             catch (Exception ex)
             {
@@ -165,6 +149,17 @@ namespace Client
             {
                 MessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.CouldNotGetDisplayResolutions), GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.GetDisplayResolutionIssue), MessageBoxButtons.OK, MessageBoxIcon.Error);
                 Environment.Exit(0);
+            }
+
+            if (!DisplayResolutions.IsSupported(Settings.Resolution) && Settings.Resolution == (int)eSupportedResolution.w1920h1080)
+            {
+                // The default (1920x1080) on a smaller screen: quietly use the largest size this screen supports.
+                foreach (var size in new[] { eSupportedResolution.w1366h768, eSupportedResolution.w1280h720, eSupportedResolution.w1024h768 })
+                {
+                    if (!DisplayResolutions.IsSupported((int)size)) continue;
+                    Settings.Resolution = (int)size;
+                    return;
+                }
             }
 
             if (!DisplayResolutions.IsSupported(Settings.Resolution))

@@ -2745,7 +2745,7 @@ namespace Client.MirScenes
                 CMain.SetResolution(1024, 768);
             }
 
-            ActiveScene = new SelectScene(p.Characters);
+            ActiveScene = Modern.Screens.AccountScenes.Select(p.Characters);
 
             Dispose();
         }
@@ -2760,9 +2760,9 @@ namespace Client.MirScenes
             if (Settings.Resolution != 1024)
                 CMain.SetResolution(1024, 768);
 
-            ActiveScene = new LoginScene();
+            ActiveScene = Modern.Screens.AccountScenes.Login();
             Dispose();
-            MirMessageBox.Show(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ObservedPlayerLoggedOff));
+            Modern.Screens.AccountScenes.Notice(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ObservedPlayerLoggedOff));
         }
 
         private void TimeOfDay(S.TimeOfDay p)
@@ -6762,6 +6762,9 @@ namespace Client.MirScenes
             SoundList.Music = Music;
 
             UpdateWeather();
+
+            // In-game patcher: ask for this map's tile / object libraries now, nearest first (not at their first draw).
+            if (PatchService.Active) PatchPickup.PrefetchMap(this);
         }
 
 
@@ -6791,6 +6794,7 @@ namespace Client.MirScenes
             FloorValid = false;
             LightsValid = false;
             TextureValid = false;
+            PatchPickup.PrefetchMap(this);
         }
 
         public void Process()

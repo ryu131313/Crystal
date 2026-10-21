@@ -569,6 +569,38 @@ namespace Client
             }
         }
 
+        private static MirLabel PatchLineLabel;
+
+        /// <summary>
+        /// In-game patcher: one status line at the top left of the login / select screens (the game scene has its own
+        /// download strip). Null or empty hides it. UI thread, from PatchPickup every 250 ms; Text and Visible redraw only on
+        /// a change.
+        /// </summary>
+        public static void SetPatchLine(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                if (PatchLineLabel != null && !PatchLineLabel.IsDisposed) PatchLineLabel.Visible = false;
+                return;
+            }
+            if (MirScene.ActiveScene == null) return;
+            if (PatchLineLabel == null || PatchLineLabel.IsDisposed)
+            {
+                PatchLineLabel = new MirLabel
+                {
+                    AutoSize = true,
+                    BackColour = Color.FromArgb(255, 0, 0, 0),
+                    ForeColour = Color.FromArgb(255, 230, 220, 190),
+                    Location = new Point(8, 8),
+                    NotControl = true,
+                    Opacity = 0.8F,
+                };
+            }
+            if (PatchLineLabel.Parent != MirScene.ActiveScene) PatchLineLabel.Parent = MirScene.ActiveScene;
+            PatchLineLabel.Text = text;
+            PatchLineLabel.Visible = true;
+        }
+
         private static void CreateHintLabel()
         {
             if (HintBaseLabel == null || HintBaseLabel.IsDisposed)

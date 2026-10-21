@@ -135,6 +135,15 @@ namespace Client.MirSounds
             }
         }
 
+        /// <summary>In-game patcher (UI thread): a new patch list arrived; every sound cached as silent is read again on its next play.</summary>
+        public static void InvalidateSilent()
+        {
+            List<int> silent = null;
+            foreach (var pair in _cachedOneShots)
+                if (!(pair.Value.AudioData?.Length > 0)) (silent ??= new List<int>()).Add(pair.Key);
+            if (silent != null) foreach (int key in silent) _cachedOneShots.Remove(key);
+        }
+
         public static void StopSound(int index)
         {
             if (_loopingSounds.TryGetValue(index, out var sound))

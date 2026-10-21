@@ -24,7 +24,13 @@ namespace Client.MirScenes
 
         public MirImageControl TestLabel, ViolenceLabel, MinorLabel, YouthLabel; 
 
-        public LoginScene()
+        public LoginScene() : this(false)
+        {
+        }
+
+        /// <summary><paramref name="connected"/>: the modern login switched to this one after the version check, so the
+        /// connection is kept and the login dialog shows at once (no connect box).</summary>
+        public LoginScene(bool connected)
         {
             SoundManager.PlayMusic(SoundList.IntroMusic, true);
             Disposing += (o, e) => SoundManager.StopMusic();
@@ -83,11 +89,14 @@ namespace Client.MirScenes
 
             _connectBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.AttemptingConnectServer), MirMessageBoxButtons.Cancel);
             _connectBox.CancelButton.Click += (o, e) => Program.Form.Close();
-            Shown += (sender, args) =>
-                {
-                    Network.Connect();
-                    _connectBox.Show();
-                };
+            if (connected)
+                Shown += (sender, args) => _login.Show();
+            else
+                Shown += (sender, args) =>
+                    {
+                        Network.Connect();
+                        _connectBox.Show();
+                    };
         }
 
         public override void Process()

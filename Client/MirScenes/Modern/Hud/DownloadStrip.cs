@@ -9,9 +9,10 @@ namespace Client.MirScenes.Modern.Hud
 {
     internal sealed class DownloadStrip : ModernSurface
     {
-        private const int Width = 380, Height = 22;
+        private const int MinWidth = 380, Height = 22;
         private readonly DownloadPill _pill;
         private readonly Action<bool> _onRelayout;
+        private int _width = -1; // device px: the pill grows to fit its text (up to the screen width)
 
         public DownloadStrip()
         {
@@ -26,8 +27,10 @@ namespace Client.MirScenes.Modern.Hud
 
         private void Place()
         {
-            Size = new Size(S(Width), S(Height));
-            Location = new Point(Math.Max(0, (Settings.ScreenWidth - S(Width)) / 2), S(6));
+            int text = string.IsNullOrEmpty(PatchStatus.Text) ? 0 : (int)Math.Ceiling(ModernSkin.Measure(PatchStatus.Text, ModernSkin.Font(11, true)));
+            _width = Math.Min(Math.Max(S(MinWidth), text + S(28)), Math.Max(S(MinWidth), Settings.ScreenWidth - S(20)));
+            Size = new Size(_width, S(Height));
+            Location = new Point(Math.Max(0, (Settings.ScreenWidth - _width) / 2), S(6));
             _pill.Location = Point.Empty;
             _pill.Size = Size;
             _pill.Invalidate();
@@ -41,7 +44,7 @@ namespace Client.MirScenes.Modern.Hud
                 Visible = false;
                 return;
             }
-            _pill.Invalidate();
+            Place(); // width follows the text (a measure on a status change only: at most 4 times a second)
             Visible = true;
             TextureValid = false;
         }

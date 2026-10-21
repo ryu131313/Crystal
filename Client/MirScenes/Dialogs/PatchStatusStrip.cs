@@ -55,7 +55,16 @@ namespace Client.MirScenes.Dialogs
                 return;
             }
             _label.Text = PatchStatus.Text;
-            int width = (int)((StripWidth - 2) * PatchStatus.Fraction);
+            // Grow to fit the text (up to the screen width), centred at the top.
+            int needed = TextRenderer.MeasureText(PatchStatus.Text, _label.Font).Width + 16;
+            int stripWidth = Math.Min(Math.Max(StripWidth, needed), Math.Max(StripWidth, Settings.ScreenWidth - 20));
+            if (Size.Width != stripWidth)
+            {
+                Size = new Size(stripWidth, StripHeight);
+                Location = new Point((Settings.ScreenWidth - stripWidth) / 2, 4);
+                _label.Size = Size;
+            }
+            int width = (int)((stripWidth - 2) * PatchStatus.Fraction);
             _fill.Size = new Size(width, StripHeight - 2);
             _fill.Visible = width > 0;
             Visible = true;

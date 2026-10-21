@@ -55,7 +55,7 @@
             new ThemePreset("Obsidian", 220, 0.08f, 0.8f, "#e6e6e6", "#4a4a4e", "#e4e4e6", 0.5f),
         };
 
-        public const string DefaultTheme = "Midnight electric";
+        public const string DefaultTheme = "Royal gold"; // the default since 2026-10-20 (was "Midnight electric")
 
         // Knob ranges (theme.ts THEME_RANGES).
         public const float HueMax = 360, SatMax = 2, LitMin = 0.3f, LitMax = 2.5f, GlowMax = 2, RadiusMax = 12;

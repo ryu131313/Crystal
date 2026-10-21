@@ -22,9 +22,11 @@
 .PARAMETER Listen        host:port the tunnel points at. Default 127.0.0.1:5695.
 .PARAMETER Mount         URL prefix. Default /portal/mir2webclient.
 .PARAMETER Origin        The site's origin. Default https://worldofwooolcraft.uk.
-.PARAMETER PatchRoot  Also serve the desktop client's in-game patcher from this folder (--patch-root; Runbook §9): a clean
-                    distributable copy of the client. Empty (default) = no patch host. Publishing = copy files in, then
-                    write PatchRevision.txt last.
+.PARAMETER PatchRoot  The folder the desktop client's in-game patcher downloads from (--patch-root; Runbook §9). Default:
+                    the client build folder (-ClientData). Published automatically (--patch-auto) whenever it changed and
+                    then held still for 10 s; per-user files (*.ini, Error.txt, Data\UserData, Screenshots, Patch\, ...)
+                    are never served.
+.PARAMETER NoPatch    Do not serve the desktop patcher.
 .PARAMETER PatchTiers Optional PatchTiers.txt for --patch-tiers (default: the relay's built-in list).
 
 .PARAMETER SkipServerCheck  Start even when the server's Setup.ini does not have ExemptLoopback=True (then at most MaxIP web players, and
@@ -43,6 +45,7 @@ param(
     [string]$Origin = 'https://worldofwooolcraft.uk',
     [string]$PatchRoot = '',
     [string]$PatchTiers = '',
+    [switch]$NoPatch,
     [switch]$SkipServerCheck
 )
 
@@ -96,9 +99,10 @@ if (Test-Path $stamp) { $s = Get-Content $stamp -Raw | ConvertFrom-Json; Write-H
 $relayArgs = @('--listen', $Listen, '--upstream', $Upstream, '--client-data', $ClientData, '--web-root', $webRoot,
     '--mount', $Mount, '--origin', $Origin, '--trust-proxy-header', 'CF-Connecting-IP', '--public')
 if ($versionPath) { $relayArgs += @('--version-path', $versionPath) }
-if ($PatchRoot) {
-    if (-not (Test-Path (Join-Path $PatchRoot 'Client.exe'))) { throw "Patch root $PatchRoot has no Client.exe (a clean copy of the client, Runbook §9)" }
-    $relayArgs += @('--patch-root', $PatchRoot)
+if (-not $NoPatch) {
+    if (-not $PatchRoot) { $PatchRoot = $ClientData }
+    if (-not (Test-Path (Join-Path $PatchRoot 'Client.exe'))) { throw "Patch root $PatchRoot has no Client.exe (build the client, or pass -PatchRoot / -NoPatch)" }
+    $relayArgs += @('--patch-root', $PatchRoot, '--patch-auto')
     if ($PatchTiers) { $relayArgs += @('--patch-tiers', $PatchTiers) }
     Write-Host "Desktop patch host: $PatchRoot (desktop clients: [Launcher] Host=$Origin$Mount/, [Network] Relay=$($Origin -replace '^http', 'ws')$Mount/ws)"
 }

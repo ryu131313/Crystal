@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -12,14 +13,21 @@ namespace WebRelay;
 ///   /api/patch              {"revision","files":[{"p","s","h","t","v"}]}: path, size, sha256 (hex), tier, version
 ///                           (= <see cref="AssetHost.VersionOf"/>); ETag + compression, no-cache; 503 until the first index
 ///   /patch/&lt;path&gt;?v=        an indexed file only; stale v (or a file changed since the index) -> 412, else immutable.
-///                           Small .map/.wav/.lst/.json/.txt go through <see cref="Compression"/>; everything else and
-///                           every Range streams raw in 64 KB chunks (a 450 MB .Lib never sits in memory)
+///                           Small .map/.wav/.lst/.json/.txt go out as Brotli: from a quality-11 copy on disk once the
+///                           precompress pass has made it, else through <see cref="Compression"/>; everything else and
+///                           every Range streams raw in 1 MB chunks (a 450 MB .Lib never sits in memory)
 /// Publishing: a new index is built only when PatchRevision.txt in the root changes (the operator writes it LAST, after
-/// copying files in). The pass hashes only files whose size or mtime differ from the hash cache (kept outside the root),
+/// copying files in). With --patch-auto there is no marker: the folder's fingerprint (every served file's path, size and
+/// write time) stands in for it, and a change is published once the fingerprint is the same on two polls 10 s apart. The pass hashes only files whose size or mtime differ from the hash cache (kept outside the root),
 /// then re-checks the folder; if anything moved during the pass it waits 30 s and goes again, and only a stable pass is
 /// swapped in. Until then the old index stays published.
-/// Read-only on the root (FileAccess.Read, FileShare.ReadWrite | Delete); the only file written is the hash cache.
-/// Threads: one background task builds; requests read the published <see cref="Snapshot"/> through a volatile field.
+/// Precompress: after each publish a background pass writes &lt;sha256&gt;.br for every compressible indexed file that has
+/// none (Brotli quality 11, several files at once), into a folder next to the hash cache, and deletes copies no longer
+/// indexed. Each copy is made from bytes re-checked against the index hash, so a .br only ever holds the indexed content.
+/// Read-only on the root (FileAccess.Read, FileShare.ReadWrite | Delete); the only files written are the hash cache and
+/// the compressed copies, both outside it.
+/// Threads: one background task builds; one precompress pass at a time (a new publish cancels the running one); requests
+/// read the published <see cref="Snapshot"/> through a volatile field.
 /// </summary>
 internal sealed class PatchIndex
 {
@@ -54,6 +62,11 @@ internal sealed class PatchIndex
     private readonly Dictionary<string, (long Size, long Ticks, string Sha256)> _hashes = new(StringComparer.OrdinalIgnoreCase);
     private volatile Snapshot? _published;
     private (long Length, long Ticks)? _publishedMarker;
+    private readonly bool _auto;
+    private (long Length, long Ticks)? _lastSeen;
+    private readonly string _compressedDir;
+    private Task _precompress = Task.CompletedTask;
+    private CancellationTokenSource? _precompressCts;
 
     public PatchIndex(RelayOptions options, Compression compression)
     {
@@ -61,6 +74,8 @@ internal sealed class PatchIndex
         _tiers = options.PatchTierRules;
         _cachePath = options.PatchCachePath;
         _compression = compression;
+        _auto = options.PatchAuto;
+        _compressedDir = options.PatchCompressedPath;
         _files = new StaticFiles(new[] { _root }, cacheImmutable: true);
         LoadCache();
     }
@@ -82,7 +97,10 @@ internal sealed class PatchIndex
                 else if (marker != _publishedMarker)
                 {
                     warnedMissing = false;
-                    await BuildAsync(ct).ConfigureAwait(false);
+                    // Auto mode: publish only a folder that held still for a whole poll (a build or copy may be running).
+                    bool settled = !_auto || marker == _lastSeen;
+                    _lastSeen = marker;
+                    if (settled) await BuildAsync(ct).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
@@ -136,6 +154,7 @@ internal sealed class PatchIndex
             SaveCache();
             Publish(revision, entries);
             _publishedMarker = marker;
+            StartPrecompress(_published!, ct);
             long total = entries.Values.Sum(e => e.Size);
             Console.WriteLine($"[patch] published revision '{revision}': {entries.Count} files, {total / (1024.0 * 1024 * 1024):0.00} GB " +
                               $"({hashed} hashed, {hashedBytes / (1024.0 * 1024):0} MB) in {(DateTime.UtcNow - started).TotalSeconds:0.0} s");
@@ -235,14 +254,134 @@ internal sealed class PatchIndex
             return;
         }
 
-        if (ctx.Request.Headers["Range"] == null && entry.Size <= MaxCompressed
-            && CompressedExtensions.Contains(Path.GetExtension(entry.Path)))
+        if (ctx.Request.Headers["Range"] == null && Compressible(entry))
         {
+            if (Compression.Choose(ctx.Request.Headers["Accept-Encoding"]) == "br" && await TryServeCompressedAsync(ctx, entry).ConfigureAwait(false))
+                return;
             await _compression.WriteAsync(ctx, "patch|" + entry.Path + "|" + entry.Version, () => ReadAll(entry.FullPath),
                 StaticFiles.ContentType(entry.FullPath), AssetHost.Immutable, "\"" + entry.Version + "\"").ConfigureAwait(false);
             return;
         }
         await _files.ServeFileAsync(ctx, entry.FullPath).ConfigureAwait(false);
+    }
+
+    private static bool Compressible(Entry entry) =>
+        entry.Size <= MaxCompressed && CompressedExtensions.Contains(Path.GetExtension(entry.Path));
+
+    private string CompressedPath(string sha256) => Path.Combine(_compressedDir, sha256 + ".br");
+
+    /// <summary>
+    /// The quality-11 copy from disk (a copy that saves under 5 % sends the raw file instead). False while the precompress
+    /// pass has not made it yet (or a new revision just pruned it): the caller falls back to <see cref="Compression"/>.
+    /// </summary>
+    private async Task<bool> TryServeCompressedAsync(HttpListenerContext ctx, Entry entry)
+    {
+        FileStream fs;
+        try { fs = StaticFiles.OpenRead(CompressedPath(entry.Sha256)); }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { return false; }
+        await using (fs)
+        {
+            if (fs.Length > entry.Size * 95 / 100)
+            {
+                await _files.ServeFileAsync(ctx, entry.FullPath).ConfigureAwait(false);
+                return true;
+            }
+            string etag = "\"" + entry.Version + "\"";
+            var res = ctx.Response;
+            res.ContentType = StaticFiles.ContentType(entry.FullPath);
+            res.Headers["Cache-Control"] = AssetHost.Immutable;
+            res.Headers["Vary"] = "Accept-Encoding";
+            res.Headers["ETag"] = "W/" + etag;
+            string? inm = ctx.Request.Headers["If-None-Match"];
+            if (inm != null && (inm == etag || inm == "W/" + etag))
+            {
+                res.StatusCode = 304;
+                res.Close();
+                return true;
+            }
+            res.Headers["Content-Encoding"] = "br";
+            res.StatusCode = 200;
+            res.ContentLength64 = fs.Length;
+            if (ctx.Request.HttpMethod != "HEAD") await StaticFiles.CopyAsync(fs, res.OutputStream, fs.Length).ConfigureAwait(false);
+            res.Close();
+            return true;
+        }
+    }
+
+    // — precompress —
+
+    /// <summary>Called from the builder only: cancels the running pass and queues one for <paramref name="snap"/> behind it.</summary>
+    private void StartPrecompress(Snapshot snap, CancellationToken ct)
+    {
+        var previousCts = _precompressCts;
+        var previous = _precompress;
+        previousCts?.Cancel();
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        _precompressCts = cts;
+        _precompress = Task.Run(async () =>
+        {
+            try { await previous.ConfigureAwait(false); } catch { }
+            previousCts?.Dispose();
+            try { await PrecompressAsync(snap, cts.Token).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (cts.IsCancellationRequested) { }
+            catch (Exception ex) { Console.Error.WriteLine($"[patch] precompress failed: {ex.GetType().Name}: {ex.Message}"); }
+        });
+    }
+
+    private async Task PrecompressAsync(Snapshot snap, CancellationToken ct)
+    {
+        Directory.CreateDirectory(_compressedDir);
+        var wanted = new Dictionary<string, Entry>(StringComparer.OrdinalIgnoreCase);
+        foreach (var e in snap.Files.Values)
+            if (Compressible(e)) wanted.TryAdd(e.Sha256, e);
+
+        // Copies of files no longer indexed (and temp files of an interrupted pass) go first.
+        foreach (var file in Directory.EnumerateFiles(_compressedDir))
+        {
+            string name = Path.GetFileName(file);
+            if (name.EndsWith(".br", StringComparison.OrdinalIgnoreCase) && wanted.ContainsKey(name[..^3])) continue;
+            try { File.Delete(file); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        }
+
+        var todo = wanted.Values.Where(e => !File.Exists(CompressedPath(e.Sha256))).ToList();
+        if (todo.Count == 0) return;
+        var started = DateTime.UtcNow;
+        int made = 0;
+        long rawBytes = 0, brBytes = 0;
+        Console.WriteLine($"[patch] precompressing {todo.Count} files ({todo.Sum(e => e.Size) / (1024.0 * 1024):0} MB) at Brotli 11");
+        var parallel = new ParallelOptions { MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount / 2, 1, 16), CancellationToken = ct };
+        await Parallel.ForEachAsync(todo, parallel, (e, token) =>
+        {
+            long written = Precompress(e, token);
+            if (written >= 0)
+            {
+                Interlocked.Increment(ref made);
+                Interlocked.Add(ref rawBytes, e.Size);
+                Interlocked.Add(ref brBytes, written);
+            }
+            return ValueTask.CompletedTask;
+        }).ConfigureAwait(false);
+        Console.WriteLine($"[patch] precompressed {made} of {todo.Count} files: {rawBytes / (1024.0 * 1024):0} MB -> {brBytes / (1024.0 * 1024):0} MB " +
+                          $"in {(DateTime.UtcNow - started).TotalSeconds:0.0} s");
+    }
+
+    /// <summary>Writes the .br for one file; -1 when the file is gone or no longer holds the indexed bytes.</summary>
+    private long Precompress(Entry entry, CancellationToken ct)
+    {
+        byte[] source;
+        try { source = ReadAll(entry.FullPath); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return -1; }
+        if (!string.Equals(Convert.ToHexString(SHA256.HashData(source)), entry.Sha256, StringComparison.OrdinalIgnoreCase)) return -1;
+        ct.ThrowIfCancellationRequested();
+
+        var output = new byte[BrotliEncoder.GetMaxCompressedLength(source.Length)];
+        if (!BrotliEncoder.TryCompress(source, output, out int written, quality: 11, window: 24)) return -1;
+        string path = CompressedPath(entry.Sha256);
+        string temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        using (var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            fs.Write(output, 0, written);
+        File.Move(temp, path, overwrite: true);
+        return written;
     }
 
     private static byte[] ReadAll(string path)
@@ -257,12 +396,28 @@ internal sealed class PatchIndex
 
     private (long Length, long Ticks)? MarkerStamp()
     {
+        if (_auto) return Fingerprint();
         var info = new FileInfo(Path.Combine(_root, MarkerName));
         return info.Exists ? (info.Length, info.LastWriteTimeUtc.Ticks) : null;
     }
 
+    /// <summary>Auto mode's stand-in for the marker: the served file count and an FNV-1a hash of every path, size and write time.</summary>
+    private (long, long) Fingerprint()
+    {
+        var files = Scan();
+        ulong h = 14695981039346656037UL;
+        foreach (var (rel, info) in files)
+        {
+            foreach (char c in rel.ToLowerInvariant()) { h ^= c; h *= 1099511628211UL; }
+            foreach (long value in new[] { info.Length, info.LastWriteTimeUtc.Ticks })
+                for (int i = 0; i < 8; i++) { h ^= (byte)(value >> (i * 8)); h *= 1099511628211UL; }
+        }
+        return (files.Count, (long)h);
+    }
+
     private string ReadMarker()
     {
+        if (_auto) return "auto-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
         try
         {
             using var fs = new FileStream(Path.Combine(_root, MarkerName), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
@@ -358,7 +513,17 @@ internal static class PatchTiers
         Data/Cursors/** = 0
         Sound/SoundList.lst = 0
         Map/0.map = 1
-        Data/Map/WemadeMir2/** = 1
+        Data/Map/ShandaMir2/Tiles.Lib = 1
+        Data/Map/ShandaMir2/Tiles4.Lib = 1
+        Data/Map/ShandaMir2/Tiles5.Lib = 1
+        Data/Map/ShandaMir2/SmTiles.Lib = 1
+        Data/Map/ShandaMir2/SmTiles3.Lib = 1
+        Data/Map/ShandaMir2/SmTiles4.Lib = 1
+        Data/Map/ShandaMir2/SmTiles5.Lib = 1
+        Data/Map/ShandaMir2/Objects.Lib = 1
+        Data/Map/ShandaMir2/Objects20.Lib = 1
+        Data/Map/ShandaMir2/Objects21.Lib = 1
+        Data/Map/ShandaMir2/Objects24.Lib = 1
         *.pdb = x
         *.xml = x
         ** = 2

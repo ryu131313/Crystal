@@ -3133,7 +3133,7 @@ namespace Client.MirScenes.Dialogs
 
         private void OptionPanel_BeforeDraw(object sender, EventArgs e)
         {
-            bool modern = Settings.UiStyle == UiStyle.Modern;
+            bool modern = UiStyles.IsModern;
             UiStyleClassic.ForeColour = modern ? Color.Gray : Color.Gold;
             UiStyleModern.ForeColour = modern ? Color.Gold : Color.Gray;
             if (DownloadsPause.Visible)
