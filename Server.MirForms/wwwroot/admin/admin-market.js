@@ -296,7 +296,7 @@
         confirmLabel: 'Remove listing',
         danger: true,
         fields: [
-          { name: 'reason', label: 'Reason (mailed / shown to the seller, audit log)', type: 'text', required: true, placeholder: 'Rule violation: price manipulation' },
+          { name: 'reason', label: 'Reason (optional; mailed / shown to the seller, audit log)', type: 'text', required: false, placeholder: 'Rule violation: price manipulation' },
           { name: 'returnItem', label: returnLabel, type: 'checkbox', value: true }
         ]
       });

@@ -201,6 +201,12 @@ namespace Server.WebAdmin
                 },
                 new GmVerbSpec
                 {
+                    Action = "randomteleport", Label = "Random-teleport players on a map…", Group = Movement, Target = "world", Danger = true,
+                    Description = "Move every player on a map (GMs included) to their own random walkable spot on the same map, like a random teleport scroll. Dead players are skipped.",
+                    Args = new List<GmArgSpec> { MapArg(true), InstanceArg() },
+                },
+                new GmVerbSpec
+                {
                     Action = "safezone", Label = "Send to safe zone", Group = Movement, Target = "character", NeedsOnline = true,
                     Description = "Teleport the player to their bind point (the town they respawn in).",
                 },
@@ -680,6 +686,7 @@ namespace Server.WebAdmin
                     plan.Spread = (int)(args.Long("spread", false, 0, 20, "Spread") ?? 0);
                     plan.Instance = (int)(args.Long("instance", false, 1, 1000, "Instance") ?? 1);
                     break;
+                case "randomteleport":
                 case "clearmobs":
                     plan.MapRef = args.String("map", true, 100, "Map");
                     plan.Instance = (int)(args.Long("instance", false, 1, 1000, "Instance") ?? 1);
@@ -1073,6 +1080,7 @@ namespace Server.WebAdmin
             {
                 case "spawnmob": SpawnMob(plan, result); break;
                 case "teleportall": TeleportAll(plan, result); break;
+                case "randomteleport": RandomTeleport(plan, result); break;
                 case "clearmobs": ClearMobs(plan, result); break;
                 case "startconquest": StartConquest(plan, result); break;
                 case "stopconquest": StopConquest(plan, result); break;
@@ -1132,6 +1140,49 @@ namespace Server.WebAdmin
             result.Details["mapIndex"] = map.Info.Index;
             result.Details["x"] = centre.X;
             result.Details["y"] = centre.Y;
+            result.Details["moved"] = moved;
+            result.Details["failed"] = failed;
+            result.Details["dead"] = dead;
+            result.Details["players"] = names;
+            result.Data = new { map = map.Info.Title, mapFile = map.Info.FileName, moved, failed, dead };
+        }
+
+        private static void RandomTeleport(GmPlan plan, GmResult result)
+        {
+            var map = ResolveMap(plan.MapRef, plan.Instance);
+            if (map.WalkableCells == null || map.WalkableCells.Count == 0)
+                throw new WebAdminException(409, MapLabel(map) + " has no walkable cells");
+
+            // A copy: each teleport removes the player from this map's list (and may add them back).
+            var players = new List<PlayerObject>(map.Players);
+            int moved = 0, failed = 0, dead = 0;
+            var names = new List<string>();
+
+            foreach (var p in players)
+            {
+                if (p?.Info == null || p.CurrentMap != map) continue;
+                if (p.Dead) { dead++; continue; }
+
+                if (p.TeleportRandom(200, 0, map))
+                {
+                    moved++;
+                    if (names.Count < 50) names.Add(p.Name);
+                }
+                else
+                {
+                    failed++;
+                }
+            }
+
+            if (moved == 0 && failed == 0 && dead == 0)
+                throw new WebAdminException(409, "No player is on " + MapLabel(map));
+
+            result.Target = MapLabel(map);
+            result.Message = "Randomly teleported " + moved + (moved == 1 ? " player" : " players") + " on " + MapLabel(map) +
+                             (failed > 0 ? "; " + failed + " refused" : string.Empty) +
+                             (dead > 0 ? "; " + dead + " dead skipped" : string.Empty) + ".";
+            result.Details["map"] = map.Info.FileName;
+            result.Details["mapIndex"] = map.Info.Index;
             result.Details["moved"] = moved;
             result.Details["failed"] = failed;
             result.Details["dead"] = dead;

@@ -1092,7 +1092,7 @@
       fields: [
         { key: 'who', label: 'Player', type: 'select', value: String(sorted[0].characterIndex),
           options: sorted.map(function (r) { return { value: String(r.characterIndex), label: r.name + ' · Lv ' + r.level + (r.isGM ? ' (GM)' : '') + (r.mapTitle ? ' · ' + r.mapTitle : '') }; }) },
-        { key: 'reason', label: 'Reason (audit trail)', type: 'text', required: true, placeholder: 'Why?' }
+        { key: 'reason', label: 'Reason (optional, audit trail)', type: 'text', required: false, placeholder: 'optional' }
       ]
     });
     if (!v) return null;
@@ -1109,7 +1109,7 @@
       danger: true,
       fields: [
         { key: 'spread', label: 'Spread (cells around the point)', type: 'number', value: 3, min: 0, max: 20 },
-        { key: 'reason', label: 'Reason (audit trail)', type: 'text', required: true, placeholder: 'Why?' }
+        { key: 'reason', label: 'Reason (optional, audit trail)', type: 'text', required: false, placeholder: 'optional' }
       ]
     });
     if (!v) return null;
@@ -1127,7 +1127,7 @@
         { key: 'monster', label: 'Monster (index or name)', type: 'text', required: true, placeholder: 'e.g. Hen' },
         { key: 'count', label: 'Count', type: 'number', value: 1, min: 1, max: 50 },
         { key: 'spread', label: 'Spread (cells around the point)', type: 'number', value: 0, min: 0, max: 20 },
-        { key: 'reason', label: 'Reason (audit trail)', type: 'text', required: true, placeholder: 'Why?' }
+        { key: 'reason', label: 'Reason (optional, audit trail)', type: 'text', required: false, placeholder: 'optional' }
       ]
     });
     if (!v) return null;

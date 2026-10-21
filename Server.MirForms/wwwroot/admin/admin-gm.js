@@ -26,7 +26,7 @@
   var itemsLoaded = false;
   var monstersLoaded = false;
 
-  var REASON_REQUIRED = { chatban: true };
+  var REASON_REQUIRED = {}; // reasons are optional everywhere (user, 2026-10-21); the server accepts an empty one
 
   // ---- caps ---------------------------------------------------------------------------------------------------------
 

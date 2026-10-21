@@ -236,7 +236,7 @@ confirmation dialog, with a reason field for moderation actions. Every successfu
   players, blocked cells and a grid. Scroll zooms, drag pans, click selects (click again to cycle through overlapping objects),
   double-click follows a movement to its destination map, right-click opens a menu of live GM actions on that cell
   (instance 1, running world only): teleport an online GM there (one click each), teleport a chosen player there, teleport all
-  online players or gather the players already on the map there (GM verb `teleportall`, with a spread), spawn a monster,
+  online players or gather the players already on the map there (GM verb `teleportall`, with a spread), random-teleport every player on the map to their own random walkable spot (GM verb `randomteleport`; also on a Maps row's right-click in Game data), spawn a monster,
   open the map in the Live Monitor, copy `x, y`. Side column: every object grouped by kind
   with a filter, and the selected object's details (walkable cells in a respawn area, blocked-cell warnings). Under the map: the
   map's own row (summary chips, *Edit all fields…* opens the row form) and its safe zones, respawns, movements, mine zones and

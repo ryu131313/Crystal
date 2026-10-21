@@ -366,7 +366,7 @@
           ]
         },
         { name: 'customDays', label: 'Custom duration in days (0.5 = 12 hours)', type: 'number', min: 0 },
-        { name: 'reason', label: 'Reason (shown to the player)', type: 'text', required: true, placeholder: 'Botting' }
+        { name: 'reason', label: 'Reason (optional, shown to the player)', type: 'text', required: false, placeholder: 'Botting' }
       ],
       validate: function (v) {
         if (v.duration === 'custom' && !(v.customDays > 0)) return 'Enter a custom number of days.';

@@ -237,6 +237,22 @@ namespace Server.WebAdmin.Tests
         }
 
         [Fact]
+        public void RandomTeleport_PreparesMapAndInstance()
+        {
+            var verb = GmCatalog.Find("randomteleport");
+            Assert.Equal("world", verb.Target);
+            Assert.Equal(GmCatalog.Movement, verb.Group);
+            Assert.True(verb.Danger);
+
+            var plan = Prepare("{\"action\":\"randomteleport\",\"map\":\"#3\"}");
+            Assert.Equal("#3", plan.MapRef);
+            Assert.Equal(1, plan.Instance);
+            Assert.Equal(2, Prepare("{\"action\":\"randomteleport\",\"map\":\"0\",\"instance\":2}").Instance);
+
+            Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"randomteleport\"}")).Status);
+        }
+
+        [Fact]
         public void TeleportAll_PreparesAndScopes()
         {
             var verb = GmCatalog.Find("teleportall");

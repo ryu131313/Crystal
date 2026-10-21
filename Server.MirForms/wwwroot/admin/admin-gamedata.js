@@ -1224,8 +1224,70 @@
       }
     });
     if (!ed) gridMissing(pane);
+    else if (tab.id === 'maps') wireMapRowMenu(grid, ed);
     renderScope(tab.id);
     return { el: pane, presets: presets };
+  }
+
+  // ---- Maps: right-click a row for live actions on that map ----------------------------------------------------------
+
+  var rowMenu = null;
+
+  function closeRowMenu() {
+    if (rowMenu && rowMenu.parentNode) rowMenu.parentNode.removeChild(rowMenu);
+    rowMenu = null;
+  }
+
+  global.document.addEventListener('mousedown', function (e) { if (rowMenu && !rowMenu.contains(e.target)) closeRowMenu(); }, true);
+  global.addEventListener('scroll', closeRowMenu, true);
+
+  /** Right-click on a Maps row: the same menu styles as the Live Monitor (.mon-menu). */
+  function wireMapRowMenu(gridEl, ed) {
+    gridEl.addEventListener('contextmenu', function (e) {
+      var rowEl = e.target && e.target.closest ? e.target.closest('.ag-row') : null;
+      var api = ed.getApi ? ed.getApi() : null;
+      if (!rowEl || !api) return;
+      var node = api.getDisplayedRowAtIndex(Number(rowEl.getAttribute('row-index')));
+      var row = node && node.data;
+      if (!row || !(Number(row.Index) > 0)) return;
+      e.preventDefault();
+      openRowMenu(row, e.clientX, e.clientY);
+    });
+  }
+
+  function openRowMenu(row, x, y) {
+    closeRowMenu();
+    var name = (row.Title || row.FileName || 'Map') + ' (#' + row.Index + ')';
+    rowMenu = el('div', 'mon-menu');
+    rowMenu.setAttribute('role', 'menu');
+    rowMenu.appendChild(el('div', 'mon-menu-title', name));
+    var b = el('button', 'mon-menu-item danger', 'Random-teleport all players on this map…');
+    b.type = 'button';
+    b.setAttribute('role', 'menuitem');
+    b.addEventListener('click', function () { closeRowMenu(); randomTeleportMap(row, name); });
+    rowMenu.appendChild(b);
+    global.document.body.appendChild(rowMenu);
+    var w = rowMenu.offsetWidth, h = rowMenu.offsetHeight;
+    rowMenu.style.left = Math.max(4, Math.min(global.innerWidth - w - 4, x)) + 'px';
+    rowMenu.style.top = Math.max(4, Math.min(global.innerHeight - h - 4, y)) + 'px';
+    b.focus();
+  }
+
+  async function randomTeleportMap(row, name) {
+    var v = await global.OpsUI.actionDialog({
+      title: 'Random-teleport players — ' + name,
+      message: 'Moves every player on this map in the running world, GMs included, to their own random walkable spot on the same map. Dead players are skipped.',
+      confirmText: 'Teleport',
+      danger: true,
+      fields: [
+        { key: 'instance', label: 'Instance (instanced maps)', type: 'number', value: 1, min: 1, max: 1000 },
+        { key: 'reason', label: 'Reason (optional, audit trail)', type: 'text', required: false, placeholder: 'optional' }
+      ]
+    });
+    if (!v) return;
+    var body = { action: 'randomteleport', map: '#' + row.Index, reason: v.reason || '' };
+    if (Number(v.instance) > 1) body.instance = Number(v.instance);
+    await global.OpsUI.post('/api/admin/gm/action', body);
   }
 
   function renderScope(masterId) {

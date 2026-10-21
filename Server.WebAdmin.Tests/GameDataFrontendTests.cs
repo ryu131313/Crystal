@@ -23,6 +23,7 @@ namespace Server.WebAdmin.Tests
             "/api/admin/server/reload/npcs",
             "/api/admin/livedb/status",         // LiveDb ([LiveDb] Enabled): batch save + live apply
             "/api/admin/livedb/batch",          // + ?dryRun=1
+            "/api/admin/gm/action",             // Maps row right-click: randomteleport on the live map (2026-10-21)
         };
 
         private static string AdminDir()

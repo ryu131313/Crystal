@@ -146,7 +146,7 @@
       confirmText: 'Ban account',
       fields: [
         { key: 'duration', label: 'Duration', type: 'select', options: BAN_OPTIONS, value: '7' },
-        { key: 'reason', label: 'Reason (shown to the player)', type: 'text', required: true }
+        { key: 'reason', label: 'Reason (optional, shown to the player)', type: 'text', required: false }
       ]
     });
     if (!values) return null;

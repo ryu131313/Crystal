@@ -528,7 +528,7 @@
       title: 'Delete ' + d.name,
       message: 'Soft-deletes the character (Deleted flag + delete date), exactly like deleting it at character select. It can be restored later.',
       confirmText: 'Delete character',
-      fields: [{ key: 'reason', label: 'Reason (audit trail)', type: 'text', required: true }]
+      fields: [{ key: 'reason', label: 'Reason (optional, audit trail)', type: 'text', required: false }]
     });
     if (!v) return;
     await afterMutation(await O.post(charUrl(d.index, '/delete'), { reason: v.reason }));
@@ -540,7 +540,7 @@
       title: 'Restore ' + d.name,
       message: 'Clears the Deleted flag. Refused when the account already has the maximum number of characters.',
       confirmText: 'Restore', danger: false,
-      fields: [{ key: 'reason', label: 'Reason (audit trail)', type: 'text', required: true }]
+      fields: [{ key: 'reason', label: 'Reason (optional, audit trail)', type: 'text', required: false }]
     });
     if (!v) return;
     await afterMutation(await O.post(charUrl(d.index, '/restore'), { reason: v.reason }));
@@ -682,7 +682,7 @@
           return fd.label + ': ' + (c.from === '' ? '—' : c.from) + ' → ' + c.to;
         }).join('\n'),
         confirmText: 'Save', danger: false,
-        fields: [{ key: 'reason', label: 'Reason (audit trail)', type: 'text', required: true }]
+        fields: [{ key: 'reason', label: 'Reason (optional, audit trail)', type: 'text', required: false }]
       });
       if (!v) return;
       body.reason = v.reason;
@@ -784,7 +784,7 @@
         title: 'Add item to ' + d.name,
         message: count + ' × ' + label + ' → ' + (container === 'storage' ? 'storage (account ' + ((d.account && d.account.accountId) || '?') + ')' : 'bag'),
         confirmText: 'Add', danger: false,
-        fields: [{ key: 'reason', label: 'Reason (audit trail)', type: 'text', required: true }]
+        fields: [{ key: 'reason', label: 'Reason (optional, audit trail)', type: 'text', required: false }]
       });
       if (!v) return;
       body.reason = v.reason;
@@ -813,7 +813,7 @@
       title: 'Remove item from ' + d.name,
       message: it.name + (it.count > 1 ? ' ×' + it.count : '') + ' (' + it.slotName + ', uid ' + it.uniqueId + ') will be destroyed.',
       confirmText: 'Remove item',
-      fields: [{ key: 'reason', label: 'Reason (audit trail)', type: 'text', required: true }]
+      fields: [{ key: 'reason', label: 'Reason (optional, audit trail)', type: 'text', required: false }]
     });
     if (!v) return;
     await afterMutation(await O.post(charUrl(d.index, '/items/' + encodeURIComponent(it.uniqueId) + '/remove'), { reason: v.reason }));
@@ -826,7 +826,7 @@
     fields.push({ key: 'currentDura', label: 'Current durability', type: 'number', min: 0, max: 65535, value: it.currentDura, required: true });
     fields.push({ key: 'maxDura', label: 'Max durability', type: 'number', min: 0, max: 65535, value: it.maxDura, required: true });
     fields.push({ key: 'addedStats', label: 'Added stats (StatName=value per line, e.g. MaxDC=2, Luck=1)', type: 'textarea', value: statsEditText(it.addedStats) });
-    fields.push({ key: 'reason', label: 'Reason (audit trail)', type: 'text', required: true });
+    fields.push({ key: 'reason', label: 'Reason (optional, audit trail)', type: 'text', required: false });
     var v = await O.actionDialog({
       title: 'Edit ' + it.name + ' — ' + d.name,
       message: it.slotName + ' · uid ' + it.uniqueId,
@@ -894,7 +894,7 @@
       if (b.getAttribute('data-magic-act') === 'remove') {
         var v = await O.actionDialog({
           title: 'Remove ' + m.name + ' from ' + d.name, confirmText: 'Remove magic',
-          fields: [{ key: 'reason', label: 'Reason (audit trail)', type: 'text', required: true }]
+          fields: [{ key: 'reason', label: 'Reason (optional, audit trail)', type: 'text', required: false }]
         });
         if (!v) return;
         await afterMutation(await O.post(charUrl(d.index, '/magics/remove'), { spell: m.spellName, reason: v.reason }));
@@ -908,7 +908,7 @@
     var d = detail.data;
     var fields = [];
     if (level == null) fields.push({ key: 'level', label: 'Level', type: 'select', value: String(current != null ? current : 3), options: [0, 1, 2, 3].map(function (n) { return { value: String(n), label: String(n) }; }) });
-    fields.push({ key: 'reason', label: 'Reason (audit trail)', type: 'text', required: true });
+    fields.push({ key: 'reason', label: 'Reason (optional, audit trail)', type: 'text', required: false });
     var v = await O.actionDialog({
       title: 'Magic for ' + d.name,
       message: level != null ? label + ' → level ' + level : label,
@@ -947,7 +947,7 @@
         title: (all ? 'Reset ALL quests of ' : 'Reset quest on ') + d.name,
         message: all ? 'Every active and completed quest record is cleared.' : b.getAttribute('data-quest-name'),
         confirmText: all ? 'Reset all' : 'Reset quest',
-        fields: [{ key: 'reason', label: 'Reason (audit trail)', type: 'text', required: true }]
+        fields: [{ key: 'reason', label: 'Reason (optional, audit trail)', type: 'text', required: false }]
       });
       if (!v) return;
       var body = { reason: v.reason };

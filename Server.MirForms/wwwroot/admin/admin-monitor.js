@@ -1249,6 +1249,7 @@
     });
     items.push({ label: 'Spawn monster here…', run: function () { return spawnHere(m, cell); } });
     items.push('-');
+    items.push({ label: 'Random-teleport all players on this map…', danger: true, run: function () { return randomTeleport(m); } });
     items.push({ label: 'Clear monsters on this map…', danger: true, run: function () { return clearMobs(m); } });
     items.push('-');
     items.push({ label: 'Copy coordinates', run: function () { copyText(m.title + ' (#' + m.index + ') ' + cell.x + ', ' + cell.y); } });
@@ -1276,12 +1277,25 @@
       title: 'Teleport — ' + p.name,
       message: 'Moves ' + p.name + ' to ' + m.title + (m.instance > 1 ? ' (instance ' + m.instance + ')' : '') + ' at ' + cell.x + ', ' + cell.y + '. The server refuses a cell that is not walkable.',
       confirmText: 'Teleport',
-      fields: [{ key: 'reason', label: 'Reason (audit trail)', type: 'text', required: true, placeholder: 'Why?' }]
+      fields: [{ key: 'reason', label: 'Reason (optional, audit trail)', type: 'text', required: false, placeholder: 'optional' }]
     });
     if (!v) return null;
     var body = Object.assign({ action: 'teleport', character: p.name, reason: v.reason || '' }, mapBody(m, cell));
     if (p.characterIndex) body.characterIndex = p.characterIndex;
     return global.OpsUI.post('/api/admin/gm/action', body);
+  }
+
+  async function randomTeleport(m) {
+    var v = await global.OpsUI.actionDialog({
+      title: 'Random-teleport players — ' + m.title,
+      message: 'Moves every player on ' + m.title + (m.instance > 1 ? ' (instance ' + m.instance + ')' : '') +
+        ', GMs included, to their own random walkable spot on this map. Dead players are skipped.',
+      confirmText: 'Teleport',
+      danger: true,
+      fields: [{ key: 'reason', label: 'Reason (optional, audit trail)', type: 'text', required: false, placeholder: 'optional' }]
+    });
+    if (!v) return null;
+    return global.OpsUI.post('/api/admin/gm/action', Object.assign({ action: 'randomteleport', reason: v.reason || '' }, mapBody(m, null)));
   }
 
   async function spawnHere(m, cell) {
@@ -1293,7 +1307,7 @@
         { key: 'monster', label: 'Monster (index or name)', type: 'text', required: true, placeholder: 'e.g. Hen' },
         { key: 'count', label: 'Count', type: 'number', value: 1, min: 1, max: 50 },
         { key: 'spread', label: 'Spread (cells around the point)', type: 'number', value: 0, min: 0, max: 20 },
-        { key: 'reason', label: 'Reason (audit trail)', type: 'text', required: true, placeholder: 'Why?' }
+        { key: 'reason', label: 'Reason (optional, audit trail)', type: 'text', required: false, placeholder: 'optional' }
       ]
     });
     if (!v) return null;
@@ -1309,7 +1323,7 @@
       message: 'Kills every monster on this map (pets are kept). Respawns refill it over time.',
       confirmText: 'Clear monsters',
       danger: true,
-      fields: [{ key: 'reason', label: 'Reason (audit trail)', type: 'text', required: true, placeholder: 'Why?' }]
+      fields: [{ key: 'reason', label: 'Reason (optional, audit trail)', type: 'text', required: false, placeholder: 'optional' }]
     });
     if (!v) return null;
     return global.OpsUI.post('/api/admin/gm/action', Object.assign({ action: 'clearmobs', reason: v.reason || '' }, mapBody(m, null)));
