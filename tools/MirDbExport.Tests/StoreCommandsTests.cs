@@ -26,7 +26,7 @@ public sealed class StoreCommandsTests : IDisposable
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir != null && !File.Exists(Path.Combine(dir.FullName, "Legend of Mir.sln"))) dir = dir.Parent;
         if (dir == null) throw new InvalidOperationException("repo root not found");
-        return Path.Combine(dir.FullName, "Server.Persistence.Tests", "Fixtures", "v119", "Server.MirDB");
+        return Path.Combine(dir.FullName, "Server.Persistence.Tests", "Fixtures", "v120", "Server.MirDB"); // the current Envir.Version: export-binary writes it
     }
 
     [Fact]

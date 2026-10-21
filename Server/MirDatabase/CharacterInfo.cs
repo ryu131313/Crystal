@@ -27,7 +27,7 @@ namespace Server.MirDatabase
         public string BanReason = string.Empty;
         public DateTime ExpiryDate;
 
-        public bool ChatBanned;
+        public bool ChatBanned; //v120: persisted (was memory-only)
         public DateTime ChatBanExpiryDate;
 
         public string LastIP = string.Empty;
@@ -405,6 +405,12 @@ namespace Server.MirDatabase
                 AllowMentor = reader.ReadBoolean();
                 AllowFriendRequests = reader.ReadBoolean();
             }
+
+            if (version >= 120)
+            {
+                ChatBanned = reader.ReadBoolean();
+                ChatBanExpiryDate = DateTime.FromBinary(reader.ReadInt64());
+            }
         }
 
         public virtual void Save(BinaryWriter writer)
@@ -592,6 +598,9 @@ namespace Server.MirDatabase
             writer.Write(AllowLoverRecall);
             writer.Write(AllowMentor);
             writer.Write(AllowFriendRequests);
+
+            writer.Write(ChatBanned);
+            writer.Write(ChatBanExpiryDate.ToBinary());
         }
 
         /// <summary>

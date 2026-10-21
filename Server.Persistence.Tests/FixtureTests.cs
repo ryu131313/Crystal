@@ -160,32 +160,74 @@ public class FixtureTests
     }
 
     /// <summary>
-    /// The v119 fixture (written 2026-10-16, every v119 field non-default) loads to its committed oracle and re-saves byte
-    /// for byte on this runtime (no runtime-dependent serialisation; takes over the P4 gate from v118).
+    /// v120 gate (2026-10-20; was the v119 byte-identical re-save): the v119 fixture loads on v120 code with the chat ban
+    /// at its default and nothing else changed. ChatBanned/ChatBanExpiryDate already printed in the oracle (memory-only
+    /// fields before v120), so the v119 oracle must match the upgraded dump exactly. The upgraded save is v120 and byte-stable.
     /// </summary>
     [Fact]
-    public void V119_fixture_resaves_byte_identically_on_this_runtime()
+    public void V119_fixture_upgrades_to_current_version()
     {
         var src = FixtureDir(119);
-        var dir = NewTempFolder("resave119");
+        var dir = NewTempFolder("upgrade119");
+        File.Copy(Path.Combine(src, "Server.MirDB"), Path.Combine(dir, "Server.MirDB"));
+        File.Copy(Path.Combine(src, "Server.MirADB"), Path.Combine(dir, "Server.MirADB"));
+        var expected = File.ReadAllText(Path.Combine(src, "oracle.txt")).Replace("\r\n", "\n");
+        InFolder(dir, () =>
+        {
+            Assert.True(LoadAll(), "v119 fixture failed to load");
+            Assert.Equal(119, Envir.LoadVersion);
+            var upgraded = Oracle.Dump(Envir.Main);
+            Assert.True(expected == upgraded, "v119 -> v120 changed existing data: " + Oracle.FirstDifference(expected, upgraded));
+            var c1 = Envir.Main.AccountList[1].Characters[0];
+            Assert.False(c1.ChatBanned);
+            Assert.Equal(DateTime.MinValue, c1.ChatBanExpiryDate);
+
+            SaveAll();
+            Assert.Equal(Envir.Version, BitConverter.ToInt32(File.ReadAllBytes(Envir.AccountPath), 0));
+            Assert.Equal(Envir.Version, BitConverter.ToInt32(File.ReadAllBytes(Envir.DatabasePath), 0));
+            var gen1 = ReadFiles();
+            Assert.True(LoadAll());
+            Assert.Equal(upgraded, Oracle.Dump(Envir.Main));
+            SaveAll();
+            var gen2 = ReadFiles();
+            Assert.True(gen1.accounts.AsSpan().SequenceEqual(gen2.accounts));
+            Assert.True(gen1.db.AsSpan().SequenceEqual(gen2.db));
+            return 0;
+        });
+        Directory.Delete(dir, true);
+    }
+
+    /// <summary>
+    /// The v120 fixture (written 2026-10-20, every v119 field and the v120 chat ban non-default) loads to its committed
+    /// oracle and re-saves byte for byte on this runtime (no runtime-dependent serialisation; takes over the gate from v119).
+    /// </summary>
+    [Fact]
+    public void V120_fixture_resaves_byte_identically_on_this_runtime()
+    {
+        var src = FixtureDir(120);
+        var dir = NewTempFolder("resave120");
         File.Copy(Path.Combine(src, "Server.MirDB"), Path.Combine(dir, "Server.MirDB"));
         File.Copy(Path.Combine(src, "Server.MirADB"), Path.Combine(dir, "Server.MirADB"));
         var expected = File.ReadAllText(Path.Combine(src, "oracle.txt")).Replace("\r\n", "\n");
         InFolder(dir, () =>
         {
             Assert.True(LoadAll());
-            Assert.Equal(119, Envir.LoadVersion);
+            Assert.Equal(120, Envir.LoadVersion);
             var dump = Oracle.Dump(Envir.Main);
-            Assert.True(expected == dump, "v119 fixture oracle differs: " + Oracle.FirstDifference(expected, dump));
+            Assert.True(expected == dump, "v120 fixture oracle differs: " + Oracle.FirstDifference(expected, dump));
             var nonDefault = new List<string>();
             Oracle.WithoutV119(dump, nonDefault);
             Assert.NotEmpty(nonDefault); // the fixture really carries v119 data
-            var mail = Envir.Main.AccountList[1].Characters[0].Mail[0]; // MailInfo lives in Server.MirEnvir, which the oracle skips
+            var c1 = Envir.Main.AccountList[1].Characters[0];
+            Assert.True(c1.ChatBanned); // v120 chat ban survives the load
+            Assert.Equal(FixtureClock.AddDays(3), c1.ChatBanExpiryDate);
+            Assert.Equal(DateTimeKind.Utc, c1.ChatBanExpiryDate.Kind);
+            var mail = c1.Mail[0]; // MailInfo lives in Server.MirEnvir, which the oracle skips
             Assert.Equal(2, mail.SenderIndex);
             Assert.True(mail.SenderHidden);
             SaveAll();
-            Assert.True(File.ReadAllBytes(Path.Combine(src, "Server.MirDB")).AsSpan().SequenceEqual(File.ReadAllBytes(Envir.DatabasePath)), "Server.MirDB differs from the v119 fixture");
-            Assert.True(File.ReadAllBytes(Path.Combine(src, "Server.MirADB")).AsSpan().SequenceEqual(File.ReadAllBytes(Envir.AccountPath)), "Server.MirADB differs from the v119 fixture");
+            Assert.True(File.ReadAllBytes(Path.Combine(src, "Server.MirDB")).AsSpan().SequenceEqual(File.ReadAllBytes(Envir.DatabasePath)), "Server.MirDB differs from the v120 fixture");
+            Assert.True(File.ReadAllBytes(Path.Combine(src, "Server.MirADB")).AsSpan().SequenceEqual(File.ReadAllBytes(Envir.AccountPath)), "Server.MirADB differs from the v120 fixture");
             return 0;
         });
         Directory.Delete(dir, true);

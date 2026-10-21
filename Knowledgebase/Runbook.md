@@ -41,7 +41,7 @@ Protected paths (never overwritten or deleted by the script):
 | What was deployed | How to roll back |
 |---|---|
 | Binary-only change (no `Envir.Version` change) | Stop the server. Copy `<snapshot>\_binaries\*` back over the target, or redeploy the previous scratch build with the script. Start. |
-| DB format change (`Envir.Version` bumped, e.g. 117→118, 118→119) | **Data must go back too.** The old binaries refuse the newer DB. Stop the server, restore the snapshot's data files and `_binaries`, then start. Everything written since the deploy is lost. |
+| DB format change (`Envir.Version` bumped, e.g. 117→118, 118→119, 119→120) | **Data must go back too.** The old binaries refuse the newer DB. Stop the server, restore the snapshot's data files and `_binaries`, then start. Everything written since the deploy is lost. |
 | Runtime change (.NET 8 → 10) | Same as binary-only. Keep the old runtime installed on the host. The script removes net10-only files that the old build lacks, if the net10 build was deployed by the script. |
 
 ### 3.1 Version 119 (2026-10-16, SceneLab UI phase 2.3)
@@ -68,6 +68,14 @@ The player belt grows 6 → 8 cells (`Inventory[0..7]`, new characters 48 cells,
 5. **Start** and check the log: `Server.MirADB` is created empty, no "[Load] … Refusing" line. Create a test character: bag 48 cells, keys 1-8 = belt, 9/0 = hero belt (web client).
 
 **Rollback:** stop, restore the snapshot's `_binaries` **and** the moved files from step 3 (the old binaries expect 46-cell characters; characters made on the new build would not match the old resize steps), start. Everything played on the new build is lost.
+
+
+### 3.3 Version 120 (chat bans persisted, 2026-10-22)
+
+- `CharacterInfo.ChatBanned` / `ChatBanExpiryDate` are now saved in `Server.MirADB` (they were memory-only, so a restart lifted every chat ban). No wire change: the server alone can be deployed.
+- **Back up before the first v120 run**, as for v119: the first save rewrites `Server.MirADB` as v120, and any v119 `Server.exe` then refuses it. On a rollback, restore the backup.
+- **`Server.MirDB` gets v120 too:** `MirDbExport export-binary` (the §10 rollback path) writes the current `Envir.Version`, so a file exported by this build will not load on a v119 build. Use an export from a v119 build, or the deploy snapshot.
+- After rollback to a v119 build you lose: chat bans set since the deploy (they become memory-only again).
 
 ## 4. Restore drill (do once, then after any backup-format change)
 

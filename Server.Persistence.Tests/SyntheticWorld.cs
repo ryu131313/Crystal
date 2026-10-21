@@ -65,6 +65,9 @@ internal static class SyntheticWorld
         c1.ProfileText = "Hunting hens since 2099";
         c1.EnableGroupRecall = true; c1.AllowMarriage = true; c1.AllowMentor = true;
         c1.AllowFriendRequests = false;
+        // v120 chat ban, non-default
+        c1.ChatBanned = true;
+        c1.ChatBanExpiryDate = now.AddDays(3);
         c1.Magics.Add(new UserMagic(Spell.Fencing) { Level = 1, Key = 2, AutoCast = true });
         var mail = new MailInfo(c1.Index) { MailID = 1, Sender = "Archer2", Message = "Welcome", Gold = 10, DateSent = now, SenderIndex = 2, SenderHidden = true };
         mail.Items.Add(Item(e, potion, 14, count: 5));
