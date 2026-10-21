@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text.Json;
 
 namespace Server.WebAdmin
@@ -265,6 +265,9 @@ namespace Server.WebAdmin
             Add(W, "WebAdmin", "ClientDataPath", "WebAdminClientDataPath", S, "Client Data folder (Live Monitor map art)",
                 "A game client's Data folder (the one with MMap.Lib and the Map folder). The Live Monitor reads it, never writes it, to draw the "
                 + "minimaps and real map tiles. Empty = walkability only.", SettingRestart.Process, format: "path");
+            Add(W, "WebAdmin", "RepoPath", "WebAdminRepoPath", S, "Source checkout (Tools page)",
+                "The Crystal source folder (the one with Legend of Mir.sln). The Tools page runs the stress bots and the scratch server "
+                + "scripts from it. Empty = search the folders above Server.exe.", SettingRestart.Process, format: "path");
 
             // ---- Permissions --------------------------------------------------------------------------------------
             const string P = GroupPermissions;

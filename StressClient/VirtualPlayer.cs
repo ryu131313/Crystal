@@ -23,6 +23,10 @@ internal sealed class VirtualPlayer
 
     private readonly int _index;
     private readonly Options _o;
+
+    // Classes the server lets new characters have (S.ServerRules, or learnt from a Result=3 refusal).
+    private bool _assassinAllowed = true, _archerAllowed = true;
+    private MirClass _triedClass;
     private readonly Metrics _m;
     private readonly SemaphoreSlim _connectBudget;
     private readonly WorldDirectory _directory;
@@ -171,7 +175,7 @@ internal sealed class VirtualPlayer
         if (NextGroupReplyAt != 0 && now >= NextGroupReplyAt)
         {
             NextGroupReplyAt = 0;
-            ReplyGroup(true, now);
+            ReplyGroup(_o.Party, now);
         }
 
         if (_state != State.InGame) return;
@@ -464,11 +468,13 @@ internal sealed class VirtualPlayer
                         EMailAddress = _account + "@stress.test",
                     });
                 }
-                else Fail($"login refused (S.Login Result={l.Result}{(l.Result == 4 ? ": wrong password" : "")})");
+                else if (l.Result == 4)
+                    GiveUp("wrong password for an existing account (made by an earlier run with another --password): use that password, or another --prefix / --first-index");
+                else Fail($"login refused (S.Login Result={l.Result})");
                 break;
 
             case S.LoginBanned b:
-                Fail($"login banned until {b.ExpiryDate:u}: {b.Reason}");
+                GiveUp($"login banned until {b.ExpiryDate:u}: {b.Reason}");
                 break;
 
             case S.NewAccount na:
@@ -487,11 +493,27 @@ internal sealed class VirtualPlayer
                 else
                 {
                     SetState(State.AwaitNewCharacter, now);
-                    Send(new C.NewCharacter { Name = _character, Class = MirClass.Warrior, Gender = (_index & 1) == 0 ? MirGender.Male : MirGender.Female });
+                    SendNewCharacter();
                 }
                 break;
 
+            case S.ServerRules rules:
+                _assassinAllowed = rules.AllowCreateAssassin;
+                _archerAllowed = rules.AllowCreateArcher;
+                break;
+
             case S.NewCharacter nc:
+                // Result 3 = class disabled ([Permission] AllowCreateAssassin/Archer): pick an allowed class and retry.
+                if (nc.Result == 3 && _state == State.AwaitNewCharacter &&
+                    (_triedClass == MirClass.Assassin || _triedClass == MirClass.Archer))
+                {
+                    if (_triedClass == MirClass.Assassin) _assassinAllowed = false; else _archerAllowed = false;
+                    if (ClassToCreate() != _triedClass)
+                    {
+                        SendNewCharacter();
+                        break;
+                    }
+                }
                 Fail($"character creation refused (S.NewCharacter Result={nc.Result})");
                 break;
 
@@ -906,6 +928,14 @@ internal sealed class VirtualPlayer
         _socket?.Close(why);
     }
 
+    /// <summary>A refusal that a retry would only repeat (wrong password, ban): stop this bot for the rest of the run.
+    /// Retrying a wrong password would re-ban the account every few attempts (Envir: 6 wrong passwords = 2 min ban).</summary>
+    private void GiveUp(string why)
+    {
+        _done = true;
+        Fail(why + " - this bot stops");
+    }
+
     private void Log(string message)
     {
         if (!_o.Quiet) Console.WriteLine($"  bot {_index} ({_account}): {message}");
@@ -1192,6 +1222,21 @@ internal sealed class VirtualPlayer
         Send(new C.Chat { Message = text, LinkedItems = new List<ChatItem>() });
         Metrics.Inc(ref _m.Chats);
         _nextActionAt = now + 500;
+    }
+
+    /// <summary>The configured class, or Warrior/Wizard/Taoist (by index) when the server disables Assassin/Archer.</summary>
+    private MirClass ClassToCreate()
+    {
+        var c = _o.ClassFor(_index);
+        if (c == MirClass.Assassin && !_assassinAllowed || c == MirClass.Archer && !_archerAllowed)
+            c = _o.Class == null ? (MirClass)(_index % 3) : MirClass.Warrior;
+        return c;
+    }
+
+    private void SendNewCharacter()
+    {
+        _triedClass = ClassToCreate();
+        Send(new C.NewCharacter { Name = _character, Class = _triedClass, Gender = (_index & 1) == 0 ? MirGender.Male : MirGender.Female });
     }
 
     internal void InvitePlayer(string name, long now)

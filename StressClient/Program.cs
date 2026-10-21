@@ -25,7 +25,8 @@ internal static class Program
         var metrics = new Metrics();
         using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
-        cts.CancelAfter(TimeSpan.FromSeconds(o.DurationSeconds));
+        if (o.DurationSeconds > 0) cts.CancelAfter(TimeSpan.FromSeconds(o.DurationSeconds));
+        if (o.ControlStdin) StartStdinControl(cts);
 
         StreamWriter csv = null;
         if (!string.IsNullOrEmpty(o.CsvPath))
@@ -42,5 +43,28 @@ internal static class Program
         {
             csv?.Dispose();
         }
+    }
+
+    /// <summary>A "stop" line, or the end of stdin (the parent closed it or died), cancels the run.</summary>
+    private static void StartStdinControl(CancellationTokenSource cts)
+    {
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                string line;
+                while ((line = Console.In.ReadLine()) != null)
+                    if (string.Equals(line.Trim(), "stop", StringComparison.OrdinalIgnoreCase)) break;
+            }
+            catch (IOException) { }
+
+            Console.WriteLine("stop requested");
+            try { cts.Cancel(); } catch (ObjectDisposedException) { }
+        })
+        {
+            IsBackground = true,
+            Name = "StressClient-Stdin",
+        };
+        thread.Start();
     }
 }

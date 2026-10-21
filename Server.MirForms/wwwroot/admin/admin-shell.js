@@ -14,6 +14,7 @@
     'players-online': { label: 'Players Online', group: 'Monitoring' },
     monitor: { label: 'Live Monitor', group: 'Monitoring' },
     security: { label: 'Security', group: 'Monitoring' },
+    tools: { label: 'Tools', group: 'Monitoring' },
     gm: { label: 'GM Console', group: 'Operations' },
     broadcast: { label: 'Broadcast', group: 'Operations' },
     chatlog: { label: 'Chat Log', group: 'Operations' },

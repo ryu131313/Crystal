@@ -126,3 +126,19 @@ public class WorldModelItemTests
         Assert.Equal(0, WorldModel.GearScore(null));
     }
 }
+
+public class MonsterTargetTests
+{
+    [Theory]
+    [InlineData((byte)1, 0u, false, true)]   // ordinary monster
+    [InlineData((byte)6, 0u, false, false)]  // Guard
+    [InlineData((byte)58, 0u, false, false)] // Guard (second AI number)
+    [InlineData((byte)57, 0u, false, false)] // TownArcher
+    [InlineData((byte)1, 42u, false, false)] // someone's pet
+    [InlineData((byte)1, 0u, true, false)]   // corpse
+    public void Huntable_SkipsGuardsPetsAndCorpses(byte ai, uint master, bool dead, bool huntable)
+    {
+        var mon = new MonsterState { AI = ai, MasterId = master, Dead = dead };
+        Assert.Equal(huntable, mon.Huntable);
+    }
+}

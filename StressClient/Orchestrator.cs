@@ -45,6 +45,7 @@ internal sealed class Orchestrator
                           $"send budget {_o.ServerMaxPacket * _o.PacketBudgetFraction:0}/5s per bot (server MaxPacket {_o.ServerMaxPacket})");
         Console.WriteLine($"workers {Math.Min(_o.WorkerThreads, _o.Bots)}, map folders: {string.Join(", ", _o.MapFolders)}, " +
                           $"director {( _o.DirectorEnabled ? $"on ({_o.DirectorIntervalSeconds}s)" : "off")}");
+        Console.WriteLine($"class {(_o.Class?.ToString() ?? "mixed")}, behaviours: {BehaviourList()}");
 
         _director?.Start();
 
@@ -178,10 +179,28 @@ internal sealed class Orchestrator
             int silentOut = _bots.Count(b => b.IsPlaying && nowMs - b.LastSentAt > 5000);
             if ((silentIn > 0 || silentOut > 0) && !_o.Quiet)
                 Console.WriteLine($"  liveness: {silentIn} in-game bot(s) without a received packet for >5 s, {silentOut} without a completed write");
+            if (_o.StatusJson)
+                Console.WriteLine("@status " + Metrics.FormatJson(t, last, now, Math.Max(0.001, t - lastT), _bots.Length, Volatile.Read(ref _m.MaxInGame), silentIn));
 
             last = now;
             lastT = t;
         }
+    }
+
+    private string BehaviourList()
+    {
+        var on = new List<string>();
+        if (_o.Hunt) on.Add("hunt");
+        if (_o.Loot) on.Add("loot");
+        if (_o.Town) on.Add("town");
+        if (_o.Quests) on.Add("quests");
+        if (_o.Potions) on.Add("potions");
+        if (_o.Equip) on.Add("equip");
+        if (_o.Chat) on.Add("chat");
+        if (_o.Party) on.Add("party");
+        if (_o.DirectorEnabled) on.Add("director");
+        if (_o.AllowRun) on.Add("run");
+        return on.Count == 0 ? "none (roam only)" : string.Join(" ", on);
     }
 
     private int PrintSummary()

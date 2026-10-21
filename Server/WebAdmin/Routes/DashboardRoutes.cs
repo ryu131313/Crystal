@@ -1,7 +1,8 @@
 namespace Server.WebAdmin.Routes
 {
     /// <summary>
-    /// Dashboard data: GET /api/admin/status/history (sampler ring, downsampled), GET /api/admin/host (process metrics),
+    /// Dashboard data: GET /api/admin/status/history (sampler ring, downsampled; ?live=1&amp;after=&lt;unix ms&gt; = the 1 s live ring and
+    /// renews the live lease), GET /api/admin/host (process metrics + per-thread CPU),
     /// GET /api/admin/events (activity feed). Register() subscribes the activity hooks and starts the sampler (both idempotent; the
     /// sampler does nothing until the host is listening, so route discovery in tests never touches Envir/Settings).
     /// </summary>
@@ -19,6 +20,23 @@ namespace Server.WebAdmin.Routes
 
         private static Task GetHistory(WebAdminRequest req)
         {
+            if (req.QueryBool("live"))
+            {
+                WebAdminStatusSampler.RequestLive();
+                var after = req.QueryLong("after", 0);
+                DateTime? afterUtc = after > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(after).UtcDateTime : null;
+                var live = WebAdminStatusSampler.LiveSince(afterUtc, DateTime.UtcNow);
+
+                return req.Json(new
+                {
+                    live = true,
+                    minutes = WebAdminStatusSampler.LiveRetentionMinutes,
+                    intervalSec = WebAdminStatusSampler.LiveIntervalSeconds,
+                    phases = StatusSample.PhaseNames,
+                    samples = live.Select(Project).ToList(),
+                });
+            }
+
             var minutes = WebAdminStatusSampler.ClampMinutes(req.QueryInt("minutes", 60));
             var samples = WebAdminStatusSampler.History(minutes, DateTime.UtcNow);
 
@@ -26,22 +44,47 @@ namespace Server.WebAdmin.Routes
             {
                 minutes,
                 intervalSec = WebAdminStatusSampler.IntervalSeconds,
-                samples = samples.Select(s => new
-                {
-                    utc = s.Utc,
-                    players = s.Players,
-                    connections = s.Connections,
-                    monsters = s.Monsters,
-                    cycleDelayMs = s.CycleDelayMs,
-                    workingSetMb = s.WorkingSetMb,
-                    cpuPercent = s.CpuPercent,
-                }).ToList(),
+                phases = StatusSample.PhaseNames,
+                samples = samples.Select(Project).ToList(),
             });
+        }
+
+        private static object Project(StatusSample s)
+        {
+            return new
+            {
+                utc = s.Utc,
+                players = s.Players,
+                connections = s.Connections,
+                monsters = s.Monsters,
+                cycleDelayMs = s.CycleDelayMs,
+                workingSetMb = s.WorkingSetMb,
+                cpuPercent = s.CpuPercent,
+                gameBusyPercent = s.GameBusyPercent,
+                gameCpuPercent = s.GameCpuPercent,
+                otherCpuPercent = s.OtherCpuPercent,
+                maxIterationMs = s.MaxIterationMs,
+                phaseMs = s.PhaseMs,
+                packetsIn = s.PacketsIn,
+                packetsOut = s.PacketsOut,
+                bytesOut = s.BytesOut,
+                allocMb = s.AllocMb,
+                gen0 = s.Gen0,
+                gen1 = s.Gen1,
+                gen2 = s.Gen2,
+                gcPauseMs = s.GcPauseMs,
+                monstersAwake = s.MonstersAwake,
+                aiRuns = s.AiRuns,
+                mobCpu = s.MobCpu,
+                mobBusyMs = s.MobBusyMs,
+                mobLateMs = s.MobLateMs,
+            };
         }
 
         private static Task GetHost(WebAdminRequest req)
         {
             var h = WebAdminHostMetrics.Read();
+            var tc = WebAdminThreadCpu.Last;
 
             return req.Json(new
             {
@@ -68,6 +111,13 @@ namespace Server.WebAdmin.Routes
                 processUptimeSec = h.ProcessUptimeSec,
                 worldUptimeMs = WebAdminGame.WorldUptimeMs,
                 sampledUtc = h.SampledUtc,
+                threadCpu = new
+                {
+                    threads = tc.Threads.Select(t => new { name = t.Name, mobThreadId = t.MobThreadId, cpuPercent = t.CpuPercent }).ToList(),
+                    otherPercent = tc.OtherPercent,
+                    sampledUtc = tc.SampledUtc,
+                },
+                liveSampling = WebAdminStatusSampler.LiveActive,
             });
         }
 

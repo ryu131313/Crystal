@@ -1758,7 +1758,9 @@ namespace Server.MirObjects
         {
             if (Envir.Time < AloneTime) return;
 
-            AloneTime = Envir.Time + AloneDelay;
+            // The first check runs at once; later ones start from a random phase. Monsters spawned in the same tick (every map
+            // at world start) used to stay in lockstep, so with the due scheduler the whole population came due on one tick.
+            AloneTime = Envir.Time + (AloneTime == 0 ? 1 + Envir.Random.Next(AloneDelay) : AloneDelay);
 
             if (Route.Count > 0)
             {

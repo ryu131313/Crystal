@@ -1,4 +1,4 @@
-namespace Server.WebAdmin
+﻿namespace Server.WebAdmin
 {
     /// <summary>
     /// Web admin configuration snapshot. Built from Settings.WebAdmin* by <see cref="FromSettings"/> at host start;
@@ -23,6 +23,9 @@ namespace Server.WebAdmin
 
         /// <summary>Absolute client Data folder for the Live Monitor's map art, or null when not configured.</summary>
         public string ClientDataPath { get; set; }
+
+        /// <summary>Absolute source checkout for the Tools page, or null to search above the exe folder.</summary>
+        public string RepoPath { get; set; }
         public int MaxConcurrentRequests { get; set; } = 32;
         public int LoginPerIpPerMinute { get; set; } = 10;
         public int LoginGlobalPerMinute { get; set; } = 120;
@@ -51,6 +54,7 @@ namespace Server.WebAdmin
                     SessionHours = Settings.WebAdminSessionHours <= 0 ? 8 : Settings.WebAdminSessionHours,
                     MaxBodyKB = Settings.WebAdminMaxBodyKB <= 0 ? 2048 : Settings.WebAdminMaxBodyKB,
                     ClientDataPath = ResolveClientDataPath(Settings.WebAdminClientDataPath, AppContext.BaseDirectory),
+                    RepoPath = ResolveClientDataPath(Settings.WebAdminRepoPath, AppContext.BaseDirectory),
                 };
             }
         }

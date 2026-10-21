@@ -16,6 +16,13 @@ internal sealed class MonsterState
     public uint MasterId;
     public int HPPercent = -1;
     public long LastSeen;
+
+    /// <summary>Town guards: AI 6 and 58 = <c>Guard</c> (players cannot hit them at all), 57 = <c>TownArcher</c>
+    /// (Server/MirObjects/MonsterObject.cs GetMonster).</summary>
+    public bool IsGuard => AI is 6 or 57 or 58;
+
+    /// <summary>A monster a bot may attack: alive, not someone's pet (summon, tame, hero pet) and not a town guard.</summary>
+    public bool Huntable => !Dead && MasterId == 0 && !IsGuard;
 }
 
 internal sealed class PlayerState

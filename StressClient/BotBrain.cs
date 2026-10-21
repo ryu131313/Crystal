@@ -95,14 +95,15 @@ internal sealed class BotBrain
         if (_v.MoveOutstanding) return;
         if (now < _v.NextActionAt) return;
 
-        if (_v.TryDrinkPotion(now)) return;
+        var o = _v.Options;
+        if (o.Potions && _v.TryDrinkPotion(now)) return;
         if (_town != TownState.None) { TownTick(now); return; }
 
-        if (TryStartTown(now)) return;
-        if (_v.TryEquipBetter(now)) return;
-        if (TryLoot(now)) return;
-        if (TryHunt(now)) return;
-        if (TrySocial(now)) return;
+        if ((o.Town || o.Quests) && TryStartTown(now)) return;
+        if (o.Equip && _v.TryEquipBetter(now)) return;
+        if (o.Loot && TryLoot(now)) return;
+        if (o.Hunt && TryHunt(now)) return;
+        if ((o.Chat || o.Party) && TrySocial(now)) return;
         if (TryDirective(now)) return;
         Roam(now);
     }
@@ -111,12 +112,16 @@ internal sealed class BotBrain
 
     private bool NeedsTown(long now)
     {
-        if (_v.World.FirstJunk() != null) return true;
-        if (_v.World.HasDamagedEquipment(out _)) return true;
-        if (_v.World.PotionCount() < 3) return true;
+        var o = _v.Options;
+        if (o.Town)
+        {
+            if (_v.World.FirstJunk() != null) return true;
+            if (_v.World.HasDamagedEquipment(out _)) return true;
+            if (_v.World.PotionCount() < 3) return true;
+        }
 
         // An accepted quest needs a return trip to the giver, after time to finish its tasks.
-        if (_questId != 0 && _finishTries < 2 && now - _questAcceptedAt > 60_000 &&
+        if (o.Quests && _questId != 0 && _finishTries < 2 && now - _questAcceptedAt > 60_000 &&
             _v.World.Quests.ContainsKey(_questId)) return true;
 
         return now - _nextTownAt > 180_000;
@@ -223,8 +228,9 @@ internal sealed class BotBrain
 
             case TownState.Greet:
                 if (now < _townStepAt) return;
-                TryAcceptQuest(now);
-                _town = TownState.BuySell;
+                if (_v.Options.Quests) TryAcceptQuest(now);
+                // Quest-only trips (--no-town) skip the shop and the smith.
+                _town = _v.Options.Town ? TownState.BuySell : TownState.Finish;
                 _townStage = 0;
                 _townStepAt = now + 300;
                 return;
@@ -281,7 +287,7 @@ internal sealed class BotBrain
             case TownState.Finish:
                 if (now < _townStepAt) return;
 
-                if (_questId != 0 && world.Quests.ContainsKey(_questId) && _finishTries < 2 &&
+                if (_v.Options.Quests && _questId != 0 && world.Quests.ContainsKey(_questId) && _finishTries < 2 &&
                     now - _questAcceptedAt > 12_000)
                 {
                     _v.FinishQuest(_questId, now);
@@ -432,14 +438,14 @@ internal sealed class BotBrain
 
     private bool TrySocial(long now)
     {
-        if (now >= _nextChatAt)
+        if (_v.Options.Chat && now >= _nextChatAt)
         {
             _v.SendChat(Phrases[_rng.Next(Phrases.Length)], now);
             _nextChatAt = now + 45_000 + _rng.Next(45_000);
             return true;
         }
 
-        if (!_v.World.InGroup && now >= _nextInviteAt)
+        if (_v.Options.Party && !_v.World.InGroup && now >= _nextInviteAt)
         {
             _nextInviteAt = now + 90_000 + _rng.Next(60_000);
 
@@ -540,14 +546,14 @@ internal sealed class BotBrain
 
         // Fight back first: a monster that just hit us outranks the nearest one.
         if (world.LastAttackerId != 0 && now - world.LastAttackerAt < 10_000 &&
-            world.Monsters.TryGetValue(world.LastAttackerId, out var attacker) && !attacker.Dead &&
+            world.Monsters.TryGetValue(world.LastAttackerId, out var attacker) && attacker.Huntable &&
             Functions.MaxDistance(world.Location, attacker.Location) <= _v.Options.SeekRange + 2)
         {
             _targetId = attacker.Id;
             return attacker;
         }
 
-        if (_targetId != 0 && world.Monsters.TryGetValue(_targetId, out var current) && !current.Dead &&
+        if (_targetId != 0 && world.Monsters.TryGetValue(_targetId, out var current) && current.Huntable &&
             Functions.MaxDistance(world.Location, current.Location) <= _v.Options.SeekRange)
             return current;
 
@@ -558,7 +564,7 @@ internal sealed class BotBrain
 
         foreach (var mon in world.Monsters.Values)
         {
-            if (mon.Dead || mon.MasterId != 0) continue;      // corpses and pets
+            if (!mon.Huntable) continue;                       // corpses, pets and town guards
             if (mon.Level > levelBand) continue;               // do not grind monsters far above our level
 
             int distance = Functions.MaxDistance(world.Location, mon.Location);

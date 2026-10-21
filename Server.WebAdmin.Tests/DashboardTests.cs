@@ -92,6 +92,59 @@ namespace Server.WebAdmin.Tests
         {
             Assert.Equal(24 * 3600 / 5, WebAdminStatusSampler.Ring.Capacity);
         }
+
+        [Fact]
+        public void LiveRing_CoversFifteenMinutesAtOneSecond()
+        {
+            Assert.Equal(15 * 60, WebAdminStatusSampler.LiveRing.Capacity);
+        }
+
+        [Fact]
+        public void Downsample_LoadFields_MaxSpikes_AverageRates_PerIndexArrays()
+        {
+            var input = new List<StatusSample>();
+            for (var i = 0; i < 4; i++)
+            {
+                var s = Sample(i);
+                s.GameBusyPercent = 10 * (i + 1);               // 10, 20, 30, 40
+                s.MaxIterationMs = i == 2 ? 80 : 2;
+                s.PacketsIn = 100 * (i + 1);                    // 100..400
+                s.Gen2 = i == 1 ? 1 : 0;
+                s.MonstersAwake = i == 0 ? -1 : 300;            // the first sample did not count
+                s.PhaseMs = new[] { 1.0 * i, 2.0 };
+                s.MobCpu = i == 3 ? new[] { 0.0, 40, 60 } : new[] { 0.0, 20 }; // a thread appears mid-bucket
+                s.MobLateMs = new long[] { 0, i == 1 ? 50 : 1 };
+                input.Add(s);
+            }
+
+            var output = WebAdminSampleRing.Downsample(input, 1);
+
+            var a = Assert.Single(output);
+            Assert.Equal(25, a.GameBusyPercent);
+            Assert.Equal(80, a.MaxIterationMs);
+            Assert.Equal(250, a.PacketsIn);
+            Assert.Equal(1, a.Gen2);
+            Assert.Equal(300, a.MonstersAwake);
+            Assert.Equal(new[] { 1.5, 2.0 }, a.PhaseMs);
+            Assert.Equal(new[] { 0.0, 25, 15 }, a.MobCpu);
+            Assert.Equal(new long[] { 0, 50 }, a.MobLateMs);
+        }
+
+        [Fact]
+        public void Downsample_Copy_DoesNotShareArrays()
+        {
+            var s = Sample(0);
+            s.PhaseMs = new[] { 1.0 };
+            s.MobCpu = new[] { 0.0, 5 };
+
+            var copy = WebAdminSampleRing.Downsample(new List<StatusSample> { s }, 10)[0];
+            s.PhaseMs[0] = 9;
+            s.MobCpu[1] = 9;
+
+            Assert.Equal(1.0, copy.PhaseMs[0]);
+            Assert.Equal(5.0, copy.MobCpu[1]);
+            Assert.Equal(-1, new StatusSample().MonstersAwake);
+        }
     }
 
     public class DashboardHostMetricsTests
@@ -119,6 +172,16 @@ namespace Server.WebAdmin.Tests
             Assert.Equal(0, WebAdminHostMetrics.ComputeCpuPercent(TimeSpan.Zero, T0, TimeSpan.FromSeconds(1), T0, 4));
             Assert.Equal(0, WebAdminHostMetrics.ComputeCpuPercent(TimeSpan.FromSeconds(5), T0, TimeSpan.FromSeconds(4), T0.AddSeconds(1), 4));
             Assert.Equal(25.0, WebAdminHostMetrics.ComputeCpuPercent(TimeSpan.Zero, T0, TimeSpan.FromMilliseconds(250), T0.AddSeconds(1), 0));
+        }
+
+        [Fact]
+        public void ThreadCpu_IsPercentOfOneCore_ClampedAndRounded()
+        {
+            Assert.Equal(50.0, WebAdminThreadCpu.OneCorePercent(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1.5), 1000));
+            Assert.Equal(100.0, WebAdminThreadCpu.OneCorePercent(TimeSpan.Zero, TimeSpan.FromSeconds(2), 1000));
+            Assert.Equal(33.3, WebAdminThreadCpu.OneCorePercent(TimeSpan.Zero, TimeSpan.FromMilliseconds(1000), 3000));
+            Assert.Equal(0, WebAdminThreadCpu.OneCorePercent(TimeSpan.Zero, TimeSpan.FromSeconds(1), 0));
+            Assert.Equal(0, WebAdminThreadCpu.OneCorePercent(TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(1), 1000));
         }
 
         [Fact]

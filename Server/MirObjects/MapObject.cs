@@ -178,6 +178,8 @@ namespace Server.MirObjects
         internal long ScheduledDue = long.MaxValue;
         /// <summary>World run this object was last spawned in (<see cref="Envir"/> WorldGeneration); schedulers ignore older ones.</summary>
         internal int SpawnedGeneration;
+        /// <summary>Last dashboard load window this object ran in (Envir._profileWindow); written by its owning scheduler thread only.</summary>
+        internal int ProfileWindow;
 
         public Stats Stats;
 

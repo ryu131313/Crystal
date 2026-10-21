@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 
 namespace Server.MirEnvir
 {
@@ -48,6 +48,10 @@ namespace Server.MirEnvir
             public int Gen2 { get; init; }
             public long AllocatedBytes { get; init; }
             public double GcPauseMs { get; init; }
+            /// <summary>Per mob thread load (index = thread id; null when not multithreaded or without the due scheduler).</summary>
+            public MobThreadLoad[] MobThreads { get; init; }
+            /// <summary>Distinct monsters that ran AI in the window (due scheduler; -1 when not counted).</summary>
+            public int MonstersAwake { get; init; } = -1;
         }
 
         /// <summary>The most recent one-second snapshot (null until the first publish).</summary>
@@ -86,8 +90,11 @@ namespace Server.MirEnvir
         public static void CountPacketIn() => _packetsIn++;
         public static void CountPacketsOut(int packets, int bytes) { _packetsOut += packets; _bytesOut += bytes; }
 
+        /// <summary>Publishes and resets the window without mob thread data.</summary>
+        public static void Publish() => Publish(null, -1);
+
         /// <summary>Called once per second by the WorkLoop: publishes and resets the window.</summary>
-        public static void Publish()
+        public static void Publish(MobThreadLoad[] mobThreads, int monstersAwake)
         {
             var now = Stopwatch.GetTimestamp();
             var windowTicks = Math.Max(1, now - _lastPublish);
@@ -130,6 +137,8 @@ namespace Server.MirEnvir
                 Gen2 = g2 - _gen2,
                 AllocatedBytes = alloc - _allocated,
                 GcPauseMs = Math.Round((pause - _gcPause).TotalMilliseconds, 3),
+                MobThreads = mobThreads,
+                MonstersAwake = monstersAwake,
             };
             Last = snap;
 

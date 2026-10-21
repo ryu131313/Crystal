@@ -142,6 +142,60 @@ internal sealed class Metrics
             b.MapsLoaded, b.MapsMissing, b.PathFound, b.PathFail, b.Repaths, b.Runs, b.DoorsOpened, b.MoveTimeouts, b.Directives);
         return (line.ToString(), csv);
     }
+
+    /// <summary>The same second as one JSON object, for the "@status" line a parent process reads (--status-json).</summary>
+    public static string FormatJson(double tSeconds, Snapshot a, Snapshot b, double dt, int bots, int maxInGame, int silent)
+    {
+        double R(long x, long y) => Math.Round((y - x) / dt, 1);
+        long rttCount = b.RttCount - a.RttCount;
+
+        using var ms = new MemoryStream();
+        using (var w = new System.Text.Json.Utf8JsonWriter(ms))
+        {
+            w.WriteStartObject();
+            w.WriteNumber("t", Math.Round(tSeconds, 1));
+            w.WriteNumber("bots", bots);
+            w.WriteNumber("connecting", b.Connecting);
+            w.WriteNumber("connected", b.Connected);
+            w.WriteNumber("inGame", b.InGame);
+            w.WriteNumber("maxInGame", maxInGame);
+            w.WriteNumber("reached", b.BotsReachedGame);
+            w.WriteNumber("sentPps", R(a.PacketsSent, b.PacketsSent));
+            w.WriteNumber("recvPps", R(a.PacketsReceived, b.PacketsReceived));
+            w.WriteNumber("sentKBps", Math.Round(R(a.BytesSent, b.BytesSent) / 1024, 1));
+            w.WriteNumber("recvKBps", Math.Round(R(a.BytesReceived, b.BytesReceived) / 1024, 1));
+            w.WriteNumber("walkPs", R(a.Walks, b.Walks));
+            w.WriteNumber("runPs", R(a.Runs, b.Runs));
+            w.WriteNumber("attackPs", R(a.Attacks, b.Attacks));
+            w.WriteNumber("blockedPs", R(a.Blocked, b.Blocked));
+            if (rttCount > 0) w.WriteNumber("rttMs", Math.Round((double)(b.RttTotal - a.RttTotal) / rttCount, 1));
+            w.WriteNumber("silent", silent);
+            w.WriteNumber("kills", b.Kills);
+            w.WriteNumber("deaths", b.Deaths);
+            w.WriteNumber("potions", b.Potions);
+            w.WriteNumber("pickups", b.Pickups);
+            w.WriteNumber("sold", b.Sold);
+            w.WriteNumber("bought", b.Bought);
+            w.WriteNumber("repairs", b.Repairs);
+            w.WriteNumber("questsAccepted", b.QuestsAccepted);
+            w.WriteNumber("questsDone", b.QuestsFinished);
+            w.WriteNumber("chats", b.Chats);
+            w.WriteNumber("invites", b.Invites);
+            w.WriteNumber("groups", b.GroupJoins);
+            w.WriteNumber("pathFound", b.PathFound);
+            w.WriteNumber("pathFail", b.PathFail);
+            w.WriteNumber("mapsMissing", b.MapsMissing);
+            w.WriteNumber("directives", b.Directives);
+            w.WriteNumber("errors", b.Errors);
+            w.WriteNumber("decodeErrors", b.DecodeErrors);
+            w.WriteNumber("unknownPackets", b.UnknownPackets);
+            w.WriteNumber("refused", b.Refused);
+            w.WriteNumber("disconnects", b.Disconnects);
+            w.WriteNumber("loginTimeouts", b.LoginTimeouts);
+            w.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(ms.ToArray());
+    }
 }
 
 /// <summary>Process-wide monotonic millisecond clock shared by bots and sockets (KeepAlive RTT uses it on both ends).</summary>

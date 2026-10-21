@@ -31,6 +31,7 @@ A world reboot is not enough.
 | `WebRoot` | `.\wwwroot` | Folder with the static files. A relative path is resolved against the exe folder. It must contain `admin\index.html`. |
 | `SessionHours` | `8` | Sliding session lifetime in hours (clamped to 1–720). `<= 0` means 8. |
 | `MaxBodyKB` | `2048` | Largest request body accepted (clamped to 16–65536 KB). Bigger bodies get `413`. This limits script file saves and bulk grid edits. |
+| `RepoPath` | *(empty)* | The Crystal source folder (with `Legend of Mir.sln`) the **Tools** page runs StressClient and the scratch-server scripts from. Empty = search the folders above the exe (finds `C:\Mir2` from `Build\Server\Release`). |
 | `ClientDataPath` | *(empty)* | A game client's `Data` folder (the one with `MMap.Lib` and `Map\`), e.g. `C:\Mir2\Build\Client\Release\Data`. The Live Monitor **reads** it (never writes; files are opened with full sharing, so a running client or patcher is not blocked) to draw the minimaps and the real map tiles. Relative paths are resolved against the exe folder. Empty = walkability images only. |
 
 The login rate limits and the request concurrency limit are **not** in the ini. They are fixed defaults in `WebAdminOptions`:
@@ -123,9 +124,13 @@ Polling only runs while a section is visible and the browser tab is in the foreg
 confirmation dialog, with a reason field for moderation actions. Every successful change is audited.
 
 **Monitoring**
-- **Dashboard:** tiles (world state, players, connections, monsters, cycle delay, uptime, memory, CPU, pending reboot), Chart.js
-  history (1 h / 6 h / 24 h, sampled every 5 s), host metrics, a live activity feed (logins, logouts, failed logins, world
-  events, admin actions), and quick actions.
+- **Dashboard:** tiles (world state, players, connections, monsters + awake, game thread busy, tick time + lateness, uptime,
+  memory, CPU, network out, allocation/GC, pending reboot), Chart.js history (1 h / 6 h / 24 h, sampled every 5 s; **Live** =
+  the last 15 min sampled every second, tiles every second, only while selected: the page renews a 15 s server lease with
+  `GET /api/admin/status/history?live=1&after=<unix ms>`), a *Server load* band (game loop phases as % of each second, this
+  second's phase split and iteration histogram, per-thread CPU as % of one core with a 5 s floor, the mob thread table: CPU,
+  busy, passes, 10 ms overruns, slowest pass, queued, awake, AI runs, lateness), monster activity, network and GC charts, host
+  metrics, a live activity feed (logins, logouts, failed logins, world events, admin actions), and quick actions.
 - **Server Control:** start, stop, reboot and save the world; shut down `Server.exe` (asks twice); reload NPCs, drops, line
   messages and recipes; a restart countdown that announces to players and then reboots; versions and paths; the pending-reboot
   list; a log viewer (live server/debug/chat from the in-process log tap, plus log4net files under `Logs\` with tail and
@@ -148,6 +153,21 @@ confirmation dialog, with a reason field for moderation actions. Every successfu
   ~55–180 ms each on this machine; caches ~128 MB of decoded frames + ~192 MB of tile PNGs; `Server/WebAdmin/MapArt/`).
 - **Security:** banned accounts, chat bans, admins, panel sessions (revoke), IP blocks (add, remove, clear), IPs shared by
   several accounts, recent failed logins, and a searchable game login log.
+- **Tools:** the StressClient bot fleet and a scratch server for it (`Server/WebAdmin/Tools/`, `Routes/ToolsRoutes.cs`,
+  `admin-tools.js`). *Stress bots*: target (scratch server or **this server**), count, ramp, duration (0 = until stopped),
+  class (or mixed), account prefix/first index/password, behaviour checkboxes (hunt, loot, town runs, quests, potions, equip,
+  chat, party, Director routing, run, reconnect) with presets, and advanced numbers; live tiles, an in-game/packets chart and
+  the bot output, polled every 5 s. *Scratch server*: start/stop a separate `Server.exe` on 127.0.0.1:17000-17999 through
+  `tools\start-scratch-server.ps1` / `stop-scratch-server.ps1` (folder `%TEMP%\mir2-webadmin-scratch`), with synthetic maps or
+  copies of this server's maps, reset and rebuild. The bots run as a `StressClient.exe` child process (`--control-stdin
+  --status-json`): Stop writes `stop` to its stdin (polite disconnects, killed after 15 s); it also stops when `Server.exe`
+  exits, and a self-targeted fleet stops with the world. Needs the source checkout (`[WebAdmin] RepoPath`, else the first
+  folder above the exe with `Legend of Mir.sln`) and the .NET SDK for *Build bots* / the first scratch start. **This server**
+  is refused unless `[LoadTest] ExemptLoopback=True`, `CheckVersion=False`, logins and StartGame are allowed, the bind is
+  loopback/any, the bot password is not the public default and the bot count is within `[Network] MaxUser` (shown as a
+  check; the form allows up to 5000 bots); the bots then create real accounts in this server's
+  account database. Routes: `GET /api/admin/tools/status`, `POST /api/admin/tools/{bots/start,bots/stop,bots/build,scratch/start,scratch/stop}`;
+  audit `tools.bots.*`, `tools.scratch.*` (never the password).
 
 **Operations**
 - **GM Console:** pick a target, then run a GM verb such as kick, kill, revive, teleport, give gold/credit/item, set level,

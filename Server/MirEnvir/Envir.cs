@@ -34,6 +34,65 @@ namespace Server.MirEnvir
         /// thread re-armed it (Stop = false) after it left, which would otherwise hold a shutdown for the full timeout.
         /// </summary>
         public volatile bool Exited;
+        /// <summary>OS thread id (Windows), for per-thread CPU in the web admin; 0 until the thread starts, or off Windows.</summary>
+        public volatile int NativeThreadId;
+
+        // Load counters for the dashboard (due scheduler only). Written by the owning thread during its pass; published and reset
+        // by the game thread once a second while the thread is parked at the barrier (Envir.PublishMobLoad).
+        internal long WorkTicks, MaxPassTicks;
+        internal int Passes, Overruns, Processed, Awake;
+
+        /// <summary>Owner thread, after one scheduler pass.</summary>
+        internal void NotePass(long startTimestamp, int processed, bool overran)
+        {
+            var ticks = Stopwatch.GetTimestamp() - startTimestamp;
+            WorkTicks += ticks;
+            if (ticks > MaxPassTicks) MaxPassTicks = ticks;
+            Passes++;
+            Processed += processed;
+            if (overran) Overruns++;
+        }
+    }
+
+    /// <summary>One mob thread's last one-second window (see <see cref="LoopProfiler.Snapshot.MobThreads"/>). Immutable.</summary>
+    public sealed class MobThreadLoad
+    {
+        public int Id { get; init; }
+        public bool OnGameThread { get; init; }
+        public bool Dead { get; init; }
+        /// <summary>Milliseconds spent in scheduler passes in the window.</summary>
+        public double BusyMs { get; init; }
+        public double MaxPassMs { get; init; }
+        public int Passes { get; init; }
+        /// <summary>Passes that stopped at their 10 ms deadline with work possibly left.</summary>
+        public int Overruns { get; init; }
+        /// <summary>Monster Process() calls (AI runs) in the window.</summary>
+        public int Processed { get; init; }
+        /// <summary>Distinct monsters that ran AI in the window.</summary>
+        public int Awake { get; init; }
+        /// <summary>Entries in this thread's scheduler heap (includes stale entries until they are popped or compacted).</summary>
+        public int Queued { get; init; }
+        /// <summary>Worst lateness (ms past due) in the window.</summary>
+        public long LateMs { get; init; }
+    }
+
+    /// <summary>OS thread ids for the web admin's per-thread CPU (Windows only; 0 elsewhere).</summary>
+    internal static class NativeThread
+    {
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
+
+        public static int CurrentId()
+        {
+            try
+            {
+                return OperatingSystem.IsWindows() ? (int)GetCurrentThreadId() : 0;
+            }
+            catch (Exception)
+            {
+                return 0;
+            }
+        }
     }
     public class RandomProvider
     {
@@ -251,7 +310,13 @@ namespace Server.MirEnvir
 
         public static int LastCount = 0, LastRealCount = 0;
         public static long LastRunTime = 0;
+        /// <summary>OS id of the game thread (WorkLoop), for per-thread CPU in the web admin; 0 when not running or off Windows.</summary>
+        public static volatile int GameThreadNativeId;
         public int MonsterCount;
+
+        // Dashboard load window (due scheduler): a monster is counted as awake once per window via MapObject.ProfileWindow.
+        // Game thread owns _profileWindow; _mainAwake counts monsters processed by the game thread's own scheduler.
+        private int _profileWindow = 1, _mainAwake;
 
         private long warTime, guildTime, conquestTime, rentalItemsTime, auctionTime, spawnTime, robotTime, timerTime;
         private int dailyTime = DateTime.UtcNow.Day;
@@ -2052,6 +2117,7 @@ namespace Server.MirEnvir
         private void WorkLoop()
         {
             if (this == Main) DesignStore.GameThreadId = Environment.CurrentManagedThreadId; // design writes from here are posted (roadmap P7)
+            if (this == Main) GameThreadNativeId = NativeThread.CurrentId();
             try
             {
                 Time = Stopwatch.ElapsedMilliseconds;
@@ -2142,7 +2208,8 @@ namespace Server.MirEnvir
                                 for (var j = 0; j < MobThreads.Length; j++)
                                     if (MobThreads[j] != null) MobThreads[j].LastRunTime = MobThreads[j].Scheduler.TakeMaxLateMs();
                             }
-                            LoopProfiler.Publish();
+                            var awake = PublishMobLoad(out var mobLoad);
+                            LoopProfiler.Publish(mobLoad, awake);
                         }
 
                         if (conTime != Time)
@@ -2526,6 +2593,52 @@ namespace Server.MirEnvir
         }
 
         /// <summary>
+        /// Game thread, once a second, while every mob thread is parked at the barrier: snapshots and resets the mob threads' load
+        /// counters and starts a new awake window. Returns the distinct monsters that ran AI in the window (all threads). One small
+        /// array per second; nothing per tick.
+        /// </summary>
+        private int PublishMobLoad(out MobThreadLoad[] loads)
+        {
+            var awake = _mainAwake;
+            _mainAwake = 0;
+            _profileWindow++;
+            loads = null;
+
+            if (!Settings.Multithreaded || !_dueScheduler) return awake;
+
+            loads = new MobThreadLoad[MobThreads.Length];
+            var toMs = 1000.0 / Stopwatch.Frequency;
+            for (var j = 0; j < MobThreads.Length; j++)
+            {
+                var t = MobThreads[j];
+                if (t == null) continue;
+                loads[j] = new MobThreadLoad
+                {
+                    Id = t.Id,
+                    OnGameThread = t.Id == 0,
+                    Dead = t.Dead,
+                    BusyMs = Math.Round(t.WorkTicks * toMs, 2),
+                    MaxPassMs = Math.Round(t.MaxPassTicks * toMs, 2),
+                    Passes = t.Passes,
+                    Overruns = t.Overruns,
+                    Processed = t.Processed,
+                    Awake = t.Awake,
+                    Queued = t.Scheduler.Count,
+                    LateMs = t.LastRunTime,
+                };
+                awake += t.Awake;
+                t.WorkTicks = 0;
+                t.MaxPassTicks = 0;
+                t.Passes = 0;
+                t.Overruns = 0;
+                t.Processed = 0;
+                t.Awake = 0;
+            }
+
+            return awake;
+        }
+
+        /// <summary>
         /// Owner thread: schedules woken objects, then processes every due object until <paramref name="deadline"/> (the same
         /// Process / SetOperateTime / isolation as the old walks). <paramref name="mob"/> is null on the game thread's scheduler.
         /// Returns the number of objects processed.
@@ -2554,6 +2667,13 @@ namespace Server.MirEnvir
                 {
                     var late = Time - due;
                     if (late > s.MaxLateMs) s.MaxLateMs = late;
+
+                    if (ob.Race == ObjectType.Monster && ob.ProfileWindow != _profileWindow)
+                    {
+                        ob.ProfileWindow = _profileWindow;
+                        if (mob != null) mob.Awake++;
+                        else _mainAwake++;
+                    }
 
                     // Isolation (roadmap P5): a throwing object is quarantined, the world keeps running.
                     try
@@ -2599,7 +2719,10 @@ namespace Server.MirEnvir
                 // the per-object catch must still reach the barrier wait, or the rest of the tick would overlap the sub-threads.
                 try
                 {
-                    RunDue(Info.Scheduler, Stopwatch.ElapsedMilliseconds + 10, Info);
+                    var start = Stopwatch.GetTimestamp();
+                    var deadline = Stopwatch.ElapsedMilliseconds + 10;
+                    var n = RunDue(Info.Scheduler, deadline, Info);
+                    Info.NotePass(start, n, Stopwatch.ElapsedMilliseconds >= deadline);
                 }
                 catch (Exception ex)
                 {
@@ -2622,7 +2745,9 @@ namespace Server.MirEnvir
                     }
 
                     if (!Running) continue; // shutdown: Stop() interrupts this thread
-                    RunDue(Info.Scheduler, Info.EndTime, Info);
+                    var start = Stopwatch.GetTimestamp();
+                    var n = RunDue(Info.Scheduler, Info.EndTime, Info);
+                    Info.NotePass(start, n, Stopwatch.ElapsedMilliseconds >= Info.EndTime);
                 }
             }
             catch (Exception ex)
@@ -2774,6 +2899,8 @@ namespace Server.MirEnvir
 
         private void ThreadLoop(MobThread Info)
         {
+            if (Info.NativeThreadId == 0) Info.NativeThreadId = Info.Id == 0 ? GameThreadNativeId : NativeThread.CurrentId();
+
             if (_dueScheduler)
             {
                 ThreadLoopDue(Info);

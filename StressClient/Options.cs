@@ -56,6 +56,21 @@ internal sealed class Options
 
     public int RoamRadius = 12;
 
+    // ---- behaviour toggles (all on by default; the web admin Tools page sets them per run) ----
+
+    public bool Hunt = true, Loot = true, Town = true, Quests = true, Potions = true, Equip = true, Chat = true, Party = true;
+
+    /// <summary>Class for new characters; <c>null</c> = mixed (bot index cycles through the five classes).
+    /// Existing characters keep their class.</summary>
+    public MirClass? Class = MirClass.Warrior;
+
+    /// <summary>--control-stdin: a "stop" line or end of input on stdin stops the run gracefully (the web admin's
+    /// stop button, and the bots end when their parent process dies).</summary>
+    public bool ControlStdin;
+
+    /// <summary>--status-json: also print one "@status {json}" line per second for a parent process.</summary>
+    public bool StatusJson;
+
     public static readonly Regex PrefixReg = new("^[A-Za-z0-9]{1,9}$");
 
     public static Options Parse(string[] args, out string error)
@@ -100,6 +115,18 @@ internal sealed class Options
                     case "--run-percent": o.RunPercent = int.Parse(Next()); break;
                     case "--roam-radius": o.RoamRadius = int.Parse(Next()); break;
 
+                    case "--no-hunt": o.Hunt = false; break;
+                    case "--no-loot": o.Loot = false; break;
+                    case "--no-town": o.Town = false; break;
+                    case "--no-quests": o.Quests = false; break;
+                    case "--no-potions": o.Potions = false; break;
+                    case "--no-equip": o.Equip = false; break;
+                    case "--no-chat": o.Chat = false; break;
+                    case "--no-party": o.Party = false; break;
+                    case "--class": o.Class = ParseClass(Next()); break;
+                    case "--control-stdin": o.ControlStdin = true; break;
+                    case "--status-json": o.StatusJson = true; break;
+
                     case "-h":
                     case "--help":
                         error = "";
@@ -119,7 +146,8 @@ internal sealed class Options
         else if (o.Bots < 1 || o.Bots > 5000) error = "--bots must be 1..5000";
         else if (o.FirstIndex < 0 || o.FirstIndex + o.Bots > 100000) error = "--first-index + --bots must stay below 100000 (5-digit names)";
         else if (o.RampPerSecond <= 0) error = "--ramp must be > 0";
-        else if (o.DurationSeconds < 1) error = "--duration must be >= 1";
+        else if (o.DurationSeconds < 0) error = "--duration must be >= 0 (0 = until stopped)";
+        else if (o.DurationSeconds == 0 && !o.ControlStdin) error = "--duration 0 (until stopped) needs --control-stdin";
         else if (o.ConnectBudget < 1) error = "--connect-budget must be >= 1";
         else if (o.ServerMaxPacket < 5) error = "--max-packet must be >= 5";
         else if (o.TickMs < 10 || o.TickMs > 1000) error = "--tick must be 10..1000 ms";
@@ -135,6 +163,16 @@ internal sealed class Options
         return error == null ? o : null;
     }
 
+    private static MirClass? ParseClass(string value)
+    {
+        if (string.Equals(value, "mixed", StringComparison.OrdinalIgnoreCase)) return null;
+        if (Enum.TryParse(value, true, out MirClass c) && Enum.IsDefined(c)) return c;
+        throw new ArgumentException("--class must be warrior, wizard, taoist, assassin, archer or mixed");
+    }
+
+    /// <summary>The class a NEW character of bot <paramref name="index"/> gets.</summary>
+    public MirClass ClassFor(int index) => Class ?? (MirClass)(index % 5);
+
     public const string Usage = """
         StressClient - headless Crystal bots for SCRATCH servers (never a live server).
 
@@ -142,7 +180,8 @@ internal sealed class Options
           --port <n>              server port (default 17000)
           --bots <n>              number of bots (default 10)
           --ramp <n/s>            bots started per second (default 10)
-          --duration <s>          run time in seconds after the first bot starts (default 60)
+          --duration <s>          run time in seconds after the first bot starts (default 60; 0 = until
+                                    stopped, needs --control-stdin)
           --prefix <name>         account/character prefix, 1-9 alnum (default sb): accounts sb00000.., chars sbc00000..
           --first-index <n>       first bot index (default 0), to run several fleets with one prefix
           --password <pw>         password for all bot accounts (default StressPw1)
@@ -168,6 +207,14 @@ internal sealed class Options
           --no-run                never send C.Run (walk only)
           --run-percent <0-100>   share of straight path segments that may run (default 40)
           --roam-radius <cells>   roam around the anchor within this radius (default 12)
+
+          --no-hunt --no-loot --no-town --no-quests --no-potions --no-equip --no-chat --no-party
+                                  turn one behaviour off (all on by default; --no-party also declines invites;
+                                    --no-town keeps quest-only trips to the merchant unless --no-quests)
+          --class <name>          class of new characters: warrior (default), wizard, taoist, assassin, archer,
+                                    or mixed (cycles by bot index); existing characters keep theirs
+          --control-stdin         stop gracefully on a "stop" line or end of input on stdin
+          --status-json           also print one "@status {json}" line per second (for the web admin)
 
         Exit code: 0 when every bot reached the game and no decode errors happened, 1 otherwise, 2 bad arguments.
         """;

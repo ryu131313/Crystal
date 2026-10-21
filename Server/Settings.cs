@@ -104,6 +104,7 @@ namespace Server
         public static int WebAdminMaxBodyKB = 2048;
         /// <summary>Client Data folder (with MMap.Lib and Map\) the Live Monitor reads for map art; empty = walkability only.</summary>
         public static string WebAdminClientDataPath = string.Empty;
+        public static string WebAdminRepoPath = string.Empty;
 
         //Permission
         public static bool AllowNewAccount = true,
@@ -468,6 +469,7 @@ namespace Server
             WebAdminSessionHours = Reader.ReadInt32("WebAdmin", "SessionHours", WebAdminSessionHours);
             WebAdminMaxBodyKB = Reader.ReadInt32("WebAdmin", "MaxBodyKB", WebAdminMaxBodyKB);
             WebAdminClientDataPath = Reader.ReadString("WebAdmin", "ClientDataPath", WebAdminClientDataPath);
+            WebAdminRepoPath = Reader.ReadString("WebAdmin", "RepoPath", WebAdminRepoPath);
 
             //Permission
             AllowNewAccount = Reader.ReadBoolean("Permission", "AllowNewAccount", AllowNewAccount);
@@ -791,6 +793,7 @@ namespace Server
             Reader.Write("WebAdmin", "SessionHours", WebAdminSessionHours);
             Reader.Write("WebAdmin", "MaxBodyKB", WebAdminMaxBodyKB);
             Reader.Write("WebAdmin", "ClientDataPath", WebAdminClientDataPath);
+            Reader.Write("WebAdmin", "RepoPath", WebAdminRepoPath);
 
             //Permission
             Reader.Write("Permission", "AllowNewAccount", AllowNewAccount);

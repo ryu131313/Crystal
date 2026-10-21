@@ -32,7 +32,7 @@ namespace Server.WebAdmin
 
     /// <summary>
     /// Server.exe process metrics. CPU% is a derivative of TotalProcessorTime between two <see cref="Sample"/> calls (the status sampler
-    /// ticks every 5 s); everything else is read fresh by <see cref="Read"/>. Never throws.
+    /// ticks every 5 s, or every 1 s in live mode); per-thread CPU comes from <see cref="WebAdminThreadCpu"/>; everything else is read fresh by <see cref="Read"/>. Never throws.
     /// </summary>
     public static class WebAdminHostMetrics
     {
@@ -110,6 +110,8 @@ namespace Server.WebAdmin
                         _haveBaseline = cpu > TimeSpan.Zero;
                         _workingSetMb = ws;
                     }
+
+                    if (cpu > TimeSpan.Zero) WebAdminThreadCpu.Sample(p, cpu);
                 }
             }
             catch (Exception ex)
