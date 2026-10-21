@@ -1,4 +1,5 @@
-﻿using System.Text.RegularExpressions;
+﻿using Server.MirEnvir.Storage;
+using System.Text.RegularExpressions;
 using Server.MirEnvir;
 
 namespace Server.MirDatabase
@@ -371,7 +372,7 @@ namespace Server.MirDatabase
 
         public static void Load(List<DropInfo> list, string name, string path, byte type = 0, bool createIfNotExists = true)
         {
-            if (!File.Exists(path))
+            if (!DesignFiles.Exists(path))
             {
                 if (createIfNotExists)
                 {
@@ -389,13 +390,13 @@ namespace Server.MirDatabase
                         ";Stone",
                     };
 
-                    File.WriteAllLines(path, contents);
+                    DesignFiles.WriteAllLines(path, contents);
                 }
 
                 return;
             }
 
-            var lines = File.ReadAllLines(path).ToList();
+            var lines = DesignFiles.ReadAllLines(path).ToList();
 
             lines = ParseInsert(lines);
 
@@ -497,7 +498,7 @@ namespace Server.MirDatabase
 
                 string path = Path.Combine(Settings.DropPath, subPath);
 
-                newLines = File.ReadAllLines(path).ToList();
+                newLines = DesignFiles.ReadAllLines(path).ToList();
 
                 lines.AddRange(newLines);
             }

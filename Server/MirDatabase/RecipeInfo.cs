@@ -1,4 +1,5 @@
-﻿using Server.MirEnvir;
+﻿using Server.MirEnvir.Storage;
+using Server.MirEnvir;
 using Server.MirObjects;
 
 namespace Server.MirDatabase
@@ -44,7 +45,7 @@ namespace Server.MirDatabase
 
         private void LoadIngredients(string recipe)
         {
-            List<string> lines = File.ReadAllLines(Path.Combine(Settings.RecipePath, recipe + ".txt")).ToList();
+            List<string> lines = DesignFiles.ReadAllLines(Path.Combine(Settings.RecipePath, recipe + ".txt")).ToList();
 
             Tools = new List<UserItem>();
             Ingredients = new List<UserItem>();

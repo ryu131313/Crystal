@@ -155,6 +155,7 @@ namespace Server.MirEnvir.Storage
             yield return "CREATE TABLE respawn_tick (id INTEGER PRIMARY KEY CHECK (id = 1), BaseSpawnRate INTEGER NOT NULL) STRICT";
             yield return "CREATE TABLE respawn_tick_options (position INTEGER PRIMARY KEY, UserCount INTEGER NOT NULL, DelayLoss REAL NOT NULL) STRICT";
             yield return "CREATE TABLE runtime_state (name TEXT PRIMARY KEY, value ANY) STRICT";
+            foreach (var (_, ddl) in DesignStore.Tables()) yield return ddl; // roadmap P7 phase 7.4
 
             foreach (var spec in Specs)
             {

@@ -1,4 +1,5 @@
-﻿using System.Data;
+﻿using Server.MirEnvir.Storage;
+using System.Data;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -675,7 +676,7 @@ namespace Server.Database
                 var fileName = ofd.FileName;
                 bool fileError = false;
 
-                var rows = File.ReadAllLines(fileName);
+                var rows = DesignFiles.ReadAllLines(fileName);
 
                 if (rows.Length > 1)
                 {
@@ -831,11 +832,11 @@ namespace Server.Database
                 bool fileError = false;
                 if (sfd.ShowDialog() == DialogResult.OK)
                 {
-                    if (File.Exists(sfd.FileName))
+                    if (DesignFiles.Exists(sfd.FileName))
                     {
                         try
                         {
-                            File.Delete(sfd.FileName);
+                            DesignFiles.Delete(sfd.FileName);
                         }
                         catch (IOException ex)
                         {
@@ -1239,18 +1240,24 @@ namespace Server.Database
         private Dictionary<string, string[]> LoadScriptFiles(string path, string searchPattern)
         {
             var filesContent = new Dictionary<string, string[]>();
-            foreach (var file in Directory.GetFiles(path, searchPattern, SearchOption.AllDirectories))
+            foreach (var file in DesignFiles.GetFiles(path, searchPattern, SearchOption.AllDirectories))
             {
-                filesContent.Add(file, File.ReadAllLines(file));
+                filesContent.Add(file, DesignFiles.ReadAllLines(file));
             }
             return filesContent;
         }
         private void SaveScriptFile(Dictionary<string, string[]> files)
         {
-            foreach (var file in files)
+            // Store files resolve the renamed names against the editor copy, where the rename already is (roadmap P7).
+            DesignTexts.WithParseNames(DesignNames.FromEnvir(Server.MirEnvir.Envir.Edit), () =>
             {
-                File.WriteAllLines(file.Key, file.Value);
-            }
+                foreach (var file in files)
+                {
+                    DesignFiles.WriteAllLines(file.Key, file.Value);
+                }
+
+                return 0;
+            });
         }
         private void LoadDropRecipeQuestFiles()
         {
@@ -1277,7 +1284,7 @@ namespace Server.Database
             if (oldFilePath != null)
             {
                 var newFilePath = Path.Combine(Path.GetDirectoryName(oldFilePath), newName + Path.GetExtension(oldFilePath));
-                File.Move(oldFilePath, newFilePath);
+                DesignFiles.Move(oldFilePath, newFilePath);
                 recipeFilesContent[newFilePath] = recipeFilesContent[oldFilePath];
                 recipeFilesContent.Remove(oldFilePath);
             }

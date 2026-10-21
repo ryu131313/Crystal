@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Security.Cryptography;
 using Server.MirDatabase;
+using Server.MirEnvir.Storage;
 using Server.MirObjects;
 using Shared;
 
@@ -34,7 +35,8 @@ namespace Server
             NPCPreviewPath = Path.Combine(EnvirPath, "Previews", "NPC"),
             Previews = Path.Combine(EnvirPath, "Previews");
 
-        internal static readonly InIReader Reader = new InIReader(Path.Combine(ConfigPath, "Setup.ini"));
+        // Setup.ini; its [Game] and [Items] sections live in SystemData.db once the store is active (roadmap P7 phase 7.4).
+        internal static readonly SetupIniReader Reader = new SetupIniReader(Path.Combine(ConfigPath, "Setup.ini"));
 
         public static Notice Notice;
 
@@ -417,6 +419,7 @@ namespace Server
 
         public static void Load()
         {            
+            Reader.LoadDesignSections(); // roadmap P7: the design sections come from the store once it exists
             //General
             VersionPath = Reader.ReadString("General", "VersionPath", VersionPath);
             CheckVersion = Reader.ReadBoolean("General", "CheckVersion", CheckVersion);
@@ -953,7 +956,7 @@ namespace Server
         public static void LoadEXP()
         {
             long exp = 100;
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "ExpList.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "ExpList.ini"));
 
             for (int i = 1; i <= 500; i++)
             {
@@ -962,7 +965,7 @@ namespace Server
             }
 
             //ArcherSpells - Elemental system
-            reader = new InIReader(Path.Combine(ConfigPath, "OrbsExpList.ini"));
+            reader = DesignIni.Open(Path.Combine(ConfigPath, "OrbsExpList.ini"));
             for (int i = 1; i <= 4; i++)
             {
                 exp = i * 50;//default exp value
@@ -979,7 +982,7 @@ namespace Server
         public static void LoadHeroEXP()
         {
             long exp = 100;
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "HeroExpList.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "HeroExpList.ini"));
 
             for (int i = 1; i <= 500; i++)
             {
@@ -991,11 +994,10 @@ namespace Server
         {
             InIReader reader = null;
             string path = Path.Combine(ConfigPath, "WorldMap.ini");
-            if (!File.Exists(path))
+            if (!DesignIni.Exists(path))
             {
-                FileStream newFile = File.Create(path);
-                newFile.Close();
-                reader = new InIReader(path);
+                if (!DesignStore.Active) File.Create(path).Close();
+                reader = DesignIni.Open(path);
                 reader.Write("Setup", "Enabled", false);
                 reader.Write("Layout", "Button0ImageIndex", "");
                 reader.Write("Layout", "Button0Title", "");
@@ -1003,7 +1005,7 @@ namespace Server
             }
 
             if (reader == null)
-                reader = new InIReader(path);
+                reader = DesignIni.Open(path);
             
             WorldMapSetup.Enabled = reader.ReadBoolean("Setup", "Enabled", false);
 
@@ -1029,13 +1031,13 @@ namespace Server
         {
             for (int i = 0; i < ClassBaseStats.Length; i++)
             {
-                if (!File.Exists(Path.Combine(ConfigPath, $"BaseStats{ClassBaseStats[i].Job}.ini")))
+                if (!DesignIni.Exists(Path.Combine(ConfigPath, $"BaseStats{ClassBaseStats[i].Job}.ini")))
                 {
                     SaveBaseStats(new BaseStats[1] { new BaseStats(ClassBaseStats[i].Job) });
                     continue;
                 }
 
-                InIReader reader = new InIReader(Path.Combine(ConfigPath, $"BaseStats{ClassBaseStats[i].Job}.ini"));
+                InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, $"BaseStats{ClassBaseStats[i].Job}.ini"));
 
                 ClassBaseStats[i].Stats.Clear();
                 ClassBaseStats[i].Caps.Clear();
@@ -1069,13 +1071,13 @@ namespace Server
         {
             for (int i = 0; i < HeroBaseStats.Length; i++)
             {
-                if (!File.Exists(Path.Combine(ConfigPath, $"HeroBaseStats{HeroBaseStats[i].Job}.ini")))
+                if (!DesignIni.Exists(Path.Combine(ConfigPath, $"HeroBaseStats{HeroBaseStats[i].Job}.ini")))
                 {
                     SaveHeroBaseStats(new BaseStats[1] { new BaseStats(HeroBaseStats[i].Job) });
                     continue;
                 }
 
-                InIReader reader = new InIReader(Path.Combine(ConfigPath, $"HeroBaseStats{HeroBaseStats[i].Job}.ini"));
+                InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, $"HeroBaseStats{HeroBaseStats[i].Job}.ini"));
 
                 HeroBaseStats[i].Stats.Clear();
                 HeroBaseStats[i].Caps.Clear();
@@ -1114,8 +1116,8 @@ namespace Server
 
             foreach (var baseStats in classStats)
             {
-                File.Delete(Path.Combine(ConfigPath, $"BaseStats{baseStats.Job}.ini"));
-                InIReader reader = new InIReader(Path.Combine(ConfigPath, $"BaseStats{baseStats.Job}.ini"));
+                DesignIni.Delete(Path.Combine(ConfigPath, $"BaseStats{baseStats.Job}.ini"));
+                InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, $"BaseStats{baseStats.Job}.ini"));
 
                 foreach (var stat in baseStats.Stats)
                 {
@@ -1142,8 +1144,8 @@ namespace Server
 
             foreach (var baseStats in heroStats)
             {
-                File.Delete(Path.Combine(ConfigPath, $"HeroBaseStats{baseStats.Job}.ini"));
-                InIReader reader = new InIReader(Path.Combine(ConfigPath, $"HeroBaseStats{baseStats.Job}.ini"));
+                DesignIni.Delete(Path.Combine(ConfigPath, $"HeroBaseStats{baseStats.Job}.ini"));
+                InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, $"HeroBaseStats{baseStats.Job}.ini"));
 
                 foreach (var stat in baseStats.Stats)
                 {
@@ -1163,7 +1165,7 @@ namespace Server
 
         public static void LoadRandomItemStats()
         {
-            if (!File.Exists(Path.Combine(ConfigPath, "RandomItemStats.ini")))
+            if (!DesignIni.Exists(Path.Combine(ConfigPath, "RandomItemStats.ini")))
             {
                 RandomItemStatsList.Add(new RandomItemStat());
                 RandomItemStatsList.Add(new RandomItemStat(ItemType.Weapon));
@@ -1177,7 +1179,7 @@ namespace Server
                 return;
             }
 
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "RandomItemStats.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "RandomItemStats.ini"));
             int i = 0;
             RandomItemStat stat;
             while (reader.ReadByte("Item" + i.ToString(),"MaxDuraChance",255) != 255)
@@ -1259,8 +1261,8 @@ namespace Server
         }
         public static void SaveRandomItemStats()
         {
-            File.Delete(Path.Combine(ConfigPath, "RandomItemStats.ini"));
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "RandomItemStats.ini"));
+            DesignIni.Delete(Path.Combine(ConfigPath, "RandomItemStats.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "RandomItemStats.ini"));
             RandomItemStat stat;
             for (int i = 0; i < RandomItemStatsList.Count; i++)
             {
@@ -1340,14 +1342,14 @@ namespace Server
 
         public static void LoadMines()
         {
-            if (!File.Exists(Path.Combine(ConfigPath, "Mines.ini")))
+            if (!DesignIni.Exists(Path.Combine(ConfigPath, "Mines.ini")))
             {
                 MineSetList.Add(new MineSet(1));
                 MineSetList.Add(new MineSet(2));
                 SaveMines();
                 return;
             }
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "Mines.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "Mines.ini"));
             int i = 0;
             MineSet mine;
             while (reader.ReadByte("Mine" + i.ToString(), "SpotRegenRate", 255) != 255)
@@ -1381,8 +1383,8 @@ namespace Server
         }
         public static void SaveMines()
         {
-            File.Delete(Path.Combine(ConfigPath, "Mines.ini"));
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "Mines.ini"));
+            DesignIni.Delete(Path.Combine(ConfigPath, "Mines.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "Mines.ini"));
             MineSet mine;
             for (int i = 0; i < MineSetList.Count; i++)
             {
@@ -1411,7 +1413,7 @@ namespace Server
         public static void LoadHeroSettings()
         {
             Array.Resize(ref Hero_CanCreateClass, Enum.GetNames(typeof(MirClass)).Length);
-            if (!File.Exists(Path.Combine(ConfigPath, "HeroSettings.ini")))
+            if (!DesignIni.Exists(Path.Combine(ConfigPath, "HeroSettings.ini")))
             {                
                 for (int i = 0; i < Hero_CanCreateClass.Length; i++)
                     Hero_CanCreateClass[i] = true;
@@ -1419,7 +1421,7 @@ namespace Server
                 return;
             }
 
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "HeroSettings.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "HeroSettings.ini"));
             AllowNewHero = reader.ReadBoolean("Hero", "AllowNewHero", AllowNewHero);
             Hero_RequiredLevel = reader.ReadByte("Hero", "MinimumLevel", Hero_RequiredLevel);
             MaximumHeroCount = reader.ReadByte("Hero", "MaximumCount", MaximumHeroCount);
@@ -1430,8 +1432,8 @@ namespace Server
         }
         public static void SaveHeroSettings()
         {
-            File.Delete(Path.Combine(ConfigPath, "HeroSettings.ini"));
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "HeroSettings.ini"));
+            DesignIni.Delete(Path.Combine(ConfigPath, "HeroSettings.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "HeroSettings.ini"));
 
             reader.Write("Hero", "AllowNewHero", AllowNewHero);
             reader.Write("Hero", "MinimumLevel", Hero_RequiredLevel);
@@ -1444,13 +1446,13 @@ namespace Server
 
         public static void LoadGuildSettings()
         {
-            if (!File.Exists(Path.Combine(ConfigPath, "GuildSettings.ini")))
+            if (!DesignIni.Exists(Path.Combine(ConfigPath, "GuildSettings.ini")))
             {
                 Guild_CreationCostList.Add(new GuildItemVolume(){Amount = 1000000});
                 Guild_CreationCostList.Add(new GuildItemVolume(){ItemName = "WoomaHorn",Amount = 1});
                 return;
             }
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "GuildSettings.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "GuildSettings.ini"));
             Guild_RequiredLevel = reader.ReadByte("Guilds", "MinimumLevel", Guild_RequiredLevel);
             Guild_ExpRate = reader.ReadFloat("Guilds", "ExpRate", Guild_ExpRate);
             Guild_PointPerLevel = reader.ReadByte("Guilds", "PointPerLevel", Guild_PointPerLevel);
@@ -1490,8 +1492,8 @@ namespace Server
         }
         public static void SaveGuildSettings()
         {
-            File.Delete(Path.Combine(ConfigPath, "GuildSettings.ini"));
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "GuildSettings.ini"));
+            DesignIni.Delete(Path.Combine(ConfigPath, "GuildSettings.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "GuildSettings.ini"));
             reader.Write("Guilds", "MinimumLevel", Guild_RequiredLevel);
             reader.Write("Guilds", "ExpRate", Guild_ExpRate);
             reader.Write("Guilds", "PointPerLevel", Guild_PointPerLevel);
@@ -1537,12 +1539,12 @@ namespace Server
 
 		public static void LoadAwakeAttribute()
         {
-            if (!File.Exists(Path.Combine(ConfigPath, "AwakeningSystem.ini")))
+            if (!DesignIni.Exists(Path.Combine(ConfigPath, "AwakeningSystem.ini")))
             {
                 return;
             }
 
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "AwakeningSystem.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "AwakeningSystem.ini"));
             Awake.AwakeSuccessRate = reader.ReadByte("Attribute", "SuccessRate", Awake.AwakeSuccessRate);
             Awake.AwakeHitRate = reader.ReadByte("Attribute", "HitRate", Awake.AwakeHitRate);
             Awake.MaxAwakeLevel = reader.ReadInt32("Attribute", "MaxUpgradeLevel", Awake.MaxAwakeLevel);
@@ -1585,8 +1587,8 @@ namespace Server
         }
         public static void SaveAwakeAttribute()
         {
-            File.Delete(Path.Combine(ConfigPath, "AwakeningSystem.ini"));
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "AwakeningSystem.ini"));
+            DesignIni.Delete(Path.Combine(ConfigPath, "AwakeningSystem.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "AwakeningSystem.ini"));
             reader.Write("Attribute", "SuccessRate", Awake.AwakeSuccessRate);
             reader.Write("Attribute", "HitRate", Awake.AwakeHitRate);
             reader.Write("Attribute", "MaxUpgradeLevel", Awake.MaxAwakeLevel);
@@ -1635,13 +1637,13 @@ namespace Server
 
         public static void LoadFishing()
         {
-            if (!File.Exists(Path.Combine(ConfigPath, "FishingSystem.ini")))
+            if (!DesignIni.Exists(Path.Combine(ConfigPath, "FishingSystem.ini")))
             {
                 SaveFishing();
                 return;
             }
 
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "FishingSystem.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "FishingSystem.ini"));
             FishingAttempts = reader.ReadInt32("Rates", "Attempts", FishingAttempts);
             FishingSuccessStart = reader.ReadInt32("Rates", "SuccessStart", FishingSuccessStart);
             FishingSuccessMultiplier = reader.ReadInt32("Rates", "SuccessMultiplier", FishingSuccessMultiplier);
@@ -1651,8 +1653,8 @@ namespace Server
         }
         public static void SaveFishing()
         {
-            File.Delete(Path.Combine(ConfigPath, "FishingSystem.ini"));
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "FishingSystem.ini"));
+            DesignIni.Delete(Path.Combine(ConfigPath, "FishingSystem.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "FishingSystem.ini"));
             reader.Write("Rates", "Attempts", FishingAttempts);
             reader.Write("Rates", "SuccessStart", FishingSuccessStart);
             reader.Write("Rates", "SuccessMultiplier", FishingSuccessMultiplier);
@@ -1663,13 +1665,13 @@ namespace Server
 
         public static void LoadMail()
         {
-            if (!File.Exists(Path.Combine(ConfigPath, "MailSystem.ini")))
+            if (!DesignIni.Exists(Path.Combine(ConfigPath, "MailSystem.ini")))
             {
                 SaveMail();
                 return;
             }
 
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "MailSystem.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "MailSystem.ini"));
             MailAutoSendGold = reader.ReadBoolean("AutoSend", "Gold", MailAutoSendGold);
             MailAutoSendItems = reader.ReadBoolean("AutoSend", "Items", MailAutoSendItems);
             MailFreeWithStamp = reader.ReadBoolean("Rates", "FreeWithStamp", MailFreeWithStamp);
@@ -1679,8 +1681,8 @@ namespace Server
         }
         public static void SaveMail()
         {
-            File.Delete(Path.Combine(ConfigPath, "MailSystem.ini"));
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "MailSystem.ini"));
+            DesignIni.Delete(Path.Combine(ConfigPath, "MailSystem.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "MailSystem.ini"));
             reader.Write("AutoSend", "Gold", MailAutoSendGold);
             reader.Write("AutoSend", "Items", MailAutoSendItems);
             reader.Write("Rates", "FreeWithStamp", MailFreeWithStamp);
@@ -1691,13 +1693,13 @@ namespace Server
 
         public static void LoadRefine()
         {
-            if (!File.Exists(Path.Combine(ConfigPath, "RefineSystem.ini")))
+            if (!DesignIni.Exists(Path.Combine(ConfigPath, "RefineSystem.ini")))
             {
                 SaveRefine();
                 return;
             }
 
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "RefineSystem.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "RefineSystem.ini"));
             OnlyRefineWeapon = reader.ReadBoolean("Config", "OnlyRefineWeapon", OnlyRefineWeapon);
             RefineBaseChance = reader.ReadByte("Config", "BaseChance", RefineBaseChance);
             RefineTime = reader.ReadInt32("Config", "Time", RefineTime);
@@ -1712,8 +1714,8 @@ namespace Server
         }
         public static void SaveRefine()
         {
-            File.Delete(Path.Combine(ConfigPath, "RefineSystem.ini"));
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "RefineSystem.ini"));
+            DesignIni.Delete(Path.Combine(ConfigPath, "RefineSystem.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "RefineSystem.ini"));
             reader.Write("Config", "OnlyRefineWeapon", OnlyRefineWeapon);
             reader.Write("Config", "BaseChance", RefineBaseChance);
             reader.Write("Config", "Time", RefineTime);
@@ -1730,12 +1732,12 @@ namespace Server
 
         public static void LoadMarriage()
         {
-            if (!File.Exists(Path.Combine(ConfigPath, "MarriageSystem.ini")))
+            if (!DesignIni.Exists(Path.Combine(ConfigPath, "MarriageSystem.ini")))
             {
                 SaveMarriage();
                 return;
             }
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "MarriageSystem.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "MarriageSystem.ini"));
             LoverEXPBonus = reader.ReadInt32("Config", "EXPBonus", LoverEXPBonus);
             MarriageCooldown = reader.ReadInt32("Config", "MarriageCooldown", MarriageCooldown);
             WeddingRingRecall = reader.ReadBoolean("Config", "AllowLoverRecall", WeddingRingRecall);
@@ -1744,8 +1746,8 @@ namespace Server
         }
         public static void SaveMarriage()
         {
-            File.Delete(Path.Combine(ConfigPath, "MarriageSystem.ini"));
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "MarriageSystem.ini"));
+            DesignIni.Delete(Path.Combine(ConfigPath, "MarriageSystem.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "MarriageSystem.ini"));
             reader.Write("Config", "EXPBonus", LoverEXPBonus);
             reader.Write("Config", "MarriageCooldown", MarriageCooldown);
             reader.Write("Config", "AllowLoverRecall", WeddingRingRecall);
@@ -1755,12 +1757,12 @@ namespace Server
 
         public static void LoadMentor()
         {
-            if (!File.Exists(Path.Combine(ConfigPath, "MentorSystem.ini")))
+            if (!DesignIni.Exists(Path.Combine(ConfigPath, "MentorSystem.ini")))
             {
                 SaveMentor();
                 return;
             }
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "MentorSystem.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "MentorSystem.ini"));
             MentorLevelGap = reader.ReadByte("Config", "LevelGap", MentorLevelGap);
             MentorSkillBoost = reader.ReadBoolean("Config", "MenteeSkillBoost", MentorSkillBoost);
             MentorLength = reader.ReadByte("Config", "MentorshipLength", MentorLength);
@@ -1770,8 +1772,8 @@ namespace Server
         }
         public static void SaveMentor()
         {
-            File.Delete(Path.Combine(ConfigPath, "MentorSystem.ini"));
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "MentorSystem.ini"));
+            DesignIni.Delete(Path.Combine(ConfigPath, "MentorSystem.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "MentorSystem.ini"));
             reader.Write("Config", "LevelGap", MentorLevelGap);
             reader.Write("Config", "MenteeSkillBoost", MentorSkillBoost);
             reader.Write("Config", "MentorshipLength", MentorLength);
@@ -1781,32 +1783,32 @@ namespace Server
         }
         public static void LoadGem()
         {
-            if (!File.Exists(Path.Combine(ConfigPath, "GemSystem.ini")))
+            if (!DesignIni.Exists(Path.Combine(ConfigPath, "GemSystem.ini")))
             {
                 SaveGem();
                 return;
             }
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "GemSystem.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "GemSystem.ini"));
             GemStatIndependent = reader.ReadBoolean("Config", "GemStatIndependent", GemStatIndependent);
 
 
         }
         public static void SaveGem()
         {
-            File.Delete(Path.Combine(ConfigPath, "GemSystem.ini"));
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "GemSystem.ini"));
+            DesignIni.Delete(Path.Combine(ConfigPath, "GemSystem.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "GemSystem.ini"));
             reader.Write("Config", "GemStatIndependent", GemStatIndependent);
         }
 
         public static void LoadGoods()
         {
-            if (!File.Exists(Path.Combine(ConfigPath, "GoodsSystem.ini")))
+            if (!DesignIni.Exists(Path.Combine(ConfigPath, "GoodsSystem.ini")))
             {
                 SaveGoods();
                 return;
             }
 
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "GoodsSystem.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "GoodsSystem.ini"));
             GoodsOn = reader.ReadBoolean("Goods", "On", GoodsOn);
             GoodsMaxStored = reader.ReadUInt32("Goods", "MaxStored", GoodsMaxStored);
             GoodsBuyBackTime = reader.ReadUInt32("Goods", "BuyBackTime", GoodsBuyBackTime);
@@ -1815,8 +1817,8 @@ namespace Server
         }
         public static void SaveGoods()
         {
-            File.Delete(Path.Combine(ConfigPath, "GoodsSystem.ini"));
-            InIReader reader = new InIReader(Path.Combine(ConfigPath, "GoodsSystem.ini"));
+            DesignIni.Delete(Path.Combine(ConfigPath, "GoodsSystem.ini"));
+            InIReader reader = DesignIni.Open(Path.Combine(ConfigPath, "GoodsSystem.ini"));
             reader.Write("Goods", "On", GoodsOn);
             reader.Write("Goods", "MaxStored", GoodsMaxStored);
             reader.Write("Goods", "BuyBackTime", GoodsBuyBackTime);
@@ -1826,7 +1828,7 @@ namespace Server
 
         public static void LoadMonsterRarity()
         {
-            var rarityReader = new InIReader(Path.Combine(ConfigPath, "MonsterRarity.ini"));
+            var rarityReader = DesignIni.Open(Path.Combine(ConfigPath, "MonsterRarity.ini"));
 
             MonsterRarityEnabled = rarityReader.ReadBoolean("General", "Enabled", MonsterRarityEnabled);
             MonsterRarityUncommonChancePercent = ReadRarityChancePercent(rarityReader, "UncommonChancePercent", MonsterRarityUncommonChancePercent);

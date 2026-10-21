@@ -1,3 +1,4 @@
+using Server.MirEnvir.Storage;
 using System.Drawing;
 ﻿using Server.MirEnvir;
 
@@ -89,7 +90,7 @@ namespace Server.MirDatabase
         {
             for (int i = 0; i < Globals.MaxDragonLevel; i++) Drops[i].Clear();
             string path = Path.Combine(Settings.DropPath, "DragonItem.txt");
-            if (!File.Exists(path))
+            if (!DesignFiles.Exists(path))
             {
                 string[] contents = new[]
                     {
@@ -105,13 +106,13 @@ namespace Server.MirDatabase
                         ";Stone",
                     };
 
-                File.WriteAllLines(path, contents);
+                DesignFiles.WriteAllLines(path, contents);
 
 
                 return;
             }
 
-            string[] lines = File.ReadAllLines(path);
+            string[] lines = DesignFiles.ReadAllLines(path);
 
             for (int i = 0; i < lines.Length; i++)
             {

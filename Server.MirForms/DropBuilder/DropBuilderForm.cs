@@ -1,4 +1,5 @@
-﻿using Server.MirEnvir;
+﻿using Server.MirEnvir.Storage;
+using Server.MirEnvir;
 
 namespace Server.MirForms.DropBuilder
 {
@@ -702,7 +703,7 @@ namespace Server.MirForms.DropBuilder
         // Load the monster.txt drop file.
         private void LoadDropFile(bool edit)
         {
-            var lines = (edit == false) ? File.ReadAllLines(GetPathOfSelectedItem()) : textBoxDropList.Lines;
+            var lines = (edit == false) ? DesignFiles.ReadAllLines(GetPathOfSelectedItem()) : textBoxDropList.Lines;
 
             for (int i = 0; i < lines.Length; i++)
             {
@@ -914,14 +915,7 @@ namespace Server.MirForms.DropBuilder
 
             if (dropFile == null) return;
 
-            using (FileStream fs = new FileStream(dropFile, FileMode.Create))
-            {
-                using (StreamWriter sw = new StreamWriter(fs))
-                {
-                    foreach (string line in textBoxDropList.Lines)
-                        sw.Write(line + sw.NewLine);
-                }
-            }
+            DesignFiles.WriteAllLines(dropFile, textBoxDropList.Lines); // roadmap P7: SystemData.db once the store is active
         }
 
         //Edit gold amount/odds

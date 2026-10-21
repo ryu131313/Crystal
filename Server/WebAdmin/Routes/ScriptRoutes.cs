@@ -1,3 +1,4 @@
+using Server.MirEnvir.Storage;
 using System.Text.Json;
 using Server.MirEnvir;
 using Server.WebAdmin.GameData;
@@ -187,7 +188,7 @@ namespace Server.WebAdmin.Routes
             {
                 root = root.Id,
                 path = normalized,
-                exists = File.Exists(full),
+                exists = DesignFiles.Exists(full),
                 backups = list.Select(b => new { name = b.Name, size = b.Size, mtimeUtc = b.MtimeUtc, stamp = b.Stamp }).ToList(),
             });
         }
@@ -436,7 +437,7 @@ namespace Server.WebAdmin.Routes
                 NpcScriptExists = name =>
                 {
                     var full = ConfinedPath(npcs, envir, name + ".txt");
-                    return full != null && File.Exists(full);
+                    return full != null && DesignFiles.Exists(full);
                 },
             };
         }

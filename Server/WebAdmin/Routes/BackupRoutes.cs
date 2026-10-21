@@ -424,7 +424,12 @@ namespace Server.WebAdmin.Routes
             return store.Writer.Run(w =>
             {
                 w.CloseConnection();
-                return swap();
+                var result = swap();
+                DesignTexts.ResetCache(); // the design files come from the swapped-in store at the next load (roadmap P7 phase 7.4)
+                // Settings in memory still hold the old design settings: never save them over the restored ones (restart to load them).
+                DesignStore.SavesBlockedUntilRestart = true;
+                MessageQueue.Instance.Enqueue("[Store] SystemData.db was restored: design settings (Configs ini files, Setup.ini [Game]/[Items]) won't be saved until the server is restarted, which loads the restored ones.");
+                return result;
             });
         }
 

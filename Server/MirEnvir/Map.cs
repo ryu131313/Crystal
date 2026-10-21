@@ -1,3 +1,4 @@
+using Server.MirEnvir.Storage;
 using System.Drawing;
 ﻿using Server.MirDatabase;
 using Server.MirObjects;
@@ -2721,9 +2722,9 @@ namespace Server.MirEnvir
 
             string fileName = Path.Combine(Settings.RoutePath, Info.RoutePath + ".txt");
 
-            if (!File.Exists(fileName)) return;
+            if (!DesignFiles.Exists(fileName)) return;
 
-            List<string> lines = File.ReadAllLines(fileName).ToList();
+            List<string> lines = DesignFiles.ReadAllLines(fileName).ToList();
 
             foreach (string line in lines)
             {

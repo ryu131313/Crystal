@@ -1,3 +1,5 @@
+using Server.MirEnvir.Storage;
+using Server.MirEnvir;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -329,7 +331,7 @@ namespace Server.WebAdmin.GameData
 
         private static void Scan(List<GameDataRenameFile> files, IReadOnlyDictionary<string, string> roots, string root, Func<List<string>, int> rewrite, List<string> warnings)
         {
-            if (!roots.TryGetValue(root, out var dir) || string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
+            if (!roots.TryGetValue(root, out var dir) || string.IsNullOrEmpty(dir) || !(Directory.Exists(dir) || DesignFiles.IsDesignFolder(dir))) return;
             var full = System.IO.Path.GetFullPath(dir);
 
             foreach (var path in SafeEnumerate(full, warnings))
@@ -337,7 +339,7 @@ namespace Server.WebAdmin.GameData
                 GameDataTextFile content;
                 try
                 {
-                    content = GameDataTextFile.Parse(File.ReadAllBytes(path));
+                    content = GameDataTextFile.Parse(DesignFiles.ReadAllBytes(path)); // roadmap P7: drops / quests / recipes are in SystemData.db
                 }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
                 {
@@ -363,7 +365,7 @@ namespace Server.WebAdmin.GameData
         private static void PlanFileRename(List<GameDataRenameFile> files, IReadOnlyDictionary<string, string> roots, string root, string oldName,
             string newName, List<string> warnings)
         {
-            if (!roots.TryGetValue(root, out var dir) || string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
+            if (!roots.TryGetValue(root, out var dir) || string.IsNullOrEmpty(dir) || !(Directory.Exists(dir) || DesignFiles.IsDesignFolder(dir))) return;
             var full = System.IO.Path.GetFullPath(dir);
 
             if (newName.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0)
@@ -373,13 +375,13 @@ namespace Server.WebAdmin.GameData
             }
 
             // Recipes / drops are looked up as <root>\<Name>.txt (top level only).
-            var source = Directory.EnumerateFiles(full, "*.txt", SearchOption.TopDirectoryOnly)
+            var source = DesignFiles.EnumerateFiles(full, "*.txt", SearchOption.TopDirectoryOnly)
                 .FirstOrDefault(f => string.Equals(System.IO.Path.GetFileNameWithoutExtension(f), oldName, StringComparison.OrdinalIgnoreCase));
             if (source == null) return;
 
             var target = System.IO.Path.Combine(full, newName + ".txt");
             var sameFile = string.Equals(System.IO.Path.GetFullPath(source), System.IO.Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase);
-            if (!sameFile && File.Exists(target))
+            if (!sameFile && DesignFiles.Exists(target))
             {
                 warnings.Add(root + "/" + newName + ".txt already exists, so " + root + "/" + System.IO.Path.GetFileName(source) + " was not renamed.");
                 return;
@@ -398,6 +400,8 @@ namespace Server.WebAdmin.GameData
 
         private static List<string> SafeEnumerate(string root, List<string> warnings)
         {
+            if (DesignFiles.IsDesignFolder(root)) return DesignFiles.EnumerateFiles(root, "*.txt", SearchOption.AllDirectories).ToList(); // the store's files
+
             var result = new List<string>();
             List<string> all;
             try
@@ -442,6 +446,17 @@ namespace Server.WebAdmin.GameData
         /// </summary>
         public static void Execute(IEnumerable<GameDataRenameFile> plan, string backupRoot, DateTime now, List<string> warnings)
         {
+            // Store files (roadmap P7) resolve the rewritten names against the editor copy, where the rename already is: the store only
+            // learns it at the next Game Data save, and resolving against it would turn the renamed lines into plain text.
+            DesignTexts.WithParseNames(DesignNames.FromEnvir(Envir.Edit), () =>
+            {
+                ExecuteFiles(plan, backupRoot, now, warnings);
+                return 0;
+            });
+        }
+
+        private static void ExecuteFiles(IEnumerable<GameDataRenameFile> plan, string backupRoot, DateTime now, List<string> warnings)
+        {
             var stamp = now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
             foreach (var f in plan)
             {
@@ -449,7 +464,8 @@ namespace Server.WebAdmin.GameData
                 {
                     var backup = System.IO.Path.Combine(backupRoot, f.Root, f.Path.Replace('/', System.IO.Path.DirectorySeparatorChar) + "." + stamp + ".bak");
                     Directory.CreateDirectory(System.IO.Path.GetDirectoryName(backup));
-                    File.Copy(f.FullPath, backup, true);
+                    if (DesignFiles.TryMap(f.FullPath, out _, out _)) File.WriteAllBytes(backup, DesignFiles.ReadAllBytes(f.FullPath));
+                    else File.Copy(f.FullPath, backup, true);
 
                     if (f.ContentChanged && f.Content != null)
                         WriteAtomic(f.FullPath, f.Content.Serialize());
@@ -459,7 +475,11 @@ namespace Server.WebAdmin.GameData
                         var target = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(f.FullPath), f.RenameTo);
                         if (!string.Equals(System.IO.Path.GetFullPath(target), System.IO.Path.GetFullPath(f.FullPath), StringComparison.Ordinal))
                         {
-                            if (string.Equals(System.IO.Path.GetFullPath(target), System.IO.Path.GetFullPath(f.FullPath), StringComparison.OrdinalIgnoreCase))
+                            if (DesignFiles.TryMap(f.FullPath, out _, out _))
+                            {
+                                DesignFiles.Move(f.FullPath, target); // case-only renames are a plain rename in the store
+                            }
+                            else if (string.Equals(System.IO.Path.GetFullPath(target), System.IO.Path.GetFullPath(f.FullPath), StringComparison.OrdinalIgnoreCase))
                             {
                                 // case-only rename on a case-insensitive file system: go through a temp name
                                 var temp = f.FullPath + ".renaming";
@@ -483,6 +503,12 @@ namespace Server.WebAdmin.GameData
 
         internal static void WriteAtomic(string path, byte[] bytes)
         {
+            if (DesignFiles.TryMap(path, out _, out _))
+            {
+                DesignFiles.WriteAllBytes(path, bytes);
+                return;
+            }
+
             var temp = path + ".webadmin.tmp";
             File.WriteAllBytes(temp, bytes);
             if (File.Exists(path))

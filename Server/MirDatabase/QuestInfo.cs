@@ -1,4 +1,5 @@
-﻿using Server.MirObjects;
+﻿using Server.MirEnvir.Storage;
+using Server.MirObjects;
 using System.Text.RegularExpressions;
 using Server.MirEnvir;
 
@@ -131,13 +132,13 @@ namespace Server.MirDatabase
         {
             if (clear) ClearInfo();
 
-            if (!Directory.Exists(Settings.QuestPath)) return;
+            if (!Directory.Exists(Settings.QuestPath) && !DesignFiles.IsDesignFolder(Settings.QuestPath)) return;
 
             string fileName = Path.Combine(Settings.QuestPath, FileName + ".txt");
 
-            if (File.Exists(fileName))
+            if (DesignFiles.Exists(fileName))
             {
-                List<string> lines = File.ReadAllLines(fileName).ToList();
+                List<string> lines = DesignFiles.ReadAllLines(fileName).ToList();
 
                 ParseFile(lines);
             }

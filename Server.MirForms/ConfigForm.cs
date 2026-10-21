@@ -1,4 +1,5 @@
-﻿using Server.MirEnvir;
+﻿using Server.MirEnvir.Storage;
+using Server.MirEnvir;
 using System.Net;
 using System.Text.RegularExpressions;
 
@@ -264,7 +265,7 @@ namespace Server
         {
             string dropPath = Path.Combine(Application.StartupPath, "Envir", "Drops");
 
-            if (!Directory.Exists(dropPath))
+            if (!DesignFiles.DirectoryExists(dropPath))
             {
                 MessageBox.Show("Drops directory not found!");
                 return;
@@ -279,9 +280,9 @@ namespace Server
 
                 int totalModified = 0;
 
-                foreach (string filePath in Directory.GetFiles(dropPath, "*.txt", SearchOption.AllDirectories))
+                foreach (string filePath in DesignFiles.GetFiles(dropPath, "*.txt", SearchOption.AllDirectories))
                 {
-                    var lines = File.ReadAllLines(filePath);
+                    var lines = DesignFiles.ReadAllLines(filePath);
                     bool modified = false;
 
                     for (int i = 0; i < lines.Length; i++)
@@ -321,7 +322,7 @@ namespace Server
 
                     if (modified)
                     {
-                        File.WriteAllLines(filePath, lines);
+                        DesignFiles.WriteAllLines(filePath, lines);
                     }
                 }
 

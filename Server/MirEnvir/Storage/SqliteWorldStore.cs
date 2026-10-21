@@ -25,9 +25,23 @@ namespace Server.MirEnvir.Storage
         private readonly BinaryWorldStore _binary = new BinaryWorldStore();
         private readonly Lazy<SqliteWriter> _writer;
 
-        public SqliteWorldStore()
+        /// <summary>
+        /// The one writer of SystemData.db in this process, shared by the server's store and the design data (<see cref="DesignStore"/>,
+        /// which Settings reaches before any Envir exists). Its path is pinned at first use.
+        /// </summary>
+        internal static SqliteWriter SharedWriter => LazySharedWriter.Value;
+
+        private static readonly Lazy<SqliteWriter> LazySharedWriter = new Lazy<SqliteWriter>(() => new SqliteWriter(DatabasePath, "SystemData writer"));
+
+        /// <summary>Backups of the store (as Envir.DatabaseBackUpPath, without touching Envir: see DesignStore).</summary>
+        internal static readonly string BackUpPath = Path.Combine(".", "Back Up", "Database");
+
+        public SqliteWorldStore() : this(privateWriter: false) { }
+
+        /// <param name="privateWriter">Tests: a writer of its own (pinned to the current folder), shut down by the test.</param>
+        internal SqliteWorldStore(bool privateWriter)
         {
-            _writer = new Lazy<SqliteWriter>(() => new SqliteWriter(DatabasePath, "SystemData writer"));
+            _writer = privateWriter ? new Lazy<SqliteWriter>(() => new SqliteWriter(DatabasePath, "SystemData test writer")) : LazySharedWriter;
         }
 
         internal SqliteWriter Writer => _writer.Value;
@@ -52,6 +66,11 @@ namespace Server.MirEnvir.Storage
                 var rows = Writer.Run(w => SqliteWorldFile.ReadAll(w.Connection));
                 Envir.LoadVersion = Envir.Version;
                 Envir.LoadCustomVersion = Envir.CustomVersion;
+                // Design texts (phase 7.4): names for rendering, then import (first use) and cache every kind, before QuestInfo.LoadInfo
+                // in Decode reads quest bodies through DesignFiles.
+                if (DesignStore.Broken != null) throw new InvalidDataException("the design data couldn't be read at startup: " + DesignStore.Broken);
+                DesignTexts.RefreshNames(rows);
+                if (!DesignStore.Disabled) DesignTexts.EnsureLoaded();
                 SqliteWorldCodec.Decode(rows, e);
                 return true;
             }
@@ -78,6 +97,7 @@ namespace Server.MirEnvir.Storage
                 ? Path.GetFileName(backupFileName)
                 : $"Database {e.Now.Year:0000}-{e.Now.Month:00}-{e.Now.Day:00} {e.Now.Hour:00}-{e.Now.Minute:00}-{e.Now.Second:00}.bak";
 
+            DesignTexts.RefreshNames(rows); // renamed items / monsters render under their new names from now on
             Writer.Run(w =>
             {
                 if (!Directory.Exists(Envir.DatabaseBackUpPath)) Directory.CreateDirectory(Envir.DatabaseBackUpPath);

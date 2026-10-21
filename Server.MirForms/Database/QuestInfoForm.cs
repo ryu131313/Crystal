@@ -1,4 +1,5 @@
-﻿using Server.MirDatabase;
+﻿using Server.MirEnvir.Storage;
+using Server.MirDatabase;
 using Server.MirEnvir;
 using System.Diagnostics;
 
@@ -278,7 +279,7 @@ namespace Server
 
             Path = ofd.FileName;
 
-            foreach (var m in File.ReadAllLines(Path).Skip(1))
+            foreach (var m in DesignFiles.ReadAllLines(Path).Skip(1))
                 QuestInfo.FromText(m);
 
             RefreshQuestList();
@@ -416,20 +417,22 @@ namespace Server
 
             var scriptPath = Path.Combine(Settings.QuestPath, QFileNameTextBox.Text + ".txt");
 
-            if (File.Exists(scriptPath))
+            if (DesignFiles.Exists(scriptPath))
             {
-                Shared.Helpers.FileIO.OpenScript(scriptPath, true);
+                DesignEditing.OpenInEditor(scriptPath); // a store file opens as a working copy whose saves go back (roadmap P7)
             }
             else
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(scriptPath));
+                if (!DesignFiles.TryMap(scriptPath, out _, out _))
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(scriptPath));
+                    File.Create(scriptPath).Close();
+                }
 
-                File.Create(scriptPath).Close();
-
-                File.WriteAllText(scriptPath,
+                DesignFiles.WriteAllText(scriptPath,
                     $"{"[@Description]"}\r\n\r\n{"[@TaskDescription]"}\r\n\r\n{"[@Completion]"}\r\n\r\n{"[@KillTasks]"}\r\n\r\n{"[@ItemTasks]"}\r\n\r\n{"[@FlagTasks]"}\r\n\r\n{"[@CarryItems]"}\r\n\r\n{"[@FixedRewards]"}\r\n\r\n{"[@SelectRewards]"}\r\n\r\n{"[@ExpReward]"}\r\n\r\n{"[@GoldReward]"}");
 
-                Shared.Helpers.FileIO.OpenScript(scriptPath, true);
+                DesignEditing.OpenInEditor(scriptPath);
             }
         }
 

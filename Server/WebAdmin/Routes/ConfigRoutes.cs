@@ -684,6 +684,16 @@ namespace Server.WebAdmin.Routes
                 return applied.Select(x => x.Descriptor.Field).ToList();
             }
 
+            // Roadmap P7: [Game] / [Items] are saved to SystemData.db (after the queued saves), not to Setup.ini.
+            List<string> design = null;
+            try { design = Settings.Reader.PersistedDesignLines(); }
+            catch (Exception ex) { MessageQueue.Instance.Enqueue(ex); }
+            if (design != null)
+            {
+                lines = Server.MirEnvir.Storage.DesignIni.Split(lines, Server.MirEnvir.Storage.DesignIni.SetupDesignSections).Outside;
+                lines.AddRange(design);
+            }
+
             foreach (var change in applied)
             {
                 var d = change.Descriptor;

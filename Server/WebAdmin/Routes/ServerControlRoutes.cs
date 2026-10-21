@@ -278,10 +278,10 @@ namespace Server.WebAdmin.Routes
         /// <summary>Game thread. Mirrors StartEnvir's recipe loading: one RecipeInfo per Envir\Recipe\*.txt (file name = item name).</summary>
         private static string ReloadRecipes(Envir envir)
         {
-            if (!Directory.Exists(Settings.RecipePath))
+            if (!Directory.Exists(Settings.RecipePath) && !DesignFiles.IsDesignFolder(Settings.RecipePath))
                 throw new WebAdminException(422, "The recipe folder (Envir\\Recipe) does not exist.");
 
-            var names = Directory.GetFiles(Settings.RecipePath, "*.txt")
+            var names = DesignFiles.EnumerateFiles(Settings.RecipePath, "*.txt", SearchOption.TopDirectoryOnly)
                 .Select(path => Path.GetFileNameWithoutExtension(path))
                 .ToArray();
 

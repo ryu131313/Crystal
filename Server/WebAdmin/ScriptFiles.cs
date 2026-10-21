@@ -1,3 +1,4 @@
+using Server.MirEnvir.Storage;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -30,7 +31,7 @@ namespace Server.WebAdmin
 
         public string Description { get; }
 
-        public bool Exists => System.IO.Directory.Exists(Directory);
+        public bool Exists => System.IO.Directory.Exists(Directory) || DesignFiles.IsDesignFolder(Directory); // roadmap P7: design roots live in SystemData.db
     }
 
     public sealed class ScriptFileEntry
@@ -585,12 +586,11 @@ namespace Server.WebAdmin
 
                 try
                 {
-                    var info = new FileInfo(file);
                     result.Add(new ScriptFileEntry
                     {
                         Path = RelativeOf(root, file),
-                        Size = info.Length,
-                        MtimeUtc = info.LastWriteTimeUtc,
+                        Size = DesignFiles.Length(file),
+                        MtimeUtc = DesignFiles.GetLastWriteTimeUtc(file),
                     });
                 }
                 catch (IOException)
@@ -607,6 +607,10 @@ namespace Server.WebAdmin
 
         private static IEnumerable<string> EnumerateTextFiles(ScriptRoot root)
         {
+            if (DesignFiles.IsDesignFolder(root.Directory))
+                return DesignFiles.EnumerateFiles(root.Directory, "*.txt", root.Flat ? SearchOption.TopDirectoryOnly : SearchOption.AllDirectories)
+                    .Where(f => !System.IO.Path.GetFileName(f).StartsWith(".", StringComparison.Ordinal));
+
             var options = new EnumerationOptions
             {
                 RecurseSubdirectories = !root.Flat,
@@ -626,10 +630,9 @@ namespace Server.WebAdmin
         {
             RequireRootFolder(root);
             var full = ResolveFile(root, rawPath, out _);
-            if (!File.Exists(full)) throw new WebAdminException(404, "File not found.");
+            if (!DesignFiles.Exists(full)) throw new WebAdminException(404, "File not found.");
 
             var bytes = ReadAllBytesShared(full);
-            var info = new FileInfo(full);
             var decoded = ScriptText.Decode(bytes);
 
             return new ScriptTextFile
@@ -640,7 +643,7 @@ namespace Server.WebAdmin
                 MixedLineEndings = decoded.Mixed,
                 Etag = ScriptText.ComputeEtag(bytes),
                 Size = bytes.Length,
-                MtimeUtc = info.LastWriteTimeUtc,
+                MtimeUtc = DesignFiles.GetLastWriteTimeUtc(full),
             };
         }
 
@@ -649,9 +652,8 @@ namespace Server.WebAdmin
         {
             try
             {
-                if (fullPath == null || !File.Exists(fullPath)) return null;
-                var info = new FileInfo(fullPath);
-                if (info.Length > MaxFileBytes) return null;
+                if (fullPath == null || !DesignFiles.Exists(fullPath)) return null;
+                if (DesignFiles.Length(fullPath) > MaxFileBytes) return null;
                 var decoded = ScriptText.Decode(ReadAllBytesShared(fullPath));
                 return decoded.Content.Split('\n');
             }
@@ -663,6 +665,13 @@ namespace Server.WebAdmin
 
         internal static byte[] ReadAllBytesShared(string path)
         {
+            if (DesignFiles.TryMap(path, out _, out _))
+            {
+                var stored = DesignFiles.ReadAllBytes(path); // roadmap P7: rendered from SystemData.db in the file's own layout
+                if (stored.Length > MaxFileBytes) throw new WebAdminException(413, "The file is larger than " + (MaxFileBytes / (1024 * 1024)) + " MB and cannot be edited here.");
+                return stored;
+            }
+
             using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
             {
                 if (stream.Length > MaxFileBytes) throw new WebAdminException(413, "The file is larger than " + (MaxFileBytes / (1024 * 1024)) + " MB and cannot be edited here.");
@@ -692,7 +701,7 @@ namespace Server.WebAdmin
 
             lock (_writeLock)
             {
-                if (!File.Exists(full)) throw new WebAdminException(404, "File not found (it may have been deleted or renamed). Use Create to make a new file.");
+                if (!DesignFiles.Exists(full)) throw new WebAdminException(404, "File not found (it may have been deleted or renamed). Use Create to make a new file.");
 
                 var current = ReadAllBytesShared(full);
                 var currentEtag = ScriptText.ComputeEtag(current);
@@ -700,7 +709,7 @@ namespace Server.WebAdmin
                 if (!force && !string.Equals(etag ?? string.Empty, currentEtag, StringComparison.OrdinalIgnoreCase))
                 {
                     throw new WebAdminException(409, "The file changed on disk since you opened it. Reload it, or overwrite it anyway.",
-                        new { etag = currentEtag, mtimeUtc = File.GetLastWriteTimeUtc(full) });
+                        new { etag = currentEtag, mtimeUtc = DesignFiles.GetLastWriteTimeUtc(full) });
                 }
 
                 var decoded = ScriptText.Decode(current);
@@ -713,7 +722,7 @@ namespace Server.WebAdmin
                         Path = normalized,
                         Etag = currentEtag,
                         Size = current.Length,
-                        MtimeUtc = File.GetLastWriteTimeUtc(full),
+                        MtimeUtc = DesignFiles.GetLastWriteTimeUtc(full),
                         Unchanged = true,
                         Encoding = decoded.Encoding,
                         LineEnding = decoded.LineEnding,
@@ -728,7 +737,7 @@ namespace Server.WebAdmin
                     Path = normalized,
                     Etag = ScriptText.ComputeEtag(bytes),
                     Size = bytes.Length,
-                    MtimeUtc = File.GetLastWriteTimeUtc(full),
+                    MtimeUtc = DesignFiles.GetLastWriteTimeUtc(full),
                     Backup = backup,
                     Encoding = decoded.Encoding,
                     LineEnding = decoded.LineEnding,
@@ -744,13 +753,16 @@ namespace Server.WebAdmin
 
             lock (_writeLock)
             {
-                if (File.Exists(full)) throw new WebAdminException(409, "A file with that name already exists.");
+                if (DesignFiles.Exists(full)) throw new WebAdminException(409, "A file with that name already exists.");
                 if (System.IO.Directory.Exists(full)) throw new WebAdminException(409, "A folder with that name already exists.");
 
-                var dir = System.IO.Path.GetDirectoryName(full);
-                System.IO.Directory.CreateDirectory(dir);
-                if (ScriptPaths.CrossesReparsePoint(root.Directory, full))
-                    throw new WebAdminException(400, "The path goes through a symbolic link or junction, which is not allowed.");
+                if (!DesignFiles.TryMap(full, out _, out _))
+                {
+                    var dir = System.IO.Path.GetDirectoryName(full);
+                    System.IO.Directory.CreateDirectory(dir);
+                    if (ScriptPaths.CrossesReparsePoint(root.Directory, full))
+                        throw new WebAdminException(400, "The path goes through a symbolic link or junction, which is not allowed.");
+                }
 
                 var bytes = ScriptText.Encode(content ?? string.Empty, ScriptText.Utf8, ScriptText.Crlf);
                 WriteAtomic(full, bytes);
@@ -760,7 +772,7 @@ namespace Server.WebAdmin
                     Path = normalized,
                     Etag = ScriptText.ComputeEtag(bytes),
                     Size = bytes.Length,
-                    MtimeUtc = File.GetLastWriteTimeUtc(full),
+                    MtimeUtc = DesignFiles.GetLastWriteTimeUtc(full),
                     Encoding = ScriptText.Utf8,
                     LineEnding = ScriptText.Crlf,
                 };
@@ -775,11 +787,16 @@ namespace Server.WebAdmin
 
             lock (_writeLock)
             {
-                if (!File.Exists(full)) throw new WebAdminException(404, "File not found.");
+                if (!DesignFiles.Exists(full)) throw new WebAdminException(404, "File not found.");
 
                 var target = NewBackupPath(root, normalized);
                 System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(target));
-                File.Move(full, target);
+                if (DesignFiles.TryMap(full, out _, out _))
+                {
+                    WriteAtomic(target, DesignFiles.ReadAllBytes(full));
+                    DesignFiles.Delete(full);
+                }
+                else File.Move(full, target);
                 return System.IO.Path.GetFileName(target);
             }
         }
@@ -793,17 +810,20 @@ namespace Server.WebAdmin
 
             lock (_writeLock)
             {
-                if (!File.Exists(full)) throw new WebAdminException(404, "File not found.");
+                if (!DesignFiles.Exists(full)) throw new WebAdminException(404, "File not found.");
 
                 var sameFile = string.Equals(full, target, StringComparison.OrdinalIgnoreCase);
                 if (string.Equals(full, target, StringComparison.Ordinal)) throw new WebAdminException(400, "The new name is the same as the old one.");
-                if (!sameFile && (File.Exists(target) || System.IO.Directory.Exists(target))) throw new WebAdminException(409, "A file with the new name already exists.");
+                if (!sameFile && (DesignFiles.Exists(target) || System.IO.Directory.Exists(target))) throw new WebAdminException(409, "A file with the new name already exists.");
 
-                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(target));
-                if (ScriptPaths.CrossesReparsePoint(root.Directory, target))
-                    throw new WebAdminException(400, "The path goes through a symbolic link or junction, which is not allowed.");
+                if (!DesignFiles.TryMap(target, out _, out _))
+                {
+                    System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(target));
+                    if (ScriptPaths.CrossesReparsePoint(root.Directory, target))
+                        throw new WebAdminException(400, "The path goes through a symbolic link or junction, which is not allowed.");
+                }
 
-                File.Move(full, target);
+                DesignFiles.Move(full, target);
                 return newNormalized;
             }
         }
@@ -940,13 +960,13 @@ namespace Server.WebAdmin
                 var bytes = ReadAllBytesShared(source);
                 string previousBackup = null;
 
-                if (File.Exists(full))
+                if (DesignFiles.Exists(full))
                 {
                     var current = ReadAllBytesShared(full);
                     if (!BytesEqual(current, bytes))
                         previousBackup = BackupBytes(root, normalized, current);
                 }
-                else
+                else if (!DesignFiles.TryMap(full, out _, out _))
                 {
                     System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(full));
                     if (ScriptPaths.CrossesReparsePoint(root.Directory, full))
@@ -961,7 +981,7 @@ namespace Server.WebAdmin
                     Path = normalized,
                     Etag = ScriptText.ComputeEtag(bytes),
                     Size = bytes.Length,
-                    MtimeUtc = File.GetLastWriteTimeUtc(full),
+                    MtimeUtc = DesignFiles.GetLastWriteTimeUtc(full),
                     Backup = previousBackup,
                     Encoding = decoded.Encoding,
                     LineEnding = decoded.LineEnding,
@@ -1000,7 +1020,7 @@ namespace Server.WebAdmin
                 string[] lines;
                 try
                 {
-                    if (new FileInfo(file).Length > MaxFileBytes)
+                    if (DesignFiles.Length(file) > MaxFileBytes)
                     {
                         result.FilesSkipped++;
                         continue;
@@ -1067,6 +1087,12 @@ namespace Server.WebAdmin
         /// <summary>Writes to a temp file in the same folder, then swaps it in (File.Replace / Move) so readers never see half a file.</summary>
         public static void WriteAtomic(string path, byte[] bytes)
         {
+            if (DesignFiles.TryMap(path, out _, out _))
+            {
+                DesignFiles.WriteAllBytes(path, bytes); // roadmap P7: one transaction in SystemData.db, then the cache
+                return;
+            }
+
             var dir = System.IO.Path.GetDirectoryName(path);
             var temp = System.IO.Path.Combine(dir, "." + System.IO.Path.GetFileName(path) + "." + Guid.NewGuid().ToString("N") + ".tmp");
 

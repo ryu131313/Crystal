@@ -27,9 +27,24 @@ public class InIReader
         {
         }
     }
+
+    /// <summary>
+    /// An ini whose lines come from somewhere other than a file (the server's SQLite design store, roadmap P7). The subclass decides
+    /// where <see cref="Save"/> writes; no directory is created.
+    /// </summary>
+    protected InIReader(string fileName, IEnumerable<string> lines)
+    {
+        _fileName = fileName;
+        _contents = new List<string>(lines ?? Enumerable.Empty<string>());
+    }
     #endregion
 
     #region Functions
+    /// <summary>The ini's lines, in order (for subclasses that store them elsewhere).</summary>
+    protected List<string> Lines => _contents;
+
+    protected string FileName => _fileName;
+
     private string FindValue(string section, string key)
     {
         for (int a = 0; a < _contents.Count; a++)
@@ -67,7 +82,7 @@ public class InIReader
         return _contents.Count - 1;
     }
 
-    public void Save()
+    public virtual void Save()
     {
         try
         {

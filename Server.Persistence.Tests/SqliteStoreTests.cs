@@ -197,7 +197,7 @@ public class SqliteStoreTests
             Assert.True(LoadAll());
             var expected = Oracle.Dump(Envir.Main);
 
-            var store = new SqliteWorldStore();
+            var store = new SqliteWorldStore(privateWriter: true);
             try
             {
                 // First load imports Server.MirDB (left untouched) and loads from the new store.
@@ -236,7 +236,7 @@ public class SqliteStoreTests
 
             // The store is lost and a SQLite backup newer than Server.MirDB exists: refuse instead of re-importing the stale Server.MirDB.
             File.Delete(SqliteWorldStore.DatabasePath);
-            var again = new SqliteWorldStore();
+            var again = new SqliteWorldStore(privateWriter: true);
             try
             {
                 lock (Envir.LoadLock) Assert.False(again.LoadDesign(Envir.Edit));

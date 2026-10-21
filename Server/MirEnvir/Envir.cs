@@ -71,7 +71,11 @@ namespace Server.MirEnvir
                 Interlocked.CompareExchange(ref _store, new SqliteWorldStore(), null);
                 return _store;
             }
-            set => Volatile.Write(ref _store, value);
+            set
+            {
+                Volatile.Write(ref _store, value);
+                DesignStore.Disabled = value is not SqliteWorldStore; // tests and tools on Server.MirDB read the design files
+            }
         }
 
         private static IWorldStore _store;
@@ -2047,6 +2051,7 @@ namespace Server.MirEnvir
 
         private void WorkLoop()
         {
+            if (this == Main) DesignStore.GameThreadId = Environment.CurrentManagedThreadId; // design writes from here are posted (roadmap P7)
             try
             {
                 Time = Stopwatch.ElapsedMilliseconds;
@@ -4182,7 +4187,7 @@ namespace Server.MirEnvir
             MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.BuffsLoaded), BuffInfoList.Count));
 
             RecipeInfoList.Clear();
-            foreach (var recipe in Directory.GetFiles(Settings.RecipePath, "*.txt")
+            foreach (var recipe in DesignFiles.EnumerateFiles(Settings.RecipePath, "*.txt", SearchOption.TopDirectoryOnly)
                          .Select(path => Path.GetFileNameWithoutExtension(path))
                          .ToArray())
             {

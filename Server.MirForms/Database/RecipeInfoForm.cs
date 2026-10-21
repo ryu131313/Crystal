@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Server.MirEnvir.Storage;
+using System;
 using System.IO;
 using System.Windows.Forms;
 
@@ -28,10 +29,10 @@ namespace Server.Database
             ItemComboBox.SelectedIndex = -1;  // No item selected initially
 
             // Check if the directory exists
-            if (Directory.Exists(directoryPath))
+            if (DesignFiles.DirectoryExists(directoryPath))
             {
                 // Get all recipe files (with .txt extension) from the directory
-                string[] recipeFiles = Directory.GetFiles(directoryPath, "*.txt");
+                string[] recipeFiles = DesignFiles.GetFiles(directoryPath, "*.txt");
 
                 // Clear existing items in the RecipeList (if any)
                 RecipeList.Items.Clear();
@@ -64,10 +65,10 @@ namespace Server.Database
             int recipeCount = 0;
 
             // Check if the directory exists
-            if (Directory.Exists(directoryPath))
+            if (DesignFiles.DirectoryExists(directoryPath))
             {
                 // Count all recipe files with a .txt extension
-                string[] recipeFiles = Directory.GetFiles(directoryPath, "*.txt");
+                string[] recipeFiles = DesignFiles.GetFiles(directoryPath, "*.txt");
                 recipeCount = recipeFiles.Length;
             }
 
@@ -129,10 +130,10 @@ namespace Server.Database
             string filePath = Path.Combine(directoryPath, recipeName + ".txt");
 
             // Check if the file exists
-            if (File.Exists(filePath))
+            if (DesignFiles.Exists(filePath))
             {
                 // Read the lines from the recipe file and parse as needed
-                string[] fileLines = File.ReadAllLines(filePath);
+                string[] fileLines = DesignFiles.ReadAllLines(filePath);
                 ParseAndDisplayRecipe(fileLines);
 
                 // Temporarily ignore the combo box event while we select the item
@@ -407,7 +408,7 @@ namespace Server.Database
 
             try
             {
-                using (StreamWriter writer = new StreamWriter(currentFilePath))
+                using (var writer = new StringWriter())
                 {
                     // Write [Recipe] section
                     writer.WriteLine("[Recipe]");
@@ -436,6 +437,7 @@ namespace Server.Database
                     WriteIngredient(writer, IngredientName4ComboBox, IngredientAmount4TextBox, IngredientDura4TextBox);
                     WriteIngredient(writer, IngredientName5ComboBox, IngredientAmount5TextBox, IngredientDura5TextBox);
                     WriteIngredient(writer, IngredientName6ComboBox, IngredientAmount6TextBox, IngredientDura6TextBox);
+                    DesignFiles.WriteAllText(currentFilePath, writer.ToString()); // roadmap P7: SystemData.db once the store is active
                 }
 
                 MessageBox.Show("Recipe saved successfully.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -446,7 +448,7 @@ namespace Server.Database
                 MessageBox.Show($"Error saving recipe: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
-        private void WriteIngredient(StreamWriter writer, ComboBox nameComboBox, TextBox amountTextBox, TextBox duraTextBox)
+        private void WriteIngredient(TextWriter writer, ComboBox nameComboBox, TextBox amountTextBox, TextBox duraTextBox)
         {
             if (nameComboBox.SelectedItem.ToString() == "None") return; // Skip if None is selected
 
@@ -479,7 +481,7 @@ namespace Server.Database
             string directoryPath = Path.Combine(currentDirectory, "Envir", "Recipe");
 
             // Ensure the directory exists
-            if (!Directory.Exists(directoryPath))
+            if (!DesignFiles.DirectoryExists(directoryPath))
             {
                 MessageBox.Show("The recipe directory does not exist.", "Directory Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
@@ -491,7 +493,7 @@ namespace Server.Database
             int counter = 1;
 
             // Avoid overwriting existing files by appending a number to the name if needed
-            while (File.Exists(newRecipePath))
+            while (DesignFiles.Exists(newRecipePath))
             {
                 newRecipeName = $"NewRecipe{counter}";
                 newRecipePath = Path.Combine(directoryPath, $"{newRecipeName}.txt");
@@ -501,7 +503,7 @@ namespace Server.Database
             // Create a blank recipe file with the specified layout
             try
             {
-                using (StreamWriter writer = new StreamWriter(newRecipePath))
+                using (var writer = new StringWriter())
                 {
                     writer.WriteLine("[Recipe]");
                     writer.WriteLine("Amount ");
@@ -511,6 +513,7 @@ namespace Server.Database
                     writer.WriteLine("[Tools]");
                     writer.WriteLine();
                     writer.WriteLine("[Ingredients]");
+                    DesignFiles.WriteAllText(newRecipePath, writer.ToString());
                 }
             }
             catch (Exception ex)
@@ -610,7 +613,7 @@ namespace Server.Database
                 return;
 
             // If a different file with that new name already exists, warn and skip
-            if (File.Exists(newFilePath))
+            if (DesignFiles.Exists(newFilePath))
             {
                 MessageBox.Show(
                     $"A recipe named '{newItemName}' already exists. Cannot rename.",
@@ -622,11 +625,11 @@ namespace Server.Database
             }
 
             // Rename the existing file
-            if (File.Exists(currentFilePath))
+            if (DesignFiles.Exists(currentFilePath))
             {
                 try
                 {
-                    File.Move(currentFilePath, newFilePath);
+                    DesignFiles.Move(currentFilePath, newFilePath);
                     currentFilePath = newFilePath;
                 }
                 catch (Exception ex)
@@ -655,16 +658,12 @@ namespace Server.Database
             string filePath = Path.Combine(directoryPath, selectedRecipeName + ".txt");
 
             // Check if the recipe file exists
-            if (File.Exists(filePath))
+            if (DesignFiles.Exists(filePath))
             {
                 try
                 {
-                    // Use Process.Start with the file path
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                    {
-                        FileName = filePath,
-                        UseShellExecute = true // Use the default system shell to open
-                    });
+                    // A store file opens as a working copy whose saves go back to the store (roadmap P7)
+                    DesignEditing.OpenInEditor(filePath);
                 }
                 catch (Exception ex)
                 {
@@ -713,9 +712,9 @@ namespace Server.Database
             // Delete the file
             try
             {
-                if (File.Exists(filePath))
+                if (DesignFiles.Exists(filePath))
                 {
-                    File.Delete(filePath);
+                    DesignFiles.Delete(filePath);
                     RecipeList.Items.Remove(selectedRecipeName); // Remove from the list
                     MessageBox.Show($"Recipe deleted: {selectedRecipeName}.txt", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
 

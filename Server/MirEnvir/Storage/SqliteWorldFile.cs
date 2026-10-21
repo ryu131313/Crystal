@@ -176,6 +176,7 @@ namespace Server.MirEnvir.Storage
             // What is missing (defaults are computed only for those columns, never for the rest).
             var missingTables = new List<SqliteWorldCodec.TableSpec>();
             var missingColumns = new List<(SqliteWorldCodec.TableSpec Spec, string Name, string SqlType)>();
+            var missingDesign = DesignStore.Tables().Where(t => TableColumns(conn, null, t.Table).Count == 0).ToList();
             foreach (var spec in SqliteWorldCodec.Specs)
             {
                 var actual = TableColumns(conn, null, spec.Name);
@@ -184,7 +185,7 @@ namespace Server.MirEnvir.Storage
                     if (!actual.Contains(name)) missingColumns.Add((spec, name, sqlType));
             }
 
-            var added = missingTables.Count + missingColumns.Count;
+            var added = missingTables.Count + missingColumns.Count + missingDesign.Count;
             if (added == 0) return 0;
 
             if (backupPath != null)
@@ -195,6 +196,12 @@ namespace Server.MirEnvir.Storage
             }
 
             using var tx = conn.BeginTransaction();
+            foreach (var (table, ddl) in missingDesign)
+            {
+                Exec(conn, tx, ddl); // design data tables (phase 7.4): filled lazily from the files on first use
+                log("[Store] Added table " + table);
+            }
+
             foreach (var spec in missingTables)
             {
                 var ddl = SqliteWorldCodec.CreateStatements().First(sql => sql.StartsWith("CREATE TABLE " + SqliteWorldCodec.Quote(spec.Name) + " (", StringComparison.Ordinal));
