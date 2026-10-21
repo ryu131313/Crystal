@@ -494,10 +494,7 @@ namespace Server.MirDatabase
 
             writer.Write(AllowGroup);
 
-            for (int i = 0; i < Flags.Length; i++)
-            {
-                writer.Write(Flags[i]);
-            }
+            WriteFlags(writer, Flags);
 
             writer.Write(GuildIndex);
 
@@ -595,6 +592,27 @@ namespace Server.MirDatabase
             writer.Write(AllowLoverRecall);
             writer.Write(AllowMentor);
             writer.Write(AllowFriendRequests);
+        }
+
+        /// <summary>
+        /// Writes the quest flags in one block instead of one <see cref="BinaryWriter.Write(bool)"/> per flag (P9-10: the 1999
+        /// flags are most of every character's bytes). Same bytes as Write(bool) for any bool bit pattern: each byte is
+        /// clamped to 0/1 with a vector min. Safe on any thread (stack buffer only).
+        /// </summary>
+        internal static void WriteFlags(BinaryWriter writer, bool[] flags)
+        {
+            Span<byte> buffer = flags.Length <= 4096 ? stackalloc byte[flags.Length] : new byte[flags.Length];
+            ReadOnlySpan<byte> raw = System.Runtime.InteropServices.MemoryMarshal.AsBytes(flags.AsSpan());
+            var i = 0;
+            if (System.Numerics.Vector.IsHardwareAccelerated)
+            {
+                var one = System.Numerics.Vector<byte>.One;
+                for (; i <= raw.Length - System.Numerics.Vector<byte>.Count; i += System.Numerics.Vector<byte>.Count)
+                    System.Numerics.Vector.Min(new System.Numerics.Vector<byte>(raw.Slice(i)), one).CopyTo(buffer.Slice(i));
+            }
+            for (; i < raw.Length; i++)
+                buffer[i] = raw[i] != 0 ? (byte)1 : (byte)0;
+            writer.Write(buffer);
         }
 
         public SelectInfo ToSelectInfo()

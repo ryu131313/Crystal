@@ -613,7 +613,7 @@ The worker receives copies only (password, salt, stored hash) and posts results 
   - process only connections that have work;
   - narrow `lock(Connections)`, which covers packet handling.
 - **Logging:** move it off the game thread with a buffering appender, staying inside log4net 3.3.0 (server.md §5.2). Today's appenders write synchronously.
-- **Account save:** snapshot on the game thread, then serialise and write off it. Today every account is serialised on the game thread every `SaveDelay`.
+- ~~**Account save:** snapshot on the game thread, then serialise and write off it.~~ Done 2026-10-21 as P9-10 (`Future Optimisation/P9-10-AccountSave-OffThread.md`): the serialised bytes are the snapshot (cheaper than a deep copy), written into a reused buffer; every file step runs on a pool thread. Still on the game thread: the serialisation itself, about 1.4 µs per account.
 - **Runtime settings:** Mob-thread model (`Multithreaded` on/off) and GC mode (workstation vs server/DATAS).
 - **After the P7 flip:** system-data save I/O via the SQLite writer.
 - **After the C5 handshake** (`Shared`-touching items):

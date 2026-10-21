@@ -97,6 +97,7 @@ namespace Server
         public static bool MonsterDormant = true;      // [Optimisation] MonsterDormant: alone monsters with nothing pending check for players every 10 s and are woken when one comes near (needs SectorGrid) (P9-07)
         public static bool EmptyMapSleep = true;       // [Optimisation] EmptyMapSleep: maps with no players check respawns once a minute and catch up when someone arrives (P9-07)
         public static bool AloneCeiling = true;        // [Optimisation] AloneCeiling: monsters alone with nobody near sleep until their next alone check instead of waking every 2 s (P9-06)
+        public static bool AccountSaveOffThread = true; // [Optimisation] AccountSaveOffThread: the periodic account save serialises into a reused buffer and does every file step on a pool thread (P9-10)
         public static bool LogLoopProfile = false;     // [Diag] LogLoopProfile: one "[Diag] Loop" line per second (Debug log)
         public static int LoadTestLoopbackMaxPacket = 0; // 0 = use MaxPacket
 
@@ -468,6 +469,7 @@ namespace Server
             if (SendFlushMs > 5) SendFlushMs = 5;
             SendCoalesce = Reader.ReadBoolean("Optimisation", "SendCoalesce", SendCoalesce);
             AloneCeiling = Reader.ReadBoolean("Optimisation", "AloneCeiling", AloneCeiling);
+            AccountSaveOffThread = Reader.ReadBoolean("Optimisation", "AccountSaveOffThread", AccountSaveOffThread);
             HumanIdleCapMs = Math.Max(0, Reader.ReadInt32("Optimisation", "HumanIdleCapMs", HumanIdleCapMs));
             if (HumanIdleCapMs > 1000) HumanIdleCapMs = 1000;
             MoveBatch = Reader.ReadBoolean("Optimisation", "MoveBatch", MoveBatch);
@@ -803,6 +805,7 @@ namespace Server
             Reader.Write("Optimisation", "SendFlushMs", SendFlushMs);
             Reader.Write("Optimisation", "SendCoalesce", SendCoalesce);
             Reader.Write("Optimisation", "AloneCeiling", AloneCeiling);
+            Reader.Write("Optimisation", "AccountSaveOffThread", AccountSaveOffThread);
             Reader.Write("Optimisation", "HumanIdleCapMs", HumanIdleCapMs);
             Reader.Write("Optimisation", "MoveBatch", MoveBatch);
             Reader.Write("Optimisation", "SectorGrid", SectorGrid);
