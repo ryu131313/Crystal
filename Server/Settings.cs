@@ -90,6 +90,10 @@ namespace Server
         public static bool FlushAtEnd = true;          // [Optimisation] FlushAtEnd: in-game sends go out at the end of the loop iteration, after monsters/objects/maps (P9-06)
         public static int SendFlushMs = 0;             // [Optimisation] SendFlushMs: with FlushAtEnd, in-game sends are grouped into one shared flush every N ms (0-5; 0 = every iteration) (P9-06)
         public static bool SendCoalesce = true;        // [Optimisation] SendCoalesce: an older pending health/name/colour/poison packet for the same object is dropped from a flush (P9-06)
+        public static bool SectorGrid = true;          // [Optimisation] SectorGrid: each map keeps its players by 8x8 sector for broadcasts and alone checks; read at world start (P9-07)
+        public static bool SectorGridVerify = false;   // [Optimisation] SectorGridVerify: check every player's sector once a second and log mismatches (scratch servers) (P9-07)
+        public static bool MonsterDormant = true;      // [Optimisation] MonsterDormant: alone monsters with nothing pending check for players every 10 s and are woken when one comes near (needs SectorGrid) (P9-07)
+        public static bool EmptyMapSleep = true;       // [Optimisation] EmptyMapSleep: maps with no players check respawns once a minute and catch up when someone arrives (P9-07)
         public static bool AloneCeiling = true;        // [Optimisation] AloneCeiling: monsters alone with nobody near sleep until their next alone check instead of waking every 2 s (P9-06)
         public static bool LogLoopProfile = false;     // [Diag] LogLoopProfile: one "[Diag] Loop" line per second (Debug log)
         public static int LoadTestLoopbackMaxPacket = 0; // 0 = use MaxPacket
@@ -462,6 +466,10 @@ namespace Server
             if (SendFlushMs > 5) SendFlushMs = 5;
             SendCoalesce = Reader.ReadBoolean("Optimisation", "SendCoalesce", SendCoalesce);
             AloneCeiling = Reader.ReadBoolean("Optimisation", "AloneCeiling", AloneCeiling);
+            SectorGrid = Reader.ReadBoolean("Optimisation", "SectorGrid", SectorGrid);
+            SectorGridVerify = Reader.ReadBoolean("Optimisation", "SectorGridVerify", SectorGridVerify);
+            MonsterDormant = Reader.ReadBoolean("Optimisation", "MonsterDormant", MonsterDormant);
+            EmptyMapSleep = Reader.ReadBoolean("Optimisation", "EmptyMapSleep", EmptyMapSleep);
             LogLoopProfile = Reader.ReadBoolean("Diag", "LogLoopProfile", LogLoopProfile);
             LoadTestLoopbackMaxPacket = Math.Max(0, Reader.ReadInt32("LoadTest", "LoopbackMaxPacket", LoadTestLoopbackMaxPacket));
 
@@ -790,6 +798,10 @@ namespace Server
             Reader.Write("Optimisation", "SendFlushMs", SendFlushMs);
             Reader.Write("Optimisation", "SendCoalesce", SendCoalesce);
             Reader.Write("Optimisation", "AloneCeiling", AloneCeiling);
+            Reader.Write("Optimisation", "SectorGrid", SectorGrid);
+            Reader.Write("Optimisation", "SectorGridVerify", SectorGridVerify);
+            Reader.Write("Optimisation", "MonsterDormant", MonsterDormant);
+            Reader.Write("Optimisation", "EmptyMapSleep", EmptyMapSleep);
             Reader.Write("Diag", "LogLoopProfile", LogLoopProfile);
             Reader.Write("LoadTest", "LoopbackMaxPacket", LoadTestLoopbackMaxPacket);
 

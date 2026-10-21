@@ -455,11 +455,10 @@ namespace Server.MirObjects
         {
             if (p == null || CurrentMap == null) return;
 
-            var players = CurrentMap.Players;
-            var sent = 0;
-            for (int i = players.Count - 1; i >= 0; i--)
+            int sent = 0, scanned = 0;
+            foreach (var player in CurrentMap.PlayersNear(CurrentLocation, Globals.DataRange))
             {
-                PlayerObject player = players[i];
+                scanned++;
                 if (player == this) continue;
 
                 if (Functions.InRange(CurrentLocation, player.CurrentLocation, Globals.DataRange))
@@ -468,7 +467,7 @@ namespace Server.MirObjects
                     sent++;
                 }
             }
-            LoopProfiler.CountBroadcast(players.Count, sent);
+            LoopProfiler.CountBroadcast(scanned, sent);
         }
 
         public virtual void BroadcastInfo()

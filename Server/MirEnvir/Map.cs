@@ -35,6 +35,11 @@ namespace Server.MirEnvir
         public List<NPCObject> NPCs = new List<NPCObject>();
         public List<SpellObject> Spells = new List<SpellObject>();
         public List<PlayerObject> Players = new List<PlayerObject>();
+        /// <summary>Players by sector (P9-07, [Optimisation] SectorGrid, read at world start); null when off.</summary>
+        public PlayerGrid Grid;
+
+        /// <summary>Players a reader must check around <paramref name="center"/> (allocation-free; callers check the exact range).</summary>
+        public PlayersNear PlayersNear(Point center, int range) => new PlayersNear(this, center, range);
         public List<MapRespawn> Respawns = new List<MapRespawn>();
         public readonly MapActionList ActionList;
         public List<HeroObject> Heroes = new List<HeroObject>();
@@ -490,6 +495,7 @@ namespace Server.MirEnvir
                     }
 
                     GetWalkableCells();
+                    if (Settings.SectorGrid) Grid = new PlayerGrid(this);
                     
                     for (int i = 0; i < Info.Respawns.Count; i++)
                     {
@@ -771,6 +777,11 @@ namespace Server.MirEnvir
                 LastRespawnCheckMs = interval;
                 NextRespawnCheckTime = Envir.Time + (rephase ? 1 + Envir.Random.Next(interval) : interval);
 
+                // P9-07 EmptyMapSleep: with nobody here, check respawns only every EmptyMapSleepMs; the first player or hero to
+                // arrive, or a script reading MonsterCount, catches them up at once (WakeRespawns / CatchUpRespawns).
+                RespawnsAsleep = Settings.EmptyMapSleep && Players.Count == 0 && Heroes.Count == 0 && !RespawnSleepExempt();
+                if (RespawnsAsleep) NextRespawnCheckTime = Envir.Time + EmptyMapSleepMs;
+
                 ProcessRespawns();
             }
 
@@ -883,6 +894,40 @@ namespace Server.MirEnvir
         internal long ScheduledDue = long.MaxValue;
         internal int ScheduledGeneration;
         internal int WakePending;
+
+        /// <summary>Respawn check interval of an empty, sleeping map (EmptyMapSleep).</summary>
+        private const int EmptyMapSleepMs = 60000;
+
+        /// <summary>True while this map checks respawns at the slow empty-map interval (game thread).</summary>
+        internal bool RespawnsAsleep;
+
+        /// <summary>Maps that never sleep: tick-counter respawns (saved RespawnTick) and conquest maps.</summary>
+        private bool RespawnSleepExempt()
+        {
+            if (Conquest.Count > 0) return true;
+            for (int i = 0; i < Respawns.Count; i++)
+                if (Respawns[i].Info.RespawnTicks != 0) return true;
+            return false;
+        }
+
+        /// <summary>A player or hero arrived on a sleeping map: run the respawn check on the map's next Process (game thread).</summary>
+        private void WakeRespawns()
+        {
+            RespawnsAsleep = false;
+            NextRespawnCheckTime = 0;
+            NextProcessTime = 0;
+            Envir.Main.WakeMap(this);
+        }
+
+        /// <summary>
+        /// Brings a sleeping map's respawns up to date now, so <see cref="MonsterCount"/> is right. Call before reading
+        /// MonsterCount from scripts (game thread).
+        /// </summary>
+        public void CatchUpRespawns()
+        {
+            if (!RespawnsAsleep) return;
+            ProcessRespawns();
+        }
 
         private void ProcessRespawns()
         {
@@ -2510,18 +2555,28 @@ namespace Server.MirEnvir
             if (ob.Race == ObjectType.Player)
             {
                 Players.Add((PlayerObject)ob);
+                Grid?.Add((PlayerObject)ob);
+                if (RespawnsAsleep) WakeRespawns();
             }
 
             if (ob.Race == ObjectType.Merchant) NPCs.Add((NPCObject)ob);
             if (ob.Race == ObjectType.Spell) Spells.Add((SpellObject)ob);
-            if (ob.Race == ObjectType.Hero) Heroes.Add((HeroObject)ob);
+            if (ob.Race == ObjectType.Hero)
+            {
+                Heroes.Add((HeroObject)ob);
+                if (RespawnsAsleep) WakeRespawns();
+            }
 
             GetCell(ob.CurrentLocation).Add(ob);
         }
 
         public void RemoveObject(MapObject ob)
         {
-            if (ob.Race == ObjectType.Player) Players.Remove((PlayerObject)ob);
+            if (ob.Race == ObjectType.Player)
+            {
+                Players.Remove((PlayerObject)ob);
+                Grid?.Remove((PlayerObject)ob);
+            }
             if (ob.Race == ObjectType.Merchant) NPCs.Remove((NPCObject)ob);
             if (ob.Race == ObjectType.Spell) Spells.Remove((SpellObject)ob);
             if (ob.Race == ObjectType.Hero) Heroes.Remove((HeroObject)ob);
@@ -2585,36 +2640,34 @@ namespace Server.MirEnvir
         {
             if (p == null) return;
 
-            var sent = 0;
-            for (int i = Players.Count - 1; i >= 0; i--)
+            int sent = 0, scanned = 0;
+            foreach (var player in PlayersNear(location, Globals.DataRange))
             {
-                PlayerObject player = Players[i];
-
+                scanned++;
                 if (Functions.InRange(location, player.CurrentLocation, Globals.DataRange))
                 {
                     player.Enqueue(p);
                     sent++;
                 }
             }
-            LoopProfiler.CountBroadcast(Players.Count, sent);
+            LoopProfiler.CountBroadcast(scanned, sent);
         }
 
         public void BroadcastNPC(Packet p, Point location)
         {
             if (p == null) return;
 
-            var sent = 0;
-            for (int i = Players.Count - 1; i >= 0; i--)
+            int sent = 0, scanned = 0;
+            foreach (var player in PlayersNear(location, Globals.DataRange))
             {
-                PlayerObject player = Players[i];
-
+                scanned++;
                 if (Functions.InRange(location, player.CurrentLocation, Globals.DataRange))
                 {
                     player.Enqueue(p);
                     sent++;
                 }
             }
-            LoopProfiler.CountBroadcast(Players.Count, sent);
+            LoopProfiler.CountBroadcast(scanned, sent);
         }
 
 

@@ -2210,6 +2210,11 @@ namespace Server.MirEnvir
                             }
                             var awake = PublishMobLoad(out var mobLoad);
                             LoopProfiler.Publish(mobLoad, awake);
+                            if (Settings.SectorGridVerify)
+                            {
+                                try { VerifySectorGrids(); }
+                                catch (Exception ex) { WorldErrors.Record("SectorGridVerify", ex); }
+                            }
                         }
 
                         var connPass = conTime != Time;
@@ -2875,10 +2880,43 @@ namespace Server.MirEnvir
             if (node.List == list) list.Remove(node);
         }
 
-        /// <summary>Game thread, after the barrier (every mob thread parked): applies deferred list changes, then deferred work.</summary>
+        /// <summary>Players moved by monster AI during the mob pass whose sector must be updated after it (P9-07).</summary>
+        private readonly ConcurrentQueue<PlayerObject> _gridFixups = new ConcurrentQueue<PlayerObject>();
+
+        /// <summary>Any thread during the mob pass: queue a player's sector update for after the barrier.</summary>
+        internal void QueueGridFixup(PlayerObject player) => _gridFixups.Enqueue(player);
+
+        /// <summary>Game thread, after the barrier: applies queued sector updates (and their dormant-monster wakes).</summary>
+        internal void ApplyGridFixups()
+        {
+            while (_gridFixups.TryDequeue(out var player))
+            {
+                Volatile.Write(ref player.GridFixPending, 0);
+                try
+                {
+                    PlayerGrid.Resync(player);
+                }
+                catch (Exception ex)
+                {
+                    WorldErrors.Record("sector grid fix-up", ex);
+                }
+            }
+        }
+
+        /// <summary>[Optimisation] SectorGridVerify, once a second on the game thread: logs grid mismatches (scratch servers).</summary>
+        private void VerifySectorGrids()
+        {
+            var bad = 0;
+            for (var i = 0; i < MapList.Count; i++)
+                if (MapList[i].Grid != null) bad += MapList[i].Grid.Verify();
+            if (bad > 0) MessageQueue.Enqueue("[Optimisation] SectorGridVerify: " + bad + " player sector mismatch(es) this second.");
+        }
+
+        /// <summary>Game thread, after the barrier (every mob thread parked): applies grid fix-ups, deferred list changes, then deferred work.</summary>
         private void EndMobPass()
         {
             _inMobPass = false;
+            ApplyGridFixups(); // P9-07: first, so deferred monster work below already sees every player in its sector (review M2)
 
             // Queue order is real-time order, so a node's add is always applied before its remove.
             while (_mobPassListOps.TryDequeue(out var op))
@@ -2904,6 +2942,7 @@ namespace Server.MirEnvir
                     WorldErrors.Record("deferred monster work", ex);
                 }
             }
+
         }
 
         private void ThreadLoop(MobThread Info)

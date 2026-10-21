@@ -56,9 +56,13 @@ namespace Server.MirObjects.Monsters
                 {
                     Broadcast(new S.ObjectRangeAttack { ObjectID = ObjectID, Direction = Direction, Location = CurrentLocation, TargetID = Target.ObjectID, Type = 1 });
 
-                    TeleportTarget(4, 4);
-
-                    Direction = Functions.DirectionFromPoint(CurrentLocation, Target.CurrentLocation);
+                    // P9-07: moving a player belongs on the game thread; runs right after the mob pass, same tick.
+                    Envir.RunOutsideMobPass(() =>
+                    {
+                        if (Target == null || Dead) return;
+                        TeleportTarget(4, 4);
+                        Direction = Functions.DirectionFromPoint(CurrentLocation, Target.CurrentLocation);
+                    });
                 }
             }
         }
@@ -66,6 +70,8 @@ namespace Server.MirObjects.Monsters
 
         public bool TeleportTarget(int attempts, int distance)
         {
+            if (Target == null || CurrentMap == null) return false;
+
             for (int i = 0; i < attempts; i++)
             {
                 Point location;

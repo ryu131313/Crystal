@@ -240,6 +240,15 @@ namespace Server.WebAdmin
                 "With 'Send at the end of each tick' on, in-game packets for all players are sent together at most every N ms, so a packet shared by many players is encoded once and duplicate state updates can be dropped. Adds up to N ms of delay. 0 = send every iteration.", min: 0, max: 5);
             Add(N, "Optimisation", "SendCoalesce", "SendCoalesce", B, "Drop superseded state updates",
                 "When a player has an older health, name, name-colour or poison update for the same object still waiting to be sent, the older one is dropped and only the newest is sent. Movement, attacks and effects are never dropped or reordered.");
+            Add(N, "Optimisation", "SectorGrid", "SectorGrid", B, "Player sector grid",
+                "Each map keeps its players in 8x8-cell sectors, so broadcasts and 'anyone near?' checks on a busy map look only at nearby players instead of everyone on the map. Off = scan the whole map's player list (old behaviour). Applies when the world starts.",
+                SettingRestart.World);
+            Add(N, "Optimisation", "SectorGridVerify", "SectorGridVerify", B, "Check the sector grid",
+                "Test servers only: once a second, compare every player's sector with their real location and log any mismatch.");
+            Add(N, "Optimisation", "MonsterDormant", "MonsterDormant", B, "Deep sleep for monsters with nobody near",
+                "A monster with nobody near and nothing going on (no target, master, poison, buffs or summons) checks for players every 10 s instead of 3 s, and is woken at once when a player comes within range, so it reacts faster than before. Needs the player sector grid.");
+            Add(N, "Optimisation", "EmptyMapSleep", "EmptyMapSleep", B, "Empty maps check respawns once a minute",
+                "A map with no players or heroes checks its respawns once a minute instead of every second. The first player or hero to arrive, or a script that counts the map's monsters, brings the respawns up to date at once. Maps with tick-counter respawns and conquest maps never sleep. The world monster count can read low while maps sleep.");
             Add(N, "Optimisation", "AloneCeiling", "AloneCeiling", B, "Sleep monsters with nobody near",
                 "A monster with no player nearby (and no master or target) sleeps until its next 'anyone near?' check instead of waking every 2 s for nothing. Monster types with their own AI loop keep waking every 2 s. Gameplay is unchanged.");
             Add(N, "Diag", "LogLoopProfile", "LogLoopProfile", B, "Log loop profile",

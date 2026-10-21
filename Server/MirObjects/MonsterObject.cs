@@ -1796,19 +1796,56 @@ namespace Server.MirObjects
             if (CurrentMap.Players.Count == 0)
             {
                 Alone = true;
+                SleepIfDormant();
                 return;
             }
 
-            for (int i = 0; i < CurrentMap.Players.Count; i++)
+            // A player inside this monster's wake ring (PlayerGrid.WakeAround) but beyond 2 × DataRange won't wake it again until
+            // it crosses into a new sector ring, so only sleep long when no player is in the ring (review H1).
+            var grid = CurrentMap.Grid;
+            int msx = grid?.SectorX(CurrentLocation.X) ?? 0, msy = grid?.SectorY(CurrentLocation.Y) ?? 0;
+            var inWakeRing = false;
+            foreach (var player in CurrentMap.PlayersNear(CurrentLocation, Globals.DataRange * 2))
             {
-                if (Functions.InRange(CurrentLocation, CurrentMap.Players[i].CurrentLocation, Globals.DataRange * 2))
+                if (Functions.InRange(CurrentLocation, player.CurrentLocation, Globals.DataRange * 2))
                 {
                     Alone = false;
                     return;
                 }
+                if (grid != null && !inWakeRing)
+                    inWakeRing = Math.Max(Math.Abs(grid.SectorX(player.CurrentLocation.X) - msx),
+                                          Math.Abs(grid.SectorY(player.CurrentLocation.Y) - msy)) <= PlayerGrid.WakeSectors;
             }
 
             Alone = true;
+            if (!inWakeRing) SleepIfDormant();
+        }
+
+        /// <summary>
+        /// P9-07 MonsterDormant: an alone monster with nothing pending checks "anyone near?" only every
+        /// <see cref="DormantAloneDelay"/> ms; a player entering its 2 × DataRange ring wakes it at once (PlayerGrid.WakeAround).
+        /// Needs the sector grid, which does the waking.
+        /// </summary>
+        private void SleepIfDormant()
+        {
+            if (!Settings.MonsterDormant || CurrentMap.Grid == null) return;
+            if (Master != null || Target != null || EXPOwner != null || Dead) return;
+            if (PoisonList.Count > 0 || Buffs.Count > 0 || ActionList.Count > 0 || SlaveList.Count > 0) return;
+            if (HasOwnAiLoop()) return;
+            AloneTime = Envir.Time + DormantAloneDelay;
+        }
+
+        public const int DormantAloneDelay = 10000;
+
+        /// <summary>
+        /// A player came within range (sector grid, game thread, outside the mob pass): re-check "anyone near?" now. AloneTime
+        /// is set to now, not 0 (0 means "first check" and picks a random phase).
+        /// </summary>
+        internal void WakeFromAlone()
+        {
+            if (!Alone || Dead) return;
+            AloneTime = Envir.Time;
+            OperateTime = 0;
         }
 
         protected virtual void ProcessStacking()

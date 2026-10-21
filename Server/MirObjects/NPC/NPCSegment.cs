@@ -1298,6 +1298,7 @@ namespace Server.MirObjects
             {
                 case "MONSTERCOUNT()":
                     Map map = Envir.GetMapByNameAndInstance(oneValMatch.Groups[2].Captures[0].Value.ToUpper());
+                    if (map != null && !Envir.InMobPass) map.CatchUpRespawns(); // P9-07: a sleeping empty map counts its due respawns
                     newValue = map == null ? "N/A" : map.MonsterCount.ToString();
                     break;
                 case "CONQUESTGUARD()":
@@ -1793,6 +1794,7 @@ namespace Server.MirObjects
                             break;
                         }
 
+                        if (!Envir.InMobPass) map.CatchUpRespawns(); // P9-07: a sleeping empty map counts its due respawns
                         failed = !Compare(param[0], map.MonsterCount, tempInt);
 
                         break;
@@ -2001,6 +2003,7 @@ namespace Server.MirObjects
                             break;
                         }
 
+                        if (!Envir.InMobPass) map.CatchUpRespawns(); // P9-07: a sleeping empty map counts its due respawns
                         failed = !Compare(param[0], map.MonsterCount, tempInt);
 
                         break;
@@ -2379,6 +2382,7 @@ namespace Server.MirObjects
                             break;
                         }
 
+                        if (!Envir.InMobPass) map.CatchUpRespawns(); // P9-07: a sleeping empty map counts its due respawns
                         failed = !Compare(param[0], map.MonsterCount, tempInt);
 
                         break;

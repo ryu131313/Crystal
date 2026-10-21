@@ -618,9 +618,8 @@ namespace Server.MirObjects
             Packet p;
             if (CurrentMap == null) return;
 
-            for (int i = CurrentMap.Players.Count - 1; i >= 0; i--)
+            foreach (var player in CurrentMap.PlayersNear(CurrentLocation, Globals.DataRange))
             {
-                PlayerObject player = CurrentMap.Players[i];
                 if (Functions.InRange(CurrentLocation, player.CurrentLocation, Globals.DataRange))
                 {
                     if ((Caster == null) || (player == null)) continue;

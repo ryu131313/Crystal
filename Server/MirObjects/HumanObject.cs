@@ -36,8 +36,17 @@ namespace Server.MirObjects
         public override Point CurrentLocation
         {
             get { return Info.CurrentLocation; }
-            set { Info.CurrentLocation = value; }
+            set
+            {
+                Info.CurrentLocation = value;
+                if (GridMap != null) GridMap.Grid.Moved((PlayerObject)this); // P9-07: keep the player's sector current
+            }
         }
+
+        /// <summary>Map whose <see cref="PlayerGrid"/> holds this player, its sector there, and whether a deferred move is queued (P9-07; players only).</summary>
+        internal Map GridMap;
+        internal int GridSector = -1;
+        internal int GridFixPending;
         public override MirDirection Direction
         {
             get { return Info.Direction; }

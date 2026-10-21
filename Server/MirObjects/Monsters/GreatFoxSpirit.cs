@@ -64,8 +64,16 @@ namespace Server.MirObjects.Monsters
                         if (Functions.MaxDistance(CurrentLocation, targets[i].CurrentLocation) > 3)
                         {
                             if (Envir.Random.Next(Settings.MagicResistWeight) < targets[i].Stats[Stat.MagicResist]) continue;
-                            if (!targets[i].Teleport(CurrentMap, Functions.PointMove(CurrentLocation, (MirDirection)((byte)Envir.Random.Next(7)), 1)))
-                            targets[i].Teleport(CurrentMap, CurrentLocation);
+                            // P9-07: moving a player belongs on the game thread; runs right after the mob pass, same tick.
+                            var victim = targets[i];
+                            var map = CurrentMap;
+                            var home = CurrentLocation;
+                            var near = Functions.PointMove(home, (MirDirection)((byte)Envir.Random.Next(7)), 1);
+                            Envir.RunOutsideMobPass(() =>
+                            {
+                                if (!victim.Teleport(map, near))
+                                    victim.Teleport(map, home);
+                            });
                             return;
                         }
                     }
