@@ -69,7 +69,7 @@ namespace Server.MirEnvir.Storage
     /// the store first, then the cache.</item>
     /// </list>
     /// </summary>
-    internal static class DropTables
+    internal static partial class DropTables
     {
         /// <summary>meta key: set once the drop_lines table was converted (or the drops were imported straight into these tables).</summary>
         public const string ConvertedMarker = "drops_tables_utc";
@@ -98,6 +98,8 @@ namespace Server.MirEnvir.Storage
             public Dictionary<long, DropList> ById;
             /// <summary>File name (as the game builds it, case-insensitive) → list. One list per name.</summary>
             public Dictionary<string, DropList> ByName;
+            /// <summary>Monster Index → the monster's own list (kind monster): what a monster without DropPath loads (phase 2).</summary>
+            public Dictionary<long, DropList> ByMonster;
         }
 
         private static volatile State _state;
@@ -141,15 +143,90 @@ namespace Server.MirEnvir.Storage
         }
 
         /// <summary>
-        /// Lists are found by their file name, as the game builds it (monster Name or DropPath + ".txt"), exactly as the files were: the
-        /// owner columns (monster Index, fishing type) describe a list but don't move it. (Binding drops to a monster by Index belongs with
-        /// the grid editor, phase 2: a list shared by several monsters, or a rename the running world hasn't loaded, must not follow it.)
+        /// Lists keep their file name (the text facade, DropPath lists, the special lists and NPC DROP lists are found by it). A monster
+        /// without DropPath finds its own list by Index first (<see cref="ForMonster"/>), so a rename, also one the running world hasn't
+        /// loaded yet, keeps its drops; a list other monsters load by name (a DropPath equal to the owner's old name) stays where it is.
         /// </summary>
         private static State BuildState(Dictionary<long, DropList> byId)
         {
             var byName = new Dictionary<string, DropList>(StringComparer.OrdinalIgnoreCase);
-            foreach (var l in byId.Values.OrderBy(l => l.Id)) byName[l.Name] = l;
-            return new State { ById = byId, ByName = byName };
+            var byMonster = new Dictionary<long, DropList>();
+            foreach (var l in byId.Values.OrderBy(l => l.Id))
+            {
+                byName[l.Name] = l;
+                if (l.Kind == DropList.Monster && l.MonsterIndex is long m) byMonster[m] = l;
+            }
+
+            return new State { ById = byId, ByName = byName, ByMonster = byMonster };
+        }
+
+        /// <summary>The list file name a monster loads by name: DropPath (or, without one, Name) + ".txt", relative to the drop folder.</summary>
+        public static string MonsterFileName(string name, string dropPath)
+        {
+            var file = (string.IsNullOrEmpty(dropPath) ? name : dropPath) + ".txt";
+            return TryMap(Path.Combine(Settings.DropPath, file), out var listName) ? listName : file.Replace('\\', '/'); // as Envir.ReloadDrops built the path
+        }
+
+        /// <summary>
+        /// The list a monster loads (phase 2, D1): with a DropPath the shared list of that name; without, its own list (bound to its Index),
+        /// else the list named after it (a list created before the binding, or one shared by name). Null when there is none.
+        /// </summary>
+        public static DropList ForMonster(long index, string name, string dropPath)
+        {
+            var s = Loaded();
+            if (string.IsNullOrEmpty(dropPath) && s.ByMonster.TryGetValue(index, out var own)) return own;
+            if (name == null && string.IsNullOrEmpty(dropPath)) return null;
+            if (!s.ByName.TryGetValue(MonsterFileName(name, dropPath), out var l)) return null;
+            // A monster without DropPath doesn't take over another monster's own list that still carries its old name (that monster was
+            // renamed): it gets a list of its own. A DropPath list, or one bound to a monster of the same name (duplicates), is shared.
+            if (string.IsNullOrEmpty(dropPath) && l.Kind == DropList.Monster && l.MonsterIndex is long other && other != index &&
+                _monsters.TryGetValue(other, out var owner) && owner.Name != null && !string.Equals(owner.Name, name, StringComparison.OrdinalIgnoreCase))
+                return null;
+            return l;
+        }
+
+        /// <summary>A free list name for a monster's own new list: Name.txt, or Name_Index.txt when another list holds that name.</summary>
+        public static string FreeMonsterListName(string listName, long index)
+        {
+            var s = Loaded();
+            if (!s.ByName.ContainsKey(listName)) return listName;
+            var stem = listName.Substring(0, listName.Length - 4) + "_" + index.ToString(CultureInfo.InvariantCulture);
+            var name = stem + ".txt";
+            for (var n = 2; s.ByName.ContainsKey(name); n++) name = stem + "_" + n.ToString(CultureInfo.InvariantCulture) + ".txt";
+            return name;
+        }
+
+        /// <summary>The owner of a new list from its name, never a monster that already has its own list (it keeps that one).</summary>
+        /// <param name="listId">The list being renamed (its own monster may keep it), or null for a new list.</param>
+        public static (string Kind, long? Monster, int? Fishing) OwnerForNew(string name, IEnumerable<(long Index, string Name, string DropPath)> monsters, long? listId = null)
+        {
+            var s = Loaded();
+            return OwnerOf(name, monsters.Where(m => !s.ByMonster.TryGetValue(m.Index, out var own) || own.Id == listId));
+        }
+
+        public static DropList Get(long id) => Loaded().ById.TryGetValue(id, out var l) ? l : null;
+
+        /// <summary>Every list (a snapshot; lists and rows are never changed in place).</summary>
+        public static IReadOnlyCollection<DropList> Lists() => Loaded().ById.Values;
+
+        /// <summary>The list's revision for optimistic concurrency (changes with every write).</summary>
+        public static string Rev(DropList l) => l.UpdatedUtc.Ticks.ToString(CultureInfo.InvariantCulture) + "-" + l.Rows.Length.ToString(CultureInfo.InvariantCulture);
+
+        /// <summary>True when another list includes <paramref name="l"/> (by link or by name): its owners' drops change too.</summary>
+        public static bool IsIncluded(DropList l)
+        {
+            foreach (var other in Loaded().ById.Values)
+            {
+                if (other.Id == l.Id || other.IsDragon) continue;
+                foreach (var row in other.Rows)
+                {
+                    if (row.IncludeListId == l.Id) return true;
+                    var m = IncludePattern.Match(row.Text ?? string.Empty);
+                    if (m.Success && string.Equals(IncludeName(m.Groups[1].Value), l.Name, StringComparison.OrdinalIgnoreCase)) return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>Replaces (or with <paramref name="removeId"/> removes) lists in the cache; a list replaces any other of the same name.</summary>
@@ -221,13 +298,36 @@ namespace Server.MirEnvir.Storage
         /// <summary>The row's line: as written, with a renamed item under its current name.</summary>
         internal static string Render(DropRow row, Func<string, long, string> nameOf)
         {
-            var text = row.Text ?? string.Empty;
+            if (row.Text == null) return Canonical(row, nameOf);
+            var text = row.Text;
             if (row.ItemIndex == null || row.ItemName == null) return text;
             var current = DesignTexts.CurrentName("I", row.ItemIndex.Value, row.ItemName, nameOf);
             if (string.Equals(current, row.ItemName, StringComparison.Ordinal)) return text;
             var at = SecondTokenStart(text);
             if (at < 0 || string.CompareOrdinal(text, at, row.ItemName, 0, row.ItemName.Length) != 0) return text;
             return text.Substring(0, at) + current + text.Substring(at + row.ItemName.Length);
+        }
+
+        /// <summary>
+        /// The line for a row written by the grid editor (no text of its own): <c>1/N Item[ Q][ level]</c>, <c>1/N Gold amount[ level]</c>,
+        /// <c>1/N GROUP[*|^]</c>. The game reads it back as the same drop (items under their current, spaceless names).
+        /// </summary>
+        private static string Canonical(DropRow row, Func<string, long, string> nameOf)
+        {
+            var chance = "1/" + row.Chance.ToString(CultureInfo.InvariantCulture);
+            var level = row.DragonLevel.HasValue ? " " + row.DragonLevel.Value.ToString(CultureInfo.InvariantCulture) : string.Empty;
+            switch (row.Kind)
+            {
+                case DropKind.Item:
+                    var name = row.ItemIndex is long i ? DesignTexts.CurrentName("I", i, row.ItemName ?? string.Empty, nameOf) : row.ItemName;
+                    return chance + " " + name + (row.Quest ? " Q" : string.Empty) + level;
+                case DropKind.Gold:
+                    return chance + " Gold " + row.Gold.ToString(CultureInfo.InvariantCulture) + level;
+                case DropKind.Group:
+                    return chance + " GROUP" + (row.GroupMode ?? string.Empty);
+                default:
+                    return string.Empty;
+            }
         }
 
         /// <summary>Where the item token starts: after leading white space, the chance token and its spaces (the game splits on ' ').</summary>
@@ -244,7 +344,13 @@ namespace Server.MirEnvir.Storage
         /// Parses and stores a list (replacing it). Returns the number of item lines whose item doesn't exist (stored as disabled rows).
         /// On the game thread (a loader creating a missing default list) the cache is updated at once and the store write is posted.
         /// </summary>
-        public static int Write(string name, IList<string> lines, TextLayout? layout = null)
+        public static int Write(string name, IList<string> lines, TextLayout? layout = null, (string Kind, long? Monster, int? Fishing)? owner = null)
+        {
+            if (DesignStore.OnGameThread) return WriteCore(name, lines, layout, owner);
+            lock (EditGate) return WriteCore(name, lines, layout, owner); // text writes (restore, class toggle) serialise with the grid's saves
+        }
+
+        private static int WriteCore(string name, IList<string> lines, TextLayout? layout, (string Kind, long? Monster, int? Fishing)? owner)
         {
             var s = Loaded();
             var lay = layout ?? TextLayout.WriteAllLines;
@@ -253,7 +359,7 @@ namespace Server.MirEnvir.Storage
                 list = new DropList { Id = existing.Id, Kind = existing.Kind, MonsterIndex = existing.MonsterIndex, Name = existing.Name, FishingType = existing.FishingType };
             else
             {
-                var (kind, monster, fishing) = OwnerOf(name, MonsterView());
+                var (kind, monster, fishing) = owner ?? OwnerForNew(name, MonsterView());
                 list = new DropList { Id = Interlocked.Increment(ref _nextListId), Kind = kind, MonsterIndex = monster, Name = name, FishingType = fishing };
             }
 
@@ -293,10 +399,15 @@ namespace Server.MirEnvir.Storage
         /// the other way.</summary>
         public static void Rename(string from, string to)
         {
+            lock (EditGate) RenameCore(from, to);
+        }
+
+        private static void RenameCore(string from, string to)
+        {
             var s = Loaded();
             if (!s.ByName.TryGetValue(from, out var old)) throw new FileNotFoundException("[Store] " + from + " is not in the drops store");
             var list = new DropList { Id = old.Id, Name = to, Layout = old.Layout, UpdatedUtc = DateTime.UtcNow, Rows = old.Rows };
-            (list.Kind, list.MonsterIndex, list.FishingType) = OwnerOf(to, MonsterView());
+            (list.Kind, list.MonsterIndex, list.FishingType) = OwnerForNew(to, MonsterView(), old.Id);
 
             var reparse = list.IsDragon != old.IsDragon;
             var lines = reparse ? Render(old, null) : null;
@@ -332,6 +443,12 @@ namespace Server.MirEnvir.Storage
         }
 
         public static void Delete(string name)
+        {
+            if (DesignStore.OnGameThread) DeleteCore(name);
+            else lock (EditGate) DeleteCore(name);
+        }
+
+        private static void DeleteCore(string name)
         {
             var s = Loaded();
             if (!s.ByName.TryGetValue(name, out var l)) return;
@@ -559,7 +676,14 @@ namespace Server.MirEnvir.Storage
         {
             var s = Loaded();
             if (!s.ByName.TryGetValue(listName, out var root)) return false;
+            LoadInto(list, name, root, type, badLine);
+            return true;
+        }
 
+        /// <summary>As <see cref="LoadInto(List{DropInfo}, string, string, byte, Action{string, string})"/> for a list already found (a monster's own list).</summary>
+        public static void LoadInto(List<DropInfo> list, string name, DropList root, byte type, Action<string, string> badLine)
+        {
+            var s = Loaded();
             // #INSERT: every included list's drops go after the including list's, transitively, in the order the text loader appended them.
             var segments = new List<(DropList List, int From)> { (root, -1) };
             for (var k = 0; k < segments.Count; k++)
@@ -615,7 +739,6 @@ namespace Server.MirEnvir.Storage
             }
 
             list.Sort(DropInfo.CompareForList);
-            return true;
         }
 
         /// <summary>One drop from a row (null for notes, includes and lines the game can't load, which are logged as the text loader did).</summary>

@@ -31,6 +31,12 @@ namespace Server.WebAdmin
 
         public string Description { get; }
 
+        /// <summary>
+        /// Shown, searched, validated and backed up, but not saved, created, deleted or renamed in the Scripts editor (drops: edited in
+        /// Game Data › Drops since Drops-Tables-Plan phase 2). Restoring a backup is still allowed: it is the undo for a drops grid save.
+        /// </summary>
+        public bool ReadOnly { get; init; }
+
         public bool Exists => System.IO.Directory.Exists(Directory) || DesignFiles.IsDesignFolder(Directory); // roadmap P7: design roots live in SystemData.db
     }
 
@@ -513,7 +519,7 @@ namespace Server.WebAdmin
             var roots = new List<ScriptRoot>
             {
                 new ScriptRoot("npcs", "NPC scripts", Abs(Settings.NPCPath), false, "Envir\\NPCs — NPC dialog scripts (Reload NPCs applies changes live)."),
-                new ScriptRoot("drops", "Drops", Abs(Settings.DropPath), false, "Envir\\Drops — monster drop tables (Reload Drops applies changes live)."),
+                new ScriptRoot("drops", "Drops", Abs(Settings.DropPath), false, "Envir\\Drops — drop lists, read only here: edit them in Game Data › Drops.") { ReadOnly = true },
                 new ScriptRoot("quests", "Quests", Abs(Settings.QuestPath), false, "Envir\\Quests — quest descriptions, tasks and rewards."),
                 new ScriptRoot("recipes", "Recipes", Abs(Settings.RecipePath), true, "Envir\\Recipe — crafting recipes, one file per crafted item."),
                 new ScriptRoot("routes", "Routes", Abs(Settings.RoutePath), false, "Envir\\Routes — monster walking routes (applied on reboot)."),

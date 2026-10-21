@@ -1,8 +1,9 @@
 /**
  * Game Data section (#section-gamedata, feature B9): the system tables of the Edit envir as grid editors.
  *
- * Sub-navigation: Items · Monsters · Magic · NPCs · Quests · Maps · Game Shop · Conquests · Dragon.
- * Hash: #section=gamedata&table=<endpoint>&index=<n> (a child endpoint such as maprespawns opens its master tab).
+ * Sub-navigation: Items · Monsters · Magic · NPCs · Quests · Maps · Game Shop · Conquests · Dragon · Drops.
+ * Hash: #section=gamedata&table=<endpoint>&index=<n> (a child endpoint such as maprespawns opens its master tab);
+ * Drops: #section=gamedata&table=drops&list=<list id> or &monster=<monster index>.
  *
  * - One makeDbGridEditor per table, created the first time its tab is opened and kept afterwards (switching tabs never
  *   throws edits away). "Apply rows + Save DB" goes through persistRows(): only the changed rows are sent; more than one
@@ -11,9 +12,13 @@
  * - Maps / Conquests: a master grid plus child tabs (Safe zones, Respawns, ... / Guards, Gates, ...) filtered by the
  *   selected master row (setParentFilter); new child rows default to the selected parent.
  * - Dragon: a single-record form.
- * - Monsters: "Apply live to running world" (PUT ?live=1). Items / Monsters: renamed rows offer the reference rewrite
- *   (POST /api/admin/db/rename-propagate, dry run first); the rewritten files take effect at the next world restart (no
- *   live Reload drops / NPCs: the running world still resolves the old name, see noteRenameRestart).
+ * - Drops (kind 'drops', not a registry endpoint): the drop lists editor of admin-drops.js (DropsEditor: list picker + rows
+ *   grid, /api/admin/drops/*). The Monsters grid toolbar has a "Drops" button that opens the selected monster's list.
+ *   Leaving the tab with unsaved drop edits asks first (DropsEditor.confirmLeave).
+ * - Monsters: "Apply live to running world" (PUT ?live=1). Items / Monsters: renamed rows offer the reference rewrite of the
+ *   recipe, quest and NPC files (POST /api/admin/db/rename-propagate, dry run first); drops need none (they link items and
+ *   monsters by Index). The rewritten files take effect at the next world restart (no live Reload NPCs: the running world
+ *   still resolves the old name, see noteRenameRestart).
  * - Persistent banner: unsaved Edit changes (GET /api/admin/database/status) with Save to disk / Discard unsaved, and the
  *   pending-reboot list (GET /api/admin/status via AdminStatus) with Reboot world.
  * - Stat_* columns are grouped into one collapsible "Stats" column group; column presets All / Basic / Stats / Flags.
@@ -44,7 +49,8 @@
     { id: 'maps', label: 'Maps', kind: 'master', parentField: 'MapIndex', parentLabel: 'Map' },
     { id: 'gameshop', label: 'Game Shop', kind: 'grid' },
     { id: 'conquests', label: 'Conquests', kind: 'master', parentField: 'ConquestIndex', parentLabel: 'Conquest' },
-    { id: 'dragon', label: 'Dragon', kind: 'form' }
+    { id: 'dragon', label: 'Dragon', kind: 'form' },
+    { id: 'drops', label: 'Drops', kind: 'drops' }
   ];
 
   var CHILDREN = {
@@ -174,7 +180,10 @@
     return row.Title || row.Name || row.ItemName || row.MonsterName || row.FileName || row.Description || ('#' + row.Index);
   }
 
-  /** Which kinds of game file (drops / NPCs / other) a set of rewritten files touches. */
+  /**
+   * Which kinds of game file (drops / NPCs / other) a set of rewritten files touches. Renames no longer rewrite drops (drop rows
+   * link items and monsters by Index); the drops kind stays for a reply that still lists one.
+   */
   function reloadKinds(files) {
     var k = { drops: false, npcs: false, needsReboot: false };
     (files || []).forEach(function (f) {
@@ -869,16 +878,17 @@
       var rn = renames[i];
       if (!rn || !rn.old || !rn['new']) continue;
       var ep = rn.endpoint || 'items';
-      var ask = await portalConfirm('"' + rn.old + '" was renamed to "' + rn['new'] + '". Drop, recipe, quest and NPC files still name it "' +
-        rn.old + '". Check which files reference it?', { title: 'Update references in drop/recipe/quest/NPC files…', confirmLabel: 'Check files', danger: false });
+      var ask = await portalConfirm('"' + rn.old + '" was renamed to "' + rn['new'] + '". Recipe, quest and NPC files still name it "' +
+        rn.old + '" (drops follow the rename by themselves: they link by Index). Check which files reference it?',
+      { title: 'Update references in recipe/quest/NPC files…', confirmLabel: 'Check files', danger: false });
       if (!ask) continue;
       var dry = await global.OpsUI.post('/api/admin/db/rename-propagate', { endpoint: ep, old: rn.old, 'new': rn['new'], dryRun: true }, { quiet: true });
       if (!dry.__ok) continue;
       var dd = global.OpsUI.unwrap(dry) || {};
-      // Keep file renames too: a monster without DropPath has its drop file Drops\<old>.txt moved to <new>.txt (renameTo set,
-      // replacements 0); without that move the renamed monster would load a missing drop file and drop nothing.
+      // Keep file renames too (renameTo set, replacements 0) in case the server plans one. Drop lists are not in the plan any
+      // more: they link items and monsters by Index, so a rename needs no drop change.
       var files = (Array.isArray(dd.files) ? dd.files : (Array.isArray(dry.files) ? dry.files : [])).filter(function (f) { return f && (Number(f.replacements) !== 0 || !!f.renameTo); });
-      if (!files.length) { portalToast('No drop, recipe, quest or NPC file references "' + rn.old + '".', 'info'); continue; }
+      if (!files.length) { portalToast('No recipe, quest or NPC file references "' + rn.old + '".', 'info'); continue; }
       var total = files.reduce(function (n, f) { return n + (Number(f.replacements) || 0); }, 0);
       var moves = files.filter(function (f) { return !!f.renameTo; }).length;
       var go = await modal({
@@ -920,9 +930,9 @@
   }
 
   // No live reload after a rename: the running world (Envir.Main) still has the OLD ItemInfo / MonsterInfo names — the rename
-  // only exists in the Edit envir until a restart. DropInfo.FromLine and NPC [Trade] goods resolve names through
-  // Envir.Main.GetItemInfo, and Envir.ReloadDrops builds drop-file paths from Main's monster names, so reloading the rewritten
-  // drop / NPC files now would silently drop the renamed item (or a renamed monster's whole drop list) until the next restart.
+  // only exists in the Edit envir until a restart. NPC [Trade] goods resolve names through Envir.Main.GetItemInfo, so reloading
+  // the rewritten NPC files now would silently drop the renamed item until the next restart. Drops are not rewritten: their
+  // rows link items and monsters by Index.
   function noteRenameRestart(kinds) {
     var st = global.AdminStatus && global.AdminStatus.last ? global.AdminStatus.last() : null;
     var running = !!(st && st.world === 'running');
@@ -1066,6 +1076,7 @@
       bar.querySelector('[data-preset="flags"]').classList.toggle('hidden', !has.flags);
       bar.classList.remove('hidden');
     }
+    if (endpoint === 'monsters' && container) addDropsButton(container, api);
     var info = tablesInfo[endpoint] || {};
     var tab = tabById[endpoint] || {};
     var noInsert = info.insertable === false || !!tab.noInsert;
@@ -1077,6 +1088,39 @@
         if (noDelete && t === 'Delete selected') { b.disabled = true; b.title = label(endpoint) + ' rows cannot be deleted.'; }
       });
     }
+  }
+
+  /** Monsters toolbar: "Drops" opens the Drops tab on the selected (or focused) monster's list. */
+  function addDropsButton(container, api) {
+    var bar = container.querySelector('.db-tools-bar');
+    if (!bar || bar.querySelector('[data-gd-drops]')) return;
+    var b = button('Drops', '', 'Open the drop list of the selected monster in the Drops tab');
+    b.setAttribute('data-gd-drops', '1');
+    b.addEventListener('click', function () {
+      var row = (api.getSelectedRows() || [])[0] || null;
+      if (!row && api.getFocusedCell) {
+        var fc = api.getFocusedCell();
+        var node = fc && fc.rowIndex != null ? api.getDisplayedRowAtIndex(fc.rowIndex) : null;
+        row = node ? node.data : null;
+      }
+      var idx = row ? Number(row.Index) : 0;
+      if (!(idx > 0)) { portalToast('Select a saved monster row first (a new row has no drops until it is applied).', 'info'); return; }
+      openDrops({ monster: idx });
+    });
+    bar.appendChild(b);
+  }
+
+  /** Open the Drops tab on a list ({ list: id }) or a monster's list ({ monster: index }); writes the hash. */
+  function openDrops(params) {
+    params = params || {};
+    var list = params.list != null ? params.list : null;
+    var monster = params.monster != null ? params.monster : null;
+    var link = {};
+    if (list != null) link.list = list;
+    if (monster != null) link.monster = monster;
+    if (viaSection('drops', link)) return;
+    global.portalSetHashParams({ table: 'drops', index: null, list: list, monster: monster }, false);
+    open('drops', { list: list, monster: monster });
   }
 
   // ---- grid editors ---------------------------------------------------------------------------------------------------
@@ -1484,13 +1528,31 @@
     loadDragon();
   }
 
+  // ---- Drops tab (admin-drops.js) -------------------------------------------------------------------------------------
+
+  function buildDropsPane() {
+    var pane = el('div', 'db-pane gd-pane gd-drops-pane hidden');
+    pane.setAttribute('data-tab', 'drops');
+    ui.panes.appendChild(pane);
+    if (global.DropsEditor) global.DropsEditor.mount(pane);
+    else pane.appendChild(el('p', 'mir-muted', 'The drops editor (admin-drops.js) did not load.'));
+    return { el: pane };
+  }
+
+  /** Resolves true when the current tab may be left (only the Drops tab holds edits outside a grid editor). */
+  function leaveTabOk(nextTab) {
+    if (currentTab !== 'drops' || nextTab === 'drops' || !global.DropsEditor || !global.DropsEditor.isDirty()) return Promise.resolve(true);
+    return global.DropsEditor.confirmLeave();
+  }
+
   // ---- tabs -----------------------------------------------------------------------------------------------------------
 
   function ensurePane(tabId) {
     if (panes[tabId]) return panes[tabId];
     var tab = tabById[tabId];
     if (!tab) return null;
-    panes[tabId] = tab.kind === 'master' ? buildMasterPane(tab) : tab.kind === 'form' ? buildDragonPane() : buildGridPane(tab);
+    panes[tabId] = tab.kind === 'master' ? buildMasterPane(tab) : tab.kind === 'form' ? buildDragonPane()
+      : tab.kind === 'drops' ? buildDropsPane() : buildGridPane(tab);
     return panes[tabId];
   }
 
@@ -1502,10 +1564,10 @@
       b.appendChild(document.createTextNode(t.label));
       var count = el('span', 'gd-tab-count');
       b.appendChild(count);
-      b.addEventListener('click', function () {
+      b.addEventListener('click', async function () {
         if (currentTab === t.id) return;
-        showTab(t.id);
-        global.portalSetHashParams({ table: t.id, index: null }, false);
+        if (!(await showTab(t.id))) return;
+        global.portalSetHashParams({ table: t.id, index: null, list: null, monster: null }, false);
       });
       ui.tabs.appendChild(b);
     });
@@ -1525,6 +1587,7 @@
 
   async function showTab(tabId) {
     if (!tabById[tabId]) tabId = 'items';
+    if (!(await leaveTabOk(tabId))) return false;
     var p = ensurePane(tabId);
     currentTab = tabId;
     Object.keys(panes).forEach(function (k) { panes[k].el.classList.toggle('hidden', k !== tabId); });
@@ -1534,7 +1597,11 @@
     var tab = tabById[tabId];
     if (tab.kind === 'form') {
       if (!dragon.loaded) await loadDragon();
-      return;
+      return true;
+    }
+    if (tab.kind === 'drops') {
+      if (global.DropsEditor) await global.DropsEditor.show();
+      return true;
     }
     var ed = editors[tabId];
     if (ed) {
@@ -1545,14 +1612,25 @@
       var st = masters[tabId];
       await showChild(tabId, st.activeChild || CHILDREN[tabId][0].endpoint);
     }
+    return true;
   }
 
-  /** Open a table (its master tab for a child table); opts: { select: index, filter: { field, value, label } }. */
+  /**
+   * Open a table (its master tab for a child table); opts: { select: index, filter: { field, value, label } }.
+   * Drops: opts { list: id } or { monster: index }.
+   */
   async function open(endpoint, opts) {
     endpoint = String(endpoint || '').toLowerCase();
     opts = opts || {};
     var tabId = tabById[endpoint] ? endpoint : childOwner[endpoint];
     if (!tabId) { portalToast('Unknown game data table: ' + endpoint, 'error'); return; }
+    if (tabId === 'drops') {
+      if (currentTab !== 'drops' && !(await showTab('drops'))) return;
+      if (!global.DropsEditor) return;
+      if (opts.monster != null && Number(opts.monster) > 0) await global.DropsEditor.openMonster(Number(opts.monster));
+      else if (opts.list != null && isFinite(Number(opts.list))) await global.DropsEditor.openList(Number(opts.list));
+      return;
+    }
     // A tab already on screen is not reloaded (show() would refresh its rows); a link only selects / filters in it.
     var tabEd = editors[tabId];
     var isChild = endpoint !== tabId;
@@ -1561,7 +1639,7 @@
         ensurePane(tabId);
         if (masters[tabId]) masters[tabId].activeChild = endpoint;   // the master tab opens on this child directly
       }
-      await showTab(tabId);
+      if (!(await showTab(tabId))) return;
     }
     if (isChild) {
       var mst = masters[tabId];
@@ -1683,6 +1761,7 @@
       if (ed && ed.getApi && ed.getApi()) n += ed.pendingCount();
     });
     if (dragon && dragon.dirty) n++;
+    if (global.DropsEditor) n += global.DropsEditor.pendingCount();
     return n;
   }
 
@@ -1816,6 +1895,7 @@
       renderBanner();
       if (hashTable(params)) return;   // the deep link opens the table
       if (!currentTab) return showTab(initialTab());
+      if (currentTab === 'drops') return global.DropsEditor ? global.DropsEditor.show() : null;
       var ed = editors[currentTab];
       if (ed && ed.getApi()) return ed.show();
     },
@@ -1831,6 +1911,12 @@
     var table = hashTable(params);
     if (!table) { if (!currentTab) showTab(initialTab()); return; }
     var opts = {};
+    if (table === 'drops') {
+      if (params.monster != null && params.monster !== '' && isFinite(Number(params.monster))) opts.monster = Number(params.monster);
+      else if (params.list != null && params.list !== '' && isFinite(Number(params.list))) opts.list = Number(params.list);
+      open(table, opts);
+      return;
+    }
     var idx = params.index != null && params.index !== '' ? params.index : params.row;
     if (idx != null && idx !== '' && isFinite(Number(idx))) opts.select = Number(idx);
     var pf = parentFieldOf(table);
@@ -1876,6 +1962,10 @@
     /** LiveDb off: PUT rows to the editor copy (dry run or real) -> normalised reply or null; then saveDatabase(). */
     putRows: function (endpoint, rows, opts) { return putRows(endpoint, rows, opts); },
     saveDatabase: function (quiet) { return saveDatabase(quiet); },
-    showIssues: function (title, res) { return showIssues(title, res); }
+    showIssues: function (title, res) { return showIssues(title, res); },
+    /** The section's modal: { title, build(body), confirmLabel?, danger?, reason? } -> { reason } or null (used by admin-drops.js). */
+    modal: function (spec) { return modal(spec); },
+    /** Open the Drops tab: { list: id } or { monster: index }. */
+    openDrops: function (params) { openDrops(params); }
   };
 })(window);

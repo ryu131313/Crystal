@@ -107,6 +107,14 @@ namespace Server.WebAdmin.Tests
             new object[] { "POST", "/api/admin/database/save", "/api/admin/database/save" },
             new object[] { "GET", "/api/admin/database/status", "/api/admin/database/status" },
             new object[] { "POST", "/api/admin/database/reload-edit", "/api/admin/database/reload-edit" },
+            // Drops editor (Drops-Tables-Plan phase 2)
+            new object[] { "GET", "/api/admin/drops/lists", "/api/admin/drops/lists" },
+            new object[] { "GET", "/api/admin/drops/monster", "/api/admin/drops/monster" },
+            new object[] { "GET", "/api/admin/drops/list", "/api/admin/drops/list" },
+            new object[] { "POST", "/api/admin/drops/save", "/api/admin/drops/save" },
+            new object[] { "POST", "/api/admin/drops/create", "/api/admin/drops/create" },
+            new object[] { "POST", "/api/admin/drops/copy", "/api/admin/drops/copy" },
+            new object[] { "POST", "/api/admin/drops/delete-disabled", "/api/admin/drops/delete-disabled" },
             // History (owner B11) must win over db/{endpoint}
             new object[] { "GET", "/api/admin/db/history", "/api/admin/db/history" },
             // LiveDb (Batch A)

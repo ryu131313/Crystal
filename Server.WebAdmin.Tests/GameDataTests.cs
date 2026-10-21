@@ -632,18 +632,6 @@ namespace Server.WebAdmin.Tests
         private static List<string> L(params string[] lines) => lines.ToList();
 
         [Fact]
-        public void Drops_ReplaceOnlyTheNameToken()
-        {
-            var lines = L("1/10 WoodenSword", "  1/5 woodensword Q", "1/3 WoodenSwordX", ";1/2 WoodenSword", "1/1 Gold 500", "1/2 GROUP*", "{", " 1/4 WoodenSword", "}");
-            Assert.Equal(3, GameDataRename.RewriteDrops(lines, "WoodenSword", "OakSword"));
-            Assert.Equal("1/10 OakSword", lines[0]);
-            Assert.Equal("  1/5 OakSword Q", lines[1]);
-            Assert.Equal("1/3 WoodenSwordX", lines[2]);
-            Assert.Equal(";1/2 WoodenSword", lines[3]);
-            Assert.Equal(" 1/4 OakSword", lines[7]);
-        }
-
-        [Fact]
         public void Recipe_SkipsRecipeKeys_RewritesIngredientsAndTools()
         {
             var lines = L("[Recipe]", "WoodenSword 1", "[Ingredients]", "WoodenSword 2", "Other 1", "[Tools]", "woodensword");
@@ -720,16 +708,15 @@ namespace Server.WebAdmin.Tests
 
                 var roots = new Dictionary<string, string>
                 {
-                    ["drops"] = drops,
                     ["recipes"] = recipes,
                     ["quests"] = quests,
                     ["npcs"] = Path.Combine(root, "NPCs"),
                 };
 
                 var warnings = new List<string>();
-                var plan = GameDataRename.Plan("items", "WoodenSword", "OakSword", roots, false, warnings);
+                var plan = GameDataRename.Plan("items", "WoodenSword", "OakSword", roots, warnings);
                 Assert.Empty(warnings);
-                Assert.Equal(4, plan.Count);
+                Assert.Equal(3, plan.Count); // recipe, quest, NPC: drops follow renames by Index (Drops-Tables-Plan phase 2)
                 Assert.Contains(plan, f => f.Root == "npcs" && f.Path == "Town/Smith.txt" && f.Replacements == 1);
                 var recipe = plan.Single(f => f.Root == "recipes");
                 Assert.Equal("OakSword.txt", recipe.RenameTo);
@@ -741,18 +728,17 @@ namespace Server.WebAdmin.Tests
                 var backups = Path.Combine(root, "Back Up");
                 GameDataRename.Execute(plan, backups, new DateTime(2026, 1, 2, 3, 4, 5), warnings);
                 Assert.Empty(warnings);
-                Assert.Equal("1/10 OakSword\r\n1/2 Other\r\n", File.ReadAllText(Path.Combine(drops, "Hen.txt")));
+                Assert.Equal("1/10 WoodenSword\r\n1/2 Other\r\n", File.ReadAllText(Path.Combine(drops, "Hen.txt"))); // untouched
                 Assert.False(File.Exists(Path.Combine(recipes, "WoodenSword.txt")));
                 Assert.True(File.Exists(Path.Combine(recipes, "OakSword.txt")));
                 Assert.Equal("[TRADE]\nOakSword\n", File.ReadAllText(Path.Combine(npcs, "Smith.txt")));
-                Assert.True(File.Exists(Path.Combine(backups, "drops", "Hen.txt.20260102-030405.bak")));
                 Assert.True(File.Exists(Path.Combine(backups, "npcs", "Town", "Smith.txt.20260102-030405.bak")));
 
-                // Monster rename: quest kill tasks + its drop file.
+                // Monster rename: quest kill tasks only (its drop list is bound to its Index).
                 warnings.Clear();
-                plan = GameDataRename.Plan("monsters", "Hen", "Chicken", roots, true, warnings);
+                plan = GameDataRename.Plan("monsters", "Hen", "Chicken", roots, warnings);
                 Assert.Contains(plan, f => f.Root == "quests" && f.Path == "Untouched.txt");
-                Assert.Contains(plan, f => f.Root == "drops" && f.RenameTo == "Chicken.txt");
+                Assert.DoesNotContain(plan, f => f.Root == "drops");
             }
             finally
             {

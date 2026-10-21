@@ -92,7 +92,6 @@
             this.MonsterInfoListBox = new System.Windows.Forms.ListBox();
             this.PasteMButton = new System.Windows.Forms.Button();
             this.CopyMButton = new System.Windows.Forms.Button();
-            this.DropBuilderButton = new System.Windows.Forms.Button();
             this.DropPathTextBox = new System.Windows.Forms.TextBox();
             this.label13 = new System.Windows.Forms.Label();
             this.tabControl1.SuspendLayout();
@@ -755,16 +754,6 @@
             this.CopyMButton.Text = "Copy";
             this.CopyMButton.UseVisualStyleBackColor = true;
             // 
-            // DropBuilderButton
-            // 
-            this.DropBuilderButton.Location = new System.Drawing.Point(415, 12);
-            this.DropBuilderButton.Name = "DropBuilderButton";
-            this.DropBuilderButton.Size = new System.Drawing.Size(75, 23);
-            this.DropBuilderButton.TabIndex = 26;
-            this.DropBuilderButton.Text = "Drop Builder";
-            this.DropBuilderButton.UseVisualStyleBackColor = true;
-            this.DropBuilderButton.Click += new System.EventHandler(this.DropBuilderButton_Click);
-            // 
             // DropPathTextBox
             // 
             this.DropPathTextBox.Location = new System.Drawing.Point(87, 213);
@@ -787,7 +776,6 @@
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(821, 384);
-            this.Controls.Add(this.DropBuilderButton);
             this.Controls.Add(this.PasteMButton);
             this.Controls.Add(this.CopyMButton);
             this.Controls.Add(this.tabControl1);
@@ -869,7 +857,6 @@
         private System.Windows.Forms.Label label10;
         private System.Windows.Forms.CheckBox UndeadCheckBox;
         private System.Windows.Forms.CheckBox AutoRevCheckBox;
-        private System.Windows.Forms.Button DropBuilderButton;
         private System.Windows.Forms.Label fileNameLabel;
         private System.Windows.Forms.Label label11;
         private System.Windows.Forms.Label label13;

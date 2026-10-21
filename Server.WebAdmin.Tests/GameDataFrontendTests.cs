@@ -119,6 +119,53 @@ namespace Server.WebAdmin.Tests
             Assert.DoesNotContain("outerHTML", Js());
         }
 
+        // ---- Drops tab (admin-drops.js, drops plan phase 2) ----
+
+        private static readonly string[] DropsAllowedApi =
+        {
+            "/api/admin/drops",                          // + /lists, /monster?index=, /list?id=, /save, /create, /copy, /delete-disabled
+            "/api/admin/scripts/drops/class-toggle",     // the class drop tool (all lists), moved here from the Scripts editor
+        };
+
+        private static string DropsJs() => File.ReadAllText(Path.Combine(AdminDir(), "admin-drops.js"));
+
+        [Fact]
+        public void Drops_TabIsWiredToTheDropsModule()
+        {
+            var js = Js();
+            Assert.Contains("{ id: 'drops', label: 'Drops', kind: 'drops' }", js);
+            Assert.Contains("global.DropsEditor.mount(pane)", js);
+            Assert.Contains("global.DropsEditor = {", DropsJs());
+            Assert.Contains("<script src=\"admin-drops.js\"></script>", File.ReadAllText(Path.Combine(AdminDir(), "index.html")));
+        }
+
+        [Fact]
+        public void Drops_ApiCallsStayWithinTheContract()
+        {
+            var urls = Regex.Matches(DropsJs(), @"'(/api/[^']*)'").Select(m => m.Groups[1].Value).Distinct().ToList();
+            Assert.NotEmpty(urls);
+            var unknown = urls.Where(u => !DropsAllowedApi.Contains(u)).ToList();
+            Assert.True(unknown.Count == 0, "Routes outside the drops contract: " + string.Join(", ", unknown));
+        }
+
+        [Fact]
+        public void Drops_WritesUseDryRunAndPortalApi()
+        {
+            var js = DropsJs();
+            Assert.Contains("dryRun: true", js);
+            Assert.Contains("global.portalApi(url, { method: 'POST'", js);
+            Assert.Empty(Regex.Matches(js, @"(?<![\w.$])fetch\s*\("));
+        }
+
+        [Fact]
+        public void Drops_InnerHtml_IsNeverUsed()
+        {
+            var js = DropsJs();
+            Assert.DoesNotContain("innerHTML", js);
+            Assert.DoesNotContain("insertAdjacentHTML", js);
+            Assert.DoesNotContain("outerHTML", js);
+        }
+
         [Fact]
         public void Css_IsScopedToTheSection()
         {

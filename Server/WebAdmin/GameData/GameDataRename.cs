@@ -100,7 +100,7 @@ namespace Server.WebAdmin.GameData
     /// <summary>One file a rename touches.</summary>
     internal sealed class GameDataRenameFile
     {
-        /// <summary>drops | recipes | quests | npcs.</summary>
+        /// <summary>recipes | quests | npcs.</summary>
         public string Root;
 
         /// <summary>Path relative to the root, '/' separated.</summary>
@@ -109,7 +109,7 @@ namespace Server.WebAdmin.GameData
         public string FullPath;
         public int Replacements;
 
-        /// <summary>New relative path when the file itself is renamed (recipe named after the item, monster drop file).</summary>
+        /// <summary>New relative path when the file itself is renamed (the recipe named after the item).</summary>
         public string RenameTo;
 
         internal GameDataTextFile Content;
@@ -118,13 +118,13 @@ namespace Server.WebAdmin.GameData
 
     /// <summary>
     /// Rename propagation for item / monster names, mirroring ItemInfoFormNew.ItemNameChange and MonsterInfoFormNew.MonsterNameChange
-    /// (drops, recipes incl. the recipe file named after the item, quest item / kill sections, NPC [TRADE]/[RECIPE] sections), but
+    /// (recipes incl. the recipe file named after the item, quest item / kill sections, NPC [TRADE]/[RECIPE] sections), but
     /// replacing only the matched token (the WinForms code ran string.Replace over the whole line) and following the game parsers'
-    /// section rules (a section runs until the next line starting with "[").
+    /// section rules (a section runs until the next line starting with "["). Drops are not touched (Drops-Tables-Plan phase 2): drop rows
+    /// link items by Index and render under the current name, and a monster finds its own drop list by Index.
     /// </summary>
     internal static class GameDataRename
     {
-        private static readonly Regex DropLine = new Regex(@"^(\s*\d+/\d+ +)([^\s]+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
         private static readonly Regex LeadingToken = new Regex(@"^( *)([^\s|\[]+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
         private static readonly Regex FirstToken = new Regex(@"^([^ ]+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
@@ -144,22 +144,6 @@ namespace Server.WebAdmin.GameData
             var g = m.Groups[group];
             lines[i] = lines[i].Substring(0, g.Index) + newName + lines[i].Substring(g.Index + g.Length);
             return 1;
-        }
-
-        /// <summary>Drop lines "1/N Name [Q]" (also inside GROUP blocks).</summary>
-        public static int RewriteDrops(List<string> lines, string oldName, string newName)
-        {
-            var count = 0;
-            for (var i = 0; i < lines.Count; i++)
-            {
-                var line = lines[i];
-                if (line.TrimStart().StartsWith(";", StringComparison.Ordinal)) continue;
-                var m = DropLine.Match(line);
-                if (m.Success && string.Equals(m.Groups[2].Value, oldName, StringComparison.OrdinalIgnoreCase))
-                    count += ReplaceGroup(lines, i, m, 2, newName);
-            }
-
-            return count;
         }
 
         /// <summary>Recipe files: the first token of every line outside the [Recipe] key section (ingredients and tools).</summary>
@@ -287,19 +271,16 @@ namespace Server.WebAdmin.GameData
         }
 
         /// <summary>
-        /// Plans the edits of a rename. <paramref name="roots"/> maps drops / recipes / quests / npcs to their full directory paths.
-        /// <paramref name="renameMonsterDropFile"/>: the monster loads its drops from Drops\&lt;Name&gt;.txt (no DropPath) and no other
-        /// monster still uses the old file, so that file follows the rename.
+        /// Plans the edits of a rename. <paramref name="roots"/> maps recipes / quests / npcs to their full directory paths.
         /// </summary>
         public static List<GameDataRenameFile> Plan(string endpoint, string oldName, string newName, IReadOnlyDictionary<string, string> roots,
-            bool renameMonsterDropFile, List<string> warnings)
+            List<string> warnings)
         {
             var files = new List<GameDataRenameFile>();
             var items = string.Equals(endpoint, "items", StringComparison.OrdinalIgnoreCase);
 
             if (items)
             {
-                Scan(files, roots, "drops", lines => RewriteDrops(lines, oldName, newName), warnings);
                 Scan(files, roots, "recipes", lines => RewriteRecipe(lines, oldName, newName), warnings);
                 Scan(files, roots, "quests", lines => RewriteQuest(lines, oldName, newName, false), warnings);
                 Scan(files, roots, "npcs", lines => RewriteNpc(lines, oldName, newName), warnings);
@@ -310,7 +291,6 @@ namespace Server.WebAdmin.GameData
             else
             {
                 Scan(files, roots, "quests", lines => RewriteQuest(lines, oldName, newName, true), warnings);
-                if (renameMonsterDropFile) PlanFileRename(files, roots, "drops", oldName, newName, warnings);
             }
 
             return files.Where(f => f.Replacements > 0 || f.RenameTo != null).OrderBy(f => f.Root, StringComparer.Ordinal).ThenBy(f => f.Path, StringComparer.OrdinalIgnoreCase).ToList();
@@ -374,7 +354,7 @@ namespace Server.WebAdmin.GameData
                 return;
             }
 
-            // Recipes / drops are looked up as <root>\<Name>.txt (top level only).
+            // Recipes are looked up as <root>\<Name>.txt (top level only).
             var source = DesignFiles.EnumerateFiles(full, "*.txt", SearchOption.TopDirectoryOnly)
                 .FirstOrDefault(f => string.Equals(System.IO.Path.GetFileNameWithoutExtension(f), oldName, StringComparison.OrdinalIgnoreCase));
             if (source == null) return;

@@ -227,6 +227,154 @@ public class DropTablesTests
         });
     }
 
+    [Fact]
+    public void Grid_edits_bind_monsters_by_index_and_load_like_their_text()
+    {
+        WithWorld("drops-grid", (dir, db) =>
+        {
+            WriteDropLines(db);
+            var writer = Open(db);
+            try
+            {
+                string ItemName(long i) => Envir.Main.GetItemInfo((int)i)?.Name.Replace(" ", string.Empty);
+                var hen = DropTables.Get(DropTables.ForMonster(1, "Hen", null).Id);
+
+                // Index binding: a renamed monster keeps its own list, also before any file moves; a DropPath list is shared by name.
+                Assert.Same(hen, DropTables.ForMonster(1, "Chicken", null));
+                Assert.Equal("Packs/Shared.txt", DropTables.ForMonster(3, "Wolf", "Packs\\Shared").Name);
+                Assert.Same(DropTables.ForMonster(3, "Wolf", "Packs\\Shared"), DropTables.ForMonster(4, "Wolf0", "Packs\\Shared"));
+                Assert.Same(hen, DropTables.ForMonster(9, "Ghost", "Hen")); // another monster loading the owner's file by name
+                var renamed = new MonsterInfo { Index = 1, Name = "Chicken" };
+                var loaded = new List<DropInfo>();
+                DropInfo.LoadForMonster(loaded, renamed, false);
+                Assert.Equal(Describe(Load("Hen.txt")), Describe(loaded));
+
+                // A grid save: change a chance, add an item to the random group, add a new group with a member, delete the gold 150 row;
+                // untouched lines keep their text, new and changed rows get canonical lines, notes stay in place.
+                var edits = DropTables.AsEdits(hen);
+                var group = edits.First(e => e.Kind == DropKind.Group && e.GroupMode == "*");
+                edits.First(e => e.Kind == DropKind.Item && e.ItemIndex == 3).Chance = 12;
+                edits.RemoveAll(e => e.Kind == DropKind.Gold && e.Gold == 150);
+                edits.Insert(edits.IndexOf(group) + 1, new DropEdit { Id = -1, ParentId = group.Id, Kind = DropKind.Item, Chance = 7, ItemIndex = 3 });
+                edits.Add(new DropEdit { Id = -2, Kind = DropKind.Group, Chance = 4, GroupMode = "^" });
+                edits.Add(new DropEdit { Id = -3, ParentId = -2, Kind = DropKind.Gold, Chance = 2, Gold = 99 });
+                var errors = new List<DropEditError>();
+                var rows = DropTables.ApplyEdits(hen, edits, ItemName, Names(), errors, out var changed);
+                Assert.Empty(errors);
+                Assert.Equal(5, changed); // chance, the deleted gold row, 3 new rows
+                hen = DropTables.ReplaceRows(hen, rows);
+
+                var text = DesignFiles.ReadAllLines("Envir/Drops/Hen.txt");
+                Assert.Equal(";Pots", text[0]);
+                Assert.Equal("1/12 (HP)DrugSmall", text[1]);
+                Assert.Equal("1/5 woodensword Q", text[2]); // untouched: as written
+                Assert.DoesNotContain("1/20 Gold 150", text);
+                Assert.Equal(new[] { "1/4 GROUP^", "{", "1/2 Gold 99", "}" }, text.Skip(text.Length - 4));
+                Assert.Contains("1/7 (HP)DrugSmall", text);
+                AssertRowsLoadLikeTheirText("Hen.txt");
+                Assert.Contains("1/3 group(* [1/7 item 3, 1/2 item 2, 1/4 group(^ [1/9 item 1])])", Describe(Load("Hen.txt")));
+                Assert.Contains("1/4 group(^ [1/2 gold 99])", Describe(Load("Hen.txt")));
+
+                // Validation, per row.
+                var bad = DropTables.AsEdits(hen);
+                bad.Add(new DropEdit { Id = -9, Kind = DropKind.Item, Chance = 0, ItemIndex = 77 });
+                bad.Add(new DropEdit { Id = -10, ParentId = -9, Kind = DropKind.Gold, Chance = 1, Gold = 1 });
+                bad.Add(new DropEdit { Id = -11, Kind = DropKind.Note });
+                Assert.Null(DropTables.ApplyEdits(hen, bad, ItemName, Names(), errors, out _));
+                Assert.Contains(errors, e => e.Field == "chance" && e.Row == bad.Count - 3);
+                Assert.Contains(errors, e => e.Field == "itemIndex");
+                Assert.Contains(errors, e => e.Field == "parentId");
+                Assert.Contains(errors, e => e.Field == "kind" && e.Row == bad.Count - 1);
+
+                // Dragon list: levels required, no groups.
+                var dragon = DropTables.Get(DropTables.Lists().First(l => l.IsDragon).Id);
+                var de = DropTables.AsEdits(dragon);
+                de.Add(new DropEdit { Id = -1, Kind = DropKind.Item, Chance = 3, ItemIndex = 2 });
+                errors.Clear();
+                Assert.Null(DropTables.ApplyEdits(dragon, de, ItemName, Names(), errors, out _));
+                Assert.Contains(errors, e => e.Field == "dragonLevel");
+                de[^1].DragonLevel = 4;
+                errors.Clear();
+                dragon = DropTables.ReplaceRows(dragon, DropTables.ApplyEdits(dragon, de, ItemName, Names(), errors, out _));
+                Assert.Equal("1/3 BaseDress(M) 4", DesignFiles.ReadAllLines("Envir/Drops/DragonItem.txt")[^1]);
+                var levels = Levels();
+                DropTables.LoadDragon(levels, dragon.Name, _ => { });
+                Assert.Contains(levels[3], d => d.Chance == 3 && d.Item.Index == 2);
+
+                // An old group without { } stays as it is, and nothing but notes may follow it.
+                var unclosed = DropTables.Get(DropTables.Lists().First(l => l.Name == "Unclosed.txt").Id);
+                var ue = DropTables.AsEdits(unclosed);
+                ue.Add(new DropEdit { Id = -1, Kind = DropKind.Gold, Chance = 1, Gold = 5 });
+                errors.Clear();
+                Assert.Null(DropTables.ApplyEdits(unclosed, ue, ItemName, Names(), errors, out _));
+                Assert.Contains("no { }", errors[0].Message);
+
+                // Copy and delete-disabled.
+                var shared = DropTables.Get(DropTables.ForMonster(3, "Wolf", "Packs\\Shared").Id);
+                shared = DropTables.ReplaceRows(shared, DropTables.CopyRows(hen, shared, out var copyError));
+                Assert.Null(copyError);
+                Assert.Equal(DesignFiles.ReadAllLines("Envir/Drops/Hen.txt"), DesignFiles.ReadAllLines("Envir/Drops/Packs/Shared.txt"));
+                Assert.Null(DropTables.CopyRows(hen, dragon, out copyError));
+                var noDisabled = DropTables.ApplyEdits(shared, DropTables.AsEdits(shared).Where(e => e.Kind != DropKind.Disabled).ToList(), ItemName, Names(), errors, out var removed);
+                shared = DropTables.ReplaceRows(shared, noDisabled);
+                Assert.True(removed >= 3);
+                Assert.DoesNotContain(shared.Rows, r => r.Kind == DropKind.Disabled);
+                AssertRowsLoadLikeTheirText("Packs/Shared.txt");
+
+                // A save the text would read differently is refused: an old group without "}" moved inside a new group would take its "}".
+                var open = DropTables.Get(DropTables.Lists().First(l => l.Name == "Unclosed.txt").Id);
+                var oe = DropTables.AsEdits(open);
+                oe.Insert(0, new DropEdit { Id = -1, Kind = DropKind.Group, Chance = 1 });
+                oe[1].ParentId = -1; // the old open group into the new one
+                errors.Clear();
+                Assert.Null(DropTables.ApplyEdits(open, oe, ItemName, Names(), errors, out _));
+                Assert.Contains("differently", errors[0].Message);
+
+                // A member moved out of its group gets a fresh, unindented line (its indentation read differently at the top level).
+                var hen2 = DropTables.Get(hen.Id);
+                var me = DropTables.AsEdits(hen2);
+                var member = me.First(e => e.Kind == DropKind.Item && e.ItemIndex == 2 && e.ParentId != null && e.Chance == 2);
+                me.Remove(member);
+                member.ParentId = null;
+                me.Add(member);
+                errors.Clear();
+                hen2 = DropTables.ReplaceRows(hen2, DropTables.ApplyEdits(hen2, me, ItemName, Names(), errors, out _));
+                Assert.Equal("1/2 BaseDress(M)", DesignFiles.ReadAllLines("Envir/Drops/Hen.txt")[^1]);
+                AssertRowsLoadLikeTheirText("Hen.txt");
+
+                // A renamed monster's list isn't taken over by a new monster of the old name, nor by a list created under the new name.
+                Envir.Main.MonsterInfoList[0].Name = "Chicken";
+                DesignTexts.RefreshNames(SqliteWorldCodec.Encode(Envir.Main, 0));
+                Assert.Null(DropTables.ForMonster(10, "Hen", null));
+                Assert.Equal("Hen_10.txt", DropTables.FreeMonsterListName("Hen.txt", 10));
+                Assert.Equal(DropList.Named, DropTables.OwnerForNew("Chicken.txt", new[] { (1L, "Chicken", (string)null) }).Kind);
+                Assert.Same(DropTables.Get(hen.Id), DropTables.ForMonster(1, "Chicken", null));
+                Envir.Main.MonsterInfoList[0].Name = "Hen";
+                DesignTexts.RefreshNames(SqliteWorldCodec.Encode(Envir.Main, 0));
+                text = DesignFiles.ReadAllLines("Envir/Drops/Hen.txt");
+
+                // A new monster's own list, bound to its Index; then the store reads it all back the same.
+                var created = DropTables.CreateList("Ghost.txt", DropList.Monster, 9, null);
+                Assert.Same(created, DropTables.ForMonster(9, "Ghost", null));
+                DesignTexts.ResetCache();
+                Assert.Equal(created.Id, DropTables.ForMonster(9, "Renamed", null).Id);
+                Assert.Equal(text, DesignFiles.ReadAllLines("Envir/Drops/Hen.txt"));
+                AssertRowsLoadLikeTheirText("Hen.txt");
+            }
+            finally { writer.Shutdown(); }
+        });
+    }
+
+    /// <summary>A list's rows load the same drops as the text loader reading its rendered lines (so text tools stay true).</summary>
+    private static void AssertRowsLoadLikeText(string name, IList<string> lines)
+    {
+        var a = new List<DropInfo>();
+        DropInfo.LoadFromLines(a, name, lines.ToList(), 0, sub => DesignFiles.ReadAllLines(Path.Combine(Settings.DropPath, sub)), (_, _) => { });
+        Assert.Equal(Describe(a), Describe(Load(name)));
+    }
+
+    private static void AssertRowsLoadLikeTheirText(string name) => AssertRowsLoadLikeText(name, DesignFiles.ReadAllLines(Path.Combine(Settings.DropPath, name)));
+
     /// <summary>Every list of the set loads from the tables as the text loader loads its text, with the same logged lines.</summary>
     private static void AssertLoadsLikeText()
     {
@@ -273,6 +421,8 @@ public class DropTablesTests
         Assert.True(DropTables.LoadInto(list, name, name, 0, (_, _) => { }));
         return list;
     }
+
+    private static DesignNames Names() => DesignNames.FromEnvir(Envir.Main);
 
     private static List<DragonInfo.DropInfo>[] Levels() =>
         Enumerable.Range(0, Globals.MaxDragonLevel).Select(_ => new List<DragonInfo.DropInfo>()).ToArray();

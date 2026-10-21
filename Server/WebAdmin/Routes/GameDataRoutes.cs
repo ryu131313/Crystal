@@ -369,19 +369,9 @@ namespace Server.WebAdmin.Routes
             var dryRun = req.QueryBool("dryRun") || body.GetBool("dryRun");
             var reason = body.GetString("reason");
 
-            // A monster without DropPath loads Drops\<Name>.txt: move that file too, unless another monster still loads it.
-            var renameDropFile = endpoint == "monsters" && WithEdit(ctx =>
-            {
-                var renamed = ctx.Monsters.Where(m => m != null && string.Equals(m.Name, newName, StringComparison.OrdinalIgnoreCase)).ToList();
-                if (renamed.Count == 0 || renamed.Any(m => !string.IsNullOrEmpty(m.DropPath))) return false;
-                return !ctx.Monsters.Any(m => m != null &&
-                                              ((string.IsNullOrEmpty(m.DropPath) && string.Equals(m.Name, oldName, StringComparison.OrdinalIgnoreCase)) ||
-                                               string.Equals(m.DropPath, oldName, StringComparison.OrdinalIgnoreCase)));
-            });
-
+            // Drops are not part of it (Drops-Tables-Plan phase 2): drop rows link items by Index, a monster finds its own list by Index.
             var roots = new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["drops"] = Path.GetFullPath(Settings.DropPath),
                 ["recipes"] = Path.GetFullPath(Settings.RecipePath),
                 ["quests"] = Path.GetFullPath(Settings.QuestPath),
                 ["npcs"] = Path.GetFullPath(Settings.NPCPath),
@@ -391,7 +381,7 @@ namespace Server.WebAdmin.Routes
             List<GameDataRenameFile> plan;
             lock (RenameLock)
             {
-                plan = GameDataRename.Plan(endpoint, oldName, newName, roots, renameDropFile, warnings);
+                plan = GameDataRename.Plan(endpoint, oldName, newName, roots, warnings);
                 if (!dryRun && plan.Count > 0)
                     GameDataRename.Execute(plan, Path.GetFullPath(Path.Combine(Envir.BackUpPath, "WebAdmin", "Scripts")), DateTime.Now, warnings);
             }
@@ -411,9 +401,9 @@ namespace Server.WebAdmin.Routes
             }
 
             // The rename itself only exists in Envir.Edit until database/save + a world restart (Name is not live-safe), so the live
-            // world's ItemInfo/MonsterInfo still carry the OLD name. Hot-reloading drops / NPCs / recipes now would resolve the rewritten
-            // files against those old names and drop every line that mentions the item (and a monster without DropPath would lose its
-            // moved Drops\<old>.txt). So: no hot reloads; save the database and restart the world (Reboot reloads all of these).
+            // world's ItemInfo/MonsterInfo still carry the OLD name. Hot-reloading NPCs / recipes now would resolve the rewritten files
+            // against those old names and drop every line that mentions the item. So: no hot reloads; save the database and restart the
+            // world (Reboot reloads all of these). Drops follow renames by Index and need nothing.
             await req.Json(new
             {
                 ok = true,
@@ -427,10 +417,10 @@ namespace Server.WebAdmin.Routes
                 suggestedReloads = Array.Empty<string>(),
                 restartRequired = plan.Count > 0,
                 message = plan.Count == 0
-                    ? "No drop, recipe, quest or NPC file refers to \"" + oldName + "\"."
+                    ? "No recipe, quest or NPC file refers to \"" + oldName + "\" (drops follow the rename by themselves)."
                     : (dryRun ? "Dry run: nothing was written." : "Updated " + plan.Count + " file(s); backups are in Back Up\\WebAdmin\\Scripts.") +
                       " The running world still uses the old name until you save the database and restart the world, which also reloads these files;" +
-                      " do not reload drops, NPCs or recipes (or use @RELOADDROPS) before that restart.",
+                      " do not reload NPCs or recipes before that restart. Drops follow the rename by themselves.",
             }).ConfigureAwait(false);
         }
 

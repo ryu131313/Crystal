@@ -1210,11 +1210,10 @@ namespace Server.Database
             _isInGemContext = showGemInfo;
         }
 
-        private Dictionary<string, string[]> dropFilesContent;
         private Dictionary<string, string[]> recipeFilesContent;
         private Dictionary<string, string[]> questScriptFilesContent;
         private Dictionary<string, string[]> npcScriptFilesContent;
-        private bool dropFileChange, recipeFileChange, questFileChange, npcFileChange;
+        private bool recipeFileChange, questFileChange, npcFileChange; // drops: rows link items by Index (Drops-Tables-Plan phase 2), nothing to rewrite
         private string ItemNameCellOldValue;
         private void ItemInfoGridView_CellBeginEdit(object sender, DataGridViewCellCancelEventArgs e)
         {
@@ -1261,8 +1260,6 @@ namespace Server.Database
         }
         private void LoadDropRecipeQuestFiles()
         {
-            dropFilesContent = LoadScriptFiles(@"Envir\Drops", "*.txt");
-
             recipeFilesContent = LoadScriptFiles(@"Envir\Recipe", "*.txt");
 
             questScriptFilesContent = LoadScriptFiles(@"Envir\Quests", "*.txt");
@@ -1272,7 +1269,6 @@ namespace Server.Database
 
         private void SaveDropRecipeQuestFiles()
         {
-            if (dropFileChange) SaveScriptFile(dropFilesContent);
             if (recipeFileChange) SaveScriptFile(recipeFilesContent);
             if (questFileChange) SaveScriptFile(questScriptFilesContent);
             if (npcFileChange) SaveScriptFile(npcScriptFilesContent);
@@ -1294,24 +1290,6 @@ namespace Server.Database
         {
             if (!string.IsNullOrWhiteSpace(oldName) && !string.IsNullOrWhiteSpace(newName) && !oldName.Equals(newName, StringComparison.OrdinalIgnoreCase))
             {
-                foreach (var file in dropFilesContent)
-                {
-                    var lines = file.Value;
-                    for (int i = 0; i < lines.Length; i++)
-                    {
-                        var line = lines[i];
-                        var match = Regex.Match(line, @"^\d+/\d+\s+(\S+)");
-                        if (match.Success && match.Groups[1].Value.Equals(oldName, StringComparison.OrdinalIgnoreCase))
-                        {
-                            var itemName = match.Groups[1].Value;
-                            if (itemName.Equals(oldName, StringComparison.OrdinalIgnoreCase))
-                            {
-                                lines[i] = line.Replace(itemName, newName);
-                                dropFileChange = true;
-                            }
-                        }
-                    }
-                }
 
                 foreach (var file in recipeFilesContent.Keys.ToList())
                 {

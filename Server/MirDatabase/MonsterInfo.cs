@@ -462,6 +462,32 @@ namespace Server.MirDatabase
                 sub => DesignFiles.ReadAllLines(Path.Combine(Settings.DropPath, sub)), LogBadLine);
         }
 
+        /// <summary>
+        /// Loads a monster's drops: while SystemData.db is active, the list the drop tables give it (its own list by Index when it has no
+        /// DropPath, so a rename keeps its drops; else the DropPath list), creating its own list with the default lines when it has none;
+        /// otherwise the file <c>Drops\&lt;DropPath or Name&gt;.txt</c>, as before.
+        /// </summary>
+        public static void LoadForMonster(List<DropInfo> list, MonsterInfo monster, bool createIfNotExists = true)
+        {
+            var file = Path.Combine(Settings.DropPath, (string.IsNullOrEmpty(monster.DropPath) ? monster.Name : monster.DropPath) + ".txt");
+            if (!DropTables.TryMap(file, out var listName))
+            {
+                Load(list, monster.Name, file, 0, createIfNotExists);
+                return;
+            }
+
+            var own = DropTables.ForMonster(monster.Index, monster.Name, monster.DropPath);
+            if (own != null)
+            {
+                DropTables.LoadInto(list, monster.Name, own, 0, LogBadLine);
+                return;
+            }
+
+            if (createIfNotExists)
+                DropTables.Write(string.IsNullOrEmpty(monster.DropPath) ? DropTables.FreeMonsterListName(listName, monster.Index) : listName, DefaultFileLines, null,
+                    string.IsNullOrEmpty(monster.DropPath) ? (DropList.Monster, (long?)monster.Index, (int?)null) : DropTables.OwnerOf(listName, Enumerable.Empty<(long, string, string)>()));
+        }
+
         /// <summary>The text loader (files, and <c>MirDbExport check-drops</c>' reference): <paramref name="readInclude"/> reads an #INSERT target.</summary>
         internal static void LoadFromLines(List<DropInfo> list, string name, List<string> lines, byte type, Func<string, string[]> readInclude,
             Action<string, string> badLine)

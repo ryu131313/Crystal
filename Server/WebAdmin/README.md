@@ -194,8 +194,20 @@ confirmation dialog, with a reason field for moderation actions. Every successfu
   - Saves are serialised with the world's periodic save. While Main still saves, the file IO runs on the game thread between
     ticks; otherwise it runs under `Envir.LoadLock`.
   - Conflicts are detected per row with `__rev`, and dry-run previews are available. Deletes are refused when other data still
-    references the row. A rename can be propagated into the drop, recipe, quest and NPC files (with backups). *Discard unsaved*
-    reloads the editor copy from disk.
+    references the row. A rename can be propagated into the recipe, quest and NPC files (with backups); drops need nothing (their
+    rows link items by Index, and a monster finds its own drop list by Index). *Discard unsaved* reloads the editor copy from disk.
+- **Drops** (Game Data › Drops, Drops-Tables-Plan phase 2; `Server/WebAdmin/Routes/DropRoutes.cs`, `wwwroot/admin/admin-drops.js`):
+  every drop list as rows (the `drop_lists` / `drops` tables in SystemData.db): a list picker (search, kind filter, the monsters
+  that load each list) and a grid per list (chance as 1/N, item lookup, quest, gold, group mode, dragon level; group members
+  indented; notes, `#INSERT` lines and lines the game can't load shown greyed with their text). The Monsters grid opens a
+  monster's list (a monster without DropPath has its own list, bound to its Index; a DropPath list is shared and says so).
+  *Save* sends the whole list (dry run first; the list's `rev` must match, else `409`): unchanged lines keep their text, changed and
+  new rows get canonical lines, a new or complete group keeps `{ }` around its members; the previous text goes to the Scripts
+  backups (`drops/<name>`), the save is audited (`drops.save`), written to SystemData.db at once (drops have no unsaved Edit state)
+  and then reloaded in the running world for that list's owners only (`Envir.ReloadDropList`: its monsters, the special lists or
+  the dragon; a list another list `#INSERT`s reloads everything). Also *Copy drops from…*, *Delete all disabled*, *Create list*
+  and the Assassin/Archer class toggle (`/api/admin/scripts/drops/class-toggle`, all lists). Routes: `GET /api/admin/drops/lists`,
+  `GET .../monster?index=`, `GET .../list?id=`, `POST .../save`, `.../create`, `.../copy`, `.../delete-disabled`.
 - **Maps:** a visual editor for one map at a time (section `mapeditor`, under Game Data). A filterable map list (pin it beside the
   map, or pick from the drop-down), then the map: walkability, the authored minimap or, with `[WebAdmin] ClientDataPath`, the real
   map tiles once zoomed in; layers for safe zones (green; start points dashed gold), respawns (red square of `Spread`, a marker
@@ -241,11 +253,13 @@ confirmation dialog, with a reason field for moderation actions. Every successfu
     `FormDrawer.EXTENSIONS` (functions called after the drawer builds its fields, with the number inputs; a failing extension is
     logged and skipped). Grid cells get hover previews: a `...MapIndex` cell shows that map, an X / Y cell of a row with a map
     shows the map with the point marked (installed as `window.ImagePreview` unless another module already provides one).
-- **Scripts & Files:** a text editor for the NPC, drop, quest, recipe, route and value folders, the `Envir\*.txt` files and
+- **Scripts & Files:** a text editor for the NPC, quest, recipe, route and value folders, the `Envir\*.txt` files and
   SystemScripts. It has a file tree, search, validation (missing labels and goto targets, unknown item and monster names,
   `#INSERT` targets), etag conflict detection (`409`), and keeps the file's encoding and line endings. Every save, delete or
   rename first backs up the old version to `Back Up\WebAdmin\Scripts\<root>\<path>.<yyyyMMdd-HHmmss>.bak`, and you can restore
-  from the editor. After a save the panel offers the matching reload. There is also a drop-file Assassin/Archer class toggle.
+  from the editor. After a save the panel offers the matching reload. Drops are shown **read only** (`readOnly` root: view,
+  search, validate, backups; Save / Create / Delete / Rename answer `409`): edit them in Game Data › Drops. Restoring a drops backup
+  still works here, as the undo for a grid save.
 - **Backups & History:** lists `Back Up\Database`, `Back Up\Accounts` and the script backups. You can make a manual copy of
   `Server.MirDB` or `Server.MirADB`, download, and prune. **Restore only works while the world is stopped** (`409` otherwise).
   It backs up the current file first, then reloads the editor copy or the account list. The *History* tab shows per-field

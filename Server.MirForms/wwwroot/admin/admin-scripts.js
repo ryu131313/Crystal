@@ -3,10 +3,12 @@
  * Text editor for Crystal's script folders (Envir\NPCs, Drops, Quests, Recipe, Routes, Values, Envir\*.txt, SystemScripts):
  * root tabs, filterable file tree, editor (line-number gutter, Tab inserts a tab, Ctrl+S save, Ctrl+F find, Ctrl+G go to line),
  * diagnostics from the server-side validators, dirty guard, Save / Save & reload, search across files, backups + restore,
- * create / rename / delete and the drop class tool (ConfigForm's Remove / Re-add Assassin & Archer drops).
+ * create / rename / delete. A root the server marks readOnly (the drops root since drops plan phase 2: drops are edited in
+ * Game Data › Drops, which also holds the class drop tool) is view-only: view, search, validate, backups + Restore (the undo of
+ * a grid save), no Save / Create / Rename / Delete.
  *
- * API: /api/admin/scripts/{roots,tree,file,create,delete,rename,search,backups,backup,restore,validate,reload-quests,
- * drops/class-toggle}; reloads use B1's POST /api/admin/server/reload/{npcs|drops|linemessages|recipes}.
+ * API: /api/admin/scripts/{roots,tree,file,create,delete,rename,search,backups,backup,restore,validate,reload-quests};
+ * reloads use B1's POST /api/admin/server/reload/{npcs|drops|linemessages|recipes}.
  * Deep link: #section=scripts&root=<id>&path=<relative path>&line=<n>
  */
 (function (global) {
@@ -115,7 +117,6 @@
       '  <div class="toolbar">' +
       '    <h2>Scripts &amp; Files</h2>' +
       '    <div class="scripts-head-actions">' +
-      '      <button type="button" class="mir-btn hidden" data-role="classTool" title="Comment out or restore Assassin / Archer drops in every drop file">Class drops…</button>' +
       '      <button type="button" class="mir-btn" data-role="refresh">Refresh</button>' +
       '    </div>' +
       '  </div>' +
@@ -208,8 +209,20 @@
         esc(r.directory || '') + '">' + esc(r.label) + '</button>';
     }).join('');
     var r = rootById(rootId);
-    ui.rootDesc.textContent = r ? (r.description || '') + (r.exists ? '' : ' (folder not found: ' + r.directory + ')') : '';
-    ui.classTool.classList.toggle('hidden', rootId !== 'drops');
+    ui.rootDesc.textContent = r ? (r.description || '') + (r.exists ? '' : ' (folder not found: ' + r.directory + ')') +
+      (r.readOnly ? ' Read-only: ' + readOnlyHint(r.id) : '') : '';
+    ui.newFile.disabled = rootReadOnly(rootId);
+    ui.newFile.title = rootReadOnly(rootId) ? readOnlyHint(rootId) : '';
+  }
+
+  /** A root the server marks readOnly (GET roots / tree): view, search, validate and backups only. */
+  function rootReadOnly(id) {
+    var r = rootById(id);
+    return !!(r && r.readOnly);
+  }
+
+  function readOnlyHint(id) {
+    return id === 'drops' ? 'Edit drops in Game Data › Drops.' : 'This folder is read-only here.';
   }
 
   async function selectRoot(id) {
@@ -232,6 +245,8 @@
     try {
       var data = await getData(API + '/tree?' + qs({ root: rootId }));
       files = (data && data.files) || [];
+      var tr = rootById(rootId);
+      if (tr && data && typeof data.readOnly === 'boolean' && tr.readOnly !== data.readOnly) { tr.readOnly = data.readOnly; renderRoots(); }
       if (data && data.truncated) toast('This folder has too many files; only the first ' + files.length + ' are listed.', 'warn');
       renderTree();
     } catch (e) {
@@ -332,8 +347,9 @@
       reload: data.reload || null,
       effect: data.effect || '',
       validator: data.validator || null,
-      readOnly: !!data.readOnly,
-      readOnlyReason: data.readOnlyReason || '',
+      readOnly: !!data.readOnly || rootReadOnly(root),
+      rootReadOnly: rootReadOnly(root),
+      readOnlyReason: data.readOnlyReason || (rootReadOnly(root) ? 'Read-only: ' + readOnlyHint(root) : ''),
       saved: data.content || ''
     };
     ui.reload.classList.remove('primary');
@@ -352,7 +368,7 @@
     if (global.portalSetHashParams) portalSetHashParams({ root: root, path: current.path, line: null }, true);
     if (root === rootId) renderTree();
     if (line) goToLine(line); else ui.text.setSelectionRange(0, 0);
-    if (current.validator && !current.readOnly) validate(true);
+    if (canValidate(current)) validate(true);
     return true;
   }
 
@@ -382,13 +398,14 @@
       ? [current.encoding, (current.lineEnding || '').toUpperCase() + (current.mixed ? ' (mixed)' : ''), fmtSize(current.size)].filter(Boolean).join(' · ')
       : '';
     ['save', 'find', 'goto', 'backups', 'rename', 'delete'].forEach(function (k) { ui[k].disabled = !has; });
+    if (has && current.rootReadOnly) { ui.rename.disabled = true; ui.delete.disabled = true; }
     ui.save.disabled = !has || !dirty || current.readOnly;
     var reload = has && current.reload ? RELOAD[current.reload] : null;
     ui.saveReload.classList.toggle('hidden', !reload);
     ui.saveReload.disabled = !has || !dirty || current.readOnly;
     ui.reload.classList.toggle('hidden', !reload);
     if (reload) ui.reload.textContent = reload.label;
-    ui.validate.classList.toggle('hidden', !(has && current.validator && !current.readOnly));
+    ui.validate.classList.toggle('hidden', !(has && canValidate(current)));
     var note = has ? (current.effect || '') : '';
     if (has && current.encoding === 'latin1') note = (note ? note + ' ' : '') + 'This file is not UTF-8: it is edited byte-for-byte (Latin-1).';
     if (has && current.readOnly) note = current.readOnlyReason + (note ? ' ' + note : '');
@@ -563,8 +580,11 @@
     return true;
   }
 
+  // A file of a read-only root can still be checked; other read-only files (e.g. too large to edit) cannot.
+  function canValidate(file) { return !!(file && file.validator && (!file.readOnly || file.rootReadOnly)); }
+
   async function validate(quiet) {
-    if (!current || !current.validator || current.readOnly) return;
+    if (!canValidate(current)) return;
     var file = current;
     var res = await send('POST', API + '/validate', { root: file.root, path: file.path, content: ui.text.value });
     if (current !== file) return;
@@ -709,6 +729,7 @@
   async function createFile() {
     var r = rootById(rootId);
     if (!r) return;
+    if (r.readOnly) { toast(readOnlyHint(r.id), 'warn'); return; }
     var folder = current && current.root === rootId ? folderOf(current.path) : '';
     var v = await portalDialog({
       title: 'New file in ' + r.label,
@@ -728,6 +749,7 @@
 
   async function renameFile() {
     if (!current) return;
+    if (current.rootReadOnly) { toast(readOnlyHint(current.root), 'warn'); return; }
     if (dirty) { toast('Save or discard your changes before renaming.', 'warn'); return; }
     var file = current;
     var flat = (rootById(file.root) || {}).flat;
@@ -758,6 +780,7 @@
 
   async function deleteFile() {
     if (!current) return;
+    if (current.rootReadOnly) { toast(readOnlyHint(current.root), 'warn'); return; }
     var file = current;
     var ok = await portalConfirm('Delete ' + rootLabel(file.root) + ' / ' + file.path + '? It is moved to the backups folder' +
       (dirty ? ' (your unsaved changes are lost)' : '') + ' and can be restored from "Backups…".',
@@ -860,57 +883,6 @@
     if (global.AdminInspect) AdminInspect.open({ title: 'Backups', node: node });
   }
 
-  // ------------------------------------------------------------------ drop class tool
-
-  async function classTool() {
-    var v = await portalDialog({
-      title: 'Class drops',
-      message: 'Comments out (prefix ;) or restores every drop line whose item requires the class, in all drop files — like the ' +
-        'Remove / Re-add Assassin and Archer drops buttons of the server Config window. Each changed file is backed up first.',
-      fields: [
-        { name: 'cls', label: 'Class', type: 'select', value: 'Assassin', options: [{ value: 'Assassin', label: 'Assassin' }, { value: 'Archer', label: 'Archer' }] },
-        { name: 'mode', label: 'Action', type: 'select', value: 'remove', options: [{ value: 'remove', label: 'Remove (comment out) their drops' }, { value: 'add', label: 'Re-add (uncomment) their drops' }] }
-      ],
-      confirmLabel: 'Preview'
-    });
-    if (!v) return;
-    var enable = v.mode === 'add';
-    var dry = await send('POST', API + '/drops/class-toggle', { 'class': v.cls, enable: enable, dryRun: true });
-    if (!dry.ok) { toast((dry.body && dry.body.message) || ('Preview failed (HTTP ' + dry.status + ').'), 'error'); return; }
-    var d = dry.body.data || {};
-    if (!d.linesChanged) { toast('Nothing to change: no ' + (enable ? 'commented ' : '') + v.cls + ' drops found.', 'ok'); return; }
-    var sample = (d.files || []).slice(0, 8).map(function (f) { return f.path + ' (' + f.lines.length + ')'; }).join(', ');
-    var ok = await portalConfirm(dry.body.message + ' For example: ' + sample + ((d.files || []).length > 8 ? ', …' : '') +
-      '. Apply now? Then use Reload Drops to make it live.',
-      { title: (enable ? 'Re-add ' : 'Remove ') + v.cls + ' drops', confirmLabel: 'Apply', danger: !enable });
-    if (!ok) return;
-    var res = await send('POST', API + '/drops/class-toggle', { 'class': v.cls, enable: enable, dryRun: false });
-    if (!res.ok) { toast((res.body && res.body.message) || ('Failed (HTTP ' + res.status + ').'), 'error'); return; }
-    var rd = res.body.data || {};
-    toast(res.body.message + (rd.failed && rd.failed.length ? ' ' + rd.failed.length + ' file(s) could not be written.' : ''), rd.failed && rd.failed.length ? 'warn' : 'ok');
-    await loadTree();
-
-    if (current && current.root === 'drops') {
-      var touched = (rd.files || []).some(function (f) { return f.path === current.path; });
-      if (touched) {
-        if (dirty) {
-          toast(current.path + ' was changed on disk by the tool; saving will ask before overwriting it.', 'warn');
-        } else {
-          var path = current.path;
-          current = null;
-          await openFile('drops', path);
-        }
-      }
-    }
-
-    var reloadNow = await portalConfirm('Reload drops now so the change takes effect in the running world?',
-      { title: 'Reload Drops', confirmLabel: 'Reload Drops', cancelLabel: 'Later', danger: false });
-    if (reloadNow) {
-      var rr = await send('POST', RELOAD.drops.url, {});
-      toast(rr.ok ? (rr.body.message || 'Drops reloaded.') : ('Reload Drops failed: ' + ((rr.body && rr.body.message) || ('HTTP ' + rr.status))), rr.ok ? 'ok' : 'error');
-    }
-  }
-
   // ------------------------------------------------------------------ events
 
   function wire() {
@@ -1009,7 +981,6 @@
     ui.backups.addEventListener('click', function () { if (current) showBackups(current.root, current.path); });
     ui.rename.addEventListener('click', renameFile);
     ui.delete.addEventListener('click', deleteFile);
-    ui.classTool.addEventListener('click', classTool);
 
     ui.findQ.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') {

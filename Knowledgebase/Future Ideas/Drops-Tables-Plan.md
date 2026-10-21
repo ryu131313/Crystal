@@ -1,6 +1,6 @@
 # Drops as real tables (plan)
 
-Written 2026-10-21. **Status: phase 1 done 2026-10-21 (decisions D1-D7 confirmed as written; notes at the end); phase 2 not started.** Lean: two phases, one smoke check each, at most a couple of Opus 5.5 medium-effort subagents per phase (an auditor or builder at the start, one reviewer at the end). No time gates: a phase is done when its checks pass. Rules: `AGENTS.md`, `Knowledgebase/Server/server.md` (§3.2 threading, §3.4 persistence, §4.3 fields, §5.2 logging), `Knowledgebase/Client/client.md` only if a packet changes (none planned).
+Written 2026-10-21. **Status: phase 1 done 2026-10-21 (decisions D1-D7 confirmed as written); phase 2 built 2026-10-21 (notes at the end).** Lean: two phases, one smoke check each, at most a couple of Opus 5.5 medium-effort subagents per phase (an auditor or builder at the start, one reviewer at the end). No time gates: a phase is done when its checks pass. Rules: `AGENTS.md`, `Knowledgebase/Server/server.md` (§3.2 threading, §3.4 persistence, §4.3 fields, §5.2 logging), `Knowledgebase/Client/client.md` only if a packet changes (none planned).
 
 > **Before starting:** the RespawnIndex repair (`SqliteWorldFile.FixDuplicateRespawnIndexes`, map paste fixes) was left **uncommitted** on 2026-10-21; commit it first or check `git status`.
 
@@ -68,6 +68,38 @@ Written 2026-10-21. **Status: phase 1 done 2026-10-21 (decisions D1-D7 confirmed
 - **#INSERT** follows the name in its line first, as the text loader did, and falls back to the stored `include_list_id` when no list has that name.
 - **Live data (copy of 2026-10-21):** 1,640 lists (106 monster, 1,528 named, 2 fishing, 1 each awakening / strongbox / blackstone / dragon); rows item 60,853, gold 1,112, group 2, note 55,934, disabled 8,575. `check-drops`: 0 differences, 2 lists the old loader throws on (`00DiceItem`, `00GroupDiceItem`, loaded by nothing). Scratch server: converted once, drops loaded, same bad-line log as the old build on the same data, restart without reconverting.
 - **Left as is:** the dragon text loader still sorts two gold rows of one level with a null item (NullReferenceException, Known defect); the row loader returns 0 there instead. `SMain`'s Reload Drops menu still calls `ReloadDrops` on the UI thread (Known debt).
+
+## Phase 2 notes (2026-10-21)
+
+- **Decisions taken at the start (user):** monsters bind to their list by Index and a DropPath list is shared; DropBuilder removed;
+  the Scripts editor shows drops read only; comment and blank lines stay as `note` rows (the D3 category conversion is not done).
+- **Not a Game Data registry table (deviation from step 1):** every registry table is a list of model objects on Envir.Edit /
+  Main, and LiveDb (snapshot, undo, Main applier), `SqliteWorldCodec` and MirDbExport all depend on that. Drops are one shared,
+  store-backed cache. So the editor is its own route module (`Server/WebAdmin/Routes/DropRoutes.cs`) and Game Data tab
+  (`wwwroot/admin/admin-drops.js`): whole-list saves with a revision check, a before-text backup in the Scripts backups, an audit
+  entry, straight to SystemData.db (no unsaved Edit state, no LiveDb batch / undo), then `Envir.ReloadDropList` on the game
+  thread reloads only that list's owners. The plan's LiveDb step is met by that reload.
+- **Index binding (D1):** `DropTables.ForMonster` (own list by `monster_index` when there is no DropPath, else the DropPath /
+  Name list by file name), used by `DropInfo.LoadForMonster` (ReloadDrops, LiveDb DropPath / insert hook). A shared file (one
+  monster's `Name.txt` that another monster loads as its DropPath) stays where it is. Known limit: an Index reused after a monster
+  is deleted inherits the old monster's list.
+- **Edits:** `DropTables.ApplyEdits` (`DropTables.Editing.cs`): untouched rows keep their text; changed / new rows get canonical lines
+  (`1/N Item[ Q][ level]`, `1/N Gold n`, `1/N GROUP[*|^]`, unindented); a new or complete group gets exactly `{` first and `}` last;
+  an old group without `}` (members ignored, swallows later lines in text) is kept, and nothing but notes may follow it.
+- **Review fixes (one reviewer, 10 findings, 9 fixed):** every save is rendered, read back the way the game reads text and must
+  come out the same row by row (catches braces / old open groups moved around, stray `}` lines, item names that resolve to another
+  item); a row moved to another group gets a fresh line; at most 5,000 rows and 16 group levels; a new list never binds a monster
+  that already has its own list, and a monster's name fallback doesn't take over another (renamed) monster's list (a new monster
+  then gets `Name_Index.txt`); text writes (Scripts restore, class toggle) take the editors' lock and bump the revision;
+  `ReloadDropList` derives the special kind from the name and always reloads the monsters too; create is audited only when it
+  creates. **Left:** a game-thread default list created at the same moment as a web create of the same name can leave the cache
+  and the store disagreeing until the next save or restart (rare).
+- **Smoke (2026-10-21):** synthetic scratch server with a seeded test admin: grid add item / gold → save (dry run, confirm) →
+  "Reloaded in the running world: 1 monster(s)" → kept after a restart; Scripts drops root answers 409. Live copy: converts once,
+  no new lists at start (1,640), `check-drops` 0 differences.
+- **Retired:** drops in rename propagation (web and ItemInfoFormNew), WinForms DropBuilder (menu + MonsterInfoForm button), Scripts
+  writes to the drops root. **Kept:** the drop validator (read-only view still shows warnings), the Assassin/Archer class toggle
+  (web route, button moved to the Drops tab; ConfigForm's copy), `export-files` text rendering, the text facade.
 
 ## Rollback
 

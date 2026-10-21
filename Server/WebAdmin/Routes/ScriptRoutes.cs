@@ -67,6 +67,12 @@ namespace Server.WebAdmin.Routes
             return value;
         }
 
+        private static void RequireWritable(ScriptRoot root)
+        {
+            if (root.ReadOnly)
+                throw new WebAdminException(409, root.Label + " are read only in the Scripts editor: edit them in Game Data › Drops (restoring a backup still works here).");
+        }
+
         private static string ReadContent(JsonElement body)
         {
             if (!body.TryGetPropertyIgnoreCase("content", out var v) || v.ValueKind != JsonValueKind.String)
@@ -94,6 +100,7 @@ namespace Server.WebAdmin.Routes
                 directory = r.Directory,
                 exists = r.Exists,
                 flat = r.Flat,
+                readOnly = r.ReadOnly,
                 reload = ScriptFileStore.ReloadKindFor(r.Id, null),
                 validator = ScriptFileStore.ValidatorFor(r.Id),
             }).ToList();
@@ -111,6 +118,7 @@ namespace Server.WebAdmin.Routes
                 root = root.Id,
                 exists = root.Exists,
                 flat = root.Flat,
+                readOnly = root.ReadOnly,
                 files = files.Select(f => new { path = f.Path, size = f.Size, mtimeUtc = f.MtimeUtc }).ToList(),
                 truncated,
             });
@@ -215,6 +223,7 @@ namespace Server.WebAdmin.Routes
         {
             var body = await req.ReadJsonAsync().ConfigureAwait(false);
             var root = Store.GetRoot(RequireString(body, "root", "root"));
+            RequireWritable(root);
             var path = RequireString(body, "path", "path");
             var content = ReadContent(body);
             var force = body.GetBool("force");
@@ -253,6 +262,7 @@ namespace Server.WebAdmin.Routes
         {
             var body = await req.ReadJsonAsync().ConfigureAwait(false);
             var root = Store.GetRoot(RequireString(body, "root", "root"));
+            RequireWritable(root);
             var path = RequireString(body, "path", "path");
             string content = null;
             if (body.TryGetPropertyIgnoreCase("content", out var c) && c.ValueKind == JsonValueKind.String) content = c.GetString();
@@ -274,6 +284,7 @@ namespace Server.WebAdmin.Routes
         {
             var body = await req.ReadJsonAsync().ConfigureAwait(false);
             var root = Store.GetRoot(RequireString(body, "root", "root"));
+            RequireWritable(root);
             var path = RequireString(body, "path", "path");
             Store.ResolveFile(root, path, out var normalized);
 
@@ -287,6 +298,7 @@ namespace Server.WebAdmin.Routes
         {
             var body = await req.ReadJsonAsync().ConfigureAwait(false);
             var root = Store.GetRoot(RequireString(body, "root", "root"));
+            RequireWritable(root);
             var path = RequireString(body, "path", "path");
             var newPath = RequireString(body, "newPath", "newPath");
             Store.ResolveFile(root, path, out var normalized);

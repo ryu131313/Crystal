@@ -695,13 +695,6 @@ namespace Server
             UpdateInterface();
         }
 
-        private void DropBuilderButton_Click(object sender, EventArgs e)
-        {
-            MirForms.DropBuilder.DropGenForm GenForm = new MirForms.DropBuilder.DropGenForm();
-
-            GenForm.ShowDialog();
-        }
-
         private void DropPathTextBox_TextChanged(object sender, EventArgs e)
         {
             if (ActiveControl != sender) return;

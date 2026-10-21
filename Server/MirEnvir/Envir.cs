@@ -6679,18 +6679,19 @@ namespace Server.MirEnvir
         {
             for (var i = 0; i < MonsterInfoList.Count; i++)
             {
-                string path = Path.Combine(Settings.DropPath, MonsterInfoList[i].Name + ".txt");
-
-                if (!string.IsNullOrEmpty(MonsterInfoList[i].DropPath))
-                {
-                    path = Path.Combine(Settings.DropPath, MonsterInfoList[i].DropPath + ".txt");
-                }
-
                 MonsterInfoList[i].Drops.Clear();
 
-                DropInfo.Load(MonsterInfoList[i].Drops, MonsterInfoList[i].Name, path, 0, true);
+                DropInfo.LoadForMonster(MonsterInfoList[i].Drops, MonsterInfoList[i]);
             }
 
+            ReloadSpecialDrops();
+
+            MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.DropsLoaded));
+        }
+
+        /// <summary>The fishing, awakening, strongbox and blackstone lists.</summary>
+        private void ReloadSpecialDrops()
+        {
             FishingDrops.Clear();
             for (int i = 0; i < 19; i++)
             {
@@ -6708,8 +6709,52 @@ namespace Server.MirEnvir
 
             BlackstoneDrops.Clear();
             DropInfo.Load(BlackstoneDrops, "Blackstone", Path.Combine(Settings.DropPath, Settings.BlackstoneDropFilename + ".txt"));
+        }
 
-            MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.DropsLoaded));
+        /// <summary>
+        /// After a drop list was edited in the web admin (game thread): reloads the drops of everything that loads it, its monsters, the
+        /// special lists or the dragon; a list another list includes reloads everything. Returns what was reloaded (for the reply).
+        /// </summary>
+        /// <param name="includedElsewhere">Another list #INSERTs this one (worked out by the caller, off the game thread).</param>
+        public string ReloadDropList(long listId, bool includedElsewhere)
+        {
+            var list = DropTables.Get(listId);
+            if (list == null) return "nothing (the list is gone)";
+            if (includedElsewhere)
+            {
+                ReloadDrops();
+                return "every drop list (another list includes this one)";
+            }
+
+            // The special lists by their current Settings names (not the kind stored when the list was made), then every monster.
+            string special = null;
+            switch (DropTables.OwnerOf(list.Name, Enumerable.Empty<(long, string, string)>()).Kind)
+            {
+                case DropList.Fishing:
+                case DropList.Awakening:
+                case DropList.Strongbox:
+                case DropList.Blackstone:
+                    ReloadSpecialDrops();
+                    special = "the fishing, awakening, strongbox and blackstone lists";
+                    break;
+                case DropList.Dragon:
+                    if (DragonSystem != null) DragonSystem.Info.LoadDrops();
+                    special = DragonSystem != null ? "the dragon's drops" : "nothing for the dragon (it is off)";
+                    break;
+            }
+
+            var count = 0;
+            for (var i = 0; i < MonsterInfoList.Count; i++)
+            {
+                var m = MonsterInfoList[i];
+                if (DropTables.ForMonster(m.Index, m.Name, m.DropPath)?.Id != listId) continue;
+                m.Drops.Clear();
+                DropInfo.LoadForMonster(m.Drops, m, false);
+                count++;
+            }
+
+            var monsters = count.ToString(System.Globalization.CultureInfo.InvariantCulture) + " monster(s)";
+            return special == null ? monsters : special + " and " + monsters;
         }
 
         public void ReloadLineMessages()

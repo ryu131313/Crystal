@@ -26,10 +26,8 @@ namespace Server.WebAdmin.LiveDb
     {
         public List<DropInfo> ReloadDrops(MonsterInfo mainInfo)
         {
-            var file = string.IsNullOrEmpty(mainInfo.DropPath) ? mainInfo.Name : mainInfo.DropPath;
-            var path = Path.Combine(Settings.DropPath, file + ".txt");
             var list = new List<DropInfo>();
-            DropInfo.Load(list, mainInfo.Name, path, 0, true);
+            DropInfo.LoadForMonster(list, mainInfo); // its own list by Index, or its DropPath list (drop tables, phase 2)
             var previous = mainInfo.Drops;
             mainInfo.Drops = list;
             return previous;
