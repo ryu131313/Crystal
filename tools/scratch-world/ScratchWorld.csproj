@@ -21,4 +21,9 @@
     <ProjectReference Include="..\..\Shared\Shared.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The bot's collision parser, compiled in so copied real maps get a walkable start point. -->
+    <Compile Include="..\..\StressClient\MapFile.cs" Link="MapFile.cs" />
+  </ItemGroup>
+
 </Project>

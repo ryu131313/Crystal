@@ -22,6 +22,10 @@ internal sealed class BotSocket : IDisposable
     public string CloseReason { get; private set; }
     public bool IsClosed => Volatile.Read(ref _closed) != 0;
 
+    /// <summary>MonoClock timestamp of the last decoded packet / completed write (liveness diagnostics).</summary>
+    public long LastReceivedAt;
+    public long LastSentAt;
+
     public BotSocket(Metrics metrics) => _m = metrics;
 
     public enum ConnectResult { Ok, Refused, Timeout, Failed }
@@ -123,6 +127,7 @@ internal sealed class BotSocket : IDisposable
             return;
         }
         Metrics.Inc(ref _m.PacketsReceived);
+        LastReceivedAt = MonoClock.Now;
         if (p is ServerPackets.KeepAlive ka)
         {
             // Measured on arrival (not on the next bot tick) so the RTT is the server's, not the bot loop's.
@@ -146,6 +151,7 @@ internal sealed class BotSocket : IDisposable
         try
         {
             await _stream.WriteAsync(bytes.ToArray(), ct).ConfigureAwait(false);
+            LastSentAt = MonoClock.Now;
             Metrics.Add(ref _m.PacketsSent, packets.Count);
             Metrics.Add(ref _m.BytesSent, bytes.Count);
             Metrics.Inc(ref _m.Sends);

@@ -55,7 +55,8 @@ $TestProjects = @(
     'Server.WebAdmin.Tests\Server.WebAdmin.Tests.csproj',
     'Shared.Tests\Shared.Tests.csproj',
     'Server.Persistence.Tests\Server.Persistence.Tests.csproj',
-    'tools\MirDbExport.Tests\MirDbExport.Tests.csproj'
+    'tools\MirDbExport.Tests\MirDbExport.Tests.csproj',
+    'StressClient.Tests\StressClient.Tests.csproj'
 )
 
 # `powershell -File verify.ps1 -Only A,B` passes one string "A,B": split it, and refuse unknown keys.

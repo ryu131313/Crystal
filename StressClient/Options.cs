@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 
 namespace StressClient;
 
@@ -31,6 +31,30 @@ internal sealed class Options
     public int Seed = 12345;
     public string CsvPath;
     public bool Quiet;
+
+    // ---- behaviour / movement (WoOOLcraft-style harness) ----
+
+    /// <summary>Worker threads that sweep their partition of the bot population. I/O stays on per-session tasks.</summary>
+    public int WorkerThreads = 4;
+
+    /// <summary>Folders searched for the map files the server reports (read-only; the server's Maps folder is authoritative).</summary>
+    public readonly List<string> MapFolders = new();
+
+    /// <summary>--check-maps &lt;dir&gt;: parse every map in the folder and exit instead of running bots.</summary>
+    public string CheckMapsFolder;
+
+    /// <summary>The Director routes idle bots toward map respawn regions and, when known, map exits.</summary>
+    public bool DirectorEnabled = true;
+    public int DirectorIntervalSeconds = 3;
+
+    /// <summary>A* expansion cap (nodes popped); a path that needs more is abandoned and the bot repaths later.</summary>
+    public int PathNodes = 4000;
+
+    public bool AllowRun = true;
+    /// <summary>Share of eligible straight path segments the bot may run (0..100); C.Run moves 2 cells per action.</summary>
+    public int RunPercent = 40;
+
+    public int RoamRadius = 12;
 
     public static readonly Regex PrefixReg = new("^[A-Za-z0-9]{1,9}$");
 
@@ -65,6 +89,17 @@ internal sealed class Options
                     case "--seed": o.Seed = int.Parse(Next()); break;
                     case "--csv": o.CsvPath = Next(); break;
                     case "--quiet": o.Quiet = true; break;
+
+                    case "--workers": o.WorkerThreads = int.Parse(Next()); break;
+                    case "--map-folder": o.MapFolders.Add(Next()); break;
+                    case "--check-maps": o.CheckMapsFolder = Next(); break;
+                    case "--no-director": o.DirectorEnabled = false; break;
+                    case "--director-interval": o.DirectorIntervalSeconds = int.Parse(Next()); break;
+                    case "--path-nodes": o.PathNodes = int.Parse(Next()); break;
+                    case "--no-run": o.AllowRun = false; break;
+                    case "--run-percent": o.RunPercent = int.Parse(Next()); break;
+                    case "--roam-radius": o.RoamRadius = int.Parse(Next()); break;
+
                     case "-h":
                     case "--help":
                         error = "";
@@ -90,6 +125,13 @@ internal sealed class Options
         else if (o.TickMs < 10 || o.TickMs > 1000) error = "--tick must be 10..1000 ms";
         else if (o.MoveDelayMs < 600) error = "--move-delay below the server's 600 ms MoveDelay only fills its retry queue";
         else if (o.Password.Length < 5 || o.Password.Length > 15 || !Regex.IsMatch(o.Password, "^[A-Za-z0-9]+$")) error = "--password must be 5-15 letters/digits";
+        else if (o.WorkerThreads < 1 || o.WorkerThreads > 64) error = "--workers must be 1..64";
+        else if (o.DirectorIntervalSeconds < 1 || o.DirectorIntervalSeconds > 60) error = "--director-interval must be 1..60 s";
+        else if (o.PathNodes < 100 || o.PathNodes > 200_000) error = "--path-nodes must be 100..200000";
+        else if (o.RunPercent < 0 || o.RunPercent > 100) error = "--run-percent must be 0..100";
+        else if (o.RoamRadius < 1 || o.RoamRadius > 100) error = "--roam-radius must be 1..100";
+
+        if (error == null && o.MapFolders.Count == 0) o.MapFolders.Add("Maps");
         return error == null ? o : null;
     }
 
@@ -106,7 +148,7 @@ internal sealed class Options
           --password <pw>         password for all bot accounts (default StressPw1)
           --connect-budget <n>    bots allowed in connect/login at once (default 25)
           --max-packet <n>        the server's MaxPacket / [LoadTest] LoopbackMaxPacket (receives per 5 s;
-                                  default 50); each bot sends at most 60 % of it
+                                    default 50); each bot sends at most 60 % of it
           --tick <ms>             bot think interval (default 50)
           --move-delay <ms>       min gap between walks (default 650; server MoveDelay = 600)
           --attack-delay <ms>     min gap between attacks (default 1500)
@@ -116,6 +158,16 @@ internal sealed class Options
           --seed <n>              random seed (default 12345; bot i uses seed+i)
           --csv <file>            also write the 1 Hz metrics as CSV
           --quiet                 only print the summary
+
+          --workers <n>           worker threads sweeping the bot population (default 4)
+          --map-folder <dir>      folder with the server's .map files; repeatable (default .\Maps)
+          --check-maps <dir>      parse every map in the folder, print coverage, exit (no bots)
+          --no-director           disable the Director (bots roam around their start anchor)
+          --director-interval <s> how often the Director reassigns idle bots (default 3)
+          --path-nodes <n>        A* expansion cap per path (default 4000)
+          --no-run                never send C.Run (walk only)
+          --run-percent <0-100>   share of straight path segments that may run (default 40)
+          --roam-radius <cells>   roam around the anchor within this radius (default 12)
 
         Exit code: 0 when every bot reached the game and no decode errors happened, 1 otherwise, 2 bad arguments.
         """;
