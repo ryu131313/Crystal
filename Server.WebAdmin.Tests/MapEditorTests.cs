@@ -121,6 +121,10 @@ namespace Server.WebAdmin.Tests
             Assert.Contains("\"rowIndex\":20000", json);
             Assert.Contains("\"fromMapIndex\":2", json);
             Assert.Contains("\"destX\":11", json);
+            // A grid row of the source map, so the page can move the arrival cell through the batch.
+            Assert.Equal(20000, Convert.ToInt32(inbound["Index"]));
+            Assert.Equal(11, Convert.ToInt32(inbound["Destination_X"]));
+            Assert.True(inbound.ContainsKey(GameDataCodec.RevKey));
         }
 
         [Fact]

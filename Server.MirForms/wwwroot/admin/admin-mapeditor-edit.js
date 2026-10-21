@@ -2,7 +2,8 @@
  * Maps editor — edit mode (MapEditorEdit), plugged into admin-mapeditor.js through its hooks.
  *
  * Crystal's map objects are a point plus a square half-size, so editing is direct manipulation:
- *   - drag an object to move it (respawns, safe zones, mine zones, NPCs; a movement's source), drag a selected object's handles
+ *   - drag an object to move it (respawns, safe zones, mine zones, NPCs; a movement's source; an inbound movement's arrival cell,
+ *     which is the other map's movement row's Destination_X / Y), drag a selected object's handles
  *     to change its Size / Spread, drag a same-map movement's destination ring to move the destination;
  *   - Add tools place a new safe zone, respawn (monster picked first), movement or mine zone with a click;
  *   - Delete removes the selected object (NPCs: use the NPCs grid); the details column edits the selected object's fields.
@@ -35,6 +36,9 @@
         ['Destination_X', 'Destination X', 'int'], ['Destination_Y', 'Destination Y', 'int'], ['NeedHole', 'Needs a hole', 'bool'],
         ['NeedMove', 'Needs a script move', 'bool'], ['ShowOnBigMap', 'Show on big map', 'bool'], ['Icon', 'Big map icon', 'int']],
       create: function () { return { NeedHole: false, NeedMove: false, ShowOnBigMap: false, Icon: 0 }; } },
+    // Another map's movement that leads here (overlay "inbound": that map's mapmovements grid rows): only its arrival cell is edited.
+    inbound: { list: 'inbound', endpoint: 'mapmovements', pos: ['Destination_X', 'Destination_Y'], size: null, label: 'inbound movement',
+      noAdd: true, noDelete: true, fields: [['Destination_X', 'Arrival X', 'int'], ['Destination_Y', 'Arrival Y', 'int']] },
     npc: { list: 'npcs', endpoint: 'npcs', pos: ['Location_X', 'Location_Y'], size: null, label: 'NPC', noAdd: true, noDelete: true,
       fields: [['Location_X', 'X', 'int'], ['Location_Y', 'Y', 'int']] }
   };
@@ -282,7 +286,7 @@
     // ---- gestures -----------------------------------------------------------------------------------------------------------
 
     function editable(o) {
-      if (!o || o.kind === 'inbound' || !KINDS[o.kind]) return false;
+      if (!o || !KINDS[o.kind]) return false;
       if (o.dupKey) return false;
       return true;
     }
@@ -325,7 +329,7 @@
       if (!c || !c0) return null;
       var hits = Geo.objectsAt(c0.objects, c.x, c.y).filter(function (o) {
         var l = page.layers();
-        var layer = { safezone: 'safezones', respawn: 'respawns', movement: 'movements', mine: 'mines', npc: 'npcs' }[o.kind];
+        var layer = { safezone: 'safezones', respawn: 'respawns', movement: 'movements', inbound: 'inbound', mine: 'mines', npc: 'npcs' }[o.kind];
         return editable(o) && l[layer] !== false;
       });
       var sel = page.selected();
@@ -680,6 +684,7 @@
           if (v.walkable(o.x, o.y) === false) out.push({ key: o.key, text: describe(o) + ': the source cell is blocked, nobody can step on it.' });
           if (o.dest.same && v.walkable(o.dest.x, o.dest.y) === false) out.push({ key: o.key, text: describe(o) + ': the destination cell is blocked.' });
         }
+        if (o.kind === 'inbound' && v.walkable(o.x, o.y) === false) out.push({ key: o.key, text: describe(o) + ': the arrival cell is blocked.' });
       });
       return out.slice(0, 50);
     }

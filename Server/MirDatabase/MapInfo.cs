@@ -314,6 +314,7 @@ namespace Server.MirDatabase
                 if (!ushort.TryParse(data[start + 5 + (i * 7)], out temp.Delay)) return;
                 if (!byte.TryParse(data[start + 6 + (i * 7)], out temp.Direction)) return;
                 if (!int.TryParse(data[start + 7 + (i * 7)], out temp.RespawnIndex)) return;
+                temp.RespawnIndex = ++EditEnvir.RespawnIndex; // a pasted map's respawns are new respawns: never reuse the copied index
                 if (!bool.TryParse(data[start + 8 + (i * 7)], out temp.SaveRespawnTime)) return;
                 if (!ushort.TryParse(data[start + 9 + (i * 7)], out temp.RespawnTicks)) return;
 

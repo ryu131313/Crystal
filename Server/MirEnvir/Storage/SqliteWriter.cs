@@ -96,6 +96,8 @@ namespace Server.MirEnvir.Storage
                     SqliteWorldFile.CheckSchema(_conn);
                     SqliteWorldFile.Migrate(_conn, MessageQueue.Enqueue, System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Path), SqliteWorldStore.BackUpPath,
                         $"Pre-migrate {DateTime.Now:yyyy-MM-dd HH-mm-ss}.bak"));
+                    SqliteWorldFile.FixDuplicateRespawnIndexes(_conn, MessageQueue.Enqueue, System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Path), SqliteWorldStore.BackUpPath,
+                        $"Pre-respawn-fix {DateTime.Now:yyyy-MM-dd HH-mm-ss}.bak"));
                 }
                 catch
                 {

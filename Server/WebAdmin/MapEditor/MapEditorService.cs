@@ -81,8 +81,7 @@ namespace Server.WebAdmin.MapEditor
         {
             public Dictionary<string, object> Map;
             public string FileName;
-            public List<Dictionary<string, object>> SafeZones, Respawns, Movements, MineZones, Npcs;
-            public List<object> Inbound;
+            public List<Dictionary<string, object>> SafeZones, Respawns, Movements, MineZones, Npcs, Inbound;
         }
 
         /// <summary>Under EditLock: the map's row and its child rows as the Game Data grids return them, or null for an unknown map.</summary>
@@ -103,7 +102,7 @@ namespace Server.WebAdmin.MapEditor
                 Movements = ChildRows(ctx, "mapmovements", map),
                 MineZones = ChildRows(ctx, "mapminezones", map),
                 Npcs = new List<Dictionary<string, object>>(),
-                Inbound = new List<object>(),
+                Inbound = new List<Dictionary<string, object>>(),
             };
 
             // Display names the page shows next to the indexes (extra "__" keys: never sent back by the grid / batch code).
@@ -127,24 +126,21 @@ namespace Server.WebAdmin.MapEditor
                 if (row.Entity is NPCInfo n && n.MapIndex == index) rows.Npcs.Add(npcTable.ToWire(row));
             }
 
-            foreach (var other in ctx.Maps)
+            // Movements of other maps that lead here, as their own grid rows (with __rev), so the page can move the arrival cell
+            // (the source row's Destination_X / Destination_Y) through the same batch as this map's rows.
+            var moveTable = GameDataRegistry.Get("mapmovements");
+            foreach (var row in moveTable.Rows(ctx))
             {
-                if (other.Index == index) continue;
-                for (var i = 0; i < other.Movements.Count; i++)
-                {
-                    var mv = other.Movements[i];
-                    if (mv.MapIndex != index) continue;
-                    rows.Inbound.Add(new
-                    {
-                        rowIndex = other.Index * GameDataRegistry.Stride + i,
-                        fromMapIndex = other.Index,
-                        fromTitle = MapLabel(other),
-                        sourceX = mv.Source.X,
-                        sourceY = mv.Source.Y,
-                        destX = mv.Destination.X,
-                        destY = mv.Destination.Y,
-                    });
-                }
+                if (!(row.Entity is MovementInfo mv) || mv.MapIndex != index || !(row.Parent is MapInfo other) || other.Index == index) continue;
+                var w = moveTable.ToWire(row);
+                w["rowIndex"] = row.Index;
+                w["fromMapIndex"] = other.Index;
+                w["fromTitle"] = MapLabel(other);
+                w["sourceX"] = mv.Source.X;
+                w["sourceY"] = mv.Source.Y;
+                w["destX"] = mv.Destination.X;
+                w["destY"] = mv.Destination.Y;
+                rows.Inbound.Add(w);
             }
 
             return rows;

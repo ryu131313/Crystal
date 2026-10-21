@@ -1016,6 +1016,7 @@ namespace Server
 
                 if (info == null) continue;
 
+                info.RespawnIndex = ++Envir.RespawnIndex; // a pasted respawn is a new respawn: never reuse the copied index
                 _info.Respawns.Add(info);
             }
 

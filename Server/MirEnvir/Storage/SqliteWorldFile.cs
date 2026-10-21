@@ -229,6 +229,63 @@ namespace Server.MirEnvir.Storage
             return added;
         }
 
+        /// <summary>
+        /// Gives every map respawn a unique RespawnIndex (the key of <c>maprespawns</c>). Saved respawn timers (Server.MirADB) and LiveDb
+        /// find a respawn by this index, so respawns that share one get each other's timers and web edits. Older data has duplicates from
+        /// the WinForms map editor's respawn / map paste, which copied the index. The first respawn with an index (map order, then list
+        /// order) keeps it; the others, and every 0, get new indexes from the counter. Idempotent; logged; with <paramref name="backupPath"/>
+        /// the store is copied there first. Returns the number of respawns renumbered.
+        /// </summary>
+        public static int FixDuplicateRespawnIndexes(SqliteConnection conn, Action<string> log, string backupPath = null)
+        {
+            var rows = new List<(long Parent, long Position, long Key)>();
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "SELECT parent_position, position, key FROM maprespawns ORDER BY parent_position, position";
+                using var r = cmd.ExecuteReader();
+                while (r.Read()) rows.Add((r.GetInt64(0), r.GetInt64(1), r.GetInt64(2)));
+            }
+
+            var seen = new HashSet<long>();
+            var renumber = new List<(long Parent, long Position, long Key)>();
+            foreach (var row in rows)
+                if (row.Key == 0 || !seen.Add(row.Key)) renumber.Add(row);
+            if (renumber.Count == 0) return 0;
+
+            if (backupPath != null)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(backupPath)));
+                BackupTo(conn, backupPath);
+            }
+
+            var counter = Scalar(conn, null, "SELECT value FROM index_counters WHERE name = 'RespawnIndex'") is long c ? c : 0;
+            counter = Math.Max(counter, rows.Count == 0 ? 0 : rows.Max(x => x.Key));
+            using var tx = conn.BeginTransaction();
+            using (var upd = conn.CreateCommand())
+            {
+                upd.Transaction = tx;
+                upd.CommandText = "UPDATE maprespawns SET key = $k WHERE parent_position = $p AND position = $i";
+                var pk = upd.Parameters.Add("$k", SqliteType.Integer);
+                var pp = upd.Parameters.Add("$p", SqliteType.Integer);
+                var pi = upd.Parameters.Add("$i", SqliteType.Integer);
+                foreach (var row in renumber)
+                {
+                    pk.Value = ++counter;
+                    pp.Value = row.Parent;
+                    pi.Value = row.Position;
+                    upd.ExecuteNonQuery();
+                }
+            }
+
+            Upsert(conn, tx, "index_counters", "RespawnIndex", counter);
+            Upsert(conn, tx, "meta", "respawn_index_fix_utc", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
+            tx.Commit();
+            log("[Store] Gave " + renumber.Count.ToString(CultureInfo.InvariantCulture) + " map respawn(s) that shared a RespawnIndex (or had 0) new unique indexes" +
+                (backupPath != null ? " (store copied to " + backupPath + " first)" : string.Empty) +
+                "; their saved respawn timers start fresh, the first respawn of each index keeps its own.");
+            return renumber.Count;
+        }
+
         private static HashSet<string> TableColumns(SqliteConnection conn, SqliteTransaction tx, string table)
         {
             var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

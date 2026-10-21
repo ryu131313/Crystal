@@ -174,6 +174,48 @@ public class SqliteStoreTests
     }
 
     [Fact]
+    public void Duplicate_respawn_indexes_are_renumbered_once_keeping_the_first()
+    {
+        var dir = NewTempFolder("p7-respawn-fix");
+        InFolder(dir, () =>
+        {
+            EnsureBuffInfo();
+            ResetMain();
+            SyntheticWorld.Populate(Envir.Main);
+            var e = Envir.Main;
+            foreach (var m in e.MapInfoList) m.Respawns.Clear();
+            e.MapInfoList[0].Respawns.Add(new RespawnInfo { MonsterIndex = 1, RespawnIndex = 5, Count = 1 });
+            e.MapInfoList[0].Respawns.Add(new RespawnInfo { MonsterIndex = 1, RespawnIndex = 5, Count = 2 }); // duplicate
+            e.MapInfoList[0].Respawns.Add(new RespawnInfo { MonsterIndex = 1, RespawnIndex = 0, Count = 3 }); // never allocated
+            e.MapInfoList[1].Respawns.Add(new RespawnInfo { MonsterIndex = 2, RespawnIndex = 5, Count = 4 }); // duplicate on another map
+            e.RespawnIndex = 7;
+            var db = Path.Combine(dir, "SystemData.db");
+            SqliteWorldStore.Create(db, SqliteWorldCodec.Encode(e, 0), null);
+
+            var writer = new SqliteWriter(db, "respawn fix test writer");
+            try
+            {
+                var rows = writer.Run(w => SqliteWorldFile.ReadAll(w.Connection)); // opening the store runs the fix
+                var keys = rows.Tables["maprespawns"].Rows.Select(c => (long)c[2]).ToArray();
+                Assert.Equal(new long[] { 5, 8, 9, 10 }, keys); // the first 5 keeps it; the rest come from the counter (7)
+                Assert.Equal(10, rows.Counters["RespawnIndex"]);
+                Assert.Single(Directory.GetFiles(Path.Combine(dir, "Back Up", "Database"), "Pre-respawn-fix *.bak"));
+
+                lock (Envir.LoadLock) SqliteWorldCodec.Decode(rows, Envir.Edit);
+                Assert.Equal(new[] { 5, 8, 9 }, Envir.Edit.MapInfoList[0].Respawns.Select(r => r.RespawnIndex));
+                Assert.Equal(10, Envir.Edit.MapInfoList[1].Respawns[0].RespawnIndex);
+                Assert.Equal(0, writer.Run(w => SqliteWorldFile.FixDuplicateRespawnIndexes(w.Connection, _ => { }))); // idempotent
+            }
+            finally
+            {
+                writer.Shutdown();
+            }
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void Empty_or_missing_files_are_refused()
     {
         var dir = NewTempFolder("p7-sqlite-empty");

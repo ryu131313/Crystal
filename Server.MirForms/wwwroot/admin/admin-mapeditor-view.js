@@ -57,7 +57,7 @@
     });
     (ov.inbound || []).forEach(function (r) {
       out.push({ key: 'inbound:' + r.rowIndex, kind: 'inbound', index: r.rowIndex, row: r,
-        x: num(r.destX), y: num(r.destY), r: 0,
+        x: num(r.Destination_X != null ? r.Destination_X : r.destX), y: num(r.Destination_Y != null ? r.Destination_Y : r.destY), r: 0,
         from: { map: num(r.fromMapIndex, -1), x: num(r.sourceX), y: num(r.sourceY), title: r.fromTitle || '' },
         name: '← from ' + (r.fromTitle || ('map #' + r.fromMapIndex)) });
     });

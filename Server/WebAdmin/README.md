@@ -218,7 +218,7 @@ confirmation dialog, with a reason field for moderation actions. Every successfu
   `.../minimap`, `.../tiles/{z}/{tx}/{ty}` (the Live Monitor's renderer, sized from the map file) and `.../players` (empty while the
   world is stopped).
   - **Edit mode** (*Edit* in the map toolbar; needs `[LiveDb] Enabled=True`, `wwwroot/admin/admin-mapeditor-edit.js`): drag an
-    object to move it (respawns, safe zones, mine zones, NPCs, a movement's source; an NPC dropped on a blocked cell snaps back),
+    object to move it (respawns, safe zones, mine zones, NPCs, a movement's source, an inbound movement's arrival cell (the other map's movement row's Destination_X / Y, same batch); an NPC dropped on a blocked cell snaps back),
     drag the selected object's handles to change its `Size` / `Spread`, drag a same-map movement's destination ring. *+ Safe zone*,
     *+ Respawn* (monster picked first), *+ Movement* (destination 3 cells to the right on this map) and *+ Mine zone* place a new
     object with a click (Shift+click keeps the tool). *Delete* / Del removes the selection (NPCs: in the NPCs grid). The details
