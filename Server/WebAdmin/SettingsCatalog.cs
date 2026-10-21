@@ -257,6 +257,8 @@ namespace Server.WebAdmin
                 "A map with no players or heroes checks its respawns once a minute instead of every second. The first player or hero to arrive, or a script that counts the map's monsters, brings the respawns up to date at once. Maps with tick-counter respawns and conquest maps never sleep. The world monster count can read low while maps sleep.");
             Add(N, "Optimisation", "AloneCeiling", "AloneCeiling", B, "Sleep monsters with nobody near",
                 "A monster with no player nearby (and no master or target) sleeps until its next 'anyone near?' check instead of waking every 2 s for nothing. Monster types with their own AI loop keep waking every 2 s. Gameplay is unchanged.");
+            Add(N, "Optimisation", "AccountSaveOffThread", "AccountSaveOffThread", B, "Account save off the game thread",
+                "The periodic account save serialises every account into one reused buffer on the game thread (that is the snapshot) and does the file write, backup and swap on a pool thread. The file is byte-identical. Off = the old save (a new buffer and a copy each time, the file opened on the game thread).");
             Add(N, "Diag", "LogLoopProfile", "LogLoopProfile", B, "Log loop profile",
                 "Write one [Diag] Loop line per second to the Debug log (per-phase ms, iterations, packets, GC). The numbers are always on the dashboard status.");
             Add(N, "Network", "StartHTTPService", "StartHTTPService", B, "Legacy HTTP service",

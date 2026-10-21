@@ -2420,14 +2420,26 @@ namespace Server.MirEnvir
                             _saveNowRequested = false;
                             saveTime = Time + Settings.SaveDelay * Settings.Minute;
                             // Each save is isolated (roadmap P5): since P2 a failed save leaves the previous file intact.
+                            var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
                             for (var i = 0; i < Players.Count; i++) Players[i].FoldPlayTime(); // v119: a crash loses little play time
+                            var accountSaveSkipped = Saving; // the previous write is still running: BeginSaveAccounts returns at once
                             BeginSaveAccounts();
+                            var t1 = System.Diagnostics.Stopwatch.GetTimestamp();
                             // Main's save only posts the respawn counter (runtime_state): Envir.Edit is the only writer of design data.
                             try { SaveDB(); }
                             catch (Exception ex) { WorldErrors.Record("SaveDB", ex); }
+                            var t2 = System.Diagnostics.Stopwatch.GetTimestamp();
                             try { SaveGuilds(); } catch (Exception ex) { WorldErrors.Record("SaveGuilds", ex); }
+                            var t3 = System.Diagnostics.Stopwatch.GetTimestamp();
                             try { SaveGoods(); } catch (Exception ex) { WorldErrors.Record("SaveGoods", ex); }
+                            var t4 = System.Diagnostics.Stopwatch.GetTimestamp();
                             try { SaveConquests(); } catch (Exception ex) { WorldErrors.Record("SaveConquests", ex); }
+                            var t5 = System.Diagnostics.Stopwatch.GetTimestamp();
+                            if (Settings.LogLoopProfile) // once per save; P9-10
+                                MessageQueue.Instance.EnqueueDebugging(
+                                    $"[Diag] Save accounts={SaveMs(t0, t1):0.00}ms db={SaveMs(t1, t2):0.00}ms guilds={SaveMs(t2, t3):0.00}ms " +
+                                    $"goods={SaveMs(t3, t4):0.00}ms conquests={SaveMs(t4, t5):0.00}ms total={SaveMs(t0, t5):0.00}ms " +
+                                    $"bytes={LastAccountSaveBytes} accounts={AccountList.Count}{(accountSaveSkipped ? " skipped" : "")}");
                             BackupRetention.RunInBackground(); // no-op unless [Backup] RetentionEnabled
                             try { PruneIpTables(); } catch (Exception ex) { WorldErrors.Record("PruneIpTables", ex); }
                         }
@@ -3384,6 +3396,12 @@ namespace Server.MirEnvir
             }
         }
 
+        private static double SaveMs(long from, long to) => (to - from) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+
+        /// <summary>Size of the last periodic account save in bytes (diagnostics; written by whichever thread serialised it).</summary>
+        public static long LastAccountSaveBytes => Volatile.Read(ref _lastAccountSaveBytes);
+        private static long _lastAccountSaveBytes;
+
         private const int AccountSaveWaitLimitMs = 30000;
         private static int _accountSaveFailures;
 
@@ -3394,16 +3412,18 @@ namespace Server.MirEnvir
         /// Swaps a completely written temp file in as Server.MirADB. File.Replace is atomic on the same volume, so a
         /// Server.MirADB exists at every instant; the previous file becomes <paramref name="backupFile"/> when given.
         /// </summary>
-        private static void ReplaceAccountsFile(string tempPath, string backupFile)
+        private static void ReplaceAccountsFile(string tempPath, string backupFile) => ReplaceAccountsFile(tempPath, AccountPath, backupFile);
+
+        private static void ReplaceAccountsFile(string tempPath, string livePath, string backupFile)
         {
-            if (File.Exists(AccountPath))
+            if (File.Exists(livePath))
             {
                 if (backupFile != null && File.Exists(backupFile)) File.Delete(backupFile);
-                File.Replace(tempPath, AccountPath, backupFile);
+                File.Replace(tempPath, livePath, backupFile);
             }
             else
             {
-                File.Move(tempPath, AccountPath);
+                File.Move(tempPath, livePath);
             }
         }
 
@@ -3417,9 +3437,12 @@ namespace Server.MirEnvir
             return Directory.Exists(backupDir) && Directory.EnumerateFiles(backupDir, "*.bak").Any();
         }
 
-        private void SaveAccounts(Stream stream)
+        // BinaryWriter's default encoding (UTF-8, no BOM, throws on invalid surrogates), so leaveOpen changes no byte.
+        private static readonly System.Text.UTF8Encoding AccountSaveEncoding = new System.Text.UTF8Encoding(false, true);
+
+        private void SaveAccounts(Stream stream, bool leaveOpen = false)
         {
-            using (var writer = new BinaryWriter(stream))
+            using (var writer = leaveOpen ? new BinaryWriter(stream, AccountSaveEncoding, true) : new BinaryWriter(stream))
             {
                 writer.Write(Version);
                 writer.Write(CustomVersion);
@@ -3652,6 +3675,96 @@ namespace Server.MirEnvir
         {
             if (Saving) return;
 
+            if (Settings.AccountSaveOffThread) BeginSaveAccountsOffThread();
+            else BeginSaveAccountsLegacy();
+        }
+
+        /// <summary>
+        /// P9-10 ([Optimisation] AccountSaveOffThread). The game thread only serialises: into one buffer kept across saves (no
+        /// growth, no ToArray copy, no LOH allocation once it has reached the file size). Those bytes are the snapshot: they
+        /// are cheaper to produce than a deep copy of the accounts, and nothing reads a live object after this call. A pool
+        /// thread then creates Server.MirADBn, writes it and swaps it in exactly as <see cref="EndSaveAccounts"/> does. The
+        /// buffer is not touched again until that thread clears <see cref="Saving"/> (volatile), which every save waits for.
+        /// </summary>
+        private void BeginSaveAccountsOffThread()
+        {
+            Saving = true;
+
+            var buffer = _accountSaveBuffer ??= new MemoryStream();
+            try
+            {
+                buffer.SetLength(0);
+                SaveAccounts(buffer, leaveOpen: true);
+            }
+            catch (Exception ex)
+            {
+                Saving = false;
+                Interlocked.Increment(ref _accountSaveFailures);
+                MessageQueue.Enqueue(ex);
+                return;
+            }
+
+            var length = (int)buffer.Length;
+            Volatile.Write(ref _lastAccountSaveBytes, length);
+            // The name uses the game clock, as before; whether a backup is taken is decided with the file checks off the thread.
+            // Full paths now, so the pool thread does not depend on the current directory.
+            var job = new AccountSaveJob(buffer.GetBuffer(), length, Path.GetFullPath(AccountPath), Path.GetFullPath(AccountsBackUpPath),
+                $"Accounts {Now.Year:0000}-{Now.Month:00}-{Now.Day:00} {Now.Hour:00}-{Now.Minute:00}-{Now.Second:00}.bak");
+            try
+            {
+                ThreadPool.UnsafeQueueUserWorkItem(WriteAccountsFile, job, preferLocal: false);
+            }
+            catch (Exception ex)
+            {
+                Saving = false;
+                Interlocked.Increment(ref _accountSaveFailures);
+                MessageQueue.Enqueue(ex);
+            }
+        }
+
+        private MemoryStream _accountSaveBuffer; // game thread while !Saving, the pool thread while Saving
+
+        private sealed class AccountSaveJob
+        {
+            public readonly byte[] Data;
+            public readonly int Length;
+            public readonly string AccountPath, BackUpDir, BackupName;
+            public AccountSaveJob(byte[] data, int length, string accountPath, string backUpDir, string backupName)
+            {
+                Data = data; Length = length; AccountPath = accountPath; BackUpDir = backUpDir; BackupName = backupName;
+            }
+        }
+
+        // Runs on a pool thread: touches only the files, the job's bytes and the Saving flag (like EndSaveAccounts).
+        private void WriteAccountsFile(AccountSaveJob job)
+        {
+            try
+            {
+                string backupFile = null;
+                if (File.Exists(job.AccountPath))
+                {
+                    if (!Directory.Exists(job.BackUpDir)) Directory.CreateDirectory(job.BackUpDir);
+                    backupFile = Path.Combine(job.BackUpDir, job.BackupName);
+                }
+
+                using (var fStream = new FileStream(job.AccountPath + "n", FileMode.Create))
+                    fStream.Write(job.Data, 0, job.Length);
+                ReplaceAccountsFile(job.AccountPath + "n", job.AccountPath, backupFile);
+            }
+            catch (Exception ex)
+            {
+                Interlocked.Increment(ref _accountSaveFailures);
+                MessageQueue.Enqueue(ex);
+            }
+            finally
+            {
+                Saving = false;
+            }
+        }
+
+        /// <summary>The save before P9-10, kept behind [Optimisation] AccountSaveOffThread=False.</summary>
+        private void BeginSaveAccountsLegacy()
+        {
             Saving = true;
 
             byte[] data;
@@ -3662,6 +3775,7 @@ namespace Server.MirEnvir
                     SaveAccounts(mStream);
                     data = mStream.ToArray();
                 }
+                Volatile.Write(ref _lastAccountSaveBytes, data.Length);
             }
             catch (Exception ex)
             {
