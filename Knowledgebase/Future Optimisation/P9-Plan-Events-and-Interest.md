@@ -1,6 +1,6 @@
 # P9 plan — event-driven scheduling and interest management (2026-10-21)
 
-**Status: approved 2026-10-21, not started.** Reviewed once (read-only), with every finding applied; the user's decisions are at the end. Three phases:
+**Status: all three phases implemented, reviewed and committed 2026-10-21** (notes `P9-06`, `P9-07`, `P9-08`; deviations from this plan are listed there). Still open: the quiet-machine reruns, the 2 h soak, and the real-client smoke checks. Reviewed once (read-only), with every finding applied; the user's decisions are at the end. Three phases:
 1. Send path
 2. Interest grid and sleeping world
 3. Event-driven players and wire batching
