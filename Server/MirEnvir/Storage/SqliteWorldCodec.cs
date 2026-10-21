@@ -39,7 +39,11 @@ namespace Server.MirEnvir.Storage
     /// </summary>
     internal static class SqliteWorldCodec
     {
-        public const int SchemaVersion = 2;
+        /// <summary>3 = drops as tables (Drops-Tables-Plan phase 1): a build that still reads drop_lines (2) refuses the file instead of
+        /// finding no drops. A 2 store is still read, and becomes 3 when the writer opens it (<see cref="SqliteWorldFile.UpgradeSchemaVersion"/>).</summary>
+        public const int SchemaVersion = 3;
+
+        public const int OldestReadableSchemaVersion = 2;
         public const string ParentPositionColumn = "parent_position";
         public const string PositionColumn = "position";
         public const string KeyColumn = "key";

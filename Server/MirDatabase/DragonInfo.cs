@@ -90,30 +90,30 @@ namespace Server.MirDatabase
         {
             for (int i = 0; i < Globals.MaxDragonLevel; i++) Drops[i].Clear();
             string path = Path.Combine(Settings.DropPath, "DragonItem.txt");
+            if (DropTables.TryMap(path, out var listName))
+            {
+                if (!DropTables.LoadDragon(Drops, listName, LogBadLine))
+                    DropTables.Write(listName, Server.MirDatabase.DropInfo.DefaultFileLines);
+                return;
+            }
+
             if (!DesignFiles.Exists(path))
             {
-                string[] contents = new[]
-                    {
-                        ";Pots + Other", string.Empty, string.Empty,
-                        ";Weapons", string.Empty, string.Empty,
-                        ";Armour", string.Empty, string.Empty,
-                        ";Helmets", string.Empty, string.Empty,
-                        ";Necklace", string.Empty, string.Empty,
-                        ";Bracelets", string.Empty, string.Empty,
-                        ";Rings", string.Empty, string.Empty,
-                        ";Shoes", string.Empty, string.Empty,
-                        ";Belts", string.Empty, string.Empty,
-                        ";Stone",
-                    };
-
-                DesignFiles.WriteAllLines(path, contents);
+                DesignFiles.WriteAllLines(path, Server.MirDatabase.DropInfo.DefaultFileLines);
 
 
                 return;
             }
 
-            string[] lines = DesignFiles.ReadAllLines(path);
+            LoadFromLines(Drops, DesignFiles.ReadAllLines(path), LogBadLine);
+        }
 
+        internal static void LogBadLine(string line) =>
+            MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.CouldNotLoadDropDragonItem), line));
+
+        /// <summary>The text loader (files, and <c>MirDbExport check-drops</c>' reference).</summary>
+        internal static void LoadFromLines(List<DropInfo>[] drops, string[] lines, Action<string> badLine)
+        {
             for (int i = 0; i < lines.Length; i++)
             {
                 if (lines[i].StartsWith(";") || string.IsNullOrWhiteSpace(lines[i])) continue;
@@ -121,17 +121,17 @@ namespace Server.MirDatabase
                 DropInfo drop = DropInfo.FromLine(lines[i]);
                 if (drop == null)
                 {
-                    MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.CouldNotLoadDropDragonItem), lines[i]));
+                    badLine(lines[i]);
                     continue;
                 }
 
                 if (drop.level <= 0 || drop.level > Globals.MaxDragonLevel) return;
-                Drops[drop.level - 1].Add(drop);
+                drops[drop.level - 1].Add(drop);
             }
 
             for (int i = 0; i < Globals.MaxDragonLevel; i++)
             {
-                Drops[i].Sort((drop1, drop2) =>
+                drops[i].Sort((drop1, drop2) =>
                 {
                     if (drop1.Gold > 0 && drop2.Gold == 0)
                         return 1;
@@ -150,25 +150,42 @@ namespace Server.MirDatabase
             public uint Gold;
             public byte level;
 
-            public static DropInfo FromLine(string s)
+            /// <summary>
+            /// The syntax of a DragonItem.txt line (shared with the drop tables): <c>1/N Item level</c> or <c>1/N Gold amount level</c>.
+            /// A line of fewer than two tokens, or a first token shorter than two characters, throws, as it always did.
+            /// </summary>
+            internal static bool TryParseLine(string s, out int chance, out uint gold, out string itemName, out byte level)
             {
                 string[] parts = s.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
-                DropInfo info = new DropInfo();
-
-                if (!int.TryParse(parts[0].Substring(2), out info.Chance)) return null;
+                gold = 0;
+                itemName = null;
+                level = 0;
+                if (!int.TryParse(parts[0].Substring(2), out chance)) return false;
                 if (string.Compare(parts[1], "Gold", StringComparison.OrdinalIgnoreCase) == 0)
                 {
-                    if (parts.Length < 4) return null;
-                    if (!uint.TryParse(parts[2], out info.Gold) || info.Gold == 0) return null;
-                    if (!byte.TryParse(parts[3], out info.level)) return null;
+                    if (parts.Length < 4) return false;
+                    if (!uint.TryParse(parts[2], out gold) || gold == 0) return false;
+                    if (!byte.TryParse(parts[3], out level)) return false;
                 }
                 else
                 {
-                    if (parts.Length < 3) return null;
-                    info.Item = Envir.GetItemInfo(parts[1]);
+                    if (parts.Length < 3) return false;
+                    itemName = parts[1];
+                    if (!byte.TryParse(parts[2], out level)) return false;
+                }
+                return true;
+            }
+
+            public static DropInfo FromLine(string s)
+            {
+                if (!TryParseLine(s, out var chance, out var gold, out var itemName, out var level)) return null;
+
+                DropInfo info = new DropInfo { Chance = chance, Gold = gold, level = level };
+                if (itemName != null)
+                {
+                    info.Item = Envir.GetItemInfo(itemName);
                     if (info.Item == null) return null;
-                    if (!byte.TryParse(parts[2], out info.level)) return null;
                 }
                 return info;
             }

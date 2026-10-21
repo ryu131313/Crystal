@@ -98,6 +98,9 @@ namespace Server.MirEnvir.Storage
                         $"Pre-migrate {DateTime.Now:yyyy-MM-dd HH-mm-ss}.bak"));
                     SqliteWorldFile.FixDuplicateRespawnIndexes(_conn, MessageQueue.Enqueue, System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Path), SqliteWorldStore.BackUpPath,
                         $"Pre-respawn-fix {DateTime.Now:yyyy-MM-dd HH-mm-ss}.bak"));
+                    DropTables.ConvertLines(_conn, MessageQueue.Enqueue, System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Path), SqliteWorldStore.BackUpPath,
+                        $"Pre-drops {DateTime.Now:yyyy-MM-dd HH-mm-ss}.bak"));
+                    SqliteWorldFile.UpgradeSchemaVersion(_conn);
                 }
                 catch
                 {

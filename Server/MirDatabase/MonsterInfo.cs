@@ -326,79 +326,147 @@ namespace Server.MirDatabase
         public byte Type;
         public bool QuestRequired;
 
-        public static DropInfo FromLine(string s)
+        /// <summary>One drop line as the game reads it, before the item name is looked up.</summary>
+        internal struct LineParts
         {
+            public int Chance;
+            public bool IsGold;
+            public uint Gold;
+            public bool IsGroup;
+            public bool Random;
+            public bool First;
+            public string ItemName;
+            public bool Quest;
+        }
+
+        /// <summary>
+        /// The syntax of a drop line (shared by <see cref="FromLine"/> and the drop tables, so both read a line the same way). The chance
+        /// is the first token without its first two characters ("1/"); a first token shorter than two characters throws, as it always did.
+        /// </summary>
+        internal static bool TryParseLine(string s, out LineParts p)
+        {
+            p = default;
             string[] parts = s.Split(new[] {' '}, StringSplitOptions.RemoveEmptyEntries);
 
             if (parts.Length < 2)
             {
-                return null;
+                return false;
             }
 
-            DropInfo info = new DropInfo();
-
-            if (!int.TryParse(parts[0].Substring(2), out info.Chance)) return null;
+            if (!int.TryParse(parts[0].Substring(2), out p.Chance)) return false;
 
             if (string.Compare(parts[1], "Gold", StringComparison.OrdinalIgnoreCase) == 0)
             {
-                if (parts.Length < 3) return null;
-                if (!uint.TryParse(parts[2], out info.Gold) || info.Gold == 0) return null;
+                if (parts.Length < 3) return false;
+                if (!uint.TryParse(parts[2], out p.Gold) || p.Gold == 0) return false;
+                p.IsGold = true;
             }
             else if (parts[1].ToUpper().StartsWith("GROUP"))
             {
+                p.IsGroup = true;
+                p.Random = parts[1].EndsWith("*");
+                p.First = parts[1].EndsWith("^");
+            }
+            else
+            {
+                p.ItemName = parts[1];
+                p.Quest = parts.Length > 2 && parts[2].ToUpper() == "Q";
+            }
+
+            return true;
+        }
+
+        public static DropInfo FromLine(string s)
+        {
+            if (!TryParseLine(s, out var p)) return null;
+
+            DropInfo info = new DropInfo { Chance = p.Chance };
+
+            if (p.IsGold)
+            {
+                info.Gold = p.Gold;
+            }
+            else if (p.IsGroup)
+            {
                 info.GroupedDrop = new GroupDropInfo
                 {
-                    Random = parts[1].EndsWith("*"),
-                    First = parts[1].EndsWith("^")
+                    Random = p.Random,
+                    First = p.First
                 };
             }
             else
             {
-                info.Item = Envir.GetItemInfo(parts[1]);
+                info.Item = Envir.GetItemInfo(p.ItemName);
                 if (info.Item == null) return null;
-
-                if (parts.Length > 2)
-                {
-                    string dropRequirement = parts[2];
-                    if (dropRequirement.ToUpper() == "Q")
-                    {
-                        info.QuestRequired = true;
-                    }
-                }
+                info.QuestRequired = p.Quest;
             }
 
             return info;
         }
 
+        /// <summary>What a missing drop file is created with.</summary>
+        internal static readonly string[] DefaultFileLines =
+        {
+            ";Pots + Other", string.Empty, string.Empty,
+            ";Weapons", string.Empty, string.Empty,
+            ";Armour", string.Empty, string.Empty,
+            ";Helmets", string.Empty, string.Empty,
+            ";Necklace", string.Empty, string.Empty,
+            ";Bracelets", string.Empty, string.Empty,
+            ";Rings", string.Empty, string.Empty,
+            ";Shoes", string.Empty, string.Empty,
+            ";Belts", string.Empty, string.Empty,
+            ";Stone",
+        };
+
+        /// <summary>The order every loaded drop list is sorted in: gold last, then by item type.</summary>
+        internal static int CompareForList(DropInfo drop1, DropInfo drop2)
+        {
+            if (drop1.Gold > 0 && drop2.Gold == 0)
+                return 1;
+            if (drop1.Gold == 0 && drop2.Gold > 0)
+                return -1;
+
+            if (drop1.Item == null || drop2.Item == null) return 0;
+
+            return drop1.Item.Type.CompareTo(drop2.Item.Type);
+        }
+
+        internal static void LogBadLine(string name, string line) =>
+            MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.CouldNotLoadDropLine), name, line));
+
+        /// <summary>
+        /// Loads the drop list stored as <paramref name="path"/> into <paramref name="list"/> and sorts it. While SystemData.db is active the
+        /// list comes from the drop tables (<see cref="DropTables"/>, no text parsing); otherwise from the file.
+        /// </summary>
         public static void Load(List<DropInfo> list, string name, string path, byte type = 0, bool createIfNotExists = true)
         {
+            if (DropTables.TryMap(path, out var listName))
+            {
+                if (!DropTables.LoadInto(list, name, listName, type, LogBadLine) && createIfNotExists)
+                    DropTables.Write(listName, DefaultFileLines);
+                return;
+            }
+
             if (!DesignFiles.Exists(path))
             {
                 if (createIfNotExists)
                 {
-                    string[] contents = new[]
-                        {
-                        ";Pots + Other", string.Empty, string.Empty,
-                        ";Weapons", string.Empty, string.Empty,
-                        ";Armour", string.Empty, string.Empty,
-                        ";Helmets", string.Empty, string.Empty,
-                        ";Necklace", string.Empty, string.Empty,
-                        ";Bracelets", string.Empty, string.Empty,
-                        ";Rings", string.Empty, string.Empty,
-                        ";Shoes", string.Empty, string.Empty,
-                        ";Belts", string.Empty, string.Empty,
-                        ";Stone",
-                    };
-
-                    DesignFiles.WriteAllLines(path, contents);
+                    DesignFiles.WriteAllLines(path, DefaultFileLines);
                 }
 
                 return;
             }
 
-            var lines = DesignFiles.ReadAllLines(path).ToList();
+            LoadFromLines(list, name, DesignFiles.ReadAllLines(path).ToList(), type,
+                sub => DesignFiles.ReadAllLines(Path.Combine(Settings.DropPath, sub)), LogBadLine);
+        }
 
-            lines = ParseInsert(lines);
+        /// <summary>The text loader (files, and <c>MirDbExport check-drops</c>' reference): <paramref name="readInclude"/> reads an #INSERT target.</summary>
+        internal static void LoadFromLines(List<DropInfo> list, string name, List<string> lines, byte type, Func<string, string[]> readInclude,
+            Action<string, string> badLine)
+        {
+            lines = ParseInsert(lines, readInclude);
 
             for (int i = 0; i < lines.Count; i++)
             {
@@ -408,13 +476,13 @@ namespace Server.MirDatabase
 
                 if (drop == null)
                 {
-                    MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.CouldNotLoadDropLine), name, lines[i]));
+                    badLine(name, lines[i]);
                     continue;
                 }
 
                 if (drop.GroupedDrop != null)
                 {
-                    ParseGroup(drop, name, lines, i + 1);
+                    ParseGroup(drop, name, lines, i + 1, badLine);
                 }
 
                 drop.Type = type;
@@ -422,20 +490,10 @@ namespace Server.MirDatabase
                 list.Add(drop);
             }
 
-            list.Sort((drop1, drop2) =>
-            {
-                if (drop1.Gold > 0 && drop2.Gold == 0)
-                    return 1;
-                if (drop1.Gold == 0 && drop2.Gold > 0)
-                    return -1;
-
-                if (drop1.Item == null || drop2.Item == null) return 0;
-
-                return drop1.Item.Type.CompareTo(drop2.Item.Type);
-            });
+            list.Sort(CompareForList);
         }
 
-        private static void ParseGroup(DropInfo parentDrop, string name, List<string> lines, int startLine)
+        private static void ParseGroup(DropInfo parentDrop, string name, List<string> lines, int startLine, Action<string, string> badLine)
         {
             bool start = false, finish = false;
 
@@ -464,13 +522,13 @@ namespace Server.MirDatabase
 
                 if (drop == null)
                 {
-                    MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.CouldNotLoadDropLine), name, line));
+                    badLine(name, line);
                     continue;
                 }
 
                 if (drop.GroupedDrop != null)
                 {
-                    ParseGroup(drop, name, lines, j + 1);
+                    ParseGroup(drop, name, lines, j + 1, badLine);
                 }
 
                 drops.Add(drop);
@@ -482,7 +540,7 @@ namespace Server.MirDatabase
             }
         }
 
-        private static List<string> ParseInsert(List<string> lines)
+        private static List<string> ParseInsert(List<string> lines, Func<string, string[]> readInclude)
         {
             Regex regex = new Regex($"#INSERT \\[(.*?)\\]", RegexOptions.IgnoreCase);
 
@@ -496,9 +554,7 @@ namespace Server.MirDatabase
 
                 var subPath = match.Groups[1].Value;
 
-                string path = Path.Combine(Settings.DropPath, subPath);
-
-                newLines = DesignFiles.ReadAllLines(path).ToList();
+                newLines = readInclude(subPath).ToList();
 
                 lines.AddRange(newLines);
             }

@@ -47,6 +47,8 @@ namespace Server.MirEnvir.Storage
     /// Envir\Drops\**\*.txt (monster drops, the fishing / awakening / strongbox / blackstone lists, DragonItem.txt, NPC DROP lists):
     /// <c>1/N ItemName [Q|level]</c>, <c>1/N Gold amount</c>, <c>1/N GROUP[*|^]</c> with <c>{ }</c>, <c>#INSERT [file]</c>, comments
     /// (DropInfo.FromLine, DragonInfo). Item lines keep the item as an Index link and the rest of the line verbatim.
+    /// <para>Since Drops-Tables-Plan phase 1 this format only names the drop folder for <see cref="DesignFiles"/> and renders the old
+    /// <c>drop_lines</c> rows once, when <see cref="DropTables.ConvertLines"/> converts them; the drops live in <see cref="DropTables"/>.</para>
     /// </summary>
     internal sealed class DropFormat : DesignTextFormat
     {

@@ -36,8 +36,11 @@ namespace MirDbExport
                     foreach (var f in DesignTexts.Formats)
                     {
                         var root = Path.GetFullPath(f.Root);
-                        var typed = DesignStore.Run(conn => Count(conn, "SELECT count(*) FROM " + f.Table + " WHERE text IS NULL"));
-                        var text = DesignStore.Run(conn => Count(conn, "SELECT count(*) FROM " + f.Table + " WHERE text IS NOT NULL"));
+                        // Drops are rows in the drop tables (every row keeps its text; typed = item, gold, group).
+                        var typedWhere = f is DropFormat ? "drops WHERE kind IN ('item', 'gold', 'group')" : f.Table + " WHERE text IS NULL";
+                        var textWhere = f is DropFormat ? "drops WHERE kind NOT IN ('item', 'gold', 'group')" : f.Table + " WHERE text IS NOT NULL";
+                        var typed = DesignStore.Run(conn => Count(conn, "SELECT count(*) FROM " + typedWhere));
+                        var text = DesignStore.Run(conn => Count(conn, "SELECT count(*) FROM " + textWhere));
                         var n = 0;
                         if (Directory.Exists(root))
                         {
@@ -128,8 +131,10 @@ namespace MirDbExport
                 throw new ToolException(outFolder + " is not empty (pass --force to write into it).");
 
             // Work on a copy: opening the store may add tables (Migrate), and the source is never written.
-            var copy = Path.Combine(Path.GetTempPath(), "mirdbexport", Guid.NewGuid().ToString("N") + ".db");
-            Directory.CreateDirectory(Path.GetDirectoryName(copy));
+            // Its own folder: opening the copy may write Pre-migrate / Pre-drops backups next to it (Back Up\Database), removed with it.
+            var work = Path.Combine(Path.GetTempPath(), "mirdbexport", Guid.NewGuid().ToString("N"));
+            var copy = Path.Combine(work, "SystemData.db");
+            Directory.CreateDirectory(work);
             File.Copy(dbPath, copy);
             try
             {
@@ -190,12 +195,12 @@ namespace MirDbExport
             }
             finally
             {
-                File.Delete(copy);
+                try { Directory.Delete(work, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
             }
         }
 
         /// <summary>Points the design layer at <paramref name="db"/> with the working directory <paramref name="folder"/> (paths resolve there).</summary>
-        private static int WithStore(string db, string folder, Func<int> body)
+        internal static int WithStore(string db, string folder, Func<int> body)
         {
             var old = Environment.CurrentDirectory;
             var writer = new SqliteWriter(db, "MirDbExport design writer");

@@ -131,7 +131,7 @@ public class DesignStoreTests
             var drops = DesignStore.Run(conn =>
             {
                 using var cmd = conn.CreateCommand();
-                cmd.CommandText = "SELECT count(*) FROM drop_lines WHERE line_kind = 'item' AND item_index = 1";
+                cmd.CommandText = "SELECT count(*) FROM drops WHERE kind = 'item' AND item_index = 1"; // Drops-Tables-Plan phase 1
                 return (long)cmd.ExecuteScalar();
             });
             Assert.Equal(3, drops); // woodensword in Hen.txt, Common.txt and DragonItem.txt
@@ -147,7 +147,7 @@ public class DesignStoreTests
             var henRows = DesignStore.Run(conn =>
             {
                 using var cmd = conn.CreateCommand();
-                cmd.CommandText = "SELECT count(*) FROM design_files WHERE kind = 'drops' AND lower(name) = 'hen.txt'";
+                cmd.CommandText = "SELECT count(*) FROM drop_lists WHERE lower(name) = 'hen.txt'";
                 return (long)cmd.ExecuteScalar();
             });
             Assert.Equal(1, henRows);

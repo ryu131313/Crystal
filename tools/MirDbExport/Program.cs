@@ -42,6 +42,11 @@ Usage:
       Imports the folder's design files (Configs\*.ini, Envir\Drops, Quests, Recipe, Routes) into a scratch
       store built from its Server.MirDB and checks that every file renders back byte for byte (roadmap P7 7.4).
 
+  MirDbExport check-drops <server-folder>
+      Copies the folder's SystemData.db, opens the copy (which converts drop_lines into the drop tables) and checks
+      that every drop list loads from the tables exactly as the text loaders loaded its text, logs the same bad
+      lines and renders back to the same text (Drops-Tables-Plan phase 1). Exit 0 only on 0 differences.
+
   MirDbExport import-files <SystemData.db> <server-folder>
       Imports the folder's design files into an existing store (the server does this on first use).
 
@@ -62,6 +67,7 @@ Never point it at a live server folder that is being written; copy the file firs
                 if ((args.Length == 3 || (args.Length == 4 && args[3] == "--force")) && args[0] == "export-binary")
                     return StoreCommands.ExportBinary(args[1], args[2], args.Length == 4);
                 if (args.Length == 2 && args[0] == "check-files") return DesignCommands.CheckFiles(args[1]);
+                if (args.Length == 2 && args[0] == "check-drops") return DropCommands.CheckDrops(args[1]);
                 if (args.Length == 3 && args[0] == "import-files") return DesignCommands.ImportFiles(args[1], args[2]);
                 if ((args.Length == 3 || (args.Length == 4 && args[3] == "--force")) && args[0] == "export-files")
                     return DesignCommands.ExportFiles(args[1], args[2], args.Length == 4);

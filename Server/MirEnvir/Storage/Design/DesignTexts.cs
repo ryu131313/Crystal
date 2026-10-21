@@ -166,6 +166,9 @@ namespace Server.MirEnvir.Storage
         /// <summary>Names to resolve written lines against instead of the store's (rename propagation: the editor copy's names).</summary>
         [ThreadStatic] private static DesignNames _parseNames;
 
+        /// <summary>The names set by <see cref="WithParseNames"/> on this thread, or null.</summary>
+        internal static DesignNames ParseNames => _parseNames;
+
         /// <summary>Runs <paramref name="body"/> with writes on this thread resolving names against <paramref name="names"/>.</summary>
         public static T WithParseNames<T>(DesignNames names, Func<T> body)
         {
@@ -203,7 +206,7 @@ namespace Server.MirEnvir.Storage
         private static (Dictionary<(string, long), string> View, DesignNames Names) _viewNames;
 
         /// <summary>Lookups built from the names view, once per refresh (game-thread writes parse with these).</summary>
-        private static DesignNames ViewNames()
+        internal static DesignNames ViewNames()
         {
             var cached = _viewNames;
             var view = _names;
@@ -220,6 +223,7 @@ namespace Server.MirEnvir.Storage
             Add(map, rows, "items", "I");
             Add(map, rows, "monsters", "M");
             _names = map;
+            DropTables.RefreshMonsters(rows);
         }
 
         private static void Add(Dictionary<(string, long), string> map, WorldRows rows, string table, string kind)
@@ -238,7 +242,7 @@ namespace Server.MirEnvir.Storage
             yield return ("design_files", "CREATE TABLE design_files (kind TEXT NOT NULL, name TEXT NOT NULL, imported_utc TEXT NOT NULL, " +
                                           "updated_utc TEXT NOT NULL, newline TEXT NOT NULL, final_newline INTEGER NOT NULL, bom INTEGER NOT NULL, " +
                                           "PRIMARY KEY (kind, name)) STRICT");
-            foreach (var f in Formats)
+            foreach (var f in Formats.Where(x => !(x is DropFormat))) // drops: DropTables.Tables (Drops-Tables-Plan phase 1)
                 yield return (f.Table, "CREATE TABLE " + f.Table + " (name TEXT NOT NULL, position INTEGER NOT NULL, " +
                                        string.Join(", ", f.Columns.Select(c => SqliteWorldCodec.Quote(c.Name) + " " + c.SqlType)) +
                                        ", PRIMARY KEY (name, position)) STRICT");
@@ -247,12 +251,18 @@ namespace Server.MirEnvir.Storage
         public static DesignTextFormat FormatOf(string kind) => Formats.First(f => f.Kind == kind);
 
         /// <summary>Drops the cache (tests; a restored store).</summary>
-        internal static void ResetCache() => Cache.Clear();
+        internal static void ResetCache()
+        {
+            Cache.Clear();
+            DropTables.ResetCache();
+        }
 
         /// <summary>Imports (on first use) and caches every kind. Called by the store's load, before any loader reads a file.</summary>
         public static void EnsureLoaded()
         {
-            foreach (var f in Formats) Files(f);
+            foreach (var f in Formats)
+                if (f is DropFormat) DropTables.EnsureLoaded();
+                else Files(f);
         }
 
         // ------------------------------------------------------------------ reads (cache)
@@ -266,27 +276,29 @@ namespace Server.MirEnvir.Storage
         }
 
         /// <summary>Names of the stored files of a kind, relative to its folder ('/'-separated).</summary>
-        public static IEnumerable<string> List(DesignTextFormat f) => Files(f).Values.Select(x => x.Name).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+        public static IEnumerable<string> List(DesignTextFormat f) => f is DropFormat ? DropTables.List() : Files(f).Values.Select(x => x.Name).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
 
-        public static bool Exists(DesignTextFormat f, string name) => Files(f).ContainsKey(name);
+        public static bool Exists(DesignTextFormat f, string name) => f is DropFormat ? DropTables.Exists(name) : Files(f).ContainsKey(name);
 
         /// <summary>The file's lines with the current names, or null when it doesn't exist.</summary>
         public static List<string> Read(DesignTextFormat f, string name, Func<string, long, string> nameOf = null)
         {
+            if (f is DropFormat) return DropTables.Read(name, nameOf);
             if (!Files(f).TryGetValue(name, out var file)) return null;
             return file.Rows.Select(cells => f.Render(cells, nameOf)).ToList();
         }
 
-        public static DateTime? UpdatedUtc(DesignTextFormat f, string name) => Files(f).TryGetValue(name, out var file) ? file.UpdatedUtc : null;
+        public static DateTime? UpdatedUtc(DesignTextFormat f, string name) => f is DropFormat ? DropTables.UpdatedUtc(name) : Files(f).TryGetValue(name, out var file) ? file.UpdatedUtc : null;
 
         /// <summary>The file as bytes in its own layout, or null when it doesn't exist.</summary>
         public static byte[] ReadBytes(DesignTextFormat f, string name)
         {
+            if (f is DropFormat) return DropTables.ReadBytes(name);
             if (!Files(f).TryGetValue(name, out var file)) return null;
             return file.Layout.Encode(file.Rows.Select(cells => f.Render(cells, null)).ToList());
         }
 
-        public static TextLayout? LayoutOf(DesignTextFormat f, string name) => Files(f).TryGetValue(name, out var file) ? file.Layout : null;
+        public static TextLayout? LayoutOf(DesignTextFormat f, string name) => f is DropFormat ? DropTables.LayoutOf(name) : Files(f).TryGetValue(name, out var file) ? file.Layout : null;
 
         // ------------------------------------------------------------------ writes (store, then cache)
 
@@ -296,6 +308,7 @@ namespace Server.MirEnvir.Storage
         /// </summary>
         public static int Write(DesignTextFormat f, string name, IList<string> lines, TextLayout? layout = null)
         {
+            if (f is DropFormat) return DropTables.Write(name, lines, layout);
             var files = Files(f);
             if (files.TryGetValue(name, out var existing)) name = existing.Name; // the stored casing: SQLite keys are case-sensitive
             var lay = layout ?? TextLayout.WriteAllLines;
@@ -328,6 +341,12 @@ namespace Server.MirEnvir.Storage
         /// <summary>Renames a stored file in one transaction, case-only renames included (editors only, never the game thread).</summary>
         public static void Rename(DesignTextFormat f, string from, string to)
         {
+            if (f is DropFormat)
+            {
+                DropTables.Rename(from, to);
+                return;
+            }
+
             var files = Files(f);
             if (!files.TryGetValue(from, out var file)) throw new FileNotFoundException("[Store] " + from + " is not in the " + f.Kind + " store");
             DesignStore.Run(conn =>
@@ -355,6 +374,12 @@ namespace Server.MirEnvir.Storage
 
         public static void Delete(DesignTextFormat f, string name)
         {
+            if (f is DropFormat)
+            {
+                DropTables.Delete(name);
+                return;
+            }
+
             var files = Files(f);
             if (files.TryGetValue(name, out var existing)) name = existing.Name; // the stored casing
             if (DesignStore.OnGameThread)

@@ -71,6 +71,7 @@ namespace Server.MirEnvir.Storage
         {
             foreach (var t in DesignIni.Tables()) yield return t;
             foreach (var t in DesignTexts.Tables()) yield return t;
+            foreach (var t in DropTables.Tables()) yield return t;
         }
     }
 }

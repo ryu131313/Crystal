@@ -62,8 +62,21 @@ namespace Server.MirEnvir.Storage
         public static void CheckSchema(SqliteConnection conn)
         {
             var v = Scalar(conn, null, "SELECT value FROM meta WHERE name = 'schema_version'");
-            if (v is not long version || version != SqliteWorldCodec.SchemaVersion)
-                throw new InvalidDataException("[Store] schema_version is " + (v ?? "missing") + "; this build reads " + SqliteWorldCodec.SchemaVersion.ToString(CultureInfo.InvariantCulture));
+            if (v is not long version || version < SqliteWorldCodec.OldestReadableSchemaVersion || version > SqliteWorldCodec.SchemaVersion)
+                throw new InvalidDataException("[Store] schema_version is " + (v ?? "missing") + "; this build reads " +
+                                               SqliteWorldCodec.OldestReadableSchemaVersion.ToString(CultureInfo.InvariantCulture) + ".." + SqliteWorldCodec.SchemaVersion.ToString(CultureInfo.InvariantCulture));
+        }
+
+        /// <summary>
+        /// Raises meta.schema_version to the current one once the writer's open steps (Migrate, the respawn fix, the drops conversion) have
+        /// run, so an older build refuses the upgraded file (it would not find its drop_lines). Idempotent.
+        /// </summary>
+        public static void UpgradeSchemaVersion(SqliteConnection conn)
+        {
+            if (Scalar(conn, null, "SELECT value FROM meta WHERE name = 'schema_version'") is long v && v >= SqliteWorldCodec.SchemaVersion) return;
+            using var tx = conn.BeginTransaction();
+            Upsert(conn, tx, "meta", "schema_version", (long)SqliteWorldCodec.SchemaVersion);
+            tx.Commit();
         }
 
         /// <param name="includeRuntime">Also write runtime_state (the respawn tick counter). Editor saves don't, so they can't roll Main's
