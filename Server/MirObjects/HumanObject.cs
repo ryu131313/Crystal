@@ -2866,6 +2866,12 @@ namespace Server.MirObjects
         {
             LogTime = Envir.Time + Globals.LogDelay;
 
+            if (!CanAttack)
+            {
+                Enqueue(new S.UserLocation { Direction = Direction, Location = CurrentLocation });
+                return;
+            }
+
             if (Info.Equipment[(int)EquipmentSlot.Weapon] == null) return;
             ItemInfo RealItem = Functions.GetRealItem(Info.Equipment[(int)EquipmentSlot.Weapon].Info, Info.Level, Info.Class, Envir.ItemInfoList);
 
@@ -2880,6 +2886,7 @@ namespace Server.MirObjects
                 target = FindObject(targetID, 10);
 
             if (target != null && target.Dead) return;
+            if (target != null && !Functions.InRange(CurrentLocation, target.CurrentLocation, Globals.MaxAttackRange)) return;
 
             if (target != null && target.Race != ObjectType.Monster && target.Race != ObjectType.Player && target.Race != ObjectType.Hero) return;
 
@@ -3423,6 +3430,7 @@ namespace Server.MirObjects
                     return;
                 /*}*/
                 if (CurrentMap.Mine == null) return;
+                if (target.X < 0 || target.Y < 0 || target.X >= CurrentMap.Width || target.Y >= CurrentMap.Height) return;
                 MineSpot Mine = CurrentMap.Mine[target.X, target.Y];
                 if ((Mine == null) || (Mine.Mine == null)) return;
                 if (Mine.StonesLeft > 0)
@@ -3533,7 +3541,7 @@ namespace Server.MirObjects
                 return;
             }
 
-            if ((location.X != 0) && (location.Y != 0) && magic.Info.Range != 0 && Functions.InRange(CurrentLocation, location, magic.Info.Range) == false) return;
+            if ((location.X != 0 || location.Y != 0) && magic.Info.Range != 0 && Functions.InRange(CurrentLocation, location, magic.Info.Range) == false) return;
 
             if (Hidden)
             {
@@ -3586,6 +3594,10 @@ namespace Server.MirObjects
             else if (targetID > 0)
             {
                 target = FindObject(targetID, 10);
+
+                // FindObject searches 10 cells whatever the spell: hold the target to the spell's range (+1 for a target that just stepped away).
+                if (target != null && magic.Info.Range != 0 && !Functions.InRange(CurrentLocation, target.CurrentLocation, magic.Info.Range + 1))
+                    target = null;
             }
 
             if (target != null && target.Race != ObjectType.Monster && target.Race != ObjectType.Player && target.Race != ObjectType.Hero)
@@ -6203,6 +6215,7 @@ namespace Server.MirObjects
                         ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.YouCannotTeleportOnMap), ChatType.System);
                         return;
                     }
+                    if (Functions.InRange(CurrentLocation, location, magic.Info.Range != 0 ? magic.Info.Range : Globals.MaxAttackRange) == false) return;
                     if (!CurrentMap.ValidPoint(location) || Envir.Random.Next(4) >= magic.Level + 1 || !Teleport(CurrentMap, location, false)) return;
                     CurrentMap.Broadcast(new S.ObjectEffect { ObjectID = ObjectID, Effect = SpellEffect.StormEscape }, CurrentLocation);
 

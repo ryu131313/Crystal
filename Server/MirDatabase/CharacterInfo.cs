@@ -188,6 +188,8 @@ namespace Server.MirDatabase
 
             AMode = (AttackMode)reader.ReadByte();
             PMode = (PetMode)reader.ReadByte();
+            if (!Enum.IsDefined(AMode)) AMode = AttackMode.All; // a client could store any byte before ChangeAMode validated it
+            if (!Enum.IsDefined(PMode)) PMode = PetMode.Both;
 
             if (version > 34)
             {

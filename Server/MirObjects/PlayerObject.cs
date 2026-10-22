@@ -4,7 +4,6 @@ using Server.MirDatabase;
 using Server.MirEnvir;
 using Server.MirNetwork;
 using S = ServerPackets;
-using System.Text.RegularExpressions;
 using Timer = Server.MirEnvir.Timer;
 
 namespace Server.MirObjects
@@ -5152,6 +5151,7 @@ namespace Server.MirObjects
                 Broadcast(p);
             }
         }
+        private const int MaxChatItems = 10;
         private string ProcessChatItems(string text, List<PlayerObject> recipients, List<ChatItem> chatItems)
         {
             if (chatItems == null)
@@ -5159,11 +5159,17 @@ namespace Server.MirObjects
                 return text;
             }
 
+            int processed = 0;
             foreach (var chatItem in chatItems)
             {
-                Regex r = new Regex(chatItem.RegexInternalName, RegexOptions.IgnoreCase);
+                // The title is client text: match it literally (a client-built regex can backtrack forever on the game thread).
+                if (chatItem == null || string.IsNullOrEmpty(chatItem.Title)) continue;
+                if (++processed > MaxChatItems) break;
 
-                text = r.Replace(text, chatItem.InternalName, 1);
+                string token = "<" + chatItem.Title + ">";
+                int at = text.IndexOf(token, StringComparison.OrdinalIgnoreCase);
+                if (at >= 0)
+                    text = text.Substring(0, at) + chatItem.InternalName + text.Substring(at + token.Length);
 
                 UserItem[] array;
 
@@ -10095,7 +10101,7 @@ namespace Server.MirObjects
             if (NPCPage == null || !String.Equals(NPCPage.Key, NPCScript.AwakeningKey, StringComparison.CurrentCultureIgnoreCase))
                 return;
 
-            if (type == AwakeType.None) return;
+            if (type == AwakeType.None || Awake.AwakeMaterials.Count < (int)type) return;
 
             for (int i = 0; i < Info.Inventory.Length; i++)
             {
@@ -10392,6 +10398,9 @@ namespace Server.MirObjects
 
         public bool HasAwakeningNeedMaterials(UserItem item, AwakeType type)
         {
+            if (type == AwakeType.None || Awake.AwakeMaterials.Count < (int)type) return false;
+            if (item.Info.Grade == ItemGrade.None || Awake.AwakeMaterialRate.Length < (int)item.Info.Grade) return false;
+
             Awake awake = item.Awake;
 
             byte[] materialCount = new byte[2];
@@ -11968,6 +11977,13 @@ namespace Server.MirObjects
                 return;
             }
 
+            // Info.Trade is not saved: an item staged with no trade open would be lost at logout.
+            if (TradePartner == null)
+            {
+                Enqueue(p);
+                return;
+            }
+
             UserItem temp = Info.Inventory[from];
 
             if (temp == null)
@@ -12311,11 +12327,20 @@ namespace Server.MirObjects
                 }
             }
         }
+        private bool HasStagedTrade()
+        {
+            if (TradeGoldAmount > 0) return true;
+
+            for (int i = 0; i < Info.Trade.Length; i++)
+                if (Info.Trade[i] != null) return true;
+
+            return false;
+        }
         public void TradeCancel()
         {
             TradeUnlock();
 
-            if (TradePartner == null)
+            if (TradePartner == null && !HasStagedTrade())
             {
                 return;
             }
@@ -12404,7 +12429,7 @@ namespace Server.MirObjects
 
             Point fishingPoint = Functions.PointMove(CurrentLocation, Direction, 3);
 
-            if (fishingPoint.X < 0 || fishingPoint.Y < 0 || CurrentMap.Width < fishingPoint.X || CurrentMap.Height < fishingPoint.Y)
+            if (fishingPoint.X < 0 || fishingPoint.Y < 0 || CurrentMap.Width <= fishingPoint.X || CurrentMap.Height <= fishingPoint.Y)
             {
                 Fishing = false;
                 return;

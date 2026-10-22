@@ -2282,6 +2282,7 @@ namespace Server.MirNetwork
 
         private void SpellToggle(C.SpellToggle p)
         {
+            if (!Enum.IsDefined(p.Mode)) return; // an undefined mode falls through IsAttackTarget as "attack anyone"
             if (Stage != GameStage.Game) return;
 
             if (p.canUse > SpellToggleState.None)
@@ -2290,6 +2291,7 @@ namespace Server.MirNetwork
                 return;
             }
             if (Player.HeroSpawned)
+            if (!Enum.IsDefined(p.Mode)) return;
                 Player.Hero.SpellToggle(p.Spell, p.canUse);            
         }
         private void ConsignItem(C.ConsignItem p)
@@ -2315,6 +2317,7 @@ namespace Server.MirNetwork
         {
             if (Stage != GameStage.Game) return;
 
+            if (p.Direction > MirDirection.UpLeft) return;
             Player.UserMatch = p.Usermode;
             Player.MinShapes = p.MinShape;
             Player.MaxShapes = p.MaxShape;
