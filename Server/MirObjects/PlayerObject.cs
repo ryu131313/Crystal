@@ -1102,6 +1102,7 @@ namespace Server.MirObjects
                 if (mail.MailID != mailID) continue;
                 if (mail.SenderIndex != Info.Index || mail.SenderHidden) return;
 
+                Envir.MarkAccountDirty(sent[i].Recipient?.AccountInfo); // P9-12: the mail is saved in the recipient's box
                 mail.SenderHidden = true;
                 SendSentMail();
                 return;
@@ -1546,6 +1547,7 @@ namespace Server.MirObjects
                 {
                     UserItem weapon = hitter.Info.Equipment[(byte)EquipmentSlot.Weapon];
 
+                    Envir.MarkAccountDirty(hitter.Info.AccountInfo); // P9-12: LastHitter may have logged out long ago (stale reference)
                     hitter.PKPoints = Math.Min(int.MaxValue, LastHitter.PKPoints + 100);
                     hitter.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.MurderPlayer), Name), ChatType.System);
                     ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.MurderedByPlayer), LastHitter.Name), ChatType.System);
@@ -3218,6 +3220,8 @@ namespace Server.MirObjects
 
                         if (data == null) return;
 
+                        Envir.MarkAccountDirty(data.AccountInfo); // P9-12: an offline target; before the data.Player.Name dereference below
+
                         switch (data.Gender)
                         {
                             case MirGender.Male:
@@ -3710,6 +3714,7 @@ namespace Server.MirObjects
 
                             Envir.SaveArchivedCharacter(data);
 
+                            Envir.InvalidateAccountCache(); // P9-12: a character leaves CharacterList (friends of it, its account)
                             Envir.CharacterList.Remove(data);
                             Envir.RemoveSentMailFor(data); // phase 2.6: the removed character leaves every Sent folder
                             account.Characters.Remove(data);
@@ -3759,6 +3764,7 @@ namespace Server.MirObjects
                             if (!IsGM || parts.Length < 2) return;
 
                             AccountInfo account = null;
+                            Envir.InvalidateAccountCache(); // P9-12: a re-added character can make never-resolved friend entries resolve again (review L1)
 
                             if (parts.Length > 2)
                             {
@@ -4413,6 +4419,7 @@ namespace Server.MirObjects
 
                         if (!Enum.TryParse(parts[parts.Length - 1], true, out mirClass) || data.Class == mirClass) return;
 
+                        Envir.MarkAccountDirty(data.AccountInfo); // P9-12: an offline target; before the data.Player.Name dereference below
                         data.Class = mirClass;
 
                         ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.PlayerChangedTo), data.Name, data.Class), ChatType.System);
@@ -14171,6 +14178,7 @@ namespace Server.MirObjects
                 return;
             }
 
+            Envir.MarkAccountDirty(requesterInfo.AccountInfo); // P9-12: the requester's list changes too
             if (mine == null) Info.Friends.Add(new FriendInfo(requesterInfo, false));
             if (theirs == null) requesterInfo.Friends.Add(new FriendInfo(Info, false));
 
@@ -14229,6 +14237,7 @@ namespace Server.MirObjects
             FriendInfo theirs = FindFriendEntry(info, Info.Index);
             if (theirs != null && !theirs.Blocked)
             {
+                Envir.MarkAccountDirty(info.AccountInfo); // P9-12: the other side may be offline
                 info.Friends.Remove(theirs);
                 if (otherOnline) other.GetFriends();
             }
@@ -14255,6 +14264,7 @@ namespace Server.MirObjects
 
                 if (theirs != null && !theirs.Blocked)
                 {
+                    Envir.MarkAccountDirty(info.AccountInfo); // P9-12: the other side may be offline
                     info.Friends.Remove(theirs);
 
                     PlayerObject other = info.Player;
@@ -14878,6 +14888,7 @@ namespace Server.MirObjects
             }
 
             CharacterInfo lover = Envir.GetCharacterInfo(Info.Married);
+            Envir.MarkAccountDirty(lover?.AccountInfo); // P9-12: the spouse may be offline
             PlayerObject player = Envir.GetPlayer(lover.Name);
 
             Info.Married = 0;
@@ -15159,6 +15170,7 @@ namespace Server.MirObjects
             }
 
 
+            Envir.MarkAccountDirty(MarriageProposal.Info.AccountInfo); // P9-12: stored reference, the proposer may have logged out
             MarriageProposal.Info.Married = Info.Index;
             MarriageProposal.Info.MarriedDate = Envir.Now;
 
@@ -15269,6 +15281,7 @@ namespace Server.MirObjects
                 return;
             }
 
+            Envir.MarkAccountDirty(DivorceProposal.Info.AccountInfo); // P9-12: stored reference, the proposer may have logged out
             DivorceProposal.Info.Married = 0;
             DivorceProposal.Info.MarriedDate = Envir.Now;
             if (DivorceProposal.Info.Equipment[(int)EquipmentSlot.RingL] != null)
@@ -15350,6 +15363,7 @@ namespace Server.MirObjects
             }
 
             CharacterInfo partner = Envir.GetCharacterInfo(Info.Mentor);
+            Envir.MarkAccountDirty(partner?.AccountInfo); // P9-12: the partner may be offline (Mentor, MentorExp, Experience)
             PlayerObject partnerP = Envir.GetPlayer(partner.Name);
 
             if (force)
@@ -15581,6 +15595,7 @@ namespace Server.MirObjects
 
             if (!Info.IsMentor)
             {
+                Envir.MarkAccountDirty(mentor.AccountInfo); // P9-12: the mentor may be offline
                 mentor.MentorExp += MenteeEXP;
             }
 

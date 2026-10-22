@@ -20,6 +20,7 @@ internal static class Oracle
     {
         // runtime-only, rebuilt or clock-derived; not part of the persisted data
         "Rank", "Connection", "Player", "Owner", "Caster", "RecipientInfo", "AccountInfo",
+        "SaveBlob", "SaveBlobEpoch", "SaveHot", // P9-12 offline account cache (AccountInfo)
     };
 
     public static string Dump(Envir e)

@@ -535,6 +535,7 @@ namespace Server.WebAdmin.Routes
                 Envir.Main.CharacterList.Clear();
                 AccountRoutes.MarkAccountsUnloaded();
             }
+            Envir.InvalidateAccountCache(); // P9-12
         }
 
         /// <summary>Clears the Game Data unsaved-change tracker (B8's internal GameDataState) when that feature is part of the build.</summary>

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Server.MirEnvir;
+using Server.MirEnvir.Storage;
 
 namespace Server.WebAdmin
 {
@@ -114,6 +115,26 @@ namespace Server.WebAdmin
             public int Value; // 0 pending, 1 running/done, 2 cancelled
         }
 
+        private static readonly AsyncLocal<bool> _mutatingRequest = new AsyncLocal<bool>();
+
+        /// <summary>
+        /// P9-12 (offline account cache, review H1): true inside a mutating admin request (POST/PUT/PATCH/DELETE on an admin
+        /// route; <see cref="WebAdminHost"/> sets it around the handler). Every game-thread or inline delegate such a request
+        /// runs through <see cref="RunAsync{T}(Func{T}, int)"/>, <see cref="RunOrInlineAsync{T}(Func{T}, int)"/> or
+        /// <see cref="Post"/> invalidates every cached account right after it ran (also when it threw), on the thread that
+        /// mutated. This is the one path every web admin write takes, so no route needs its own mark.
+        /// </summary>
+        internal static bool InMutatingRequest
+        {
+            get => _mutatingRequest.Value;
+            set => _mutatingRequest.Value = value;
+        }
+
+        private static void AfterRequestWork(bool mutating)
+        {
+            if (mutating) AccountSaveCache.InvalidateAll();
+        }
+
         /// <summary>
         /// Runs <paramref name="fn"/> on the game thread. Throws <see cref="WorldNotRunningException"/> (503) when the world loop is not
         /// running (or stops before the work ran) and <see cref="GameThreadTimeoutException"/> (504) on timeout. Exceptions thrown by
@@ -125,6 +146,7 @@ namespace Server.WebAdmin
 
             var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
             var state = new WorkState();
+            var mutating = InMutatingRequest;
 
             var queued = World.TryQueue(() =>
             {
@@ -137,6 +159,10 @@ namespace Server.WebAdmin
                 catch (Exception ex)
                 {
                     tcs.TrySetException(ex);
+                }
+                finally
+                {
+                    AfterRequestWork(mutating);
                 }
             }, ex => tcs.TrySetException(ex ?? new WorldNotRunningException()));
 
@@ -192,7 +218,16 @@ namespace Server.WebAdmin
                 throw new WorldNotRunningException(WorldState);
 
             lock (w.AccountLock)
-                return fn();
+            {
+                try
+                {
+                    return fn();
+                }
+                finally
+                {
+                    AfterRequestWork(InMutatingRequest);
+                }
+            }
         }
 
         public static Task RunOrInlineAsync(Action fn, int timeoutMs = 5000)
@@ -211,6 +246,7 @@ namespace Server.WebAdmin
         {
             if (fn == null) return false;
 
+            var mutating = InMutatingRequest;
             return World.TryQueue(() =>
             {
                 try
@@ -220,6 +256,10 @@ namespace Server.WebAdmin
                 catch (Exception ex)
                 {
                     WebAdminLog.Error(ex, "Queued web admin action failed");
+                }
+                finally
+                {
+                    AfterRequestWork(mutating);
                 }
             }, null);
         }

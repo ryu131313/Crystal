@@ -85,7 +85,7 @@ namespace Server.WebAdmin.Tests
                 Assert.False(string.IsNullOrWhiteSpace(d.Group), d + " has no group");
                 Assert.False(string.IsNullOrWhiteSpace(d.Label), d + " has no label");
                 Assert.False(string.IsNullOrWhiteSpace(d.Help), d + " has no help");
-                Assert.Contains(d.Kind, new[] { "bool", "int", "float", "string" });
+                Assert.Contains(d.Kind, new[] { "bool", "int", "float", "string", "enum" }); // enum: [Optimisation] OfflineAccountCache (P9-12)
                 if (d.Format != null) Assert.Equal(typeof(string), d.Type);
                 if (d.Min.HasValue && d.Max.HasValue) Assert.True(d.Min.Value <= d.Max.Value, d + " min > max");
             }

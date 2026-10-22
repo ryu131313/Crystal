@@ -259,6 +259,12 @@ namespace Server.WebAdmin
                 "A monster with no player nearby (and no master or target) sleeps until its next 'anyone near?' check instead of waking every 2 s for nothing. Monster types with their own AI loop keep waking every 2 s. Gameplay is unchanged.");
             Add(N, "Optimisation", "AccountSaveOffThread", "AccountSaveOffThread", B, "Account save off the game thread",
                 "The periodic account save serialises every account into one reused buffer on the game thread (that is the snapshot) and does the file write, backup and swap on a pool thread. The file is byte-identical. Off = the old save (a new buffer and a copy each time, the file opened on the game thread).");
+            Add(N, "Optimisation", "OfflineAccountCache", "OfflineAccountCache", typeof(Server.MirEnvir.Storage.OfflineAccountCacheMode), "Offline account cache",
+                "On: the periodic account save reuses the bytes of offline accounts that have not changed since the last save, so its game-thread cost follows the online accounts instead of all accounts. The file stays byte-identical. Verify: On, plus some cached accounts checked against a fresh copy on every save (mismatches are logged; for test servers). Shutdown saves, 'Save now' and web admin edits always save every account. Needs 'Account save off the game thread'. Off = every account every save.");
+            Add(N, "Optimisation", "OfflineAccountCacheFullEvery", "OfflineAccountCacheFullEvery", I32, "Offline account cache: full check every N saves",
+                "With the offline account cache on, every Nth periodic save serialises every account again and compares it with its cached bytes (a mismatch is logged and repaired). 12 = once an hour at a 5-minute save interval.", min: 1, max: 1000);
+            Add(N, "Optimisation", "OfflineAccountCacheVerifyPerSave", "OfflineAccountCacheVerifyPerSave", I32, "Offline account cache: accounts verified per save",
+                "In Verify mode, this many accounts (round-robin) are serialised fresh on every save and compared with their cached bytes. A value at or above the account count checks every account on every save.", min: 1, max: 1000000);
             Add(N, "Diag", "LogLoopProfile", "LogLoopProfile", B, "Log loop profile",
                 "Write one [Diag] Loop line per second to the Debug log (per-phase ms, iterations, packets, GC). The numbers are always on the dashboard status.");
             Add(N, "Network", "StartHTTPService", "StartHTTPService", B, "Legacy HTTP service",

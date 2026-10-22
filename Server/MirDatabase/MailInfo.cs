@@ -145,6 +145,7 @@ namespace Server.MirEnvir
                 RecipientInfo = Envir.GetCharacterInfo(RecipientIndex);
             }
 
+            Envir.MarkAccountDirty(RecipientInfo?.AccountInfo); // P9-12: every sender (players, system, NPC, auction, rental, GameShop) ends here
             RecipientInfo.Mail.Add(this); //add to players inbox
 
             if (RecipientInfo.Player != null)

@@ -695,7 +695,18 @@ namespace Server.WebAdmin
                 }
             }
 
-            await match.Route.Handler(req).ConfigureAwait(false);
+            await InvokeRouteAsync(match.Route.Auth, req.IsMutating, () => match.Route.Handler(req)).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Runs a matched route's handler. An admin write (POST/PUT/PATCH/DELETE) runs with <see cref="WebAdminGame.InMutatingRequest"/>
+        /// set, so every game-thread or inline delegate it runs invalidates the offline account cache (P9-12). Async, so the flag
+        /// stays scoped to this request's flow.
+        /// </summary>
+        internal static async Task InvokeRouteAsync(RouteAuth auth, bool mutating, Func<Task> handler)
+        {
+            if (auth == RouteAuth.Admin && mutating) WebAdminGame.InMutatingRequest = true;
+            await handler().ConfigureAwait(false);
         }
 
         private static async Task ServeStaticAsync(WebAdminRequest req, WebAdminOptions options)
