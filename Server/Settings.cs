@@ -95,7 +95,7 @@ namespace Server
         public static bool MoveBatch = false;          // [Optimisation] MoveBatch: send runs of turn/walk/run packets as one S.ObjectMoveBatch; needs clients built from the same commit (P9-08)
         public static bool SectorGrid = true;          // [Optimisation] SectorGrid: each map keeps its players by 8x8 sector for broadcasts and alone checks; read at world start (P9-07)
         public static bool SectorGridVerify = false;   // [Optimisation] SectorGridVerify: check every player's sector once a second and log mismatches (scratch servers) (P9-07)
-        public static bool MonsterDormant = true;      // [Optimisation] MonsterDormant: alone monsters with nothing pending check for players every 10 s and are woken when one comes near (needs SectorGrid) (P9-07)
+        public static bool MonsterDormant = true;      // [Optimisation] MonsterDormant: alone monsters with nothing pending check for players every 5-15 s (30-90 s on empty maps) and are woken when one comes near (needs SectorGrid) (P9-07)
         public static bool EmptyMapSleep = true;       // [Optimisation] EmptyMapSleep: maps with no players check respawns once a minute and catch up when someone arrives (P9-07)
         public static bool AloneCeiling = true;        // [Optimisation] AloneCeiling: monsters alone with nobody near sleep until their next alone check instead of waking every 2 s (P9-06)
         public static bool AccountSaveOffThread = true; // [Optimisation] AccountSaveOffThread: the periodic account save serialises into a reused buffer and does every file step on a pool thread (P9-10)

@@ -252,7 +252,7 @@ namespace Server.WebAdmin
             Add(N, "Optimisation", "SectorGridVerify", "SectorGridVerify", B, "Check the sector grid",
                 "Test servers only: once a second, compare every player's sector with their real location and log any mismatch.");
             Add(N, "Optimisation", "MonsterDormant", "MonsterDormant", B, "Deep sleep for monsters with nobody near",
-                "A monster with nobody near and nothing going on (no target, master, poison, buffs or summons) checks for players every 10 s instead of 3 s, and is woken at once when a player comes within range, so it reacts faster than before. Needs the player sector grid.");
+                "A monster with nobody near and nothing going on (no target, master, poison, buffs or summons) checks for players about every 10 s instead of 3 s (about every 60 s on a map with no players), and is woken at once when a player comes within range, so it reacts faster than before. Needs the player sector grid.");
             Add(N, "Optimisation", "EmptyMapSleep", "EmptyMapSleep", B, "Empty maps check respawns once a minute",
                 "A map with no players or heroes checks its respawns once a minute instead of every second. The first player or hero to arrive, or a script that counts the map's monsters, brings the respawns up to date at once. Maps with tick-counter respawns and conquest maps never sleep. The world monster count can read low while maps sleep.");
             Add(N, "Optimisation", "AloneCeiling", "AloneCeiling", B, "Sleep monsters with nobody near",

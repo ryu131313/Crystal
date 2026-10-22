@@ -46,3 +46,39 @@ All runs had 0 decode errors, 0 isolated errors, 0 crash files and 0 `SectorGrid
 - A HornedMage or TurtleKing teleport.
 - Enter an empty map: it is fully populated.
 - An NPC that counts monsters on an empty map returns the full count.
+
+## Lockstep fix (2026-10-22)
+**Bug:** `SleepIfDormant` set `AloneTime = now + 10000` right after `CheckAlone` gave the first check its random phase, so every monster spawned on the same tick re-checked on the same ms forever. Live: ~72k `alone` runs in one second every 10 s (~5k in the others), and Tick Lateness 30-40 ms while the due scheduler worked the backlog off.
+
+**Change (`MonsterObject.SleepIfDormant`, no new setting):**
+- Delay = `delay / 2 + Envir.Random.Next(delay)`: 5-15 s (mean 10 s) with `DormantAloneDelay`; one cycle breaks the lockstep.
+- On a map with **no players**, `delay = DormantEmptyMapDelay` (60 s): 30-90 s.
+- `MonsterObject.Teleport` ends with `WakeFromAlone()`, so a dormant monster moved next to players re-checks at once instead of after its long sleep.
+- Cost: one `Random.Next` per dormant check, no allocation, no lock.
+
+**Wake audit (why the long empty-map sleep is safe).** `Map.Players` changes only in `Map.AddObject` / `RemoveObject`, and `AddObject` calls `Grid.Add`, which wakes the whole 2 × DataRange ring around the arrival (`WakeAround(-1, …)`). Every other move goes through the `CurrentLocation` setter → `Grid.Moved`, which wakes the newly covered sectors. During a mob pass both are deferred to `Resync` after the barrier, which then calls `Add` / `Moved`, so they wake too.
+
+| Arrival path | Wakes? | Change |
+|---|---|---|
+| Login (`StartGame` → `temp.AddObject`) | yes, `Grid.Add` | — |
+| Teleport, same or other map (`MapObject.Teleport`: Remove → set location → Add); recall, GM move, NPC `MOVE`, town teleport | yes, `Grid.Add` (and `Moved` on the old grid, harmless) | — |
+| Map change by walking onto a movement (`CompleteMapMovement`) | yes, `Grid.Add` | — |
+| Revive in place (`HumanObject.Revive`), town revive (`PlayerObject` bind-point respawn) | yes, Remove + Add | — |
+| Walk, run or push inside a map | yes, `Grid.Moved` on a sector change (deferred push → `Resync`) | — |
+| Approach from far away on a non-empty map | yes, each sector crossing wakes the new ring edge, which is wider than the 2 × DataRange "not alone" range | — |
+| Hero spawn | n/a: heroes are not in `Map.Players` and never counted for `Alone` (unchanged) | — |
+| Dormant monster teleported next to players (scripts, AI) | was **no** (kept its old `AloneTime`) | `WakeFromAlone()` at the end of `MonsterObject.Teleport` |
+
+Other wakes checked: respawn creates a new monster (`AloneTime = 0`, first check random); a monster with a master, target, `EXPOwner`, poison, buffs, actions or slaves never goes dormant; anything a player does to a monster happens inside the player's wake ring, which keeps it out of dormancy. `SetOperateTime` already sleeps an alone monster until `AloneTime` (AloneCeiling), so the longer delay needs no scheduler change.
+
+**Known limits:** a monster attacked by another monster (no player) on an empty map reacts only at its next check (up to 90 s, was 10 s); nobody sees it. Turning `MonsterDormant` off at run time stops the wakes, so sleeping monsters on empty maps resume within 90 s (was 10 s).
+
+**Scratch measurement** (20 synthetic 600×600 maps, ~8,400 monsters, `[Diag] LogLoopProfile`; "before" = HEAD `bd87ac86` built from `git archive`):
+
+| Phase | before (HEAD) `alone=` per second | after |
+|---|---|---|
+| Idle, all maps empty | 0, then **8,400 in one second every 10 s** (10:24:08, :18, :28) | 0 for the first 30 s, then flat 106-161/s (8,400 / 60 s mean = 140) |
+| 80 bots spread over the 20 maps, 4 min | not run | flat: p50 604, p95 649 per second; no periodic burst |
+| Bots leave (maps empty again) | not run | one 4 s transition (1.4k-2.3k/s, awake alone monsters taking their 30-90 s sleep), ~0 for 30 s, then flat ~140-200/s |
+
+Bots: 80/80 reached the game, 0 errors, 721 kills, combat from the first seconds after arriving on maps whose monsters were in the 30-90 s sleep. Monster-initiated hits are not counted by the bots, so aggro on arrival rests on the wake audit above plus this combat.

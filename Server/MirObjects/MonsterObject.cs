@@ -972,6 +972,8 @@ namespace Server.MirObjects
 
             BroadcastHealthChange();
 
+            WakeFromAlone(); // a dormant monster moved next to players: re-check "anyone near?" now, not after its long sleep
+
             return true;
         }
 
@@ -1822,8 +1824,9 @@ namespace Server.MirObjects
         }
 
         /// <summary>
-        /// P9-07 MonsterDormant: an alone monster with nothing pending checks "anyone near?" only every
-        /// <see cref="DormantAloneDelay"/> ms; a player entering its 2 × DataRange ring wakes it at once (PlayerGrid.WakeAround).
+        /// P9-07 MonsterDormant: an alone monster with nothing pending checks "anyone near?" only every ~<see cref="DormantAloneDelay"/>
+        /// ms (~<see cref="DormantEmptyMapDelay"/> on a map with no players), randomised; a player entering its 2 × DataRange ring
+        /// wakes it at once (PlayerGrid.WakeAround). Cost: one Random.Next per dormant check, no allocation.
         /// Needs the sector grid, which does the waking.
         /// </summary>
         private void SleepIfDormant()
@@ -1832,13 +1835,20 @@ namespace Server.MirObjects
             if (Master != null || Target != null || EXPOwner != null || Dead) return;
             if (PoisonList.Count > 0 || Buffs.Count > 0 || ActionList.Count > 0 || SlaveList.Count > 0) return;
             if (HasOwnAiLoop()) return;
-            AloneTime = Envir.Time + DormantAloneDelay;
+
+            // Randomised (delay/2 .. 1.5 × delay): a fixed delay kept monsters spawned on the same tick in lockstep, so the whole
+            // dormant population came due on one tick every 10 s (live: ~72k alone runs in that second, 2026-10-22). An empty map
+            // sleeps longer: every player arrival goes through Map.AddObject -> PlayerGrid.Add, which wakes the arrival ring.
+            var delay = CurrentMap.Players.Count == 0 ? DormantEmptyMapDelay : DormantAloneDelay;
+            AloneTime = Envir.Time + delay / 2 + Envir.Random.Next(delay);
         }
 
         public const int DormantAloneDelay = 10000;
+        public const int DormantEmptyMapDelay = 60000;
 
         /// <summary>
-        /// A player came within range (sector grid, game thread, outside the mob pass): re-check "anyone near?" now. AloneTime
+        /// A player came within range (sector grid, game thread, outside the mob pass), or this monster teleported (its own
+        /// thread; a cross-map teleport runs outside the mob pass): re-check "anyone near?" now. AloneTime
         /// is set to now, not 0 (0 means "first check" and picks a random phase).
         /// </summary>
         internal void WakeFromAlone()
