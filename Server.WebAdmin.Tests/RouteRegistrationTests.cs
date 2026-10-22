@@ -30,7 +30,7 @@ namespace Server.WebAdmin.Tests
         }
 
         /// <summary>Registers each module itself (RegisterAll only logs failures), so a throwing Register() fails the test.</summary>
-        private static WebAdminRouter RegisterEveryModule()
+        internal static WebAdminRouter RegisterEveryModule()
         {
             var router = new WebAdminRouter();
             var failures = new List<string>();

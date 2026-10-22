@@ -11,6 +11,21 @@ namespace Server
         private List<AccountInfo> _selectedAccountInfos;
 
         public Envir AccountEnvir => SMain.Envir;
+
+        // P9-12: this form edits live accounts on the UI thread (Known debt), so the periodic save uses no cached account
+        // bytes while it is open, and everything cached before it opened is invalidated when it closes.
+        protected override void OnLoad(EventArgs e)
+        {
+            Server.MirEnvir.Storage.AccountSaveCache.Suspend();
+            base.OnLoad(e);
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            base.OnFormClosed(e);
+            Server.MirEnvir.Storage.AccountSaveCache.Resume();
+        }
+
         public AccountInfoForm()
         {
             InitializeComponent();

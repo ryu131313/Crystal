@@ -610,7 +610,10 @@ namespace Server.MirDatabase
         /// </summary>
         internal static void WriteFlags(BinaryWriter writer, bool[] flags)
         {
-            Span<byte> buffer = flags.Length <= 4096 ? stackalloc byte[flags.Length] : new byte[flags.Length];
+            // The account save's own writer: clamp straight into its array instead of a stack copy plus a Write.
+            var direct = writer as global::Server.MirEnvir.Storage.BufferBinaryWriter;
+            Span<byte> buffer = direct != null ? direct.Reserve(flags.Length)
+                : flags.Length <= 4096 ? stackalloc byte[flags.Length] : new byte[flags.Length];
             ReadOnlySpan<byte> raw = System.Runtime.InteropServices.MemoryMarshal.AsBytes(flags.AsSpan());
             var i = 0;
             if (System.Numerics.Vector.IsHardwareAccelerated)
@@ -621,7 +624,7 @@ namespace Server.MirDatabase
             }
             for (; i < raw.Length; i++)
                 buffer[i] = raw[i] != 0 ? (byte)1 : (byte)0;
-            writer.Write(buffer);
+            if (direct == null) writer.Write(buffer);
         }
 
         public SelectInfo ToSelectInfo()

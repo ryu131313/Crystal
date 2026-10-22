@@ -90,6 +90,7 @@ namespace Server.WebAdmin.Routes
                 accountSaveFailures = Envir.AccountSaveFailures,
                 loopProfile = LoopProfiler.Last, // roadmap P6: last one-second window (null until the world has run 1 s)
                 livedb = LiveDbRoutes.StatusBlock(Settings.LiveDbEnabled), // LiveDb Batch D: last batch, live outcome, sweeper, divergence
+                accountCache = global::Server.MirEnvir.Storage.AccountSaveCache.Last, // P9-12: last cached save's counters (null until one ran)
             });
         }
     }

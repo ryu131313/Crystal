@@ -75,7 +75,13 @@ namespace Server.MirDatabase
         public uint Credit;
 
         public MirConnection Connection;
-        
+
+        // P9-12 offline account cache (Envir.SaveAccountListCached), game thread only, never saved. Invalidate with
+        // Envir.MarkAccountDirty, never by touching these.
+        internal byte[] SaveBlob;   // this account's bytes from an earlier periodic save; never mutated once stored (a pool-thread write may hold it)
+        internal int SaveBlobEpoch; // the AccountSaveCache.Epoch snapshot of the pass that stored SaveBlob
+        internal bool SaveHot;      // sticky: logged in since the last save that serialised it while offline (set in CompleteLogin)
+
         public LinkedList<AuctionInfo> Auctions = new LinkedList<AuctionInfo>();
         public bool AdminAccount;
 

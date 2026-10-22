@@ -234,6 +234,13 @@ namespace Server.MirEnvir.Storage
 
         public SetupIniReader(string path) : base(path) { }
 
+        /// <summary>An enum key by name or number, case-insensitive (P9-12); an unknown value reads as <paramref name="Default"/>.</summary>
+        public T ReadEnum<T>(string section, string key, T Default) where T : struct, Enum
+        {
+            var text = ReadString(section, key, Default.ToString());
+            return Enum.TryParse(text, true, out T value) && Enum.IsDefined(value) ? value : Default;
+        }
+
         private string StoreKey => DesignStore.Key(FileName) + StoreKeySuffix;
 
         private long _version;

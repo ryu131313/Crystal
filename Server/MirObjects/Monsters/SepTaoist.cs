@@ -298,7 +298,7 @@ namespace Server.MirObjects.Monsters
             var unowned = Master == null;
             Envir.RunOutsideMobPass(() =>
             {
-                if (expOwner != null && unowned && expOwner.Race == ObjectType.Player) expOwner.WinExp(Experience, Level);
+                if (expOwner != null && expOwner.Node != null && unowned && expOwner.Race == ObjectType.Player) expOwner.WinExp(Experience, Level);
 
                 if (unowned)
                     Drop();

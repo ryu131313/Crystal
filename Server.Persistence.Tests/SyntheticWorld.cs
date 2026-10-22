@@ -101,7 +101,7 @@ internal static class SyntheticWorld
         e.MarketSales[sword.Index] = swordSales;
     }
 
-    private static AccountInfo NewAccount(int index, string id, DateTime now) => new AccountInfo
+    internal static AccountInfo NewAccount(int index, string id, DateTime now) => new AccountInfo
     {
         Index = index,
         AccountID = id,
@@ -117,7 +117,7 @@ internal static class SyntheticWorld
         LastDate = now,
     };
 
-    private static CharacterInfo NewCharacter(int index, string name, MirClass cls, AccountInfo acc, DateTime now) => new CharacterInfo
+    internal static CharacterInfo NewCharacter(int index, string name, MirClass cls, AccountInfo acc, DateTime now) => new CharacterInfo
     {
         Index = index,
         Name = name,
@@ -139,7 +139,7 @@ internal static class SyntheticWorld
         Heroes = new HeroInfo[1],
     };
 
-    private static UserItem Item(Envir e, ItemInfo info, ulong uid, ushort count = 1) =>
+    internal static UserItem Item(Envir e, ItemInfo info, ulong uid, ushort count = 1) =>
         new UserItem(info) { UniqueID = uid, ItemIndex = info.Index, Count = count, CurrentDura = 1000, MaxDura = 5000 };
 
     private static Buff NewBuff(Envir e, BuffType type, uint objectId, long expire)

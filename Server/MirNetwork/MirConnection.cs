@@ -1684,6 +1684,7 @@ namespace Server.MirNetwork
                 return;
             }
 
+            Envir.MarkAccountDirty(Account); // P9-12 (hot anyway: select screen)
             temp.Deleted = true;
             temp.DeleteDate = Envir.Now;
             Envir.RemoveRank(temp);
@@ -1730,6 +1731,7 @@ namespace Server.MirNetwork
                 }
                 info.Banned = false;
             }
+            Envir.MarkAccountDirty(Account); // P9-12: before the PlayerObject exists (hot anyway: select screen)
             info.BanReason = string.Empty;
             info.ExpiryDate = DateTime.MinValue;
 

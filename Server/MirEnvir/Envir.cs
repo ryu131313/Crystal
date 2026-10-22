@@ -2439,7 +2439,8 @@ namespace Server.MirEnvir
                                 MessageQueue.Instance.EnqueueDebugging(
                                     $"[Diag] Save accounts={SaveMs(t0, t1):0.00}ms db={SaveMs(t1, t2):0.00}ms guilds={SaveMs(t2, t3):0.00}ms " +
                                     $"goods={SaveMs(t3, t4):0.00}ms conquests={SaveMs(t4, t5):0.00}ms total={SaveMs(t0, t5):0.00}ms " +
-                                    $"bytes={LastAccountSaveBytes} accounts={AccountList.Count}{(accountSaveSkipped ? " skipped" : "")}");
+                                    $"bytes={LastAccountSaveBytes} accounts={AccountList.Count}{(accountSaveSkipped ? " skipped" : "")}" +
+                                    (accountSaveSkipped ? "" : AccountCacheDiag())); // P9-12 fields, appended
                             BackupRetention.RunInBackground(); // no-op unless [Backup] RetentionEnabled
                             try { PruneIpTables(); } catch (Exception ex) { WorldErrors.Record("PruneIpTables", ex); }
                         }
@@ -3394,6 +3395,9 @@ namespace Server.MirEnvir
                 Interlocked.Increment(ref _accountSaveFailures);
                 MessageQueue.Enqueue(ex);
             }
+
+            // P9-12 (review H2): a full save never uses the cache, and afterwards no older blob may be written over it.
+            AccountSaveCache.InvalidateAll();
         }
 
         private static double SaveMs(long from, long to) => (to - from) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
@@ -3443,53 +3447,74 @@ namespace Server.MirEnvir
         private void SaveAccounts(Stream stream, bool leaveOpen = false)
         {
             using (var writer = leaveOpen ? new BinaryWriter(stream, AccountSaveEncoding, true) : new BinaryWriter(stream))
-            {
-                writer.Write(Version);
-                writer.Write(CustomVersion);
-                writer.Write(NextAccountID);
-                writer.Write(NextCharacterID);
-                writer.Write(NextUserItemID);
-                writer.Write(NextHeroID);
+                SaveAccounts(writer);
 
-                writer.Write(GuildList.Count);
-                writer.Write(NextGuildID);
-                writer.Write(HeroList.Count);
-                for (var i = 0; i < HeroList.Count; i++)
-                    HeroList[i].Save(writer);
-                writer.Write(AccountList.Count);
+            if (this == Main) global::Server.WebAdmin.WebAdminHooks.RaiseAccountsSaved();
+        }
+
+        /// <summary>Writes the whole accounts file to <paramref name="writer"/> (does not flush or dispose it; the caller raises AccountsSaved).</summary>
+        private void SaveAccounts(BinaryWriter writer) => SaveAccounts(writer, null);
+
+        /// <summary>
+        /// With <paramref name="segments"/> (P9-12, periodic save with the offline account cache): the file is the list of
+        /// segments in order, ranges of <paramref name="writer"/>'s buffer and cached account blobs; otherwise the whole file
+        /// is in <paramref name="writer"/>.
+        /// </summary>
+        private void SaveAccounts(BinaryWriter writer, List<AccountSaveSegment> segments)
+        {
+            writer.Write(Version);
+            writer.Write(CustomVersion);
+            writer.Write(NextAccountID);
+            writer.Write(NextCharacterID);
+            writer.Write(NextUserItemID);
+            writer.Write(NextHeroID);
+
+            writer.Write(GuildList.Count);
+            writer.Write(NextGuildID);
+            writer.Write(HeroList.Count);
+            for (var i = 0; i < HeroList.Count; i++)
+                HeroList[i].Save(writer);
+            writer.Write(AccountList.Count);
+            var runStart = 0;
+            if (segments != null)
+                runStart = SaveAccountListCached((BufferBinaryWriter)writer, segments);
+            else
                 for (var i = 0; i < AccountList.Count; i++)
                     AccountList[i].Save(writer);
 
-                writer.Write(NextAuctionID);
-                writer.Write(Auctions.Count);
-                foreach (var auction in Auctions)
-                    auction.Save(writer);
+            writer.Write(NextAuctionID);
+            writer.Write(Auctions.Count);
+            foreach (var auction in Auctions)
+                auction.Save(writer);
 
-                writer.Write(NextMailID);
+            writer.Write(NextMailID);
 
-                writer.Write(GameshopLog.Count);
-                foreach (var item in GameshopLog)
-                {
-                    writer.Write(item.Key);
-                    writer.Write(item.Value);
-                }
-
-                writer.Write(SavedSpawns.Count);
-                foreach (var Spawn in SavedSpawns)
-                {
-                    var Save = new RespawnSave { RespawnIndex = Spawn.Info.RespawnIndex, NextSpawnTick = Spawn.NextSpawnTick, Spawned = Spawn.Count >= Spawn.Info.Count * SpawnMultiplier };
-                    Save.Save(writer);
-                }
-
-                writer.Write(MarketSales.Count);
-                foreach (var sales in MarketSales)
-                {
-                    writer.Write(sales.Key);
-                    sales.Value.Save(writer);
-                }
+            writer.Write(GameshopLog.Count);
+            foreach (var item in GameshopLog)
+            {
+                writer.Write(item.Key);
+                writer.Write(item.Value);
             }
 
-            if (this == Main) global::Server.WebAdmin.WebAdminHooks.RaiseAccountsSaved();
+            writer.Write(SavedSpawns.Count);
+            foreach (var Spawn in SavedSpawns)
+            {
+                var Save = new RespawnSave { RespawnIndex = Spawn.Info.RespawnIndex, NextSpawnTick = Spawn.NextSpawnTick, Spawned = Spawn.Count >= Spawn.Info.Count * SpawnMultiplier };
+                Save.Save(writer);
+            }
+
+            writer.Write(MarketSales.Count);
+            foreach (var sales in MarketSales)
+            {
+                writer.Write(sales.Key);
+                sales.Value.Save(writer);
+            }
+
+            if (segments != null)
+            {
+                var length = ((BufferBinaryWriter)writer).Length;
+                if (length > runStart) segments.Add(new AccountSaveSegment(null, runStart, length - runStart));
+            }
         }
 
         private void SaveGuilds(bool forced = false)
@@ -3675,7 +3700,12 @@ namespace Server.MirEnvir
         {
             if (Saving) return;
 
-            if (Settings.AccountSaveOffThread) BeginSaveAccountsOffThread();
+            // P9-12: the offline account cache works only on the off-thread path (segment-list write) and only for Main.
+            var cache = Settings.AccountSaveOffThread && Settings.OfflineAccountCache != OfflineAccountCacheMode.Off && this == Main;
+            _lastSaveUsedCache = cache;
+            if (!cache && _accountCacheUsed) DropAccountCache();
+
+            if (Settings.AccountSaveOffThread) BeginSaveAccountsOffThread(cache);
             else BeginSaveAccountsLegacy();
         }
 
@@ -3686,30 +3716,46 @@ namespace Server.MirEnvir
         /// thread then creates Server.MirADBn, writes it and swaps it in exactly as <see cref="EndSaveAccounts"/> does. The
         /// buffer is not touched again until that thread clears <see cref="Saving"/> (volatile), which every save waits for.
         /// </summary>
-        private void BeginSaveAccountsOffThread()
+        private void BeginSaveAccountsOffThread(bool cache = false)
         {
             Saving = true;
 
-            var buffer = _accountSaveBuffer ??= new MemoryStream();
+            // Sized from the live file on the first save, so it normally never grows (no LOH copies).
+            var writer = _accountSaveWriter ??= new BufferBinaryWriter(AccountSaveEncoding, InitialAccountSaveCapacity());
+            List<AccountSaveSegment> segments = null;
             try
             {
-                buffer.SetLength(0);
-                SaveAccounts(buffer, leaveOpen: true);
+                writer.Reset();
+                if (cache)
+                {
+                    segments = _accountSaveSegments;
+                    segments.Clear();
+                    _accountCacheUsed = true;
+                }
+                SaveAccounts(writer, segments);
+                if (this == Main) global::Server.WebAdmin.WebAdminHooks.RaiseAccountsSaved();
             }
             catch (Exception ex)
             {
                 Saving = false;
+                _lastSaveUsedCache = false; // review L4: no stale counters of an earlier pass on the [Diag] Save line
                 Interlocked.Increment(ref _accountSaveFailures);
                 MessageQueue.Enqueue(ex);
                 return;
             }
 
-            var length = (int)buffer.Length;
-            Volatile.Write(ref _lastAccountSaveBytes, length);
+            var length = writer.Length;
+            long fileLength = length;
+            if (segments != null)
+            {
+                fileLength = 0;
+                for (var i = 0; i < segments.Count; i++) fileLength += segments[i].Length;
+            }
+            Volatile.Write(ref _lastAccountSaveBytes, fileLength);
             // The name uses the game clock, as before; whether a backup is taken is decided with the file checks off the thread.
             // Full paths now, so the pool thread does not depend on the current directory.
-            var job = new AccountSaveJob(buffer.GetBuffer(), length, Path.GetFullPath(AccountPath), Path.GetFullPath(AccountsBackUpPath),
-                $"Accounts {Now.Year:0000}-{Now.Month:00}-{Now.Day:00} {Now.Hour:00}-{Now.Minute:00}-{Now.Second:00}.bak");
+            var job = new AccountSaveJob(writer.Buffer, length, Path.GetFullPath(AccountPath), Path.GetFullPath(AccountsBackUpPath),
+                $"Accounts {Now.Year:0000}-{Now.Month:00}-{Now.Day:00} {Now.Hour:00}-{Now.Minute:00}-{Now.Second:00}.bak", segments);
             try
             {
                 ThreadPool.UnsafeQueueUserWorkItem(WriteAccountsFile, job, preferLocal: false);
@@ -3722,17 +3768,39 @@ namespace Server.MirEnvir
             }
         }
 
-        private MemoryStream _accountSaveBuffer; // game thread while !Saving, the pool thread while Saving
+        private BufferBinaryWriter _accountSaveWriter; // game thread while !Saving, the pool thread (reads Buffer) while Saving
+        // P9-12: the cached save's file as pieces in order; owned like _accountSaveWriter (the pool thread reads it while Saving).
+        private readonly List<AccountSaveSegment> _accountSaveSegments = new List<AccountSaveSegment>();
+
+        private static int InitialAccountSaveCapacity()
+        {
+            try
+            {
+                var info = new FileInfo(AccountPath);
+                if (info.Exists) return (int)Math.Min(info.Length + info.Length / 8 + 64 * 1024, Array.MaxLength);
+            }
+            catch (Exception) { } // only a size hint
+            return 1024 * 1024;
+        }
 
         private sealed class AccountSaveJob
         {
             public readonly byte[] Data;
             public readonly int Length;
             public readonly string AccountPath, BackUpDir, BackupName;
-            public AccountSaveJob(byte[] data, int length, string accountPath, string backUpDir, string backupName)
+            public readonly List<AccountSaveSegment> Segments; // null = the whole file is Data[0..Length)
+            public AccountSaveJob(byte[] data, int length, string accountPath, string backUpDir, string backupName, List<AccountSaveSegment> segments = null)
             {
-                Data = data; Length = length; AccountPath = accountPath; BackUpDir = backUpDir; BackupName = backupName;
+                Data = data; Length = length; AccountPath = accountPath; BackUpDir = backUpDir; BackupName = backupName; Segments = segments;
             }
+        }
+
+        /// <summary>One piece of a cached periodic account save (P9-12): a range of the save buffer (Blob null) or an account's cached bytes.</summary>
+        private readonly struct AccountSaveSegment
+        {
+            public readonly byte[] Blob;
+            public readonly int Offset, Length;
+            public AccountSaveSegment(byte[] blob, int offset, int length) { Blob = blob; Offset = offset; Length = length; }
         }
 
         // Runs on a pool thread: touches only the files, the job's bytes and the Saving flag (like EndSaveAccounts).
@@ -3747,8 +3815,21 @@ namespace Server.MirEnvir
                     backupFile = Path.Combine(job.BackUpDir, job.BackupName);
                 }
 
-                using (var fStream = new FileStream(job.AccountPath + "n", FileMode.Create))
-                    fStream.Write(job.Data, 0, job.Length);
+                if (job.Segments == null)
+                {
+                    using (var fStream = new FileStream(job.AccountPath + "n", FileMode.Create))
+                        fStream.Write(job.Data, 0, job.Length);
+                }
+                else
+                {
+                    // Thousands of small blobs: a large FileStream buffer turns them into few writes.
+                    using (var fStream = new FileStream(job.AccountPath + "n", FileMode.Create, FileAccess.Write, FileShare.Read, 256 * 1024))
+                        for (var i = 0; i < job.Segments.Count; i++)
+                        {
+                            var segment = job.Segments[i];
+                            fStream.Write(segment.Blob ?? job.Data, segment.Offset, segment.Length);
+                        }
+                }
                 ReplaceAccountsFile(job.AccountPath + "n", job.AccountPath, backupFile);
             }
             catch (Exception ex)
@@ -3760,6 +3841,173 @@ namespace Server.MirEnvir
             {
                 Saving = false;
             }
+        }
+
+        // ---- P9-12 offline account cache (Future Ideas/Offline-Account-Cache-Plan.md) --------------------------------------
+
+        private bool _accountCacheUsed;   // a cached save stored blobs that DropAccountCache has not cleared yet
+        private bool _lastSaveUsedCache;  // for the [Diag] Save line
+        private int _accountCacheCompareCursor; // list index the next pass's rolling compare window starts at
+        private int _accountCacheCompareCarry;  // compare budget a pass left unused when it reached the end of the list
+        private long _accountCacheMismatchTotal;
+        private readonly HashSet<int> _accountCacheMismatchLogged = new HashSet<int>();
+
+        /// <summary>
+        /// The account's saved bytes may have changed: the next periodic save serialises it again (game thread; null-safe, so
+        /// <c>MarkAccountDirty(info.AccountInfo)</c> is fine for a <see cref="HeroInfo"/>). Call it before the mutation, or at
+        /// least before anything that can throw after mutating. Never throws.
+        /// </summary>
+        public static void MarkAccountDirty(AccountInfo account)
+        {
+            if (account != null) account.SaveBlob = null;
+        }
+
+        /// <summary>Every cached account is serialised again by the next periodic save (any thread; call after mutating).</summary>
+        public static void InvalidateAccountCache() => AccountSaveCache.InvalidateAll();
+
+        private static bool IsAccountOnline(AccountInfo account)
+        {
+            if (account.Connection != null) return true;
+            var characters = account.Characters;
+            for (var i = 0; i < characters.Count; i++)
+                if (characters[i]?.Player != null) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// True when the account's bytes change with the clock alone: an active refine (CharacterInfo.Save writes CollectTime -
+        /// Time) or an intelligent creature that expires (writes Expire - Now). Such accounts are never cached.
+        /// </summary>
+        private bool HasTimedBytes(AccountInfo account)
+        {
+            var characters = account.Characters;
+            for (var i = 0; i < characters.Count; i++)
+            {
+                var c = characters[i];
+                if (c == null) continue;
+                if (c.CollectTime > Time) return true;
+                var creatures = c.IntelligentCreatures;
+                for (var j = 0; j < creatures.Count; j++)
+                    if (creatures[j].Expire != DateTime.MinValue) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The account list of a cached periodic save (game thread). An account is serialised fresh when it is online, was
+        /// online since the last save (sticky <see cref="AccountInfo.SaveHot"/>), has time-dependent bytes, has no blob, or its
+        /// blob belongs to an older epoch; otherwise its blob is written as is. A cold account serialised fresh stores a copy of
+        /// its bytes for the next save (when they equal its stale-epoch blob, the old array is kept and only re-tagged).
+        /// A rolling round-robin window also serialises cached accounts and compares: each pass checks
+        /// ceil(accounts / <see cref="Settings.OfflineAccountCacheFullEvery"/>) cached accounts (in Verify mode at least
+        /// <see cref="Settings.OfflineAccountCacheVerifyPerSave"/>), so every cached account is compared at least once every
+        /// FullEvery saves without a spike (review M1). Equal keeps the old array; a mismatch is counted, logged once per
+        /// account and repaired. Returns the start of the buffer run still open (the caller closes it after the tail).
+        /// </summary>
+        private int SaveAccountListCached(BufferBinaryWriter writer, List<AccountSaveSegment> segments)
+        {
+            var epoch = AccountSaveCache.Epoch;          // one snapshot per pass, read before Suspended (review H3)
+            var store = !AccountSaveCache.Suspended;     // a WinForms account editor is open: nothing cached is used or stored
+            var count = AccountList.Count;
+
+            // Rolling compare window (review M1/L3): starts at the cursor, runs to the end of the list at most (one lap per
+            // pass), and its budget counts cached accounts actually compared. Budget left at the end of the list carries
+            // into the next pass (capped at one pass's share), so a lap takes at most FullEvery passes.
+            var fullEvery = Math.Max(1, Settings.OfflineAccountCacheFullEvery);
+            var share = (count + fullEvery - 1) / fullEvery;
+            if (Settings.OfflineAccountCache == OfflineAccountCacheMode.Verify)
+                share = Math.Max(share, Math.Max(1, Settings.OfflineAccountCacheVerifyPerSave));
+            var compareLeft = share + _accountCacheCompareCarry;
+            var compareFrom = _accountCacheCompareCursor;
+            if (compareFrom >= count || compareLeft >= count) compareFrom = 0; // list shrank, or the budget covers everything
+            var compareNext = compareFrom;
+
+            int cached = 0, fresh = 0, timed = 0, verified = 0, mismatch = 0;
+            var runStart = 0; // the writer was reset for this save: the first run includes the header and the hero list
+            for (var i = 0; i < count; i++)
+            {
+                var account = AccountList[i];
+                var online = IsAccountOnline(account);
+                var isTimed = !online && HasTimedBytes(account);
+                var blob = account.SaveBlob;
+
+                if (!online && !account.SaveHot && !isTimed && store && blob != null && account.SaveBlobEpoch == epoch)
+                {
+                    if (i < compareFrom || compareLeft <= 0)
+                    {
+                        if (writer.Length > runStart) segments.Add(new AccountSaveSegment(null, runStart, writer.Length - runStart));
+                        segments.Add(new AccountSaveSegment(blob, 0, blob.Length));
+                        runStart = writer.Length;
+                        cached++;
+                        continue;
+                    }
+
+                    var checkStart = writer.Length;
+                    account.Save(writer);
+                    verified++;
+                    compareLeft--;
+                    compareNext = i + 1;
+                    var bytes = new ReadOnlySpan<byte>(writer.Buffer, checkStart, writer.Length - checkStart);
+                    if (!bytes.SequenceEqual(blob))
+                    {
+                        mismatch++;
+                        _accountCacheMismatchTotal++;
+                        account.SaveBlob = bytes.ToArray(); // replaced, never mutated (blobs are shared with pool-thread writes); epoch unchanged
+                        if (_accountCacheMismatchLogged.Add(account.Index))
+                            MessageQueue.Enqueue($"[Diag] AccountCache mismatch account={account.Index} ({account.AccountID}): its cached bytes differed from a fresh save; a dirty mark is missing.");
+                    }
+                    continue;
+                }
+
+                var start = writer.Length;
+                account.Save(writer);
+                if (isTimed) timed++;
+                else fresh++;
+
+                if (online || isTimed || !store)
+                {
+                    account.SaveBlob = null;
+                    account.SaveHot = online; // logged out after this pass: still hot at the next one (it may change until then)
+                    continue;
+                }
+
+                // Cold: keep the bytes for the next save. A stale-epoch blob with the same bytes is kept and only re-tagged
+                // (review M2: an invalidate-all would otherwise reallocate every blob). Different bytes are expected after an
+                // invalidation, so they are not a mismatch.
+                var saved = new ReadOnlySpan<byte>(writer.Buffer, start, writer.Length - start);
+                if (blob == null || !saved.SequenceEqual(blob)) account.SaveBlob = saved.ToArray();
+                account.SaveBlobEpoch = epoch;
+                account.SaveHot = false;
+            }
+
+            // The window reached the end of the list with budget left: the lap is complete, the next one starts at 0.
+            var lap = compareLeft > 0;
+            _accountCacheCompareCarry = lap ? Math.Min(compareLeft, share) : 0;
+            _accountCacheCompareCursor = lap ? 0 : compareNext;
+
+            AccountSaveCache.Publish(new AccountCacheStats
+            {
+                Cached = cached, Fresh = fresh, Timed = timed, Verified = verified, Mismatch = mismatch, Epoch = epoch,
+                LapComplete = lap, MismatchTotal = _accountCacheMismatchTotal,
+            });
+            return runStart;
+        }
+
+        /// <summary>The cache is off again: frees every blob (game thread).</summary>
+        private void DropAccountCache()
+        {
+            for (var i = 0; i < AccountList.Count; i++) AccountList[i].SaveBlob = null;
+            _accountCacheUsed = false;
+            _accountCacheCompareCursor = 0;
+            _accountCacheCompareCarry = 0;
+        }
+
+        private string AccountCacheDiag()
+        {
+            if (!_lastSaveUsedCache) return string.Empty;
+            var s = AccountSaveCache.Last;
+            if (s == null) return string.Empty;
+            return $" cached={s.Cached} fresh={s.Fresh} timed={s.Timed} verified={s.Verified} mismatch={s.Mismatch} epoch={s.Epoch}{(s.LapComplete ? " lap" : "")}";
         }
 
         /// <summary>The save before P9-10, kept behind [Optimisation] AccountSaveOffThread=False.</summary>
@@ -3850,6 +4098,8 @@ namespace Server.MirEnvir
 
         public void LoadAccounts()
         {
+            AccountSaveCache.InvalidateAll(); // P9-12: also when the load below throws half-way
+
             //reset ranking
             for (var i = 0; i < RankClass.Count(); i++)
             {
@@ -4013,6 +4263,10 @@ namespace Server.MirEnvir
 
                 BuildSentMailIndex(); // phase 2.6: Sent folder index from the loaded mailboxes
             }
+
+            // P9-12: every list was replaced; the cache is rebuilt from a fresh save, never from the file's bytes (the load
+            // drops archived characters, unbindable items and orphan quests, so those bytes differ).
+            AccountSaveCache.InvalidateAll();
         }
 
         public void LoadGuilds()
@@ -4247,6 +4501,7 @@ namespace Server.MirEnvir
         /// <summary>Makes the next game tick run the periodic save block (accounts, DB, guilds, goods, conquests).</summary>
         public void RequestSaveNow()
         {
+            AccountSaveCache.InvalidateAll(); // P9-12 (review H1): an operator save serialises every account
             _saveNowRequested = true;
         }
 
@@ -5062,7 +5317,10 @@ namespace Server.MirEnvir
                     return;
                 }
                 account.Banned = false;
+                MarkAccountDirty(account);
             }
+            // P9-12 (review L4): marked only on a real change, so unauthenticated clients cannot churn the cache
+            if (!string.IsNullOrEmpty(account.BanReason) || account.ExpiryDate != DateTime.MinValue) MarkAccountDirty(account);
             account.BanReason = string.Empty;
             account.ExpiryDate = DateTime.MinValue;
 
@@ -5092,6 +5350,7 @@ namespace Server.MirEnvir
                 return;
             }
 
+            MarkAccountDirty(account); // P9-12: the account may be offline (change password from the login screen)
             account.Password = p.NewPassword;
             account.RequirePasswordChange = false;
             c.Enqueue(new ServerPackets.ChangePassword { Result = 6 });
@@ -5110,6 +5369,7 @@ namespace Server.MirEnvir
                 return;
             }
 
+            MarkAccountDirty(account); // P9-12
             account.SetPasswordHash(newSalt, newHash);
             account.RequirePasswordChange = false;
             c.Enqueue(new ServerPackets.ChangePassword { Result = 6 });
@@ -5157,7 +5417,10 @@ namespace Server.MirEnvir
                     return;
                 }
                 account.Banned = false;
+                MarkAccountDirty(account);
             }
+            // P9-12 (review L4): marked only on a real change, so unauthenticated clients cannot churn the cache
+            if (!string.IsNullOrEmpty(account.BanReason) || account.ExpiryDate != DateTime.MinValue) MarkAccountDirty(account);
             account.BanReason = string.Empty;
             account.ExpiryDate = DateTime.MinValue;
 
@@ -5183,7 +5446,11 @@ namespace Server.MirEnvir
             c.LoginPending = false;
             if (!c.Connected || c.Stage != GameStage.Login || c.Account != null) return;   // disconnected or moved on meanwhile
             if (!ReferenceEquals(account.Password, checkedHash)) passwordOk = false;          // password changed meanwhile: retry
-            if (passwordOk && upgradedHash != null) account.SetPasswordHash(upgradedHash);  // v1 -> v2 on a successful login
+            if (passwordOk && upgradedHash != null)                                          // v1 -> v2 on a successful login
+            {
+                MarkAccountDirty(account); // P9-12: the account may stay offline (login gate / RequirePasswordChange below)
+                account.SetPasswordHash(upgradedHash);
+            }
             if (account.Banned && account.ExpiryDate > Now)                                  // banned while the check ran
             {
                 c.Enqueue(new ServerPackets.LoginBanned { Reason = account.BanReason, ExpiryDate = account.ExpiryDate });
@@ -5196,6 +5463,7 @@ namespace Server.MirEnvir
 
                 if (account.WrongPasswordCount++ >= 5)
                 {
+                    MarkAccountDirty(account); // P9-12 (WrongPasswordCount itself is not saved)
                     account.Banned = true;
                     account.BanReason = GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.TooManyWrongLoginAttempts);
                     account.ExpiryDate = Now.AddMinutes(2);
@@ -5236,6 +5504,10 @@ namespace Server.MirEnvir
 
                 account.Connection = c;
             }
+            // P9-12 (review L3): sticky until a save serialises the account while it is offline, so a select-screen-only
+            // session and the logout writes (StopGame, after which Connection and Player are null) are always saved fresh.
+            account.SaveHot = true;
+            MarkAccountDirty(account);
 
             c.Account = account;
             c.Stage = GameStage.Select;
@@ -5470,6 +5742,7 @@ namespace Server.MirEnvir
 
                 var info = new CharacterInfo(p, c) { Index = ++NextCharacterID, AccountInfo = c.Account };
 
+                MarkAccountDirty(c.Account); // P9-12 (the account is hot anyway: select screen)
                 c.Account.Characters.Add(info);
                 CharacterList.Add(info);
 
@@ -6265,6 +6538,8 @@ namespace Server.MirEnvir
 
         public void ProcessNewDay()
         {
+            InvalidateAccountCache(); // P9-12: daily quests are cleared on every character, offline ones too
+
             foreach (var c in CharacterList)
             {
                 ClearDailyQuests(c);
@@ -6377,7 +6652,10 @@ namespace Server.MirEnvir
                 return false;
             }
 
+            // P9-12: the borrower's item and the lender's RentedItems change (both may be offline); before anything can throw.
+            MarkAccountDirty(rentingCharacterInfo?.AccountInfo);
             var owner = GetCharacterInfo(ownerName);
+            MarkAccountDirty(owner?.AccountInfo);
             var returnItems = new List<UserItem>();
 
             foreach (var rentalInformation in owner.RentedItems)
@@ -6531,6 +6809,7 @@ namespace Server.MirEnvir
 
         public void ClearGameshopLog()
         {
+            InvalidateAccountCache(); // P9-12: GSpurchases of every character; bumped again below (also called from WinForms)
             Main.GameshopLog.Clear();
 
             for (var i = 0; i < AccountList.Count; i++)
@@ -6542,6 +6821,7 @@ namespace Server.MirEnvir
             }
 
             ResetGS = false;
+            InvalidateAccountCache();
             MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GameshopPurchaseLogsCleared));
         }
 
