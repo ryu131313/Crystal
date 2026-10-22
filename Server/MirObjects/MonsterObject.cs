@@ -2947,7 +2947,7 @@ namespace Server.MirObjects
 
         public override Packet GetInfo()
         {
-            return new S.ObjectMonster
+            var p = new S.ObjectMonster
             {
                 ObjectID = ObjectID,
                 Name = Name,
@@ -2964,10 +2964,11 @@ namespace Server.MirObjects
                 Hidden = Hidden,
                 ShockTime = (ShockTime > 0 ? ShockTime - Envir.Time : 0),
                 BindingShotCenter = BindingShotCenter,
-                Buffs = GetVisibleBuffTypes(),
                 MasterObjectId = Master?.ObjectID ?? 0,
                 Rarity= MonsterType
             };
+            AddVisibleBuffTypes(p.Buffs);
+            return p;
         }
 
         public override void ReceiveChat(string text, ChatType type)

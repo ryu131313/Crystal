@@ -780,14 +780,20 @@ namespace Server.MirObjects
             return false;
         }
 
-        // The packet keeps the list, so it is new per call; this only avoids the LINQ chain.
-        protected List<BuffType> GetVisibleBuffTypes()
+        /// <summary>
+        /// Adds the visible buff types to an info packet's own <paramref name="into"/> list (the packet's field initializer
+        /// already made it), so a GetInfo allocates no second list, and no array at all when nothing visible is active.
+        /// </summary>
+        protected void AddVisibleBuffTypes(List<BuffType> into)
         {
-            var list = new List<BuffType>(Buffs.Count);
+            var count = 0;
             for (int i = 0; i < Buffs.Count; i++)
-                if (Buffs[i].Info.Visible) list.Add(Buffs[i].Type);
+                if (Buffs[i].Info.Visible) count++;
+            if (count == 0) return;
 
-            return list;
+            if (into.Capacity < into.Count + count) into.Capacity = into.Count + count;
+            for (int i = 0; i < Buffs.Count; i++)
+                if (Buffs[i].Info.Visible) into.Add(Buffs[i].Type);
         }
 
         public virtual void PauseBuff(Buff b)

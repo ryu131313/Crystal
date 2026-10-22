@@ -1,4 +1,5 @@
-﻿using System.Collections.Concurrent;
+﻿using System.Buffers;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Drawing;
 using System.Net.Sockets;
@@ -74,6 +75,7 @@ namespace Server.MirNetwork
 
         byte[] _rawData = new byte[0];
         byte[] _rawBytes = new byte[8 * 1024];
+        private readonly AsyncCallback _receiveCallback; // one delegate per connection, not one per BeginReceive
 
         public AccountInfo Account;
         public PlayerObject Player;
@@ -121,6 +123,7 @@ namespace Server.MirNetwork
             _sendList.Enqueue(new S.Connected());
             _retryList = new Queue<Packet>();
 
+            _receiveCallback = ReceiveData;
             Connected = true;
             BeginReceive();
         }
@@ -142,7 +145,7 @@ namespace Server.MirNetwork
 
             try
             {
-                _client.Client.BeginReceive(_rawBytes, 0, _rawBytes.Length, SocketFlags.None, ReceiveData, _rawBytes);
+                _client.Client.BeginReceive(_rawBytes, 0, _rawBytes.Length, SocketFlags.None, _receiveCallback, _rawBytes);
             }
             catch
             {
@@ -193,16 +196,34 @@ namespace Server.MirNetwork
             {
                 byte[] rawBytes = result.AsyncState as byte[];
 
-                var raw = new byte[dataRead + temp.Length];
-                Buffer.BlockCopy(temp, 0, raw, 0, temp.Length);
-                Buffer.BlockCopy(rawBytes, 0, raw, temp.Length, dataRead);
+                // Parse in place with offsets: only a leftover partial frame is copied (it must outlive the receive buffer,
+                // which the next BeginReceive refills), instead of a new array per read and a copy of the rest per packet.
+                byte[] raw;
+                int count;
+                if (temp.Length == 0)
+                {
+                    raw = rawBytes;
+                    count = dataRead;
+                }
+                else
+                {
+                    raw = new byte[dataRead + temp.Length];
+                    Buffer.BlockCopy(temp, 0, raw, 0, temp.Length);
+                    Buffer.BlockCopy(rawBytes, 0, raw, temp.Length, dataRead);
+                    count = raw.Length;
+                }
 
                 Packet p;
+                int offset = 0, used;
 
-                while ((p = Packet.ReceivePacket(raw, out raw)) != null)
+                while ((p = Packet.ReceivePacket(raw, offset, count - offset, out used)) != null)
+                {
                     receiveList.Enqueue(p);
+                    offset += used;
+                }
+                offset += used; // an unknown packet id drops the rest, as before
 
-                _rawData = raw;
+                _rawData = offset >= count ? Array.Empty<byte>() : raw.AsSpan(offset, count - offset).ToArray();
                 Envir.WakeLoop(); // a parked game loop picks the packets up within ~1 ms at most (roadmap P6)
             }
             catch
@@ -239,15 +260,27 @@ namespace Server.MirNetwork
 
             BeginReceive();
         }
-        private void BeginSend(byte[] data)
+        private void BeginSend(byte[] data) => BeginSend(data, data.Length, false);
+
+        /// <summary>
+        /// Sends the first <paramref name="length"/> bytes of <paramref name="data"/>. A <paramref name="pooled"/> array was
+        /// rented from <see cref="SendPool"/> by <see cref="Flush"/>; ownership passes here, and it goes back to the pool exactly
+        /// once, when the socket is done with it (or at once when it is never sent). On a failure whose state is unclear the
+        /// array is left to the GC instead, so it can never be returned twice or reused while a send still reads it.
+        /// </summary>
+        private void BeginSend(byte[] data, int length, bool pooled)
         {
-            if (!Connected || data.Length == 0) return;
+            if (!Connected || length == 0)
+            {
+                if (pooled) SendPool.Return(data);
+                return;
+            }
 
             // P9-09: hand the array to a sender thread. Arrays still queued there keep later sends on that path after the
             // switch is turned off, so a direct send can never overtake them.
             if (Settings.SendThreads > 0 || Volatile.Read(ref _queuedArrays) > 0)
             {
-                QueueSend(data);
+                QueueSend(data, length, pooled);
                 return;
             }
 
@@ -255,22 +288,33 @@ namespace Server.MirNetwork
 
             try
             {
-                _client.Client.BeginSend(data, 0, data.Length, SocketFlags.None, SendData, Disconnecting);
+                // The state carries a pooled array to SendData, which returns it after EndSend.
+                _client.Client.BeginSend(data, 0, length, SocketFlags.None, SendData, pooled ? data : null);
             }
             catch
             {
-                Disconnecting = true;
+                Disconnecting = true; // a pooled array is not returned: the send may or may not have started
             }
         }
         private void SendData(IAsyncResult result)
         {
             try
             {
-                _client.Client.EndSend(result);
+                _socket.EndSend(result);
             }
             catch
             { }
+
+            // The send has completed or failed either way, so the socket no longer reads the array.
+            if (result.AsyncState is byte[] pooled) SendPool.Return(pooled);
         }
+
+        /// <summary>
+        /// Flush arrays up to this size are rented and returned after the send (2026-10-22 allocation tail); larger ones (a
+        /// login burst) are allocated exact-size, so the pool never keeps big arrays.
+        /// </summary>
+        private const int PooledSendMax = 64 * 1024;
+        private static ArrayPool<byte> SendPool => ArrayPool<byte>.Shared;
 
         #region Sender thread path (P9-09, [Optimisation] SendThreads)
 
@@ -278,8 +322,17 @@ namespace Server.MirNetwork
         private const long MaxQueuedBytes = 4 * 1024 * 1024;
         private const int MaxArraysPerSend = 64;
 
+        /// <summary>One queued send: the first <see cref="Length"/> bytes of <see cref="Data"/>; <see cref="Pooled"/> arrays go back to <see cref="SendPool"/>.</summary>
+        private readonly struct OutChunk
+        {
+            public readonly byte[] Data;
+            public readonly int Length;
+            public readonly bool Pooled;
+            public OutChunk(byte[] data, int length, bool pooled) { Data = data; Length = length; Pooled = pooled; }
+        }
+
         // Written by any thread that sends (game thread; a WinForms kick), read by the sender side.
-        private readonly ConcurrentQueue<byte[]> _outbox = new ConcurrentQueue<byte[]>();
+        private readonly ConcurrentQueue<OutChunk> _outbox = new ConcurrentQueue<OutChunk>();
         private int _queuedArrays;          // queued + in flight (Interlocked)
         private long _queuedBytes;          // queued + in flight (Interlocked)
         private volatile bool _sendFaulted; // a send failed or the client fell too far behind; the game thread disconnects
@@ -290,24 +343,30 @@ namespace Server.MirNetwork
         // Owned by whoever holds _sendState.
         private SocketAsyncEventArgs _sendArgs;
         private readonly List<ArraySegment<byte>> _sendSegments = new List<ArraySegment<byte>>();
+        private readonly List<byte[]> _inFlightPooled = new List<byte[]>(MaxArraysPerSend);
         private int _inFlightArrays, _inFlightBytes;
 
         /// <summary>Queues one flush's bytes for a sender thread, in order. Any thread; no locks.</summary>
-        private void QueueSend(byte[] data)
+        private void QueueSend(byte[] data, int length, bool pooled)
         {
-            if (_sendFaulted) return;
+            if (_sendFaulted)
+            {
+                if (pooled) SendPool.Return(data); // never queued
+                return;
+            }
 
-            if (Interlocked.Add(ref _queuedBytes, data.Length) > MaxQueuedBytes)
+            if (Interlocked.Add(ref _queuedBytes, length) > MaxQueuedBytes)
             {
                 // Dropping a part of the stream corrupts it, so nothing more is sent: the game thread disconnects (Process).
-                Interlocked.Add(ref _queuedBytes, -data.Length);
+                Interlocked.Add(ref _queuedBytes, -length);
+                if (pooled) SendPool.Return(data); // never queued
                 _sendFaulted = true;
                 MessageQueue.Enqueue($"[Optimisation] SendThreads: {IPAddress} has more than {MaxQueuedBytes / 1024} KB waiting to be sent; disconnecting a client that is too slow.");
                 return;
             }
 
             Interlocked.Increment(ref _queuedArrays);
-            _outbox.Enqueue(data);
+            _outbox.Enqueue(new OutChunk(data, length, pooled));
             if (Interlocked.CompareExchange(ref _sendState, 1, 0) == 0)
                 SocketSender.Schedule(this);
         }
@@ -335,13 +394,13 @@ namespace Server.MirNetwork
         /// <summary>Starts one send of up to <see cref="MaxArraysPerSend"/> queued arrays. True when it finished at once.</summary>
         private bool StartSend()
         {
-            byte[] first = null;
             var bytes = 0;
             _sendSegments.Clear();
+            _inFlightPooled.Clear();
             while (_sendSegments.Count < MaxArraysPerSend && _outbox.TryDequeue(out var a))
             {
-                first ??= a;
-                _sendSegments.Add(new ArraySegment<byte>(a));
+                _sendSegments.Add(new ArraySegment<byte>(a.Data, 0, a.Length));
+                if (a.Pooled) _inFlightPooled.Add(a.Data);
                 bytes += a.Length;
             }
             _inFlightArrays = _sendSegments.Count;
@@ -362,8 +421,9 @@ namespace Server.MirNetwork
                 }
                 if (_sendSegments.Count == 1)
                 {
+                    var first = _sendSegments[0];
                     _sendArgs.BufferList = null;
-                    _sendArgs.SetBuffer(first, 0, first.Length);
+                    _sendArgs.SetBuffer(first.Array, 0, first.Count);
                 }
                 else
                 {
@@ -375,13 +435,13 @@ namespace Server.MirNetwork
             }
             catch (ObjectDisposedException)
             {
-                CompleteSend(false);
+                CompleteSend(false, recycle: false); // pooled arrays go to the GC: the send's state is unclear
                 return true;
             }
             catch (Exception ex)
             {
                 MessageQueue.Enqueue(ex);
-                CompleteSend(false);
+                CompleteSend(false, recycle: false);
                 return true;
             }
 
@@ -404,7 +464,11 @@ namespace Server.MirNetwork
             }
         }
 
-        private void CompleteSend(bool ok)
+        /// <summary>
+        /// Ends the in-flight send. <paramref name="recycle"/>: the socket is done with the arrays (the send completed, or it
+        /// was dropped before starting), so the pooled ones go back; false leaves them to the GC.
+        /// </summary>
+        private void CompleteSend(bool ok, bool recycle = true)
         {
             if (!ok) _sendFaulted = true;
             Interlocked.Add(ref _queuedBytes, -_inFlightBytes);
@@ -418,6 +482,11 @@ namespace Server.MirNetwork
                 if (_sendArgs.BufferList != null) _sendArgs.BufferList = null;
                 else _sendArgs.SetBuffer(null, 0, 0);
             }
+            // Only now, with the send args no longer holding them, may the pooled arrays be rented again.
+            if (recycle)
+                for (int i = 0; i < _inFlightPooled.Count; i++)
+                    SendPool.Return(_inFlightPooled[i]);
+            _inFlightPooled.Clear();
         }
 
         /// <summary>
@@ -600,9 +669,12 @@ namespace Server.MirNetwork
             if (!due && !_flushNow && _pending.Count < FlushAtPending) return;
             _flushNow = false;
 
-            // Encode first, then copy into one exact-size array: no List<byte> growth and no ToArray copy.
-            // The array is handed to the socket, so it can't be reused; the scratch list only holds references.
+            // Encode first, then copy into one array: no List<byte> growth and no ToArray copy. Up to PooledSendMax the array
+            // is rented, and BeginSend owns it from then on (it returns it once the socket is done with it). The scratch list
+            // only holds references.
             byte[] data;
+            int dataLength;
+            bool pooled;
             var encodeStart = Stopwatch.GetTimestamp();
             try
             {
@@ -621,7 +693,9 @@ namespace Server.MirNetwork
                     total += bytes.Length;
                 }
 
-                data = new byte[total];
+                pooled = total <= PooledSendMax;
+                data = pooled ? SendPool.Rent(total) : new byte[total];
+                dataLength = total;
                 var offset = 0;
                 for (int i = 0; i < SendScratch.Count; i++)
                 {
@@ -647,7 +721,7 @@ namespace Server.MirNetwork
             }
 
             var sendStart = Stopwatch.GetTimestamp();
-            BeginSend(data);
+            BeginSend(data, dataLength, pooled);
             LoopProfiler.CountSendTiming(sendStart - encodeStart, Stopwatch.GetTimestamp() - sendStart);
         }
 

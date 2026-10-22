@@ -50,6 +50,54 @@ public abstract class Packet
         return p;
     }
 
+    /// <summary>
+    /// <see cref="ReceivePacket(byte[], out byte[])"/> for the frame at <paramref name="offset"/> of a receive buffer that may
+    /// hold several, without copying the rest of the buffer per packet. Same results and exceptions. <paramref name="consumed"/>:
+    /// the frame's length; 0 when no complete frame is there (null); <paramref name="count"/> for an unknown packet id (null,
+    /// and the rest is dropped, as the copying form does).
+    /// </summary>
+    public static Packet ReceivePacket(byte[] buffer, int offset, int count, out int consumed)
+    {
+        consumed = 0;
+
+        if (count < 4) return null; //| 2Bytes: Packet Size | 2Bytes: Packet ID |
+
+        var length = BitConverter.ToUInt16(buffer, offset);
+        var id = BitConverter.ToInt16(buffer, offset + 2);
+
+        if (length > count || length < 2) return null;
+
+        Packet p;
+        try
+        {
+            p = IsServer ? GetClientPacket(id) : GetServerPacket(id);
+            if (p == null)
+            {
+                consumed = count;
+                return null;
+            }
+
+            if (p.Compressed)
+            {
+                // Rare (no client packet is compressed): decode a copy of the frame the copying way, so the bytes read are the same.
+                p = ReceivePacket(buffer.AsSpan(offset, length).ToArray(), out _);
+            }
+            else
+            {
+                using var ms = new MemoryStream(buffer, offset + 4, length - 4);
+                using var reader = new BinaryReader(ms);
+                p.ReadPacket(reader);
+            }
+        }
+        catch (Exception)
+        {
+            throw new InvalidDataException();
+        }
+
+        consumed = length;
+        return p;
+    }
+
     // Per-thread encode scratch: packets are encoded on the server game thread, web admin HTTP threads, the client UI thread
     // and the socket threads of the tools, so the stream is never shared. Only the returned frame is allocated per call.
     [ThreadStatic] private static MemoryStream _encodeStream;

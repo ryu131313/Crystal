@@ -1306,7 +1306,7 @@ namespace Server.MirObjects
         }
         public override Packet GetInfo()
         {
-            return new S.ObjectHero
+            var p = new S.ObjectHero
             {
                 ObjectID = ObjectID,
                 Name = CurrentMap.Info.NoNames ? "?????" : Name,
@@ -1335,11 +1335,11 @@ namespace Server.MirObjects
                 ElementOrbLvl = (uint)ElementsLevel,
                 ElementOrbMax = (uint)Settings.OrbsExpList[Settings.OrbsExpList.Count - 1],
 
-                Buffs = GetVisibleBuffTypes(),
-
                 LevelEffects = LevelEffects,
                 OwnerName = Owner.Name
             };
+            AddVisibleBuffTypes(p.Buffs);
+            return p;
         }
     }
 }

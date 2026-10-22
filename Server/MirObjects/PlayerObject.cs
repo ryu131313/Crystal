@@ -5756,7 +5756,7 @@ namespace Server.MirObjects
 
             }
 
-            return new S.ObjectPlayer
+            var p = new S.ObjectPlayer
             {
                 ObjectID = ObjectID,
                 Name = CurrentMap.Info.NoNames ? "?????" : Name,
@@ -5788,10 +5788,10 @@ namespace Server.MirObjects
                 ElementOrbLvl = (uint)ElementsLevel,
                 ElementOrbMax = (uint)Settings.OrbsExpList[Settings.OrbsExpList.Count - 1],
 
-                Buffs = GetVisibleBuffTypes(),
-
                 LevelEffects = LevelEffects,
             };
+            AddVisibleBuffTypes(p.Buffs);
+            return p;
         }
         public void EquipSlotItem(MirGridType grid, ulong id, int to, MirGridType gridTo, ulong idTo)
         {

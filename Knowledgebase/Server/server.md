@@ -287,6 +287,7 @@ Every path is relative to the **process cwd** (`Path.Combine(".", ...)`); `Progr
 - **ALWAYS** prefer `struct` for small short-lived aggregates; keep `class` for `MapObject`, `Packet`, `*Info` models.
 - **ALWAYS** pre-size collections when the maximum is known; avoid LOH (>85 KB) allocations in steady state.
 - **ALWAYS** use `TryDequeue`/`IsEmpty` on `ConcurrentQueue`, not `.Count`, for control flow.
+- **ALWAYS** treat a rented flush array (`MirConnection.BeginSend(data, length, pooled)`, 2026-10-22) as owned by the send path: it goes back to `ArrayPool` exactly once, after the socket is done with it (`CompleteSend` after the send args let go of it, the APM `SendData` callback, or at once when it is never queued). When a failure leaves it unclear whether a send still reads it, leave it to the GC instead. Never return an array you did not rent (`Return` throws for odd sizes) and never send past `length` (rented arrays are larger).
 - **ALWAYS** keep outbound packets batched (one `BeginSend` per connection per `Process`). Send bytes only through `MirConnection.BeginSend`, never `Socket.Send*` directly: it keeps a connection's bytes in order across the sender-thread path (P9-09).
 - **ALWAYS** cache `Envir.Now` in a local inside loops (the property computes `AddMilliseconds` each call).
 
@@ -295,12 +296,12 @@ Every path is relative to the **process cwd** (`Path.Combine(".", ...)`); `Progr
 | Location | Issue |
 |---|---|
 | `Envir.WorkLoop` | ~~Busy spin~~ (idle park since roadmap P6); ~~`Map.Process` for every map every iteration~~ (P9-04 respawn gate, P9-05 map scheduler; the per-map loop remains as the `DueScheduler=False` fallback); ~~the object walk visits every mob-thread monster node only to skip it~~ (P9-05 due scheduler; the walk remains as the `DueScheduler=False` fallback) |
-| `MirConnection.Process` | ~~`new List<byte>()` + `AddRange` + `ToArray()` per flush~~ (P9-04: one exact-size `byte[]` per flush; pooling it would need send-completion tracking) |
+| `MirConnection.Process` | ~~`new List<byte>()` + `AddRange` + `ToArray()` per flush~~ (P9-04: one exact-size `byte[]` per flush; since 2026-10-22 flushes up to 64 KB rent it from `ArrayPool<byte>.Shared` and the send completion returns it: `Future Optimisation/Alloc-Tail-2026-10-22.md`) |
 | `MirConnection` queues | `_sendList`/`_retryList` uncapped; `MaxPacket` limits socket reads per 5 s, not queued packets |
 | `PlayerObject.Broadcast` | ~~`Array.Exists` closure per broadcast + `foreach` over `Observers`~~ (fixed P9-03: skips when there are no observers, for-loops) |
-| `MirConnection.ReceiveData` | `_rawData` re-allocated + `BlockCopy` on every read |
+| `MirConnection.ReceiveData` | ~~`_rawData` re-allocated + `BlockCopy` on every read, and a copy of the rest per packet~~ (2026-10-22: parsed in place with `Packet.ReceivePacket(buffer, offset, count, out consumed)`; only a partial frame is copied). Still per read: the APM `BeginReceive` Task wrapper; per packet: `MemoryStream` + `BinaryReader` |
 | `Packet.GetPacketBytes` | Two `MemoryStream`s + arrays per packet **per recipient**; a broadcast to N players serialises N times |
-| `MonsterObject.GetInfo` (~L2876), `HeroObject`, `PlayerObject.GetInfo` | ~~`Buffs.Where().Select().ToList()`~~ (P9-03: `MapObject.GetVisibleBuffTypes()` loop); the info packet is still built per viewer |
+| `MonsterObject.GetInfo` (~L2876), `HeroObject`, `PlayerObject.GetInfo` | ~~`Buffs.Where().Select().ToList()`~~ (P9-03: a loop; since 2026-10-22 `MapObject.AddVisibleBuffTypes` fills the packet's own list, no array when no visible buff); the info packet is still built per viewer |
 | `MonsterObject.Process` | `RefreshNameColour()` every process (compute only; broadcasts on change) |
 | `MapObject.HasAnyBuffs` | ~~`Select().Except(new List<>).Intersect().Any()`~~ (fixed P9-03: nested loop; the `params` array remains) |
 | `HumanObject` FireWall (~L4157), `FindAllNearby(...).Where().ToList()` (~L5947), portal `Envir.Spells.Count(lambda)` | LINQ per cast |
