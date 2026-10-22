@@ -19,7 +19,8 @@ namespace Server.MirEnvir.Storage
     public sealed class AccountCacheStats
     {
         public int Cached, Fresh, Timed, Verified, Mismatch, Epoch;
-        public bool CompareAll;
+        /// <summary>The rolling compare window reached the end of the account list on this save (a lap finished).</summary>
+        public bool LapComplete;
         public long MismatchTotal;
     }
 

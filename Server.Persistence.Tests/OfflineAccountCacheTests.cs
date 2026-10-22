@@ -191,11 +191,11 @@ public class OfflineAccountCacheTests
         Run("p912-basic", () =>
         {
             var first = AssertCachedSaveMatches("first cached save (builds the cache)");
-            Assert.Equal(0, first.Cached);
+            Assert.Equal(0, first.Reused());
             Assert.Equal(Envir.Main.AccountList.Count, first.Fresh);
 
             var second = AssertCachedSaveMatches("no change");
-            Assert.Equal(Envir.Main.AccountList.Count, second.Cached);
+            Assert.Equal(Envir.Main.AccountList.Count, second.Reused());
             Assert.Equal(0, second.Fresh);
             Assert.Equal(0, second.Mismatch);
 
@@ -227,7 +227,7 @@ public class OfflineAccountCacheTests
             Envir.MarkAccountDirty(Char("Bot4").AccountInfo);
             RentalReturn(Char("Bot10"), Char("Bot11"));
             AssertCachedSaveMatches("set-up");
-            Assert.Equal(e.AccountList.Count, AssertCachedSaveMatches("cache warm").Cached);
+            Assert.Equal(e.AccountList.Count, AssertCachedSaveMatches("cache warm").Reused());
 
             ProcessRentedItems();
             Assert.Null(Char("Bot11").Inventory[1]);
@@ -324,34 +324,34 @@ public class OfflineAccountCacheTests
             var e = Envir.Main;
             var count = e.AccountList.Count;
             AssertCachedSaveMatches("build");
-            Assert.Equal(count, AssertCachedSaveMatches("warm").Cached);
+            Assert.Equal(count, AssertCachedSaveMatches("warm").Reused());
 
             Char("Bot8").AccountInfo.Gold += 1; // unmarked: a full save writes it, and no older blob may be written over it afterwards
             e.SaveAccounts();
             var full = File.ReadAllBytes(Envir.AccountPath);
             var s = AssertCachedSaveMatches("after a full save");
-            Assert.Equal(0, s.Cached);
+            Assert.Equal(0, s.Reused());
             Assert.True(full.AsSpan().SequenceEqual(File.ReadAllBytes(Envir.AccountPath)));
 
-            Assert.Equal(count, AssertCachedSaveMatches("warm again").Cached);
+            Assert.Equal(count, AssertCachedSaveMatches("warm again").Reused());
             e.RequestSaveNow(); // operator "Save now": the next periodic save is a full one
-            Assert.Equal(0, AssertCachedSaveMatches("after Save now").Cached);
+            Assert.Equal(0, AssertCachedSaveMatches("after Save now").Reused());
 
-            Assert.Equal(count, AssertCachedSaveMatches("warm again").Cached);
+            Assert.Equal(count, AssertCachedSaveMatches("warm again").Reused());
             e.LoadAccounts(); // world start / web admin restore
-            Assert.Equal(0, AssertCachedSaveMatches("after LoadAccounts").Cached);
+            Assert.Equal(0, AssertCachedSaveMatches("after LoadAccounts").Reused());
 
-            Assert.Equal(count, AssertCachedSaveMatches("warm again").Cached);
+            Assert.Equal(count, AssertCachedSaveMatches("warm again").Reused());
             Envir.InvalidateAccountCache(); // ARCHIVEPLAYER / RESTOREPLAYER / new day / GameShop reset / web admin write
-            Assert.Equal(0, AssertCachedSaveMatches("after invalidate all").Cached);
+            Assert.Equal(0, AssertCachedSaveMatches("after invalidate all").Reused());
 
             AccountSaveCache.Suspend(); // a WinForms account editor is open
             Char("Bot9").Level += 1;
-            Assert.Equal(0, AssertCachedSaveMatches("editor open").Cached);
+            Assert.Equal(0, AssertCachedSaveMatches("editor open").Reused());
             Char("Bot9").Level += 1;
             AccountSaveCache.Resume();
-            Assert.Equal(0, AssertCachedSaveMatches("editor closed").Cached);
-            Assert.Equal(count, AssertCachedSaveMatches("warm again").Cached);
+            Assert.Equal(0, AssertCachedSaveMatches("editor closed").Reused());
+            Assert.Equal(count, AssertCachedSaveMatches("warm again").Reused());
         });
     }
 
@@ -369,13 +369,83 @@ public class OfflineAccountCacheTests
             Assert.Equal(e.AccountList.Count, s.Verified);
             Assert.Equal(0, AssertCachedSaveMatches("repaired", OfflineAccountCacheMode.Verify).Mismatch);
 
-            // On mode, the every-Nth compare pass
+            // On mode, FullEvery=1: the rolling window covers every cached account on every save
             AssertCachedSaveMatches("warm", OfflineAccountCacheMode.On, fullEvery: 1000);
             Char("Bot16").AccountInfo.Gold += 1; // unmarked
             s = AssertCachedSaveMatches("compare pass", OfflineAccountCacheMode.On, fullEvery: 1);
-            Assert.True(s.CompareAll);
+            Assert.True(s.LapComplete);
+            Assert.Equal(0, s.Cached);
             Assert.Equal(1, s.Mismatch);
             Assert.True(s.MismatchTotal >= 2);
+        });
+    }
+
+    /// <summary>
+    /// Review M1/L3: the compare is rolling. With FullEvery=N each save compares ceil(accounts/N) cached accounts (counted
+    /// as accounts checked, not list positions), and a lap over every cached account completes within N saves, so an
+    /// unmarked write is caught within N saves with no save comparing everything.
+    /// </summary>
+    [Fact]
+    public void The_rolling_compare_covers_every_cached_account_within_FullEvery_saves()
+    {
+        Run("p912-rolling", () =>
+        {
+            var e = Envir.Main;
+            const int fullEvery = 4;
+            var share = (e.AccountList.Count + fullEvery - 1) / fullEvery;
+            AssertCachedSaveMatches("warm", OfflineAccountCacheMode.On, fullEvery);
+            AssertCachedSaveMatches("warm 2", OfflineAccountCacheMode.On, fullEvery);
+
+            foreach (var target in new[] { "Bot0", "Bot20", "Bot39" })
+            {
+                // finish the current lap so the next one starts at 0
+                for (var i = 0; i < fullEvery + 1 && !AccountSaveCache.Last!.LapComplete; i++)
+                    AssertCachedSaveMatches("finish lap", OfflineAccountCacheMode.On, fullEvery);
+
+                Char(target).AccountInfo.Gold += 1; // unmarked: the file is stale until the window reaches it
+                var found = 0;
+                var verified = 0;
+                var eligible = -1; // cached accounts of a pass = blobs written + blobs compared
+                for (var i = 0; i < fullEvery; i++)
+                {
+                    PeriodicSave(OfflineAccountCacheMode.On, fullEvery);
+                    var s = AccountSaveCache.Last!;
+                    Assert.InRange(s.Verified, 0, 2 * share);
+                    Assert.True(s.Cached > 0, "no pass compares everything");
+                    found += s.Mismatch;
+                    verified += s.Verified;
+                    if (eligible < 0) eligible = s.Cached + s.Verified;
+                    if (s.LapComplete) break;
+                }
+                Assert.Equal(1, found);
+                Assert.True(verified >= eligible, $"lap compared {verified} of {eligible} cached accounts");
+                AssertCachedSaveMatches(target + " repaired", OfflineAccountCacheMode.On, fullEvery);
+            }
+        });
+    }
+
+    /// <summary>Review M2: an invalidate-all keeps the arrays of accounts whose bytes did not change (re-tagged only).</summary>
+    [Fact]
+    public void Invalidate_all_keeps_unchanged_blobs()
+    {
+        Run("p912-retag", () =>
+        {
+            var e = Envir.Main;
+            AssertCachedSaveMatches("build");
+            var bot3 = Char("Bot3").AccountInfo;
+            var bot4 = Char("Bot4").AccountInfo;
+            var blob3 = bot3.SaveBlob;
+            var blob4 = bot4.SaveBlob;
+            Assert.NotNull(blob3);
+
+            bot4.Gold += 1; // unmarked, but covered by the invalidation below
+            Envir.InvalidateAccountCache();
+            var s = AssertCachedSaveMatches("after invalidate all");
+            Assert.Equal(0, s.Reused());
+            Assert.Equal(0, s.Mismatch);
+            Assert.Same(blob3, bot3.SaveBlob);
+            Assert.NotSame(blob4, bot4.SaveBlob);
+            Assert.Equal(e.AccountList.Count, AssertCachedSaveMatches("warm again").Reused());
         });
     }
 
@@ -492,7 +562,8 @@ public class OfflineAccountCacheTests
     /// Bench on a copy of real data (MIR2_ACCOUNT_SAVE_BENCH=&lt;folder with Server.MirDB + Server.MirADB&gt;, optional
     /// MIR2_ACCOUNT_SAVE_BENCH_ROUNDS): game-thread ms of BeginSaveAccounts (serialisation + segment list + queueing the
     /// write) for P9-11 (cache Off) and the cache with 0 and N online accounts (MIR2_ACCOUNT_SAVE_BENCH_HOT, default 400),
-    /// plus Verify (200 per save). The last file of each scenario is checked against a full save.
+    /// plus Verify (200 per save) and one save after an invalidate-all; MIR2_ACCOUNT_SAVE_BENCH_FULLEVERY (default 12) sets the
+    /// rolling compare. The last file of each scenario is checked against a full save.
     /// </summary>
     [Fact]
     public void Bench_real_accounts_cached()
@@ -501,6 +572,7 @@ public class OfflineAccountCacheTests
         if (string.IsNullOrEmpty(src)) { _out.WriteLine("MIR2_ACCOUNT_SAVE_BENCH not set: bench not run."); return; }
         var rounds = int.TryParse(Environment.GetEnvironmentVariable("MIR2_ACCOUNT_SAVE_BENCH_ROUNDS"), out var r) ? r : 20;
         var hot = int.TryParse(Environment.GetEnvironmentVariable("MIR2_ACCOUNT_SAVE_BENCH_HOT"), out var h) ? h : 400;
+        var fullEvery = int.TryParse(Environment.GetEnvironmentVariable("MIR2_ACCOUNT_SAVE_BENCH_FULLEVERY"), out var f) ? f : 12;
 
         var dir = NewTempFolder("p912-bench");
         File.Copy(Path.Combine(src, "Server.MirDB"), Path.Combine(dir, "Server.MirDB"));
@@ -526,7 +598,7 @@ public class OfflineAccountCacheTests
                 var old = (Settings.AccountSaveOffThread, Settings.OfflineAccountCache, Settings.OfflineAccountCacheFullEvery, Settings.OfflineAccountCacheVerifyPerSave);
                 Settings.AccountSaveOffThread = true;
                 Settings.OfflineAccountCache = mode;
-                Settings.OfflineAccountCacheFullEvery = 1000;
+                Settings.OfflineAccountCacheFullEvery = fullEvery;
                 Settings.OfflineAccountCacheVerifyPerSave = 200;
                 var times = new List<double>();
                 double first = 0;
@@ -561,6 +633,28 @@ public class OfflineAccountCacheTests
             Scenario("P9-11 (cache Off)", OfflineAccountCacheMode.Off, 0);
             Scenario("On, 0 online", OfflineAccountCacheMode.On, 0);
             Scenario($"On, {hot} online", OfflineAccountCacheMode.On, hot);
+
+            // One save right after an invalidate-all (any web admin write): every account serialised, unchanged blobs kept.
+            {
+                var old = (Settings.AccountSaveOffThread, Settings.OfflineAccountCache, Settings.OfflineAccountCacheFullEvery);
+                (Settings.AccountSaveOffThread, Settings.OfflineAccountCache, Settings.OfflineAccountCacheFullEvery) = (true, OfflineAccountCacheMode.On, fullEvery);
+                try
+                {
+                    Envir.InvalidateAccountCache();
+                    var alloc = GC.GetAllocatedBytesForCurrentThread();
+                    var t = System.Diagnostics.Stopwatch.GetTimestamp();
+                    e.BeginSaveAccounts();
+                    var ms = Ms(t);
+                    alloc = GC.GetAllocatedBytesForCurrentThread() - alloc;
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    while (e.Saving && sw.ElapsedMilliseconds < 30000) Thread.Sleep(1);
+                    _out.WriteLine($"{"After invalidate-all",-28} {ms:0.00} ms allocated={alloc / 1024} KB");
+                }
+                finally
+                {
+                    (Settings.AccountSaveOffThread, Settings.OfflineAccountCache, Settings.OfflineAccountCacheFullEvery) = old;
+                }
+            }
             Scenario("P9-11 (cache Off) again", OfflineAccountCacheMode.Off, hot);
             Scenario($"Verify 200, {hot} online", OfflineAccountCacheMode.Verify, hot);
             for (var i = 0; i < e.AccountList.Count; i++) e.AccountList[i].Connection = null;
@@ -569,4 +663,10 @@ public class OfflineAccountCacheTests
         });
         Directory.Delete(dir, recursive: true);
     }
+}
+
+internal static class AccountCacheStatsTestExtensions
+{
+    /// <summary>Cached accounts of a save: blobs written as is plus blobs compared by the rolling window (always ≥ 1 per save).</summary>
+    public static int Reused(this AccountCacheStats s) => s.Cached + s.Verified;
 }

@@ -76,6 +76,48 @@ namespace Server.WebAdmin.Tests
         }
 
         /// <summary>
+        /// Review L1: a timer or Task.Run started inside an admin write captures the request's context; once the request has
+        /// ended its callbacks (restart / maintenance countdown ticks) no longer count as admin writes.
+        /// </summary>
+        [Fact]
+        public async Task Callbacks_started_by_an_admin_write_do_not_bump_after_the_request()
+        {
+            WebAdminGame.World = FakeWorld.RunningWorld();
+            using var release = new ManualResetEventSlim();
+            using var done = new ManualResetEventSlim();
+            System.Threading.Timer timer = null;
+            Task later = null;
+            var insideDuring = false;
+            var insideTimer = true;
+            var insideTask = true;
+
+            await Request(true, () =>
+            {
+                insideDuring = WebAdminGame.InMutatingRequest;
+                timer = new System.Threading.Timer(_ =>
+                {
+                    insideTimer = WebAdminGame.InMutatingRequest;
+                    WebAdminGame.Post(() => { });
+                    done.Set();
+                }, null, Timeout.Infinite, Timeout.Infinite);
+                later = Task.Run(() => { release.Wait(5000); insideTask = WebAdminGame.InMutatingRequest; });
+                return Task.CompletedTask;
+            });
+
+            var before = AccountSaveCache.Epoch;
+            timer.Change(0, Timeout.Infinite);
+            Assert.True(done.Wait(5000));
+            release.Set();
+            await later;
+            timer.Dispose();
+
+            Assert.True(insideDuring);
+            Assert.False(insideTimer);
+            Assert.False(insideTask);
+            Assert.Equal(before, AccountSaveCache.Epoch);
+        }
+
+        /// <summary>
         /// Every route that can write user data is an admin route with a mutating method, so it runs with the flag: the only
         /// mutating routes that are not admin routes are the sign-in/out endpoints, which read accounts only.
         /// </summary>

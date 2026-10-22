@@ -3738,6 +3738,7 @@ namespace Server.MirEnvir
             catch (Exception ex)
             {
                 Saving = false;
+                _lastSaveUsedCache = false; // review L4: no stale counters of an earlier pass on the [Diag] Save line
                 Interlocked.Increment(ref _accountSaveFailures);
                 MessageQueue.Enqueue(ex);
                 return;
@@ -3846,8 +3847,8 @@ namespace Server.MirEnvir
 
         private bool _accountCacheUsed;   // a cached save stored blobs that DropAccountCache has not cleared yet
         private bool _lastSaveUsedCache;  // for the [Diag] Save line
-        private int _accountCachePasses;  // cached saves since the last compare-all pass
-        private int _accountCacheVerifyCursor;
+        private int _accountCacheCompareCursor; // list index the next pass's rolling compare window starts at
+        private int _accountCacheCompareCarry;  // compare budget a pass left unused when it reached the end of the list
         private long _accountCacheMismatchTotal;
         private readonly HashSet<int> _accountCacheMismatchLogged = new HashSet<int>();
 
@@ -3896,10 +3897,12 @@ namespace Server.MirEnvir
         /// The account list of a cached periodic save (game thread). An account is serialised fresh when it is online, was
         /// online since the last save (sticky <see cref="AccountInfo.SaveHot"/>), has time-dependent bytes, has no blob, or its
         /// blob belongs to an older epoch; otherwise its blob is written as is. A cold account serialised fresh stores a copy of
-        /// its bytes for the next save. Every <see cref="Settings.OfflineAccountCacheFullEvery"/>th pass (and, in Verify mode,
-        /// a round-robin window of <see cref="Settings.OfflineAccountCacheVerifyPerSave"/> accounts) serialises cached accounts
-        /// too and compares: equal keeps the old array, a mismatch is counted, logged once per account and repaired.
-        /// Returns the start of the buffer run still open (the caller closes it after the tail).
+        /// its bytes for the next save (when they equal its stale-epoch blob, the old array is kept and only re-tagged).
+        /// A rolling round-robin window also serialises cached accounts and compares: each pass checks
+        /// ceil(accounts / <see cref="Settings.OfflineAccountCacheFullEvery"/>) cached accounts (in Verify mode at least
+        /// <see cref="Settings.OfflineAccountCacheVerifyPerSave"/>), so every cached account is compared at least once every
+        /// FullEvery saves without a spike (review M1). Equal keeps the old array; a mismatch is counted, logged once per
+        /// account and repaired. Returns the start of the buffer run still open (the caller closes it after the tail).
         /// </summary>
         private int SaveAccountListCached(BufferBinaryWriter writer, List<AccountSaveSegment> segments)
         {
@@ -3907,16 +3910,17 @@ namespace Server.MirEnvir
             var store = !AccountSaveCache.Suspended;     // a WinForms account editor is open: nothing cached is used or stored
             var count = AccountList.Count;
 
-            var compareAll = ++_accountCachePasses >= Math.Max(1, Settings.OfflineAccountCacheFullEvery);
-            if (compareAll) _accountCachePasses = 0;
-
-            int verifyFrom = 0, verifyCount = 0;
-            if (Settings.OfflineAccountCache == OfflineAccountCacheMode.Verify && count > 0)
-            {
-                verifyCount = Math.Min(Math.Max(1, Settings.OfflineAccountCacheVerifyPerSave), count);
-                verifyFrom = _accountCacheVerifyCursor % count;
-                _accountCacheVerifyCursor = (verifyFrom + verifyCount) % count;
-            }
+            // Rolling compare window (review M1/L3): starts at the cursor, runs to the end of the list at most (one lap per
+            // pass), and its budget counts cached accounts actually compared. Budget left at the end of the list carries
+            // into the next pass (capped at one pass's share), so a lap takes at most FullEvery passes.
+            var fullEvery = Math.Max(1, Settings.OfflineAccountCacheFullEvery);
+            var share = (count + fullEvery - 1) / fullEvery;
+            if (Settings.OfflineAccountCache == OfflineAccountCacheMode.Verify)
+                share = Math.Max(share, Math.Max(1, Settings.OfflineAccountCacheVerifyPerSave));
+            var compareLeft = share + _accountCacheCompareCarry;
+            var compareFrom = _accountCacheCompareCursor;
+            if (compareFrom >= count || compareLeft >= count) compareFrom = 0; // list shrank, or the budget covers everything
+            var compareNext = compareFrom;
 
             int cached = 0, fresh = 0, timed = 0, verified = 0, mismatch = 0;
             var runStart = 0; // the writer was reset for this save: the first run includes the header and the hero list
@@ -3929,9 +3933,7 @@ namespace Server.MirEnvir
 
                 if (!online && !account.SaveHot && !isTimed && store && blob != null && account.SaveBlobEpoch == epoch)
                 {
-                    var offset = i - verifyFrom;
-                    if (offset < 0) offset += count;
-                    if (!compareAll && offset >= verifyCount)
+                    if (i < compareFrom || compareLeft <= 0)
                     {
                         if (writer.Length > runStart) segments.Add(new AccountSaveSegment(null, runStart, writer.Length - runStart));
                         segments.Add(new AccountSaveSegment(blob, 0, blob.Length));
@@ -3943,6 +3945,8 @@ namespace Server.MirEnvir
                     var checkStart = writer.Length;
                     account.Save(writer);
                     verified++;
+                    compareLeft--;
+                    compareNext = i + 1;
                     var bytes = new ReadOnlySpan<byte>(writer.Buffer, checkStart, writer.Length - checkStart);
                     if (!bytes.SequenceEqual(blob))
                     {
@@ -3967,15 +3971,24 @@ namespace Server.MirEnvir
                     continue;
                 }
 
-                account.SaveBlob = new ReadOnlySpan<byte>(writer.Buffer, start, writer.Length - start).ToArray();
+                // Cold: keep the bytes for the next save. A stale-epoch blob with the same bytes is kept and only re-tagged
+                // (review M2: an invalidate-all would otherwise reallocate every blob). Different bytes are expected after an
+                // invalidation, so they are not a mismatch.
+                var saved = new ReadOnlySpan<byte>(writer.Buffer, start, writer.Length - start);
+                if (blob == null || !saved.SequenceEqual(blob)) account.SaveBlob = saved.ToArray();
                 account.SaveBlobEpoch = epoch;
                 account.SaveHot = false;
             }
 
+            // The window reached the end of the list with budget left: the lap is complete, the next one starts at 0.
+            var lap = compareLeft > 0;
+            _accountCacheCompareCarry = lap ? Math.Min(compareLeft, share) : 0;
+            _accountCacheCompareCursor = lap ? 0 : compareNext;
+
             AccountSaveCache.Publish(new AccountCacheStats
             {
                 Cached = cached, Fresh = fresh, Timed = timed, Verified = verified, Mismatch = mismatch, Epoch = epoch,
-                CompareAll = compareAll, MismatchTotal = _accountCacheMismatchTotal,
+                LapComplete = lap, MismatchTotal = _accountCacheMismatchTotal,
             });
             return runStart;
         }
@@ -3985,7 +3998,8 @@ namespace Server.MirEnvir
         {
             for (var i = 0; i < AccountList.Count; i++) AccountList[i].SaveBlob = null;
             _accountCacheUsed = false;
-            _accountCachePasses = 0;
+            _accountCacheCompareCursor = 0;
+            _accountCacheCompareCarry = 0;
         }
 
         private string AccountCacheDiag()
@@ -3993,7 +4007,7 @@ namespace Server.MirEnvir
             if (!_lastSaveUsedCache) return string.Empty;
             var s = AccountSaveCache.Last;
             if (s == null) return string.Empty;
-            return $" cached={s.Cached} fresh={s.Fresh} timed={s.Timed} verified={s.Verified} mismatch={s.Mismatch} epoch={s.Epoch}{(s.CompareAll ? " compareAll" : "")}";
+            return $" cached={s.Cached} fresh={s.Fresh} timed={s.Timed} verified={s.Verified} mismatch={s.Mismatch} epoch={s.Epoch}{(s.LapComplete ? " lap" : "")}";
         }
 
         /// <summary>The save before P9-10, kept behind [Optimisation] AccountSaveOffThread=False.</summary>

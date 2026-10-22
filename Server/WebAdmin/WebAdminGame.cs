@@ -115,7 +115,11 @@ namespace Server.WebAdmin
             public int Value; // 0 pending, 1 running/done, 2 cancelled
         }
 
-        private static readonly AsyncLocal<bool> _mutatingRequest = new AsyncLocal<bool>();
+        // One object per request, shared by reference with every timer / Task.Run callback the request's ExecutionContext flows
+        // into: ending the request turns it off for those too (review L1), so a countdown tick after the request never bumps.
+        private sealed class MutatingScope { public volatile bool Active = true; }
+
+        private static readonly AsyncLocal<MutatingScope> _mutatingRequest = new AsyncLocal<MutatingScope>();
 
         /// <summary>
         /// P9-12 (offline account cache, review H1): true inside a mutating admin request (POST/PUT/PATCH/DELETE on an admin
@@ -123,11 +127,19 @@ namespace Server.WebAdmin
         /// runs through <see cref="RunAsync{T}(Func{T}, int)"/>, <see cref="RunOrInlineAsync{T}(Func{T}, int)"/> or
         /// <see cref="Post"/> invalidates every cached account right after it ran (also when it threw), on the thread that
         /// mutated. This is the one path every web admin write takes, so no route needs its own mark.
+        /// <para>Setting it true starts a new scope; setting it false ends the current one, also for callbacks (timers,
+        /// <c>Task.Run</c>) that captured the request's context and run later, e.g. a restart or maintenance countdown.</para>
         /// </summary>
         internal static bool InMutatingRequest
         {
-            get => _mutatingRequest.Value;
-            set => _mutatingRequest.Value = value;
+            get => _mutatingRequest.Value?.Active == true;
+            set
+            {
+                if (value) { _mutatingRequest.Value = new MutatingScope(); return; }
+                var scope = _mutatingRequest.Value;
+                if (scope != null) scope.Active = false;
+                _mutatingRequest.Value = null;
+            }
         }
 
         private static void AfterRequestWork(bool mutating)

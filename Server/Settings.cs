@@ -100,7 +100,7 @@ namespace Server
         public static bool AloneCeiling = true;        // [Optimisation] AloneCeiling: monsters alone with nobody near sleep until their next alone check instead of waking every 2 s (P9-06)
         public static bool AccountSaveOffThread = true; // [Optimisation] AccountSaveOffThread: the periodic account save serialises into a reused buffer and does every file step on a pool thread (P9-10)
         public static OfflineAccountCacheMode OfflineAccountCache = OfflineAccountCacheMode.Off; // [Optimisation] OfflineAccountCache: Off|On|Verify; the periodic save reuses the bytes of unchanged offline accounts (needs AccountSaveOffThread) (P9-12)
-        public static int OfflineAccountCacheFullEvery = 12;     // [Optimisation] OfflineAccountCacheFullEvery: every Nth cached save serialises every account and compares it with its cached bytes (P9-12)
+        public static int OfflineAccountCacheFullEvery = 12;     // [Optimisation] OfflineAccountCacheFullEvery: each cached save compares 1/N of the cached accounts (rolling), every one once per N saves (P9-12)
         public static int OfflineAccountCacheVerifyPerSave = 200; // [Optimisation] OfflineAccountCacheVerifyPerSave: in Verify mode, accounts checked per save, round-robin (P9-12)
         public static bool LogLoopProfile = false;     // [Diag] LogLoopProfile: one "[Diag] Loop" line per second (Debug log)
         public static int LoadTestLoopbackMaxPacket = 0; // 0 = use MaxPacket

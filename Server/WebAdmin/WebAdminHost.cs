@@ -705,8 +705,21 @@ namespace Server.WebAdmin
         /// </summary>
         internal static async Task InvokeRouteAsync(RouteAuth auth, bool mutating, Func<Task> handler)
         {
-            if (auth == RouteAuth.Admin && mutating) WebAdminGame.InMutatingRequest = true;
-            await handler().ConfigureAwait(false);
+            if (!(auth == RouteAuth.Admin && mutating))
+            {
+                await handler().ConfigureAwait(false);
+                return;
+            }
+
+            WebAdminGame.InMutatingRequest = true;
+            try
+            {
+                await handler().ConfigureAwait(false);
+            }
+            finally
+            {
+                WebAdminGame.InMutatingRequest = false; // also ends it for timers / Task.Run callbacks the handler started
+            }
         }
 
         private static async Task ServeStaticAsync(WebAdminRequest req, WebAdminOptions options)
