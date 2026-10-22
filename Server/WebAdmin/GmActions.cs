@@ -1339,56 +1339,73 @@ namespace Server.WebAdmin
             var centre = new Point(plan.X.Value, plan.Y.Value);
             RequireWalkable(map, centre);
 
-            // A copy: a teleport can run map scripts, and nothing here may depend on the live list staying put.
-            var players = Main.Players.ToArray();
-            int moved = 0, failed = 0, dead = 0;
+            // A copy: the moves run on later ticks, and a teleport can run map scripts.
+            var players = new List<PlayerObject>();
+            var dead = 0;
             var names = new List<string>();
 
-            foreach (var p in players)
+            foreach (var p in Main.Players)
             {
                 if (p?.Info == null || p.CurrentMap == null) continue;
                 if (!GmRules.MassTeleportIncludes(plan.Who, p.IsGM, p.CurrentMap == map)) continue;
                 if (p.Dead) { dead++; continue; }
 
-                var pt = centre;
-                if (plan.Spread > 0)
-                {
-                    for (var attempt = 0; attempt < 20; attempt++)
-                    {
-                        var c = new Point(centre.X + Main.Random.Next(-plan.Spread, plan.Spread + 1), centre.Y + Main.Random.Next(-plan.Spread, plan.Spread + 1));
-                        if (map.ValidPoint(c)) { pt = c; break; }
-                    }
-                }
-
-                if (p.Teleport(map, pt))
-                {
-                    moved++;
-                    if (names.Count < 50) names.Add(p.Name);
-                }
-                else
-                {
-                    failed++;
-                }
+                players.Add(p);
+                if (names.Count < 50) names.Add(p.Name);
             }
 
-            if (moved == 0 && failed == 0 && dead == 0)
+            if (players.Count == 0 && dead == 0)
                 throw new WebAdminException(409, "No online player matches (" + plan.Who + ")");
 
+            // Spread over ticks like randomteleport (MassTeleportPerTick at a time, starting this tick). A player who logged out or
+            // died meanwhile is skipped; "map" scope also skips one who left the map.
+            var spread = plan.Spread;
+            var who = plan.Who;
+            var next = 0;
+            Main.AddAdminTickJob(() =>
+            {
+                var end = Math.Min(next + MassTeleportPerTick, players.Count);
+                for (; next < end; next++)
+                {
+                    var p = players[next];
+                    if (p.Node == null || p.Info == null || p.Dead || p.CurrentMap == null) continue;
+                    if (who == "map" && p.CurrentMap != map) continue;
+
+                    var pt = centre;
+                    if (spread > 0)
+                    {
+                        for (var attempt = 0; attempt < 20; attempt++)
+                        {
+                            var c = new Point(centre.X + Main.Random.Next(-spread, spread + 1), centre.Y + Main.Random.Next(-spread, spread + 1));
+                            if (map.ValidPoint(c)) { pt = c; break; }
+                        }
+                    }
+
+                    p.Teleport(map, pt);
+                }
+
+                return next >= players.Count;
+            });
+
+            var ticks = (players.Count + MassTeleportPerTick - 1) / MassTeleportPerTick;
             result.Target = MapLabel(map);
-            result.Message = "Teleported " + moved + (moved == 1 ? " player" : " players") + " to " + MapLabel(map) + " (" + centre.X + ", " + centre.Y + ")" +
-                             (failed > 0 ? "; " + failed + " refused (e.g. a group-only map)" : string.Empty) +
+            result.Message = "Teleporting " + players.Count + (players.Count == 1 ? " player" : " players") + " to " + MapLabel(map) + " (" + centre.X + ", " + centre.Y + ")" +
+                             (ticks > 1 ? ", " + MassTeleportPerTick + " per tick over " + ticks + " ticks" : string.Empty) +
                              (dead > 0 ? "; " + dead + " dead skipped" : string.Empty) + ".";
             result.Details["who"] = plan.Who;
             result.Details["map"] = map.Info.FileName;
             result.Details["mapIndex"] = map.Info.Index;
             result.Details["x"] = centre.X;
             result.Details["y"] = centre.Y;
-            result.Details["moved"] = moved;
-            result.Details["failed"] = failed;
+            result.Details["queued"] = players.Count;
+            result.Details["perTick"] = MassTeleportPerTick;
             result.Details["dead"] = dead;
             result.Details["players"] = names;
-            result.Data = new { map = map.Info.Title, mapFile = map.Info.FileName, moved, failed, dead };
+            result.Data = new { map = map.Info.Title, mapFile = map.Info.FileName, queued = players.Count, perTick = MassTeleportPerTick, dead };
         }
+
+        /// <summary>Players moved per game tick by the teleportall verb.</summary>
+        private const int MassTeleportPerTick = 100;
 
         private static void RandomTeleport(GmPlan plan, GmResult result)
         {
@@ -1397,41 +1414,54 @@ namespace Server.WebAdmin
                 throw new WebAdminException(409, MapLabel(map) + " has no walkable cells");
 
             // A copy: each teleport removes the player from this map's list (and may add them back).
-            var players = new List<PlayerObject>(map.Players);
-            int moved = 0, failed = 0, dead = 0;
+            var players = new List<PlayerObject>();
+            var dead = 0;
             var names = new List<string>();
 
-            foreach (var p in players)
+            foreach (var p in map.Players)
             {
-                if (p?.Info == null || p.CurrentMap != map) continue;
+                if (p?.Info == null) continue;
                 if (p.Dead) { dead++; continue; }
 
-                if (p.TeleportRandom(200, 0, map))
-                {
-                    moved++;
-                    if (names.Count < 50) names.Add(p.Name);
-                }
-                else
-                {
-                    failed++;
-                }
+                players.Add(p);
+                if (names.Count < 50) names.Add(p.Name);
             }
 
-            if (moved == 0 && failed == 0 && dead == 0)
+            if (players.Count == 0 && dead == 0)
                 throw new WebAdminException(409, "No player is on " + MapLabel(map));
 
+            // Moving thousands of players in one tick stalls the loop long enough to time clients out, so the moves are spread over
+            // ticks, RandomTeleportPerTick at a time, starting this tick. A player who logged out, died or left the map meanwhile is skipped.
+            var next = 0;
+            Main.AddAdminTickJob(() =>
+            {
+                var end = Math.Min(next + RandomTeleportPerTick, players.Count);
+                for (; next < end; next++)
+                {
+                    var p = players[next];
+                    if (p.Node == null || p.Info == null || p.Dead || p.CurrentMap != map) continue;
+                    p.TeleportRandom(200, 0, map);
+                }
+
+                return next >= players.Count;
+            });
+
+            var ticks = (players.Count + RandomTeleportPerTick - 1) / RandomTeleportPerTick;
             result.Target = MapLabel(map);
-            result.Message = "Randomly teleported " + moved + (moved == 1 ? " player" : " players") + " on " + MapLabel(map) +
-                             (failed > 0 ? "; " + failed + " refused" : string.Empty) +
+            result.Message = "Randomly teleporting " + players.Count + (players.Count == 1 ? " player" : " players") + " on " + MapLabel(map) +
+                             (ticks > 1 ? ", " + RandomTeleportPerTick + " per tick over " + ticks + " ticks" : string.Empty) +
                              (dead > 0 ? "; " + dead + " dead skipped" : string.Empty) + ".";
             result.Details["map"] = map.Info.FileName;
             result.Details["mapIndex"] = map.Info.Index;
-            result.Details["moved"] = moved;
-            result.Details["failed"] = failed;
+            result.Details["queued"] = players.Count;
+            result.Details["perTick"] = RandomTeleportPerTick;
             result.Details["dead"] = dead;
             result.Details["players"] = names;
-            result.Data = new { map = map.Info.Title, mapFile = map.Info.FileName, moved, failed, dead };
+            result.Data = new { map = map.Info.Title, mapFile = map.Info.FileName, queued = players.Count, perTick = RandomTeleportPerTick, dead };
         }
+
+        /// <summary>Players moved per game tick by the randomteleport verb.</summary>
+        private const int RandomTeleportPerTick = 100;
 
         private static void SpawnMob(GmPlan plan, GmResult result)
         {

@@ -4513,10 +4513,47 @@ namespace Server.MirEnvir
                 _adminQueueOpen = true;
         }
 
+        // Game thread only. Long admin jobs split over ticks (e.g. random-teleporting thousands of players): each step runs once per
+        // tick after the admin drain and returns true when the job is finished.
+        private readonly List<Func<bool>> _adminTickJobs = new List<Func<bool>>();
+
+        /// <summary>
+        /// Game thread only (call from a queued admin action). Runs <paramref name="step"/> once per tick, starting this tick, until it
+        /// returns true. Jobs still running when the loop exits are discarded.
+        /// </summary>
+        public void AddAdminTickJob(Func<bool> step)
+        {
+            if (step != null) _adminTickJobs.Add(step);
+        }
+
         private void DrainAdminActions()
         {
-            if (_adminActions.IsEmpty) return;
+            if (!_adminActions.IsEmpty) RunAdminActions();
+            if (_adminTickJobs.Count > 0) RunAdminTickJobs();
+        }
 
+        private void RunAdminTickJobs()
+        {
+            for (var i = _adminTickJobs.Count - 1; i >= 0; i--)
+            {
+                bool done;
+
+                try
+                {
+                    done = _adminTickJobs[i]();
+                }
+                catch (Exception ex)
+                {
+                    MessageQueue.Enqueue(ex);
+                    done = true;
+                }
+
+                if (done) _adminTickJobs.RemoveAt(i);
+            }
+        }
+
+        private void RunAdminActions()
+        {
             var start = Stopwatch.ElapsedMilliseconds;
             var count = 0;
 
@@ -4541,6 +4578,8 @@ namespace Server.MirEnvir
         {
             lock (_adminQueueLock)
                 _adminQueueOpen = false;
+
+            _adminTickJobs.Clear();
 
             while (_adminActions.TryDequeue(out var item))
             {
