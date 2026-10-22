@@ -64,6 +64,14 @@ public class AccountSaveOffThreadTests
             Assert.True(legacy.AsSpan().SequenceEqual(sync), "periodic save differs from the sync save");
             Assert.True(Directory.GetFiles(Envir.AccountsBackUpPath, "*.bak").Length >= 1, "previous accounts file not backed up");
 
+            // grows past the buffer sized from the file (a 300k-byte non-ASCII string), still byte-identical
+            Envir.Main.AccountList[0].BanReason = new string('é', 150_000) + "😀";
+            var legacyGrown = PeriodicSave(offThread: false);
+            var offThreadGrown = PeriodicSave(offThread: true);
+            Assert.True(legacyGrown.AsSpan().SequenceEqual(offThreadGrown), "off-thread save differs after the buffer grew");
+            Envir.Main.AccountList[0].BanReason = string.Empty;
+            Assert.True(legacy.AsSpan().SequenceEqual(PeriodicSave(offThread: true)), "off-thread save after shrinking differs");
+
             Envir.Main.LoadAccounts();
             Assert.Equal(2, Envir.Main.CharacterList.Count);
             return 0;
@@ -165,6 +173,12 @@ public class AccountSaveOffThreadTests
                 CharacterInfo.WriteFlags(w, flags);
 
             Assert.Equal(expected.ToArray(), actual.ToArray());
+
+            // the account save's own writer takes the in-place path (after a prefix, from a tiny array so it grows)
+            var direct = new Server.MirEnvir.Storage.BufferBinaryWriter(BufferBinaryWriterTests.SaveEncoding, 1);
+            direct.Write(77);
+            CharacterInfo.WriteFlags(direct, flags);
+            Assert.Equal(new byte[] { 77, 0, 0, 0 }.Concat(expected.ToArray()).ToArray(), direct.Buffer.AsSpan(0, direct.Length).ToArray());
         }
     }
 }

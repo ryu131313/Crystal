@@ -3443,53 +3443,57 @@ namespace Server.MirEnvir
         private void SaveAccounts(Stream stream, bool leaveOpen = false)
         {
             using (var writer = leaveOpen ? new BinaryWriter(stream, AccountSaveEncoding, true) : new BinaryWriter(stream))
-            {
-                writer.Write(Version);
-                writer.Write(CustomVersion);
-                writer.Write(NextAccountID);
-                writer.Write(NextCharacterID);
-                writer.Write(NextUserItemID);
-                writer.Write(NextHeroID);
-
-                writer.Write(GuildList.Count);
-                writer.Write(NextGuildID);
-                writer.Write(HeroList.Count);
-                for (var i = 0; i < HeroList.Count; i++)
-                    HeroList[i].Save(writer);
-                writer.Write(AccountList.Count);
-                for (var i = 0; i < AccountList.Count; i++)
-                    AccountList[i].Save(writer);
-
-                writer.Write(NextAuctionID);
-                writer.Write(Auctions.Count);
-                foreach (var auction in Auctions)
-                    auction.Save(writer);
-
-                writer.Write(NextMailID);
-
-                writer.Write(GameshopLog.Count);
-                foreach (var item in GameshopLog)
-                {
-                    writer.Write(item.Key);
-                    writer.Write(item.Value);
-                }
-
-                writer.Write(SavedSpawns.Count);
-                foreach (var Spawn in SavedSpawns)
-                {
-                    var Save = new RespawnSave { RespawnIndex = Spawn.Info.RespawnIndex, NextSpawnTick = Spawn.NextSpawnTick, Spawned = Spawn.Count >= Spawn.Info.Count * SpawnMultiplier };
-                    Save.Save(writer);
-                }
-
-                writer.Write(MarketSales.Count);
-                foreach (var sales in MarketSales)
-                {
-                    writer.Write(sales.Key);
-                    sales.Value.Save(writer);
-                }
-            }
+                SaveAccounts(writer);
 
             if (this == Main) global::Server.WebAdmin.WebAdminHooks.RaiseAccountsSaved();
+        }
+
+        /// <summary>Writes the whole accounts file to <paramref name="writer"/> (does not flush or dispose it; the caller raises AccountsSaved).</summary>
+        private void SaveAccounts(BinaryWriter writer)
+        {
+            writer.Write(Version);
+            writer.Write(CustomVersion);
+            writer.Write(NextAccountID);
+            writer.Write(NextCharacterID);
+            writer.Write(NextUserItemID);
+            writer.Write(NextHeroID);
+
+            writer.Write(GuildList.Count);
+            writer.Write(NextGuildID);
+            writer.Write(HeroList.Count);
+            for (var i = 0; i < HeroList.Count; i++)
+                HeroList[i].Save(writer);
+            writer.Write(AccountList.Count);
+            for (var i = 0; i < AccountList.Count; i++)
+                AccountList[i].Save(writer);
+
+            writer.Write(NextAuctionID);
+            writer.Write(Auctions.Count);
+            foreach (var auction in Auctions)
+                auction.Save(writer);
+
+            writer.Write(NextMailID);
+
+            writer.Write(GameshopLog.Count);
+            foreach (var item in GameshopLog)
+            {
+                writer.Write(item.Key);
+                writer.Write(item.Value);
+            }
+
+            writer.Write(SavedSpawns.Count);
+            foreach (var Spawn in SavedSpawns)
+            {
+                var Save = new RespawnSave { RespawnIndex = Spawn.Info.RespawnIndex, NextSpawnTick = Spawn.NextSpawnTick, Spawned = Spawn.Count >= Spawn.Info.Count * SpawnMultiplier };
+                Save.Save(writer);
+            }
+
+            writer.Write(MarketSales.Count);
+            foreach (var sales in MarketSales)
+            {
+                writer.Write(sales.Key);
+                sales.Value.Save(writer);
+            }
         }
 
         private void SaveGuilds(bool forced = false)
@@ -3690,11 +3694,13 @@ namespace Server.MirEnvir
         {
             Saving = true;
 
-            var buffer = _accountSaveBuffer ??= new MemoryStream();
+            // Sized from the live file on the first save, so it normally never grows (no LOH copies).
+            var writer = _accountSaveWriter ??= new BufferBinaryWriter(AccountSaveEncoding, InitialAccountSaveCapacity());
             try
             {
-                buffer.SetLength(0);
-                SaveAccounts(buffer, leaveOpen: true);
+                writer.Reset();
+                SaveAccounts(writer);
+                if (this == Main) global::Server.WebAdmin.WebAdminHooks.RaiseAccountsSaved();
             }
             catch (Exception ex)
             {
@@ -3704,11 +3710,11 @@ namespace Server.MirEnvir
                 return;
             }
 
-            var length = (int)buffer.Length;
+            var length = writer.Length;
             Volatile.Write(ref _lastAccountSaveBytes, length);
             // The name uses the game clock, as before; whether a backup is taken is decided with the file checks off the thread.
             // Full paths now, so the pool thread does not depend on the current directory.
-            var job = new AccountSaveJob(buffer.GetBuffer(), length, Path.GetFullPath(AccountPath), Path.GetFullPath(AccountsBackUpPath),
+            var job = new AccountSaveJob(writer.Buffer, length, Path.GetFullPath(AccountPath), Path.GetFullPath(AccountsBackUpPath),
                 $"Accounts {Now.Year:0000}-{Now.Month:00}-{Now.Day:00} {Now.Hour:00}-{Now.Minute:00}-{Now.Second:00}.bak");
             try
             {
@@ -3722,7 +3728,18 @@ namespace Server.MirEnvir
             }
         }
 
-        private MemoryStream _accountSaveBuffer; // game thread while !Saving, the pool thread while Saving
+        private BufferBinaryWriter _accountSaveWriter; // game thread while !Saving, the pool thread (reads Buffer) while Saving
+
+        private static int InitialAccountSaveCapacity()
+        {
+            try
+            {
+                var info = new FileInfo(AccountPath);
+                if (info.Exists) return (int)Math.Min(info.Length + info.Length / 8 + 64 * 1024, Array.MaxLength);
+            }
+            catch (Exception) { } // only a size hint
+            return 1024 * 1024;
+        }
 
         private sealed class AccountSaveJob
         {
