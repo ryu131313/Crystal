@@ -44,6 +44,9 @@ namespace Server.WebAdmin
         public object Default { get; set; }
 
         public List<GmOption> Options { get; set; }
+
+        /// <summary>When set, the UI shows a button with this label under the field that fills in <see cref="Max"/>.</summary>
+        public string MaxButton { get; set; }
     }
 
     /// <summary>One GM verb.</summary>
@@ -52,7 +55,7 @@ namespace Server.WebAdmin
         public string Action { get; set; }
         public string Label { get; set; }
 
-        /// <summary>Moderation | Movement | Grants | Character | World.</summary>
+        /// <summary>Moderation | Movement | Grants | Character | World | Mass.</summary>
         public string Group { get; set; }
 
         /// <summary>"character" (needs a target) or "world".</summary>
@@ -79,15 +82,20 @@ namespace Server.WebAdmin
         public const string Grants = "Grants";
         public const string CharacterGroup = "Character";
         public const string World = "World";
+        public const string Mass = "Mass actions";
 
-        public static readonly IReadOnlyList<string> Groups = new[] { Moderation, Movement, Grants, CharacterGroup, World };
+        public static readonly IReadOnlyList<string> Groups = new[] { Moderation, Movement, Grants, CharacterGroup, World, Mass };
 
         /// <summary>Monster AIs that belong to conquests (siege gate, gates, archer, wall) — never spawned or cleared by the web GM.</summary>
         public static readonly IReadOnlySet<int> ConquestAIs = new HashSet<int> { 72, 73, 80, 81, 82 };
 
         public const long MaxCurrency = uint.MaxValue;
         public const int MaxItemCount = 10000;
-        public const int MaxSpawnCount = 100;
+        public const int MaxMassItemCount = 1000;
+        public const int MaxSpawnCount = 50000;
+
+        /// <summary>The spawnmob spread that means "anywhere walkable on the map" (X/Y are then optional).</summary>
+        public const int MapWideSpread = 1000;
         public const int MaxChatBanMinutes = 10 * 365 * 24 * 60;
         public const int MaxMessageLength = 500;
 
@@ -132,6 +140,30 @@ namespace Server.WebAdmin
             new GmOption { Value = "players", Label = "Non-GM players" },
             new GmOption { Value = "map", Label = "Players already on the target map" },
         };
+
+        private static List<GmOption> MassGrantOptions() => new List<GmOption>
+        {
+            new GmOption { Value = "all", Label = "Everyone online" },
+            new GmOption { Value = "players", Label = "Non-GM players" },
+            new GmOption { Value = "gms", Label = "GMs only" },
+            new GmOption { Value = "map", Label = "Players on a map" },
+        };
+
+        /// <summary>The scope arguments of a mass grant (who, then the verb's own arguments, then map/instance).</summary>
+        private static List<GmArgSpec> WithScope(params GmArgSpec[] args)
+        {
+            var list = new List<GmArgSpec>
+            {
+                new GmArgSpec { Name = "who", Label = "Who", Type = "select", Required = true, Default = "all", Options = MassGrantOptions() },
+            };
+            list.AddRange(args);
+            list.Add(new GmArgSpec
+            {
+                Name = "map", Label = "Map (optional; required for \"Players on a map\")", Type = "map", Required = false, Lookup = "maps", Placeholder = "any map",
+            });
+            list.Add(InstanceArg());
+            return list;
+        }
 
         private static IReadOnlyList<GmVerbSpec> Build()
         {
@@ -244,6 +276,12 @@ namespace Server.WebAdmin
                         Int("level", "Level (0-3)", false, 0, 3, 0),
                     },
                 },
+                new GmVerbSpec
+                {
+                    Action = "giveallskills", Label = "Give all skills…", Group = Grants, Target = "character", NeedsOnline = true,
+                    Description = "Teach every spell of the player's class that has a MagicInfo (the class's spell range plus any spell a skill book of that class teaches). Known spells below the level are raised; none are lowered.",
+                    Args = new List<GmArgSpec> { Int("level", "Level (0-3)", false, 0, 3, 0) },
+                },
 
                 // ---- Character
                 new GmVerbSpec
@@ -278,15 +316,20 @@ namespace Server.WebAdmin
                 new GmVerbSpec
                 {
                     Action = "spawnmob", Label = "Spawn monster…", Group = World, Target = "world",
-                    Description = "Spawn monsters like @MOB (GM-made). Conquest guards/gates and intelligent creatures are refused.",
+                    Description = "Spawn monsters like @MOB (GM-made). Conquest guards/gates and intelligent creatures are refused. " +
+                                  "Spread " + MapWideSpread + " (Map wide) scatters them over every walkable cell of the map, and X/Y are then not needed.",
                     Args = new List<GmArgSpec>
                     {
                         new GmArgSpec { Name = "monster", Label = "Monster (index or name)", Type = "monster", Required = true, Lookup = "monsters" },
                         MapArg(true),
-                        Int("x", "X", true, 0, 10000),
-                        Int("y", "Y", true, 0, 10000),
+                        Int("x", "X (not needed map wide)", false, 0, 10000),
+                        Int("y", "Y (not needed map wide)", false, 0, 10000),
                         Int("count", "Count", false, 1, MaxSpawnCount, 1),
-                        Int("spread", "Spread (cells around X/Y)", false, 0, 20, 0),
+                        new GmArgSpec
+                        {
+                            Name = "spread", Label = "Spread (cells around X/Y; " + MapWideSpread + " = map wide)", Type = "int", Required = false,
+                            Min = 0, Max = MapWideSpread, Default = 0, MaxButton = "Map wide",
+                        },
                         InstanceArg(),
                     },
                 },
@@ -314,6 +357,48 @@ namespace Server.WebAdmin
                     {
                         new GmArgSpec { Name = "conquestIndex", Label = "Conquest", Type = "conquest", Required = true, Min = 1, Max = int.MaxValue },
                     },
+                },
+
+                // ---- Mass (online players by scope, dead ones included; a map narrows any scope)
+                new GmVerbSpec
+                {
+                    Action = "massgold", Label = "Give gold to all…", Group = Mass, Target = "world", Danger = true,
+                    Description = "Add gold to every matching online player's account (capped at the maximum per account).",
+                    Args = WithScope(Int("amount", "Gold each", true, 1, MaxCurrency)),
+                },
+                new GmVerbSpec
+                {
+                    Action = "masscredit", Label = "Give credit to all…", Group = Mass, Target = "world", Danger = true,
+                    Description = "Add game shop credit to every matching online player's account.",
+                    Args = WithScope(Int("amount", "Credit each", true, 1, MaxCurrency)),
+                },
+                new GmVerbSpec
+                {
+                    Action = "massitem", Label = "Give item to all…", Group = Mass, Target = "world", Danger = true,
+                    Description = "Create items in every matching player's bag like @MAKE (GM-made). A player with a full bag gets what fits.",
+                    Args = WithScope(
+                        new GmArgSpec { Name = "item", Label = "Item (index or name)", Type = "item", Required = true, Lookup = "items" },
+                        Int("count", "Count each", false, 1, MaxMassItemCount, 1)),
+                },
+                new GmVerbSpec
+                {
+                    Action = "massskill", Label = "Give skill to all…", Group = Mass, Target = "world", Danger = true,
+                    Description = "Teach a spell to every matching player whose class can learn it (others are skipped). Known spells below the level are raised; none are lowered.",
+                    Args = WithScope(
+                        new GmArgSpec { Name = "spell", Label = "Spell", Type = "spell", Required = true, Options = SpellOptions() },
+                        Int("level", "Level (0-3)", false, 0, 3, 0)),
+                },
+                new GmVerbSpec
+                {
+                    Action = "massallskills", Label = "Give all skills to all…", Group = Mass, Target = "world", Danger = true,
+                    Description = "Teach every matching player all the spells of their own class. Known spells below the level are raised; none are lowered.",
+                    Args = WithScope(Int("level", "Level (0-3)", false, 0, 3, 0)),
+                },
+                new GmVerbSpec
+                {
+                    Action = "masslevel", Label = "Set level of all…", Group = Mass, Target = "world", Danger = true,
+                    Description = "Set every matching online player's level through the normal level-up path (stats and client refresh), like Set level. Players already at that level are skipped.",
+                    Args = WithScope(Int("level", "Level", true, 1, ushort.MaxValue)),
                 },
             };
 
@@ -533,6 +618,60 @@ namespace Server.WebAdmin
             }
         }
 
+        /// <summary>The <c>who</c> values of the mass grant verbs.</summary>
+        public static readonly IReadOnlyList<string> MassGrantScopes = new[] { "all", "players", "gms", "map" };
+
+        /// <summary>
+        /// Whether a mass grant reaches a player: <paramref name="who"/> is one of <see cref="MassGrantScopes"/>; when a map is
+        /// given (<paramref name="hasMap"/>) only players on it count, whatever the scope ("map" needs one).
+        /// </summary>
+        public static bool MassGrantIncludes(string who, bool isGm, bool hasMap, bool onMap)
+        {
+            if (hasMap && !onMap) return false;
+            switch (who)
+            {
+                case "all": return true;
+                case "players": return !isGm;
+                case "gms": return isGm;
+                case "map": return hasMap;
+                default: return false;
+            }
+        }
+
+        /// <summary>
+        /// The class a spell belongs to by its <see cref="Spell"/> band (Warrior 1-30, Wizard 31-60, Taoist 61-90, Assassin 91-120,
+        /// Archer 121-150); null for the custom (151+) and map-event spells.
+        /// </summary>
+        public static MirClass? SpellBandClass(Spell spell)
+        {
+            var n = (int)spell;
+            if (n >= 1 && n <= 30) return MirClass.Warrior;
+            if (n >= 31 && n <= 60) return MirClass.Wizard;
+            if (n >= 61 && n <= 90) return MirClass.Taoist;
+            if (n >= 91 && n <= 120) return MirClass.Assassin;
+            if (n >= 121 && n <= 150) return MirClass.Archer;
+            return null;
+        }
+
+        /// <summary>
+        /// The spells a class can learn: those in its band, plus any spell a skill book (<see cref="ItemType.Book"/>, Shape = spell)
+        /// for that class teaches. Only spells in <paramref name="known"/> (the MagicInfo list) count. Sorted by spell number.
+        /// </summary>
+        public static List<Spell> SpellsForClass(MirClass cls, IEnumerable<Spell> known, IEnumerable<(Spell spell, RequiredClass classes)> books)
+        {
+            var bit = (RequiredClass)(1 << (int)cls);
+            var fromBooks = new HashSet<Spell>();
+            if (books != null)
+                foreach (var b in books)
+                    if ((b.classes & bit) != 0) fromBooks.Add(b.spell);
+
+            return known
+                .Where(s => s != Spell.None && (SpellBandClass(s) == cls || fromBooks.Contains(s)))
+                .Distinct()
+                .OrderBy(s => (int)s)
+                .ToList();
+        }
+
         /// <summary>Case- and space-insensitive name key ("Wooden Sword" == "woodensword").</summary>
         public static string NameKey(string s) => (s ?? string.Empty).Replace(" ", string.Empty).Trim().ToLowerInvariant();
     }
@@ -657,7 +796,27 @@ namespace Server.WebAdmin
                     plan.SpellLevel = (byte)(args.Long("level", false, 0, 3, "Level") ?? 0);
                     break;
                 }
+                case "giveallskills":
+                case "massallskills":
+                    plan.SpellLevel = (byte)(args.Long("level", false, 0, 3, "Level") ?? 0);
+                    break;
+                case "massgold":
+                case "masscredit":
+                    plan.Amount = args.Long("amount", true, 1, GmCatalog.MaxCurrency, "Amount").Value;
+                    break;
+                case "massitem":
+                    plan.ItemRef = args.String("item", true, 100, "Item");
+                    plan.Count = (int)(args.Long("count", false, 1, GmCatalog.MaxMassItemCount, "Count") ?? 1);
+                    break;
+                case "massskill":
+                {
+                    var s = args.String("spell", true, 60, "Spell");
+                    if (!GmRules.TryParseSpell(s, out plan.Spell)) throw new WebAdminException(400, "Unknown spell: " + s);
+                    plan.SpellLevel = (byte)(args.Long("level", false, 0, 3, "Level") ?? 0);
+                    break;
+                }
                 case "setlevel":
+                case "masslevel":
                     plan.Level = (int)args.Long("level", true, 1, ushort.MaxValue, "Level").Value;
                     break;
                 case "setpk":
@@ -670,10 +829,12 @@ namespace Server.WebAdmin
                 case "spawnmob":
                     plan.MonsterRef = args.String("monster", true, 100, "Monster");
                     plan.MapRef = args.String("map", true, 100, "Map");
-                    plan.X = (int)args.Long("x", true, 0, 10000, "X").Value;
-                    plan.Y = (int)args.Long("y", true, 0, 10000, "Y").Value;
                     plan.Count = (int)(args.Long("count", false, 1, GmCatalog.MaxSpawnCount, "Count") ?? 1);
-                    plan.Spread = (int)(args.Long("spread", false, 0, 20, "Spread") ?? 0);
+                    plan.Spread = (int)(args.Long("spread", false, 0, GmCatalog.MapWideSpread, "Spread") ?? 0);
+                    plan.X = (int?)args.Long("x", false, 0, 10000, "X");
+                    plan.Y = (int?)args.Long("y", false, 0, 10000, "Y");
+                    if (plan.X.HasValue != plan.Y.HasValue) throw new WebAdminException(400, "Give both X and Y, or neither");
+                    if (!plan.X.HasValue && plan.Spread < GmCatalog.MapWideSpread) throw new WebAdminException(400, "X and Y are required (or use Map wide)");
                     plan.Instance = (int)(args.Long("instance", false, 1, 1000, "Instance") ?? 1);
                     break;
                 case "teleportall":
@@ -698,6 +859,16 @@ namespace Server.WebAdmin
                 case "stopconquest":
                     plan.ConquestIndex = (int)args.Long("conquestIndex", true, 1, int.MaxValue, "Conquest").Value;
                     break;
+            }
+
+            if (verb.Group == GmCatalog.Mass)
+            {
+                plan.Who = (args.String("who", false, 20, "Who") ?? "all").ToLowerInvariant();
+                if (!GmRules.MassGrantScopes.Contains(plan.Who))
+                    throw new WebAdminException(400, "Who must be one of: " + string.Join(", ", GmRules.MassGrantScopes));
+                plan.MapRef = args.String("map", false, 100, "Map");
+                plan.Instance = (int)(args.Long("instance", false, 1, 1000, "Instance") ?? 1);
+                if (plan.Who == "map" && plan.MapRef == null) throw new WebAdminException(400, "Map is required for \"Players on a map\"");
             }
 
             return plan;
@@ -744,6 +915,7 @@ namespace Server.WebAdmin
                 case "givecredit": GiveCredit(plan, player, result); break;
                 case "giveitem": GiveItem(plan, player, result); break;
                 case "giveskill": GiveSkill(plan, player, result); break;
+                case "giveallskills": GiveAllSkills(plan, player, result); break;
                 case "setlevel": SetLevel(plan, info, player, result); break;
                 case "setpk": SetPk(plan, info, player, result); break;
                 case "revive": Revive(player, result); break;
@@ -989,6 +1161,69 @@ namespace Server.WebAdmin
             result.Details["magic"] = magicInfo.Name;
         }
 
+        private static void GiveAllSkills(GmPlan plan, PlayerObject player, GmResult result)
+        {
+            var spells = SpellsForClass(player.Class);
+            if (spells.Count == 0) throw new WebAdminException(404, "No " + player.Class + " spell has a MagicInfo in the database");
+
+            var (learned, raised) = TeachSpells(player, spells, plan.SpellLevel);
+
+            result.Message = learned + raised == 0
+                ? player.Name + " already knows every " + player.Class + " spell at level " + plan.SpellLevel + " or higher."
+                : "Taught " + player.Name + " " + learned + " new " + player.Class + " spell(s)" + (raised > 0 ? " and raised " + raised : string.Empty) + " (level " + plan.SpellLevel + ").";
+            result.Details["class"] = player.Class.ToString();
+            result.Details["level"] = plan.SpellLevel;
+            result.Details["spells"] = spells.Count;
+            result.Details["learned"] = learned;
+            result.Details["raised"] = raised;
+            result.Data = new { name = player.Name, className = player.Class.ToString(), spells = spells.Count, learned, raised };
+        }
+
+        /// <summary>The spells <paramref name="cls"/> can learn that have a MagicInfo (its band plus its skill books).</summary>
+        private static List<Spell> SpellsForClass(MirClass cls)
+        {
+            var books = Main.ItemInfoList
+                .Where(i => i != null && i.Type == ItemType.Book)
+                .Select(i => ((Spell)(byte)i.Shape, i.RequiredClass));
+            return GmRules.SpellsForClass(cls, Main.MagicInfoList.Select(m => m.Spell), books);
+        }
+
+        /// <summary>
+        /// Teaches the spells the player lacks at <paramref name="level"/> and raises known ones below it (never lowers), then one
+        /// stat refresh and one chat line. Returns (learned, raised).
+        /// </summary>
+        private static (int learned, int raised) TeachSpells(PlayerObject player, IReadOnlyList<Spell> spells, byte level)
+        {
+            int learned = 0, raised = 0;
+
+            foreach (var spell in spells)
+            {
+                var existing = player.Info.Magics.FirstOrDefault(e => e.Spell == spell);
+                if (existing == null)
+                {
+                    var magic = new UserMagic(spell) { Level = level };
+                    player.Info.Magics.Add(magic);
+                    player.SendMagicInfo(magic);
+                    learned++;
+                }
+                else if (existing.Level < level)
+                {
+                    existing.Level = level;
+                    player.Enqueue(new S.MagicLeveled { ObjectID = player.ObjectID, Spell = existing.Spell, Level = existing.Level, Experience = existing.Experience });
+                    raised++;
+                }
+            }
+
+            if (learned + raised == 0) return (0, 0);
+
+            player.RefreshStats();
+            player.ReceiveChat(spells.Count == 1
+                ? (learned == 1 ? "You have learned " : "An administrator raised ") + spells[0] + (learned == 1 ? " at level " : " to level ") + level + "."
+                : "An administrator taught you " + learned + " new spell(s)" + (raised > 0 ? " and raised " + raised : string.Empty) + " (level " + level + ").", ChatType.Hint);
+
+            return (learned, raised);
+        }
+
         private static void SetLevel(GmPlan plan, CharacterInfo info, PlayerObject player, GmResult result)
         {
             var level = (ushort)plan.Level;
@@ -1084,6 +1319,14 @@ namespace Server.WebAdmin
                 case "clearmobs": ClearMobs(plan, result); break;
                 case "startconquest": StartConquest(plan, result); break;
                 case "stopconquest": StopConquest(plan, result); break;
+                case "massgold":
+                case "masscredit":
+                case "massitem":
+                case "massskill":
+                case "massallskills":
+                case "masslevel":
+                    MassGrant(plan, result);
+                    break;
                 default: throw new WebAdminException(400, "Unknown GM action: " + plan.Verb.Action);
             }
 
@@ -1197,8 +1440,17 @@ namespace Server.WebAdmin
                 throw new WebAdminException(422, info.Name + " is a conquest structure and cannot be spawned by hand");
 
             var map = ResolveMap(plan.MapRef, plan.Instance);
-            var centre = new Point(plan.X.Value, plan.Y.Value);
-            RequireWalkable(map, centre);
+            var mapWide = plan.Spread >= GmCatalog.MapWideSpread;
+            var centre = plan.X.HasValue ? new Point(plan.X.Value, plan.Y.Value) : Point.Empty;
+            if (plan.X.HasValue && !mapWide) RequireWalkable(map, centre);
+
+            List<Point> cells = null;
+            if (mapWide)
+            {
+                map.GetWalkableCells();
+                cells = map.WalkableCells;
+                if (cells == null || cells.Count == 0) throw new WebAdminException(409, MapLabel(map) + " has no walkable cells");
+            }
 
             var spawned = 0;
             for (var i = 0; i < plan.Count; i++)
@@ -1210,7 +1462,15 @@ namespace Server.WebAdmin
                 monster.GMMade = true;
 
                 var placed = false;
-                if (plan.Spread <= 0)
+                if (mapWide)
+                {
+                    for (var attempt = 0; attempt < 20 && !placed; attempt++)
+                    {
+                        var pt = cells[Main.Random.Next(cells.Count)];
+                        if (map.ValidPoint(pt)) placed = monster.Spawn(map, pt);
+                    }
+                }
+                else if (plan.Spread <= 0)
                 {
                     placed = monster.Spawn(map, centre);
                 }
@@ -1229,12 +1489,18 @@ namespace Server.WebAdmin
             }
 
             result.Target = MapLabel(map);
-            result.Message = "Spawned " + spawned + " x " + info.Name + " on " + MapLabel(map) + " at (" + centre.X + ", " + centre.Y + ").";
+            result.Message = "Spawned " + spawned + " x " + info.Name + " on " + MapLabel(map) +
+                             (mapWide ? " (map wide)" : " at (" + centre.X + ", " + centre.Y + ")") +
+                             (spawned < plan.Count ? "; " + (plan.Count - spawned) + " found no free cell" : string.Empty) + ".";
             result.Details["monster"] = info.Name;
             result.Details["monsterIndex"] = info.Index;
             result.Details["map"] = map.Info.FileName;
-            result.Details["x"] = centre.X;
-            result.Details["y"] = centre.Y;
+            if (mapWide) result.Details["mapWide"] = true;
+            else
+            {
+                result.Details["x"] = centre.X;
+                result.Details["y"] = centre.Y;
+            }
             result.Details["requested"] = plan.Count;
             result.Details["spawned"] = spawned;
             result.Data = new { monster = info.Name, map = map.Info.Title, mapFile = map.Info.FileName, spawned };
@@ -1278,6 +1544,161 @@ namespace Server.WebAdmin
             result.Details["map"] = map.Info.FileName;
             result.Details["killed"] = victims.Count;
             result.Data = new { map = map.Info.Title, mapFile = map.Info.FileName, killed = victims.Count };
+        }
+
+        private static void MassGrant(GmPlan plan, GmResult result)
+        {
+            var action = plan.Verb.Action;
+            var map = plan.MapRef != null ? ResolveMap(plan.MapRef, plan.Instance) : null;
+
+            ItemInfo item = null;
+            if (action == "massitem")
+                item = ResolveItem(plan.ItemRef) ?? throw new WebAdminException(404, "Item not found: " + plan.ItemRef);
+
+            if (action == "massskill" && !Main.MagicInfoList.Any(m => m.Spell == plan.Spell))
+                throw new WebAdminException(404, "Spell " + plan.Spell + " has no MagicInfo in the database");
+
+            // Per class, built once: the spells massallskills teaches, and (massskill) whether the class can learn the spell.
+            var classSpells = new Dictionary<MirClass, List<Spell>>();
+            List<Spell> SpellsOf(MirClass cls)
+            {
+                if (!classSpells.TryGetValue(cls, out var list)) classSpells[cls] = list = SpellsForClass(cls);
+                return list;
+            }
+            var single = new[] { plan.Spell };
+
+            // A copy: nothing here may depend on the live list staying put.
+            var players = Main.Players.ToArray();
+            int matched = 0, granted = 0, skipped = 0, partial = 0;
+            long total = 0;
+            var names = new List<string>();
+
+            foreach (var p in players)
+            {
+                if (p?.Info == null || p.CurrentMap == null) continue;
+                if (!GmRules.MassGrantIncludes(plan.Who, p.IsGM, map != null, p.CurrentMap == map)) continue;
+                matched++;
+
+                long given = 0;
+                switch (action)
+                {
+                    case "massgold":
+                    {
+                        var amount = p.Account == null ? 0u : GmRules.ClampGain(p.Account.Gold, plan.Amount);
+                        if (amount > 0) p.GainGold(amount);
+                        given = amount;
+                        break;
+                    }
+                    case "masscredit":
+                    {
+                        var amount = p.Account == null ? 0u : GmRules.ClampGain(p.Account.Credit, plan.Amount);
+                        if (amount > 0) p.GainCredit(amount);
+                        given = amount;
+                        break;
+                    }
+                    case "massitem":
+                        foreach (var stack in GmRules.SplitStacks(plan.Count, item.StackSize))
+                        {
+                            var made = Main.CreateDropItem(item);
+                            if (made == null) break;
+                            made.GMMade = true;
+                            made.Count = stack;
+                            if (!p.CanGainItem(made)) break;
+                            p.GainItem(made);
+                            given += stack;
+                        }
+                        if (given > 0 && given < plan.Count) partial++;
+                        break;
+                    case "massskill":
+                        if (SpellsOf(p.Class).Contains(plan.Spell))
+                        {
+                            var (l, r) = TeachSpells(p, single, plan.SpellLevel);
+                            given = l + r;
+                        }
+                        break;
+                    case "massallskills":
+                    {
+                        var (l, r) = TeachSpells(p, SpellsOf(p.Class), plan.SpellLevel);
+                        given = l + r;
+                        break;
+                    }
+                    case "masslevel":
+                        if (p.Level != plan.Level)
+                        {
+                            p.Level = (ushort)plan.Level;
+                            p.LevelUp();
+                            given = 1;
+                        }
+                        break;
+                }
+
+                if (given > 0)
+                {
+                    granted++;
+                    total += given;
+                    if (names.Count < 50) names.Add(p.Name);
+                }
+                else
+                {
+                    skipped++;
+                }
+            }
+
+            var scope = plan.Who + (map != null ? " on " + MapLabel(map) : string.Empty);
+            if (matched == 0) throw new WebAdminException(409, "No online player matches (" + scope + ")");
+
+            string what, skipReason;
+            switch (action)
+            {
+                case "massgold":
+                    what = total.ToString("N0", CultureInfo.InvariantCulture) + " gold (" + plan.Amount.ToString("N0", CultureInfo.InvariantCulture) + " each)";
+                    skipReason = "already at the gold maximum";
+                    break;
+                case "masscredit":
+                    what = total.ToString("N0", CultureInfo.InvariantCulture) + " credit (" + plan.Amount.ToString("N0", CultureInfo.InvariantCulture) + " each)";
+                    skipReason = "already at the credit maximum";
+                    break;
+                case "massitem":
+                    what = total + " x " + item.FriendlyName + " (" + plan.Count + " each)";
+                    skipReason = "bag full";
+                    break;
+                case "massskill":
+                    what = plan.Spell + " at level " + plan.SpellLevel;
+                    skipReason = "other class, or already known at that level";
+                    break;
+                case "masslevel":
+                    what = "level " + plan.Level;
+                    skipReason = "already at that level";
+                    break;
+                default:
+                    what = "their class spells at level " + plan.SpellLevel + " (" + total + " taught or raised)";
+                    skipReason = "already know them all";
+                    break;
+            }
+
+            result.Target = scope;
+            result.Message = "Gave " + what + " to " + granted + (granted == 1 ? " player" : " players") + " (" + scope + ")" +
+                             (partial > 0 ? "; " + partial + " got part (bag full)" : string.Empty) +
+                             (skipped > 0 ? "; " + skipped + " got nothing (" + skipReason + ")" : string.Empty) + ".";
+            result.Details["who"] = plan.Who;
+            if (map != null) result.Details["map"] = map.Info.FileName;
+            result.Details["matched"] = matched;
+            result.Details["granted"] = granted;
+            result.Details["skipped"] = skipped;
+            result.Details["total"] = total;
+            if (action == "massgold" || action == "masscredit") result.Details["amount"] = plan.Amount;
+            if (item != null)
+            {
+                result.Details["item"] = item.Name;
+                result.Details["itemIndex"] = item.Index;
+                result.Details["count"] = plan.Count;
+                result.Details["partial"] = partial;
+            }
+            if (action == "massskill") result.Details["spell"] = plan.Spell.ToString();
+            if (action == "massskill" || action == "massallskills") result.Details["level"] = plan.SpellLevel;
+            if (action == "masslevel") result.Details["level"] = plan.Level;
+            result.Details["players"] = names;
+            result.Data = new { matched, granted, skipped, partial, total };
         }
 
         private static ConquestObject FindConquest(int index)

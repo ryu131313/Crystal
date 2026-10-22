@@ -295,7 +295,7 @@ namespace Server.WebAdmin.Tests
             Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"setlevel\",\"character\":\"Bob\",\"level\":0}")).Status);
             Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"chatban\",\"character\":\"Bob\"}")).Status);
             Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"message\",\"character\":\"Bob\",\"text\":\"  \"}")).Status);
-            Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"spawnmob\",\"monster\":\"Hen\",\"map\":\"0\",\"x\":1,\"y\":1,\"count\":101}")).Status);
+            Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"spawnmob\",\"monster\":\"Hen\",\"map\":\"0\",\"x\":1,\"y\":1,\"count\":50001}")).Status);
             Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"startconquest\"}")).Status);
 
             var tp = Prepare("{\"action\":\"teleport\",\"character\":\"Bob\",\"map\":\"Bichon\",\"x\":5,\"y\":6,\"instance\":2}");
@@ -316,6 +316,117 @@ namespace Server.WebAdmin.Tests
             var sc = Prepare("{\"action\":\"startconquest\",\"conquestIndex\":2,\"guild\":\"Knights\"}");
             Assert.Equal(2, sc.ConquestIndex);
             Assert.Equal("Knights", sc.Guild);
+        }
+
+        [Fact]
+        public void SpawnMob_MapWideNeedsNoPoint()
+        {
+            var spread = GmCatalog.Find("spawnmob").Args.First(a => a.Name == "spread");
+            Assert.Equal(GmCatalog.MapWideSpread, spread.Max);
+            Assert.NotNull(spread.MaxButton);
+
+            var wide = Prepare("{\"action\":\"spawnmob\",\"monster\":\"Hen\",\"map\":\"0\",\"count\":50000,\"spread\":1000}");
+            Assert.Equal(50000, wide.Count);
+            Assert.Equal(GmCatalog.MapWideSpread, wide.Spread);
+            Assert.Null(wide.X);
+
+            var wideAtPoint = Prepare("{\"action\":\"spawnmob\",\"monster\":\"Hen\",\"map\":\"0\",\"x\":5,\"y\":6,\"spread\":1000}");
+            Assert.Equal(5, wideAtPoint.X);
+
+            Assert.Equal(40, Prepare("{\"action\":\"spawnmob\",\"monster\":\"Hen\",\"map\":\"0\",\"x\":5,\"y\":6,\"spread\":40}").Spread);
+
+            Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"spawnmob\",\"monster\":\"Hen\",\"map\":\"0\",\"spread\":20}")).Status);
+            Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"spawnmob\",\"monster\":\"Hen\",\"map\":\"0\",\"x\":5,\"spread\":1000}")).Status);
+            Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"spawnmob\",\"monster\":\"Hen\",\"map\":\"0\",\"x\":5,\"y\":5,\"spread\":1001}")).Status);
+        }
+
+        [Fact]
+        public void GiveAllSkills_IsAnOnlineCharacterGrant()
+        {
+            var verb = GmCatalog.Find("giveallskills");
+            Assert.Equal("character", verb.Target);
+            Assert.Equal(GmCatalog.Grants, verb.Group);
+            Assert.True(verb.NeedsOnline);
+
+            Assert.Equal(0, Prepare("{\"action\":\"giveallskills\",\"character\":\"Bob\"}").SpellLevel);
+            Assert.Equal(3, Prepare("{\"action\":\"giveallskills\",\"character\":\"Bob\",\"level\":3}").SpellLevel);
+            Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"giveallskills\",\"character\":\"Bob\",\"level\":4}")).Status);
+            Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"giveallskills\"}")).Status);
+        }
+
+        [Fact]
+        public void MassGrants_PrepareScopeAndArguments()
+        {
+            foreach (var a in new[] { "massgold", "masscredit", "massitem", "massskill", "massallskills", "masslevel" })
+            {
+                var v = GmCatalog.Find(a);
+                Assert.Equal("world", v.Target);
+                Assert.Equal(GmCatalog.Mass, v.Group);
+                Assert.Equal(GmRules.MassGrantScopes, v.Args.First(x => x.Name == "who").Options.Select(o => o.Value));
+            }
+
+            var gold = Prepare("{\"action\":\"massgold\",\"amount\":1000}");
+            Assert.Equal("all", gold.Who);
+            Assert.Equal(1000, gold.Amount);
+            Assert.Null(gold.MapRef);
+
+            var item = Prepare("{\"action\":\"massitem\",\"who\":\"Players\",\"item\":\"Sun Potion\",\"count\":5,\"map\":\"0\",\"instance\":2}");
+            Assert.Equal("players", item.Who);
+            Assert.Equal("Sun Potion", item.ItemRef);
+            Assert.Equal(5, item.Count);
+            Assert.Equal("0", item.MapRef);
+            Assert.Equal(2, item.Instance);
+
+            var skill = Prepare("{\"action\":\"massskill\",\"spell\":\"FireBall\",\"level\":2}");
+            Assert.Equal(Spell.FireBall, skill.Spell);
+            Assert.Equal(2, skill.SpellLevel);
+
+            var level = Prepare("{\"action\":\"masslevel\",\"who\":\"gms\",\"level\":50}");
+            Assert.Equal("gms", level.Who);
+            Assert.Equal(50, level.Level);
+            Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"masslevel\"}")).Status);
+            Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"masslevel\",\"level\":0}")).Status);
+
+            Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"massgold\"}")).Status);
+            Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"massgold\",\"amount\":1,\"who\":\"nope\"}")).Status);
+            Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"masscredit\",\"amount\":1,\"who\":\"map\"}")).Status);
+            Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"massitem\",\"item\":\"x\",\"count\":1001}")).Status);
+            Assert.Equal(400, Assert.Throws<WebAdminException>(() => Prepare("{\"action\":\"massskill\",\"spell\":\"Nope\"}")).Status);
+        }
+
+        [Fact]
+        public void MassGrantIncludes_ScopesAndMapFilter()
+        {
+            Assert.True(GmRules.MassGrantIncludes("all", true, false, false));
+            Assert.True(GmRules.MassGrantIncludes("players", false, false, false));
+            Assert.False(GmRules.MassGrantIncludes("players", true, false, false));
+            Assert.True(GmRules.MassGrantIncludes("gms", true, false, false));
+            Assert.False(GmRules.MassGrantIncludes("gms", false, false, false));
+            Assert.True(GmRules.MassGrantIncludes("map", false, true, true));
+            Assert.False(GmRules.MassGrantIncludes("map", false, false, false));
+            Assert.False(GmRules.MassGrantIncludes("all", false, true, false));   // a map narrows every scope
+            Assert.True(GmRules.MassGrantIncludes("players", false, true, true));
+            Assert.False(GmRules.MassGrantIncludes("nope", true, true, true));
+        }
+
+        [Fact]
+        public void SpellsForClass_UsesBandsAndBooks()
+        {
+            Assert.Equal(MirClass.Warrior, GmRules.SpellBandClass(Spell.Fencing));
+            Assert.Equal(MirClass.Wizard, GmRules.SpellBandClass(Spell.FireBall));
+            Assert.Equal(MirClass.Taoist, GmRules.SpellBandClass(Spell.Healing));
+            Assert.Equal(MirClass.Assassin, GmRules.SpellBandClass(Spell.FatalSword));
+            Assert.Equal(MirClass.Archer, GmRules.SpellBandClass(Spell.Focus));
+            Assert.Null(GmRules.SpellBandClass(Spell.Blink));
+            Assert.Null(GmRules.SpellBandClass(Spell.DigOutZombie));
+
+            var known = new[] { Spell.Fencing, Spell.Slaying, Spell.FireBall, Spell.Blink, Spell.BattleCry, Spell.Fencing };
+            var books = new[] { (Spell.Blink, RequiredClass.Wizard), (Spell.BattleCry, RequiredClass.Warrior), (Spell.Focus, RequiredClass.Warrior) };
+
+            Assert.Equal(new[] { Spell.Fencing, Spell.Slaying, Spell.BattleCry }, GmRules.SpellsForClass(MirClass.Warrior, known, books));
+            Assert.Equal(new[] { Spell.FireBall, Spell.Blink }, GmRules.SpellsForClass(MirClass.Wizard, known, books));
+            Assert.Empty(GmRules.SpellsForClass(MirClass.Archer, known, books));   // Focus has a book but no MagicInfo here
+            Assert.Equal(new[] { Spell.Fencing, Spell.Slaying }, GmRules.SpellsForClass(MirClass.Warrior, known, null));
         }
 
         [Fact]

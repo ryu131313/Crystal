@@ -1305,8 +1305,8 @@
       confirmText: 'Spawn',
       fields: [
         { key: 'monster', label: 'Monster (index or name)', type: 'text', required: true, placeholder: 'e.g. Hen' },
-        { key: 'count', label: 'Count', type: 'number', value: 1, min: 1, max: 50 },
-        { key: 'spread', label: 'Spread (cells around the point)', type: 'number', value: 0, min: 0, max: 20 },
+        { key: 'count', label: 'Count', type: 'number', value: 1, min: 1, max: 50000 },
+        { key: 'spread', label: 'Spread (cells around the point; 1000 = map wide)', type: 'number', value: 0, min: 0, max: 1000, presets: [{ label: 'Map wide', value: 1000 }] },
         { key: 'reason', label: 'Reason (optional, audit trail)', type: 'text', required: false, placeholder: 'optional' }
       ]
     });

@@ -241,8 +241,47 @@
    *         placeholder, hint }] }
    * Resolves { key: value, ... } (numbers for type 'number', booleans for 'checkbox') or null.
    */
+  /*
+   * Last-used inputs for this browser tab (sessionStorage, so a page reload keeps them and closing the tab forgets them;
+   * an in-memory copy covers browsers that block storage). Keys are per dialog/form; never holds checkboxes, passwords
+   * or typed confirmations (see rememberable).
+   */
+  var memory = {};
+  var MEMORY_PREFIX = 'mircraft.inputs.';
+
+  function recall(key) {
+    if (!key) return null;
+    if (memory[key]) return memory[key];
+    try {
+      var raw = global.sessionStorage.getItem(MEMORY_PREFIX + key);
+      if (raw) memory[key] = JSON.parse(raw);
+    } catch (e) { /* storage blocked: memory only */ }
+    return memory[key] || null;
+  }
+
+  function remember(key, values) {
+    if (!key || !values) return;
+    var merged = Object.assign({}, recall(key) || {}, values);
+    memory[key] = merged;
+    try { global.sessionStorage.setItem(MEMORY_PREFIX + key, JSON.stringify(merged)); } catch (e) { /* memory only */ }
+  }
+
+  function rememberable(f) {
+    return f && f.remember !== false && f.type !== 'checkbox' && !/confirm|password|secret|token/i.test(String(f.key || ''));
+  }
+
+  /* The default memory key: the title without its per-target suffix ("Kick: Bob" and "Spawn monster — Bichon 10, 12" share one). */
+  function dialogMemoryKey(spec) {
+    if (spec.remember === false) return null;
+    if (typeof spec.remember === 'string') return spec.remember;
+    var t = String(spec.title || '').split(/\s+—\s+|:\s/)[0].trim();
+    return t ? 'dialog:' + t : null;
+  }
+
   function actionDialog(spec) {
     spec = spec || {};
+    var memoryKey = dialogMemoryKey(spec);
+    var last = recall(memoryKey);
     return new Promise(function (resolve) {
       var doc = global.document;
       var backdrop = doc.createElement('div');
@@ -263,6 +302,11 @@
 
       var inputs = {};
       (spec.fields || []).forEach(function (f) {
+        if (last && rememberable(f) && last[f.key] != null && last[f.key] !== '') {
+          var remembered = last[f.key];
+          var known = f.type !== 'select' || (f.options || []).some(function (o) { return String(o.value) === String(remembered); });
+          if (known) f = Object.assign({}, f, { value: remembered });
+        }
         var wrap = doc.createElement('label');
         wrap.className = 'ops-dialog-field';
         var cap = doc.createElement('span');
@@ -372,6 +416,11 @@
       confirm.addEventListener('click', function () {
         var r = collect();
         if (r.error) { error.textContent = r.error; return; }
+        if (memoryKey) {
+          var keep = {};
+          Object.keys(inputs).forEach(function (k) { if (rememberable(inputs[k].field)) keep[k] = r.values[k]; });
+          remember(memoryKey, keep);
+        }
         finish(r.values);
       });
       backdrop.addEventListener('click', function (e) { if (e.target === backdrop) finish(null); });
@@ -518,6 +567,8 @@
     renderLog: renderLog,
     playerLink: playerLink,
     actionDialog: actionDialog,
+    recall: recall,
+    remember: remember,
     contextMenu: contextMenu,
     durationBody: durationBody,
     MUTE_PRESETS: MUTE_PRESETS,

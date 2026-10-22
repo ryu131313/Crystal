@@ -102,6 +102,7 @@
         if (arg.placeholder) f.placeholder = arg.placeholder;
         break;
     }
+    if (arg.maxButton && arg.max != null) f.presets = [{ label: arg.maxButton, value: arg.max }];
     if (arg.type === 'map') f.hint = 'Map file name (e.g. 0, 0100) or title; #12 for a map index.';
     if (arg.type === 'item') f.hint = 'Item index or exact name.';
     if (arg.type === 'monster') f.hint = 'Monster index or exact name.';
@@ -388,6 +389,8 @@
           (arg.max ? ' maxlength="' + esc(arg.max) + '"' : '') + ' />';
       }
     }
+    if (arg.maxButton && arg.max != null)
+      input += '<button type="button" class="mir-btn ops-row-btn" data-gm-max="' + esc(arg.name) + '" title="Set to ' + esc(arg.max) + '">' + esc(arg.maxButton) + '</button>';
     return '<label class="' + (arg.type === 'longtext' ? 'gm-wide' : '') + '">' + label + input + '</label>';
   }
 
@@ -414,6 +417,7 @@
       '  </div>' +
       '</div>';
     host.classList.remove('hidden');
+    restoreForm(verb, host);
     var first = host.querySelector('[data-arg]');
     if (first && first.focus) first.focus();
   }
@@ -424,6 +428,19 @@
       var h = el(r);
       if (h) { h.innerHTML = ''; h.classList.add('hidden'); }
     });
+  }
+
+  /* The last values used in this verb's inline form (this browser tab only; see OpsUI.recall). */
+  function restoreForm(verb, host) {
+    var last = OpsUI.recall('gm-form:' + verb.action);
+    if (!last) return;
+    var inputs = host.querySelectorAll('[data-arg]');
+    for (var i = 0; i < inputs.length; i++) {
+      var v = last[inputs[i].getAttribute('data-arg')];
+      if (v == null || v === '') continue;
+      if (inputs[i].tagName === 'SELECT' && !Array.prototype.some.call(inputs[i].options, function (o) { return o.value === String(v); })) continue;
+      inputs[i].value = String(v);
+    }
   }
 
   function formValues(host) {
@@ -574,6 +591,14 @@
         onVerbClick(verbBtn.getAttribute('data-gm-action'), verbBtn);
         return;
       }
+      var maxBtn = t.closest ? t.closest('[data-gm-max]') : null;
+      if (maxBtn && activeVerb) {
+        var argName = maxBtn.getAttribute('data-gm-max');
+        var arg = (activeVerb.args || []).filter(function (a) { return a.name === argName; })[0];
+        var field = maxBtn.parentNode && maxBtn.parentNode.querySelector('[data-arg="' + argName + '"]');
+        if (arg && field) field.value = String(arg.max);
+        return;
+      }
       var formBtn = t.closest ? t.closest('[data-gm-form]') : null;
       if (formBtn && activeVerb) {
         var kind = formBtn.getAttribute('data-gm-form');
@@ -586,7 +611,11 @@
           set('y', target.y);
           return;
         }
-        if (kind === 'run' && host) runAndReport(activeVerb, formValues(host), formBtn);
+        if (kind === 'run' && host) {
+          var values = formValues(host);
+          OpsUI.remember('gm-form:' + activeVerb.action, values);
+          runAndReport(activeVerb, values, formBtn);
+        }
         return;
       }
       var link = t.closest ? t.closest('[data-gm-link]') : null;

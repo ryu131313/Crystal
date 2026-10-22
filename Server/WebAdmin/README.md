@@ -171,9 +171,16 @@ confirmation dialog, with a reason field for moderation actions. Every successfu
 
 **Operations**
 - **GM Console:** pick a target, then run a GM verb such as kick, kill, revive, teleport, give gold/credit/item, set level,
-  give skill, set PK, chat ban, spawn monsters, clear monsters or start a conquest. The verbs use the same code paths as the
-  in-game `@` commands. Most verbs need the world running (`503` otherwise). Some, such as setlevel and chat ban, also work on
-  offline characters.
+  give skill, give all skills (every spell of the character's class: its `Spell` band plus any skill book for the class), set PK,
+  chat ban, spawn monsters, clear monsters or start a conquest. The World actions card also has a **Mass actions** group that
+  gives gold, credit, an item, a skill or all class skills, or sets the level (`masslevel`, the online Set level path), for every online player in a scope (everyone, non-GM players, GMs
+  only, or players on a map; a map narrows any scope); `massskill` skips players of other classes, and the skill grants raise
+  known spells but never lower them. The verbs use the same code paths as the in-game `@` commands. Most verbs need the world running (`503` otherwise). Some, such as setlevel and chat ban, also work on
+  offline characters. Spawn monster takes up to 50,000 at once; its **Map wide** button (spread 1000) scatters them over every
+  walkable cell of the map and makes X/Y optional (also in the Live Monitor and Map editor spawn dialogs).
+- **Remembered inputs:** the GM inline forms and every `OpsUI.actionDialog` popup prefill the values last used in that form or
+  dialog (keyed by the dialog title without its target suffix), held in `sessionStorage` for the browser tab only. Checkboxes and
+  fields whose key mentions confirm/password/secret/token are never remembered; `remember: false` on a dialog or field opts out.
 - **Broadcast:** announcement, shout, system, hint or line-message broadcasts, a recent list with resend, and an editor for the
   login notice (`Settings.NoticePath`).
 - **Chat Log:** a live chat feed fed by `WebAdminHooks.Chat`, with channel, name and text filters, per-line moderation actions,
