@@ -298,10 +298,6 @@ namespace Server.WebAdmin.LiveDb
         }
 
         /// <summary>Encoded size of a packet (header included), for tests and diagnostics.</summary>
-        public static int EncodedSize(Packet p)
-        {
-            var bytes = p.GetPacketBytes();
-            return bytes is byte[] arr ? arr.Length : bytes.Count();
-        }
+        public static int EncodedSize(Packet p) => p.GetPacketBytes().Length;
     }
 }

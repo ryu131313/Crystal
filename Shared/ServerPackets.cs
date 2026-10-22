@@ -6177,7 +6177,7 @@ namespace ServerPackets
         /// <summary>The whole frame's length (header included), as GetPacketBytes builds it.</summary>
         public int FrameLength()
         {
-            return ((byte[])GetPacketBytes()).Length;
+            return GetPacketBytes().Length;
         }
 
         /// <summary>

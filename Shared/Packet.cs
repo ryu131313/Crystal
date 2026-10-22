@@ -50,39 +50,65 @@ public abstract class Packet
         return p;
     }
 
-    public IEnumerable<byte> GetPacketBytes()
+    // Per-thread encode scratch: packets are encoded on the server game thread, web admin HTTP threads, the client UI thread
+    // and the socket threads of the tools, so the stream is never shared. Only the returned frame is allocated per call.
+    [ThreadStatic] private static MemoryStream _encodeStream;
+    [ThreadStatic] private static BinaryWriter _encodeWriter;
+    [ThreadStatic] private static bool _encoding;
+    private const int EncodeStreamKeep = 64 * 1024;
+
+    /// <summary>
+    /// The whole frame: 2-byte length (the ushort wraps above 65 535, as it always has), 2-byte Index, then the payload,
+    /// compressed when <see cref="Compressed"/>. Always a new exact-size array the caller owns.
+    /// </summary>
+    public byte[] GetPacketBytes()
     {
-        if (Index < 0) return new byte[0];
+        if (Index < 0) return Array.Empty<byte>();
 
-        byte[] data, mem;
+        // A WritePacket that encodes another packet gets a private stream.
+        var nested = _encoding;
+        var ms = nested ? new MemoryStream() : _encodeStream ??= new MemoryStream(1024);
+        var writer = nested ? new BinaryWriter(ms) : _encodeWriter ??= new BinaryWriter(ms);
 
-        using (var ms = new MemoryStream())
+        _encoding = true;
+        try
         {
-            using (var writer = new BinaryWriter(ms))
+            ms.SetLength(0);
+            writer.Write((ushort)0); // length, patched below
+            writer.Write(Index);
+            WritePacket(writer);
+
+            byte[] data;
+            if (Compressed)
             {
-                WritePacket(writer);
+                var mem = CompressPacket(ms.GetBuffer().AsSpan(4, (int)ms.Length - 4).ToArray());
+                data = new byte[4 + mem.Length];
+                Buffer.BlockCopy(ms.GetBuffer(), 0, data, 0, 4);
+                Buffer.BlockCopy(mem, 0, data, 4, mem.Length);
+            }
+            else
+            {
+                data = new byte[ms.Length];
+                Buffer.BlockCopy(ms.GetBuffer(), 0, data, 0, data.Length);
             }
 
-            mem = Compressed ? CompressPacket(ms.ToArray()) : ms.ToArray();
+            data[0] = (byte)data.Length;
+            data[1] = (byte)(data.Length >> 8);
+            return data;
         }
-
-        using (var ms = new MemoryStream())
+        finally
         {
-            ms.SetLength(2);
-            ms.Seek(2, SeekOrigin.Begin);
-            using (var writer = new BinaryWriter(ms))
+            if (!nested)
             {
-                writer.Write(Index);
-                writer.Write(mem);
-
-                ms.Seek(0, SeekOrigin.Begin);
-                writer.Write((ushort)ms.Length);
-
-                data = ms.ToArray();
+                _encoding = false;
+                // Give back the buffer a big packet grew, so a thread does not pin it for good.
+                if (ms.Capacity > EncodeStreamKeep)
+                {
+                    _encodeStream = null;
+                    _encodeWriter = null;
+                }
             }
         }
-
-        return data;
     }
 
     protected abstract void ReadPacket(BinaryReader reader);

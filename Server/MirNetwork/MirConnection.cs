@@ -510,11 +510,7 @@ namespace Server.MirNetwork
             return false;
         }
 
-        private static byte[] ToBytes(Packet p)
-        {
-            var e = p.GetPacketBytes();
-            return e as byte[] ?? e.ToArray();
-        }
+        private static byte[] ToBytes(Packet p) => p.GetPacketBytes();
 
         public void Process()
         {
