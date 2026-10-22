@@ -158,7 +158,7 @@ public sealed class ExportVerifyTests : IDisposable
     {
         WorldLoader.WithLoadedEdit(_src, source =>
         {
-            Envir.Edit.ItemInfoList[0].Stats.Values[(Stat)254] = 3; // a Stat value the enum does not define
+            Envir.Edit.ItemInfoList[0].Stats.Values.Set((Stat)254, 3); // a Stat value the enum does not define
             var export = Exporter.ExportLoaded(source, Out());
             Assert.Contains(export.Errors, m => m.Contains("254=3", StringComparison.Ordinal));
             Assert.False(File.Exists(Out()));

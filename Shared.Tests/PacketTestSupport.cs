@@ -67,6 +67,7 @@ internal static class PacketTestSupport
     public static void Fill(object o, int depth = 6)
     {
         if (o == null || depth <= 0) return;
+        if (o is Stats) return; // valid when empty; its private storage arrays must not be filled
         foreach (var f in o.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
         {
             if (f.IsInitOnly && f.FieldType.IsValueType) continue;

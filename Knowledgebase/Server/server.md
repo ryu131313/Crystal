@@ -632,6 +632,7 @@ target.Attacked(this, dmg, defence);
 - Zero-code item: `ItemInfo.Type = Script`, `Shape = N` → `[@_USEITEM(N)]` page in `Envir\NPCs\00Default.txt`.
 - Code item: `ItemType : byte` (append) → `PlayerObject.UseItem` (`switch (item.Info.Type)` then `Shape`) and `HeroObject.UseItem` for heroes (`HumanObject.UseItem` is an empty virtual).
 - New stat: `Stat` enum (`Shared/Data/Stat.cs`, byte, append in a gap < 255) + consumer in the `HumanObject.RefreshStats` chain; client tooltip.
+- `Stats` storage (2026-10-22): a packed sorted `long[]`, dense `int[264]` past 24 entries; `Values` is a struct view (`foreach`, `TryGetValue`, `Remove`; raw writes that keep a 0 entry use `Values.Set`). Never change a `Stats` while enumerating it. `Future Optimisation/Stats-Storage-2026-10-22.md`.
 - Drop file syntax: `1/<N> <ItemName>[ Q]`, `1/<N> Gold <amount>`, `1/<N> GROUP[*|^]` + `{ ... }`, `#INSERT`. Stored as rows (`DropTables`, Drops-Tables-Plan); the line syntax lives once, in `DropInfo.TryParseLine` / `DragonInfo.DropInfo.TryParseLine`, shared by the text loader and the tables. `MirDbExport check-drops <folder>` proves rows and text load identically. Chance = `Chance / Settings.DropRate`, reduced by `Stat.ItemDropRatePercent` and rarity. `Envir.ReloadDrops()` on the game thread.
 
 ### 4.9 Periodic system / map feature

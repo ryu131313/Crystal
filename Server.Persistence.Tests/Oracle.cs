@@ -112,6 +112,13 @@ internal static class Oracle
             visited[v] = path;
         }
 
+        if (v is Stats stats)
+        {
+            // Private packed storage since 2026-10-22: print the SortedDictionary it replaced, so the fixture oracles hold.
+            sb.Append(path).Append(".Values.Count=").Append(stats.Values.Count).Append('\n');
+            foreach (var kv in stats.Values) Walk(sb, visited, path + ".Values[" + Scalar(kv.Key) + "]", kv.Value, depth + 1);
+            return;
+        }
         if (v is IDictionary dict)
         {
             sb.Append(path).Append(".Count=").Append(dict.Count).Append('\n');

@@ -63,7 +63,7 @@ public class SqliteStoreTests
             ResetMain();
             SyntheticWorld.Populate(Envir.Main);
             var e = Envir.Main;
-            e.ItemInfoList[0].Stats.Values[Stat.MaxAC] = 0;           // explicit zero entry: the binary format keeps it
+            e.ItemInfoList[0].Stats.Values.Set(Stat.MaxAC, 0);          // explicit zero entry: the binary format keeps it
             e.ItemInfoList[1].ToolTip = null;
             e.ItemInfoList[2].Name = "Pot \U0001F600";                  // non-BMP text
             e.MagicInfoList.Add(new MagicInfo { Spell = Spell.None, Name = "None" }); // Spell.None rows are kept (D3)

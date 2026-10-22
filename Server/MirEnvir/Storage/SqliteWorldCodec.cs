@@ -365,7 +365,7 @@ namespace Server.MirEnvir.Storage
                         if (zero.Count > 0)
                         {
                             if (stats == null) { stats = new Stats(); spec.StatsField.SetValue(entity, stats); }
-                            foreach (var k in zero) stats.Values[(Stat)checked((byte)k)] = 0;
+                            foreach (var k in zero) stats.Values.Set((Stat)checked((byte)k), 0);
                         }
                     }
 
