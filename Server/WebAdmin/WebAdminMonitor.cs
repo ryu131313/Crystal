@@ -85,7 +85,7 @@ namespace Server.WebAdmin
     {
         public int Index;
         public int Width, Height;
-        /// <summary>CellAttribute per cell, x-major like Map.Cells ([x * Height + y]).</summary>
+        /// <summary>CellAttribute per cell, x-major like Map.CellData ([x * Height + y]).</summary>
         public byte[] Attributes;
         /// <summary>Safe zones as [x, y, size, ...].</summary>
         public int[] SafeZones;
@@ -558,15 +558,14 @@ namespace Server.WebAdmin
                 }
             }
 
-            if (map?.Cells == null || map.Width <= 0 || map.Height <= 0) return null;
+            if (map?.CellData == null || map.Width <= 0 || map.Height <= 0) return null;
 
             var w = map.Width;
             var h = map.Height;
-            var attrs = new byte[w * h];
-            var cells = map.Cells;
-            for (var x = 0; x < w; x++)
-                for (var y = 0; y < h; y++)
-                    attrs[x * h + y] = (byte)(cells[x, y]?.Attribute ?? CellAttribute.HighWall);
+            var cellData = map.CellData; // same x-major layout; drop the fishing bits
+            var attrs = new byte[cellData.Length];
+            for (var i = 0; i < attrs.Length; i++)
+                attrs[i] = (byte)(cellData[i] & Map.CellAttributeMask);
 
             var zones = map.Info.SafeZones;
             var sz = new int[zones.Count * 3];

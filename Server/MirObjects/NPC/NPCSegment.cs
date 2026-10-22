@@ -3031,9 +3031,9 @@ namespace Server.MirObjects
                         map = Envir.GetMapByNameAndInstance(param[0], tempInt);
                         if (map == null) return;
 
-                        foreach (var cell in map.Cells)
+                        foreach (var cell in map.ObjectCells())
                         {
-                            if (cell == null || cell.Objects == null) continue;
+                            if (cell.Objects == null) continue;
 
                             for (int j = 0; j < cell.Objects.Count(); j++)
                             {
@@ -3703,9 +3703,9 @@ namespace Server.MirObjects
                             var targetmap = Envir.GetMapByNameAndInstance(param[0], tempInt);
                             if (targetmap == null) return;
 
-                            foreach (var cell in targetmap.Cells)
+                            foreach (var cell in targetmap.ObjectCells())
                             {
-                                if (cell == null || cell.Objects == null) continue;
+                                if (cell.Objects == null) continue;
 
                                 for (int j = 0; j < cell.Objects.Count(); j++)
                                 {
@@ -4692,9 +4692,9 @@ namespace Server.MirObjects
                             var map = Envir.GetMapByNameAndInstance(param[0], tempInt);
                             if (map == null) return;
 
-                            foreach (var cell in map.Cells)
+                            foreach (var cell in map.ObjectCells())
                             {
-                                if (cell == null || cell.Objects == null) continue;
+                                if (cell.Objects == null) continue;
 
                                 for (int j = 0; j < cell.Objects.Count(); j++)
                                 {

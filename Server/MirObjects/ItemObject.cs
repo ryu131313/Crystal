@@ -191,7 +191,7 @@ namespace Server.MirObjects
         {
             if (CurrentMap == null) return false;
 
-            Cell best = null;
+            bool found = false;
             int bestCount = 0;
             Point bestLocation = Point.Empty;
 
@@ -254,9 +254,9 @@ namespace Server.MirObjects
                             return true;
                         }
 
-                        if (best == null || count < bestCount)
+                        if (!found || count < bestCount)
                         {
-                            best = cell;
+                            found = true;
                             bestCount = count;
                             bestLocation = new Point(x, y);
                         }
@@ -264,7 +264,7 @@ namespace Server.MirObjects
                 }
             }
 
-            if (best == null)
+            if (!found)
 
                 return false;
 
@@ -278,7 +278,7 @@ namespace Server.MirObjects
         {
             if (CurrentMap == null) return false;
 
-            Cell best = null;
+            bool found = false;
             int bestCount = 0;
             Point bestLocation = Point.Empty;
 
@@ -341,9 +341,9 @@ namespace Server.MirObjects
                             return true;
                         }
 
-                        if (best == null || count < bestCount)
+                        if (!found || count < bestCount)
                         {
-                            best = cell;
+                            found = true;
                             bestCount = count;
                             bestLocation = new Point(x, y);
                         }
@@ -351,7 +351,7 @@ namespace Server.MirObjects
                 }
             }
 
-            if (best == null)
+            if (!found)
 
                 return false;
 

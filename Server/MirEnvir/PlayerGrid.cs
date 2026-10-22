@@ -159,13 +159,11 @@ namespace Server.MirEnvir
         {
             int x0 = sx << Shift, y0 = sy << Shift;
             int x1 = Math.Min(_map.Width, x0 + Size), y1 = Math.Min(_map.Height, y0 + Size);
-            var cells = _map.Cells;
             for (var x = x0; x < x1; x++)
             {
                 for (var y = y0; y < y1; y++)
                 {
-                    var objects = cells[x, y]?.Objects;
-                    if (objects == null) continue;
+                    var objects = _map.GetCell(x, y).Objects;
                     for (var i = objects.Count - 1; i >= 0; i--)
                         if (objects[i] is MonsterObject monster) monster.WakeFromAlone();
                 }

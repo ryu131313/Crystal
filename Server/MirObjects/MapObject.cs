@@ -873,7 +873,7 @@ namespace Server.MirObjects
         public virtual bool TeleportRandom(int attempts, int distance, Map map = null)
         {
             if (map == null) map = CurrentMap;
-            if (map.Cells == null) return false;
+            if (map.CellData == null) return false;
             if (map.WalkableCells.Count == 0) return false;
 
             int cellIndex = Envir.Random.Next(map.WalkableCells.Count);

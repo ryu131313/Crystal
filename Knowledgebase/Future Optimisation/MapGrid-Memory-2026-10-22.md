@@ -45,6 +45,32 @@ The scratch server's working set after start was **879 MB**. The live server run
    - Out-of-map indexes still throw.
    - Game thread only. LiveDb `RebuildMine` swaps the whole grid, as before.
 
+## Step 2: byte cell grid (2026-10-22, uncommitted)
+
+**Status: implemented, not committed.** `Map.Cells` (`Cell[,]`) and the per-cell `Cell` objects are gone; this replaces the shared wall cells of step 1 item 2 (and the rule "don't keep a `Cell` across an `Add` to a wall").
+
+- `Map.CellData` (`byte[]`, x-major `x * Height + y`): bits 0-1 the `CellAttribute`, bits 2-6 the fishing value + 1. Written only by the map loaders, read-only afterwards, so any thread may read it (web admin `CopyCells`, `LiveDbHooks` `ValidPoint`).
+- Object lists: `Map._cellObjects`, blocks of 64 consecutive indexes (`[index >> 6][index & 63]`), each block and each cell's list created on the first `Add` and kept. Same single-writer-per-map rule as the lazy list of step 1.
+- `Cell` is a `readonly struct` (map + index) with the old members; `Objects` reads the map every time (never cached). `GetCell` keeps throwing `IndexOutOfRangeException` outside the map (explicit check: a flat index would alias the next column). `Map.ObjectCells()` enumerates the cells that have a list in x-major order (the old `foreach` order) for MonClear, @clearmobs and the web admin ClearMobs.
+- Call-site edits: `ItemObject.Drop`/`DragonDrop` (`Cell best = null` marker became `bool found`), dead `cell == null` checks, `Cells[x, y]` uses, PlayerGrid, WebAdminMonitor, MapGridTests (`Map.InitCells` seam). No DB, wire or `Envir.Version` change.
+
+| Item (idle heap, same live-data copy, 463 maps) | Step 1 | Step 2 |
+|---|---|---|
+| **GC heap total** | **823.9 MB** (11.0M objects) | **429.0 MB** (4.2M objects) |
+| `Cell[,]` + `Cell` | 177.0 + 220.5 MB | 0 |
+| `CellData` (`Byte[]` total) | (`Byte[]` ~1 MB) | `Byte[]` 23.3 MB |
+| Block pointer arrays (`List<MapObject>[][]`, 463) | — | 2.8 MB |
+| Blocks (`List<MapObject>[]`) | — | 53,738 / 28.8 MB |
+| `List<MapObject>` (cells that held an object) | 75,098 / 2.4 MB | 75,190 / 2.4 MB |
+
+The blocks are larger than estimated: ~47.7k idle monsters sit on separate cells, so a block averages 1.4 lists. 16-cell blocks would save about 10 MB more (more pointers, smaller blocks); not done.
+
+**Load test:** 200 bots (ramp 20/s, 180 s, `--max-packet 50`): **PASS**, all 200 in game, 0 errors / decode errors / disconnects, 140 kills, 34.8k walks, 505 quests accepted, keepalive RTT 1.8 ms. Heap after the run 450.9 MB (step 1: 853.9 MB); blocks 54,454, lists 80,601 (+5.4k from the bots). Whole-log GC pause 382 ms vs 808 ms.
+- **CPU, same-time A/B** (step 1 build started next to it, both idle, 182 s of the same wall-clock seconds): mob pass 15.5 vs 21.3 ms/s, busy 1.9 % vs 2.4 %. Separate-run numbers (different times and machine load) were mixed (mob 17.5 vs 14.7 ms/s under bots), so no CPU gain is claimed, but no regression is visible.
+- The new server's only per-second max over 20 ms in the A/B window was a 79 ms periodic save.
+- Files: `%TEMP%\mir2-cellgrid\` (`idle-stat.txt`, `bots-stat.txt`, `bots.log`, run folder).
+
 ## Next (not done)
-- **`Cell[,]` (177 MB) and walkable `Cell` objects (220 MB)** are now the largest map items. A `byte` attribute grid plus cell objects created only for walkable cells that hold something would save most of the ~400 MB. It touches every `GetCell(...)` / `Cells[...]` site (~300, many in monster AI), so it needs its own task.
+- Kept object lists and blocks grow with uptime (every cell an object ever stood on). Worst case is about the size of step 1's per-cell objects; a game-thread sweep outside the mob pass could free empty lists and blocks if a long soak shows growth.
+- Optional: hoist `var objects = cell.Objects;` in hot scans (`MonsterObject` FindTarget, `Map` range scans); each `Objects` access is now a block lookup instead of a field load.
 - `Point[]` 55 MB: `Map.WalkableCells` could store one `short` Y per cell per column (2 bytes instead of 8). Callers (`MapObject` random teleport, GM random teleport) would index through a view like `WalkableBox`.

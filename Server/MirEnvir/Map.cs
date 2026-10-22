@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using Server.MirEnvir.Storage;
 using System.Drawing;
 ﻿using Server.MirDatabase;
@@ -24,7 +26,18 @@ namespace Server.MirEnvir
         public int Thread = 0;
 
         public int Width, Height;
-        public Cell[,] Cells;
+        /// <summary>
+        /// Cell attributes, x-major (index x * Height + y): bits 0-1 the <see cref="CellAttribute"/>, bits 2-6 the fishing value + 1
+        /// (0 = none). Written only by the map loaders; read-only after <see cref="Load"/>, so any thread may read it. Null until the
+        /// map file has loaded. Read cells through <see cref="GetCell(int, int)"/>.
+        /// </summary>
+        public byte[] CellData;
+        internal const int CellAttributeMask = 0x03;
+        // Object lists of the cells that have held an object, in runs of 64 CellData indexes (block = index >> 6). A block and a
+        // cell's list are created on the first Add and kept after that, so readers never see one vanish. Changed only through
+        // Cell.Add / Cell.Remove, by the map's one writer at a time (the game thread outside the mob pass, the map's mob thread
+        // inside it), like the per-cell lists before.
+        private List<MapObject>[][] _cellObjects;
         /// <summary>Walkable cells in x-major, y-minor order (exact capacity); <see cref="WalkableColumnStart"/> indexes it by column.</summary>
         public List<Point> WalkableCells;
         /// <summary>Index of column x's first entry in <see cref="WalkableCells"/>; entry Width is the count (Width + 1 entries).</summary>
@@ -115,14 +128,94 @@ namespace Server.MirEnvir
             _doorCells[x * Height + y] = door;
         }
 
-        // Map loaders: a wall cell is a shared instance, so a fishing value picks the shared wall that carries it.
+        // Map loaders: every cell starts as Walk with no fishing value (CellData is zeroed).
+        private void InitCellData()
+        {
+            CellData = new byte[Width * Height];
+            _cellObjects = new List<MapObject>[(CellData.Length + 63) >> 6][];
+        }
+
+        /// <summary>Tests: a map grid with the given cell bytes (see <see cref="CellData"/>).</summary>
+        internal void InitCells(int width, int height, byte[] cellData)
+        {
+            Width = width;
+            Height = height;
+            CellData = cellData;
+            _cellObjects = new List<MapObject>[(cellData.Length + 63) >> 6][];
+        }
+
+        private void SetCellAttribute(int x, int y, CellAttribute attribute)
+        {
+            var i = x * Height + y;
+            CellData[i] = (byte)((CellData[i] & ~CellAttributeMask) | (byte)attribute);
+        }
+
+        // Fishing values come from map light bytes 100-119, so 0..19 (stored + 1).
         private void SetFishingAttribute(int x, int y, sbyte value)
         {
-            var cell = Cells[x, y];
-            if (cell.IsShared)
-                Cells[x, y] = Cell.SharedWall(cell.Attribute, value);
-            else
-                cell.FishingAttribute = value;
+            var i = x * Height + y;
+            CellData[i] = (byte)((CellData[i] & CellAttributeMask) | ((value + 1) << 2));
+        }
+
+        internal List<MapObject> GetCellObjects(int index)
+        {
+            return _cellObjects[index >> 6]?[index & 63];
+        }
+
+        internal List<MapObject> GetOrCreateCellObjects(int index)
+        {
+            ref var block = ref _cellObjects[index >> 6];
+            block ??= new List<MapObject>[64];
+            ref var list = ref block[index & 63];
+            return list ??= new List<MapObject>();
+        }
+
+        /// <summary>
+        /// The cells that have ever held an object, in x-major order (the order of a foreach over the old Cell[,]; the cells skipped
+        /// have no objects). Allocation-free; for whole-map scans such as clearing monsters.
+        /// </summary>
+        public ObjectCellEnumerator ObjectCells()
+        {
+            return new ObjectCellEnumerator(this);
+        }
+
+        public struct ObjectCellEnumerator
+        {
+            private readonly Map _map;
+            private int _index;
+
+            internal ObjectCellEnumerator(Map map)
+            {
+                _map = map;
+                _index = -1;
+            }
+
+            public ObjectCellEnumerator GetEnumerator()
+            {
+                return this;
+            }
+
+            public Cell Current
+            {
+                get { return new Cell(_map, _index); }
+            }
+
+            public bool MoveNext()
+            {
+                var blocks = _map._cellObjects;
+                var length = _map.CellData.Length;
+                while (++_index < length)
+                {
+                    var block = blocks[_index >> 6];
+                    if (block == null)
+                    {
+                        _index |= 63; // skip the rest of this empty block
+                        continue;
+                    }
+                    if (block[_index & 63] != null) return true;
+                }
+                return false;
+            }
         }
 
         private byte FindType(byte[] input)
@@ -170,7 +263,7 @@ namespace Server.MirEnvir
             Width = BitConverter.ToInt16(fileBytes, offSet);
             offSet += 2;
             Height = BitConverter.ToInt16(fileBytes, offSet);
-            Cells = new Cell[Width, Height];
+            InitCellData();
 
             offSet = 52;
 
@@ -178,18 +271,17 @@ namespace Server.MirEnvir
                 for (int y = 0; y < Height; y++)
                 {//total 12
                     if ((BitConverter.ToInt16(fileBytes, offSet) & 0x8000) != 0)
-                        Cells[x, y] = Cell.HighWall; //Can Fire Over.
+                        SetCellAttribute(x, y, CellAttribute.HighWall); //Can Fire Over.
 
                     offSet += 2;
                     if ((BitConverter.ToInt16(fileBytes, offSet) & 0x8000) != 0)
-                        Cells[x, y] = Cell.LowWall; //Can't Fire Over.
+                        SetCellAttribute(x, y, CellAttribute.LowWall); //Can't Fire Over.
 
                     offSet += 2;
 
                     if ((BitConverter.ToInt16(fileBytes, offSet) & 0x8000) != 0)
-                        Cells[x, y] = Cell.HighWall; //No Floor Tile.
+                        SetCellAttribute(x, y, CellAttribute.HighWall); //No Floor Tile.
 
-                    if (Cells[x, y] == null) Cells[x, y] = new Cell { Attribute = CellAttribute.Walk };
 
                     offSet += 4;
 
@@ -216,7 +308,7 @@ namespace Server.MirEnvir
             int h = BitConverter.ToInt16(fileBytes, offSet);
             Width = w ^ xor;
             Height = h ^ xor;
-            Cells = new Cell[Width, Height];
+            InitCellData();
 
             offSet = 54;
 
@@ -224,13 +316,12 @@ namespace Server.MirEnvir
                 for (int y = 0; y < Height; y++)
                 {
                     if (((BitConverter.ToInt32(fileBytes, offSet) ^ 0xAA38AA38) & 0x20000000) != 0)
-                        Cells[x, y] = Cell.HighWall; //Can Fire Over.
+                        SetCellAttribute(x, y, CellAttribute.HighWall); //Can Fire Over.
 
                     offSet += 6;
                     if (((BitConverter.ToInt16(fileBytes, offSet) ^ xor) & 0x8000) != 0)
-                        Cells[x, y] = Cell.LowWall; //No Floor Tile.
+                        SetCellAttribute(x, y, CellAttribute.LowWall); //No Floor Tile.
 
-                    if (Cells[x, y] == null) Cells[x, y] = new Cell { Attribute = CellAttribute.Walk };
                     offSet += 2;
                     if (fileBytes[offSet] > 0)
                         SetDoorCell(x, y, AddDoor(fileBytes[offSet], new Point(x, y)));
@@ -251,7 +342,7 @@ namespace Server.MirEnvir
             Width = BitConverter.ToInt16(fileBytes, offSet);
             offSet += 2;
             Height = BitConverter.ToInt16(fileBytes, offSet);
-            Cells = new Cell[Width, Height];
+            InitCellData();
 
             offSet = 52;
 
@@ -259,17 +350,16 @@ namespace Server.MirEnvir
                 for (int y = 0; y < Height; y++)
                 {//total 14
                     if ((BitConverter.ToInt16(fileBytes, offSet) & 0x8000) != 0)
-                        Cells[x, y] = Cell.HighWall; //Can Fire Over.
+                        SetCellAttribute(x, y, CellAttribute.HighWall); //Can Fire Over.
 
                     offSet += 2;
                     if ((BitConverter.ToInt16(fileBytes, offSet) & 0x8000) != 0)
-                        Cells[x, y] = Cell.LowWall; //Can't Fire Over.
+                        SetCellAttribute(x, y, CellAttribute.LowWall); //Can't Fire Over.
 
                     offSet += 2;
                     if ((BitConverter.ToInt16(fileBytes, offSet) & 0x8000) != 0)
-                        Cells[x, y] = Cell.HighWall; //No Floor Tile.
+                        SetCellAttribute(x, y, CellAttribute.HighWall); //No Floor Tile.
 
-                    if (Cells[x, y] == null) Cells[x, y] = new Cell { Attribute = CellAttribute.Walk };
 
                     offSet += 2;
                     if (fileBytes[offSet] > 0)
@@ -291,7 +381,7 @@ namespace Server.MirEnvir
             Width = BitConverter.ToInt16(fileBytes, offSet);
             offSet += 2;
             Height = BitConverter.ToInt16(fileBytes, offSet);
-            Cells = new Cell[Width, Height];
+            InitCellData();
 
             offSet = 52;
 
@@ -299,17 +389,16 @@ namespace Server.MirEnvir
                 for (int y = 0; y < Height; y++)
                 {//total 36
                     if ((BitConverter.ToInt16(fileBytes, offSet) & 0x8000) != 0)
-                        Cells[x, y] = Cell.HighWall; //Can Fire Over.
+                        SetCellAttribute(x, y, CellAttribute.HighWall); //Can Fire Over.
 
                     offSet += 2;
                     if ((BitConverter.ToInt16(fileBytes, offSet) & 0x8000) != 0)
-                        Cells[x, y] = Cell.LowWall; //Can't Fire Over.
+                        SetCellAttribute(x, y, CellAttribute.LowWall); //Can't Fire Over.
 
                     offSet += 2;
                     if ((BitConverter.ToInt16(fileBytes, offSet) & 0x8000) != 0)
-                        Cells[x, y] = Cell.HighWall; //No Floor Tile.
+                        SetCellAttribute(x, y, CellAttribute.HighWall); //No Floor Tile.
 
-                    if (Cells[x, y] == null) Cells[x, y] = new Cell { Attribute = CellAttribute.Walk };
                     offSet += 2;
                     if (fileBytes[offSet] > 0)
                         SetDoorCell(x, y, AddDoor(fileBytes[offSet], new Point(x, y)));
@@ -334,7 +423,7 @@ namespace Server.MirEnvir
             int h = BitConverter.ToInt16(fileBytes, offSet);
             Width = w ^ xor;
             Height = h ^ xor;
-            Cells = new Cell[Width, Height];
+            InitCellData();
 
             offSet = 64;
 
@@ -342,13 +431,12 @@ namespace Server.MirEnvir
                 for (int y = 0; y < Height; y++)
                 {//total 12
                     if ((BitConverter.ToInt16(fileBytes, offSet) & 0x8000) != 0)
-                        Cells[x, y] = Cell.HighWall; //Can Fire Over.
+                        SetCellAttribute(x, y, CellAttribute.HighWall); //Can Fire Over.
 
                     offSet += 2;
                     if ((BitConverter.ToInt16(fileBytes, offSet) & 0x8000) != 0)
-                        Cells[x, y] = Cell.LowWall; //Can't Fire Over.
+                        SetCellAttribute(x, y, CellAttribute.LowWall); //Can't Fire Over.
 
-                    if (Cells[x, y] == null) Cells[x, y] = new Cell { Attribute = CellAttribute.Walk };
                     offSet += 4;
                     if (fileBytes[offSet] > 0)
                         SetDoorCell(x, y, AddDoor(fileBytes[offSet], new Point(x, y)));
@@ -362,18 +450,18 @@ namespace Server.MirEnvir
             Width = BitConverter.ToInt16(fileBytes, offSet);
             offSet += 2;
             Height = BitConverter.ToInt16(fileBytes, offSet);
-            Cells = new Cell[Width, Height];
+            InitCellData();
 
             offSet = 28 + (3 * ((Width / 2) + (Width % 2)) * (Height / 2));
             for (int x = 0; x < Width; x++)
                 for (int y = 0; y < Height; y++)
                 {//total 14
                     if ((fileBytes[offSet] & 0x01) != 1)
-                        Cells[x, y] = Cell.HighWall;
+                        SetCellAttribute(x, y, CellAttribute.HighWall);
                     else if ((fileBytes[offSet] & 0x02) != 2)
-                        Cells[x, y] = Cell.LowWall;
+                        SetCellAttribute(x, y, CellAttribute.LowWall);
                     else
-                        Cells[x, y] = new Cell { Attribute = CellAttribute.Walk };
+                        SetCellAttribute(x, y, CellAttribute.Walk);
                     offSet += 13;
 
                     byte light = fileBytes[offSet++];
@@ -389,7 +477,7 @@ namespace Server.MirEnvir
             Width = BitConverter.ToInt16(fileBytes, offSet);
             offSet += 2;
             Height = BitConverter.ToInt16(fileBytes, offSet);
-            Cells = new Cell[Width, Height];
+            InitCellData();
 
             offSet = 40;
 
@@ -397,11 +485,11 @@ namespace Server.MirEnvir
                 for (int y = 0; y < Height; y++)
                 {//total 20
                     if ((fileBytes[offSet] & 0x01) != 1)
-                        Cells[x, y] = Cell.HighWall;
+                        SetCellAttribute(x, y, CellAttribute.HighWall);
                     else if ((fileBytes[offSet] & 0x02) != 2)
-                        Cells[x, y] = Cell.LowWall;
+                        SetCellAttribute(x, y, CellAttribute.LowWall);
                     else
-                        Cells[x, y] = new Cell { Attribute = CellAttribute.Walk };
+                        SetCellAttribute(x, y, CellAttribute.Walk);
                     offSet += 20;
                 }
         }
@@ -412,7 +500,7 @@ namespace Server.MirEnvir
             Width = BitConverter.ToInt16(fileBytes, offSet);
             offSet += 4;
             Height = BitConverter.ToInt16(fileBytes, offSet);
-            Cells = new Cell[Width, Height];
+            InitCellData();
 
             offSet = 54;
 
@@ -420,12 +508,11 @@ namespace Server.MirEnvir
                 for (int y = 0; y < Height; y++)
                 {//total 15
                     if ((BitConverter.ToInt16(fileBytes, offSet) & 0x8000) != 0)
-                        Cells[x, y] = Cell.HighWall; //Can Fire Over.
+                        SetCellAttribute(x, y, CellAttribute.HighWall); //Can Fire Over.
                     offSet += 6;
                     if ((BitConverter.ToInt16(fileBytes, offSet) & 0x8000) != 0)
-                        Cells[x, y] = Cell.LowWall; //Can't Fire Over.
+                        SetCellAttribute(x, y, CellAttribute.LowWall); //Can't Fire Over.
                     //offSet += 2;
-                    if (Cells[x, y] == null) Cells[x, y] = new Cell { Attribute = CellAttribute.Walk };
                     offSet += 2;
                     if (fileBytes[offSet] > 0)
                         SetDoorCell(x, y, AddDoor(fileBytes[offSet], new Point(x, y)));
@@ -447,7 +534,7 @@ namespace Server.MirEnvir
             Width = BitConverter.ToInt16(Bytes, offset);
             offset += 2;
             Height = BitConverter.ToInt16(Bytes, offset);
-            Cells = new Cell[Width, Height];
+            InitCellData();
 
             offset = 8;
 
@@ -456,12 +543,11 @@ namespace Server.MirEnvir
                 {
                     offset += 2;
                     if ((BitConverter.ToInt32(Bytes, offset) & 0x20000000) != 0)
-                        Cells[x, y] = Cell.HighWall; //Can Fire Over.
+                        SetCellAttribute(x, y, CellAttribute.HighWall); //Can Fire Over.
                     offset += 10;
                     if ((BitConverter.ToInt16(Bytes, offset) & 0x8000) != 0)
-                        Cells[x, y] = Cell.LowWall; //Can't Fire Over.
+                        SetCellAttribute(x, y, CellAttribute.LowWall); //Can't Fire Over.
 
-                    if (Cells[x, y] == null) Cells[x, y] = new Cell { Attribute = CellAttribute.Walk };
                     offset += 2;
                     if (Bytes[offset] > 0)
                         SetDoorCell(x, y, AddDoor(Bytes[offset], new Point(x, y)));
@@ -561,10 +647,10 @@ namespace Server.MirEnvir
             if (WalkableCells == null)
             {
                 var count = 0;
-                for (int x = 0; x < Width; x++)
-                    for (int y = 0; y < Height; y++)
-                        if (Cells[x, y].Attribute == CellAttribute.Walk)
-                            count++;
+                var data = CellData;
+                for (int i = 0; i < data.Length; i++)
+                    if ((data[i] & CellAttributeMask) == (byte)CellAttribute.Walk)
+                        count++;
 
                 var cells = new List<Point>(count);
                 var columnStart = new int[Width + 1];
@@ -572,7 +658,7 @@ namespace Server.MirEnvir
                 {
                     columnStart[x] = cells.Count;
                     for (int y = 0; y < Height; y++)
-                        if (Cells[x, y].Attribute == CellAttribute.Walk)
+                        if ((data[x * Height + y] & CellAttributeMask) == (byte)CellAttribute.Walk)
                             cells.Add(new Point(x, y));
                 }
 
@@ -594,7 +680,7 @@ namespace Server.MirEnvir
                     {
                         if (x < 0) continue;
                         if (x >= Width) break;
-                        if (!Cells[x, y].Valid) continue;
+                        if (!ValidPoint(x, y)) continue;
 
                         SpellObject spell = new SpellObject
                         {
@@ -606,7 +692,7 @@ namespace Server.MirEnvir
                             Decoration = true
                         };
 
-                        Cells[x, y].Add(spell);
+                        GetCell(x, y).Add(spell);
 
                         spell.Spawned();
                     }
@@ -623,7 +709,7 @@ namespace Server.MirEnvir
                     {
                         if (x < 0) continue;
                         if (x >= Width) break;
-                        if (!Cells[x, y].Valid) continue;
+                        if (!ValidPoint(x, y)) continue;
 
                         SpellObject spell = new SpellObject
                             {
@@ -635,7 +721,7 @@ namespace Server.MirEnvir
                                 CurrentMap = this
                             };
 
-                        Cells[x, y].Add(spell);
+                        GetCell(x, y).Add(spell);
 
                         spell.Spawned();
                     }
@@ -674,7 +760,7 @@ namespace Server.MirEnvir
                 {
                     if (x < 0) continue;
                     if (x >= Width) break;
-                    var objects = Cells[x, y].Objects;
+                    var objects = GetCell(x, y).Objects;
                     if (objects == null) continue;
 
                     for (int i = objects.Count - 1; i >= 0; i--)
@@ -751,23 +837,35 @@ namespace Server.MirEnvir
             Mine = mine;
         }
 
+        /// <summary>The cell at <paramref name="location"/>; throws <see cref="IndexOutOfRangeException"/> outside the map.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public Cell GetCell(Point location)
         {
-            return Cells[location.X, location.Y];
+            return GetCell(location.X, location.Y);
         }
 
+        /// <summary>The cell at (x, y); throws <see cref="IndexOutOfRangeException"/> outside the map.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public Cell GetCell(int x, int y)
         {
-            return Cells[x, y];
+            // Explicit check: the flat index of an out-of-range y would land in the next column.
+            if ((uint)x >= (uint)Width || (uint)y >= (uint)Height) ThrowCellOutOfRange();
+            return new Cell(this, x * Height + y);
+        }
+
+        [DoesNotReturn]
+        private static void ThrowCellOutOfRange()
+        {
+            throw new IndexOutOfRangeException("Cell outside the map.");
         }
 
         public bool ValidPoint(Point location)
         {
-            return location.X >= 0 && location.X < Width && location.Y >= 0 && location.Y < Height && GetCell(location).Valid;
+            return ValidPoint(location.X, location.Y);
         }
         public bool ValidPoint(int x, int y)
         {
-            return x >= 0 && x < Width && y >= 0 && y < Height && GetCell(x, y).Valid;
+            return (uint)x < (uint)Width && (uint)y < (uint)Height && (CellData[x * Height + y] & CellAttributeMask) == (byte)CellAttribute.Walk;
         }
 
         public bool CheckDoorOpen(Point location)
@@ -2584,13 +2682,7 @@ namespace Server.MirEnvir
                 if (RespawnsAsleep) WakeRespawns();
             }
 
-            // AddObject knows the map and cell, so it swaps in a map-owned copy of a shared wall itself: some callers (hero and
-            // monster spawns, login) set CurrentMap only after this call, which Cell.Add's own fallback relies on.
-            var location = ob.CurrentLocation;
-            var cell = Cells[location.X, location.Y];
-            if (cell.IsShared)
-                Cells[location.X, location.Y] = cell = cell.CreateOwnCopy();
-            cell.Add(ob);
+            GetCell(ob.CurrentLocation).Add(ob);
         }
 
         public void RemoveObject(MapObject ob)
@@ -2704,42 +2796,41 @@ namespace Server.MirEnvir
             }    
         }
     }
-    public class Cell
+    /// <summary>
+    /// One map cell: a handle (the map and the cell's <see cref="Map.CellData"/> index) made by <see cref="Map.GetCell(int, int)"/>,
+    /// not a stored object. Attributes come from <see cref="Map.CellData"/>; objects from the map's lists, read on every
+    /// <see cref="Objects"/> access (never cached here), so a handle taken before the cell's first <see cref="Add"/> sees the object
+    /// after it.
+    /// </summary>
+    public readonly struct Cell
     {
-        // Wall cells hold no per-cell state at load, so every map shares one instance per (attribute, fishing value): most of a
-        // map's cells are walls. A shared cell turns into a map-owned copy on its first Add (see Add), so nothing a script or
-        // spell places on a wall ends up on other maps' walls.
-        private static readonly Cell[] SharedLowWalls = CreateSharedWalls(CellAttribute.LowWall);
-        private static readonly Cell[] SharedHighWalls = CreateSharedWalls(CellAttribute.HighWall);
-
-        public static Cell LowWall { get { return SharedLowWalls[0]; } }
-        public static Cell HighWall { get { return SharedHighWalls[0]; } }
-
-        /// <summary>The shared wall cell for <paramref name="attribute"/> with <paramref name="fishingAttribute"/> (-1 = none).</summary>
-        public static Cell SharedWall(CellAttribute attribute, sbyte fishingAttribute)
-        {
-            var walls = attribute == CellAttribute.LowWall ? SharedLowWalls : SharedHighWalls;
-            var i = fishingAttribute + 1;
-            return i >= 0 && i < walls.Length ? walls[i] : new Cell { Attribute = attribute, FishingAttribute = fishingAttribute };
-        }
-
-        private static Cell[] CreateSharedWalls(CellAttribute attribute)
-        {
-            // Fishing values come from map light bytes 100-119, so -1..19.
-            var walls = new Cell[21];
-            for (int i = 0; i < walls.Length; i++)
-                walls[i] = new Cell { Attribute = attribute, FishingAttribute = (sbyte)(i - 1), IsShared = true };
-            return walls;
-        }
-
         private static readonly List<MapObject> NoObjects = new List<MapObject>(0);
+
+        private readonly Map _map;
+        private readonly int _index;
+
+        internal Cell(Map map, int index)
+        {
+            _map = map;
+            _index = index;
+        }
 
         public bool Valid
         {
-            get { return Attribute == CellAttribute.Walk; }
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get { return (_map.CellData[_index] & Map.CellAttributeMask) == (byte)CellAttribute.Walk; }
         }
 
-        private List<MapObject> _objects;
+        public CellAttribute Attribute
+        {
+            get { return (CellAttribute)(_map.CellData[_index] & Map.CellAttributeMask); }
+        }
+
+        /// <summary>The fishing value (0..19), or -1 when the cell has none.</summary>
+        public sbyte FishingAttribute
+        {
+            get { return (sbyte)((_map.CellData[_index] >> 2) - 1); }
+        }
 
         /// <summary>
         /// The objects on this cell. Read-only for callers: change it only through <see cref="Add"/> / <see cref="Remove"/>. A cell
@@ -2747,13 +2838,9 @@ namespace Server.MirEnvir
         /// </summary>
         public List<MapObject> Objects
         {
-            get { return _objects ?? NoObjects; }
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get { return _map.GetCellObjects(_index) ?? NoObjects; }
         }
-
-        public CellAttribute Attribute;
-        public sbyte FishingAttribute = -1;
-        /// <summary>One of the shared wall cells: never holds objects (Add moves the object to a map-owned copy).</summary>
-        public bool IsShared { get; private set; }
 
         public void Add(MapObject mapObject)
         {
@@ -2763,45 +2850,14 @@ namespace Server.MirEnvir
                 return;
             }
 
-            if (IsShared)
-            {
-                AddToOwnCopy(mapObject);
-                return;
-            }
-
-            if (_objects == null)
-                _objects = new List<MapObject>();
-            else if (_objects.Contains(mapObject))
+            var objects = _map.GetOrCreateCellObjects(_index);
+            if (objects.Contains(mapObject))
             {
                 ReportCellIssue($"Duplicate MapObject add detected for ObjectID {mapObject.ObjectID}.");
                 return;
             }
 
-            _objects.Add(mapObject);
-        }
-
-        /// <summary>A map-owned cell with this cell's attributes and no objects.</summary>
-        internal Cell CreateOwnCopy()
-        {
-            return new Cell { Attribute = Attribute, FishingAttribute = FishingAttribute };
-        }
-
-        // Direct Cells[x, y].Add / GetCell(...).Add callers: a shared wall cell only knows where it is through the object (its
-        // CurrentMap / CurrentLocation). Map.AddObject swaps the copy in itself, so it does not depend on CurrentMap being set yet.
-        private void AddToOwnCopy(MapObject mapObject)
-        {
-            var map = mapObject.CurrentMap;
-            var location = mapObject.CurrentLocation;
-            if (map == null || map.Cells == null || location.X < 0 || location.Y < 0 || location.X >= map.Width || location.Y >= map.Height ||
-                !ReferenceEquals(map.Cells[location.X, location.Y], this))
-            {
-                ReportCellIssue($"MapObject {mapObject.ObjectID} added to a shared wall cell it is not on; not added.");
-                return;
-            }
-
-            var own = CreateOwnCopy();
-            map.Cells[location.X, location.Y] = own;
-            own.Add(mapObject);
+            objects.Add(mapObject);
         }
 
         public void Remove(MapObject mapObject)
@@ -2812,11 +2868,12 @@ namespace Server.MirEnvir
                 return;
             }
 
-            if (_objects == null || !_objects.Remove(mapObject))
+            var objects = _map.GetCellObjects(_index);
+            if (objects == null || !objects.Remove(mapObject))
             {
                 ReportCellIssue($"Failed to remove MapObject {mapObject.ObjectID} from Cell collection.");
             }
-            // DO NOT set _objects = null; keep the list to avoid re-alloc (and so readers never see it vanish)
+            // Keep the list (no re-alloc, and readers never see it vanish)
         }
 
         private static void ReportCellIssue(string message)

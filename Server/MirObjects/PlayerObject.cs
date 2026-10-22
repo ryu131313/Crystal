@@ -3183,7 +3183,7 @@ namespace Server.MirObjects
 
                             Cell cell = CurrentMap.GetCell(Front);
 
-                            if (cell == null || cell.Objects == null) return;
+                            if (cell.Objects == null) return;
 
                             for (int i = 0; i < cell.Objects.Count; i++)
                             {
@@ -4384,9 +4384,9 @@ namespace Server.MirObjects
                             map = CurrentMap;
                         }
 
-                        foreach (var cell in map.Cells)
+                        foreach (var cell in map.ObjectCells())
                         {
-                            if (cell == null || cell.Objects == null) continue;
+                            if (cell.Objects == null) continue;
 
                             int obCount = cell.Objects.Count();
 
@@ -5263,7 +5263,7 @@ namespace Server.MirObjects
 
                 Cell cell = CurrentMap.GetCell(CurrentLocation);
 
-                if (cell != null && cell.Objects != null)
+                if (cell.Objects != null)
                 {
                     for (int i = 0; i < cell.Objects.Count; i++)
                     {
@@ -5527,7 +5527,7 @@ namespace Server.MirObjects
             if (checkmap != null && checkmap.ValidPoint(checklocation))
             {
                 var srcCell = checkmap.GetCell(checklocation);
-                if (srcCell != null && srcCell.Objects != null && srcCell.Objects.Contains(this))
+                if (srcCell.Objects != null && srcCell.Objects.Contains(this))
                 {
                     checkmap.RemoveObject(this);
                 }
@@ -12403,7 +12403,7 @@ namespace Server.MirObjects
                 return;
             }
 
-            Cell fishingCell = CurrentMap.Cells[fishingPoint.X, fishingPoint.Y];
+            Cell fishingCell = CurrentMap.GetCell(fishingPoint.X, fishingPoint.Y);
 
             if (fishingCell.FishingAttribute < 0)
             {

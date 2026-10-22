@@ -275,7 +275,7 @@ Every path is relative to the **process cwd** (`Path.Combine(".", ...)`); `Progr
 - **NEVER** `new List<T>()` / `new Dictionary<K,V>()` per tick per object — hoist to fields, pre-size, reuse.
 - **NEVER** box value types or capture closures in per-tick code (note `DelayedAction`'s `params object[]` boxes — don't add new per-tick `DelayedAction`s where a field timer works).
 - **NEVER** add `GC.Collect()` — the only existing call is in `StopEnvir`.
-- **NEVER** change a map cell except through `Cell.Add`/`Cell.Remove` (2026-10-22, map memory): `Cell.Objects` of a cell that never held an object is one shared empty list, and wall cells are shared instances across all maps (`Cell.IsShared`; `Add` swaps in a map-owned copy). Don't mutate `cell.Objects`, `Attribute` or `FishingAttribute` directly, and don't keep a `Cell` reference across an `Add` to a wall. Per-cell side data goes in sparse structures (`Map.GetDoor`, `MineGrid`), not a `[Width, Height]` array.
+- **NEVER** change a map cell's objects except through `Cell.Add`/`Cell.Remove` (2026-10-22, map memory): `Cell` is a struct handle (map + index) from `Map.GetCell`, attributes live in the load-time-immutable `Map.CellData` byte grid, and object lists are created per cell on the first `Add` in lazily allocated 64-cell blocks; `Cell.Objects` of a cell that never held an object is one shared empty list, so never `Add`/`Remove` on the list itself (the only exception is `Map.RemoveSafeZoneSpells`). Per-cell side data goes in sparse structures (`Map.GetDoor`, `MineGrid`, the object blocks), not a `[Width, Height]` array of objects; whole-map object scans use `Map.ObjectCells()`.
 - **NEVER** let a per-connection queue grow unbounded — enforce `Settings.MaxPacket` on receive and cap any new queue you add.
 - **NEVER** parse JSON or build `Dictionary<string,object>` on the game thread; web admin delegates passed to `RunAsync` only read/mutate and snapshot — parsing, hashing, IO and serialisation happen on the HTTP thread.
 - **NEVER** use `Envir.GetObject/GetObjects`, `NPCObject.Get`, `NPCScript.GetOrAdd`, `Envir.GetMapByNameAndInstance` (LINQ over global collections) in per-tick code.
@@ -308,7 +308,7 @@ Every path is relative to the **process cwd** (`Path.Combine(".", ...)`); `Progr
 | `Envir.Process` timers | `Timers.Keys.ToArray()` once per second |
 | `SaveGuilds` | `Guilds.Find(lambda)` per guild per save |
 | `NPCObject` speech, `NPCScript.PriceRate`, `GuildObject` ctor `Any`, `MonsterInfo.GameName` (`Regex.Replace`), `UserMagic` info lookup | LINQ/regex over collections |
-| `Cell.LowWall/HighWall` static getters | ~~allocate a new `Cell` per call~~ (fixed 2026-10-22: shared wall cells; `Future Optimisation/MapGrid-Memory-2026-10-22.md`) |
+| `Cell.LowWall/HighWall` static getters | ~~allocate a new `Cell` per call~~ (fixed 2026-10-22: no per-cell objects at all, `Cell` is a struct over `Map.CellData`; `Future Optimisation/MapGrid-Memory-2026-10-22.md`) |
 | `MessageQueue.Enqueue` | `String.Format` + `DateTime.Now` + `Logger.GetLogger(type)` lookup + MinimalLock file write per message on the caller |
 
 #### 3.1.1 In-memory indexes over `Envir` lists
@@ -483,7 +483,7 @@ Crystal keeps plain `List<T>` on `Envir` (`AccountList`, `CharacterList`, `ItemI
 - **ALWAYS** fold a new monster timer field into `SetOperateTime()` (or set `OperateTime = 0`) — otherwise it fires up to 2 s late.
 - **ALWAYS** register a new `BuffType` in `BuffInfo.Load()`; add a new `Spell` to `Envir.FillMagicInfoList()` and a case in `HumanObject.Magic`.
 - **ALWAYS** start subclass `GetInfo()` overrides from `(S.ObjectMonster)base.GetInfo()`.
-- **ALWAYS** bounds-check cell scans (`GetCell` has no bounds check; use `ValidPoint` or the `if (y < 0) continue; if (y >= Height) break;` idiom).
+- **ALWAYS** bounds-check cell scans (`GetCell` throws `IndexOutOfRangeException` outside the map; use `ValidPoint` or the `if (y < 0) continue; if (y >= Height) break;` idiom).
 - **ALWAYS** make NPC script pages reachable from `[@MAIN]` buttons/GOTOs (unreachable pages are never parsed), and add new jump keywords to the GOTO detection in `NPCScript.ParseSegment`.
 - **ALWAYS** remember gold is per **account** (`player.Account.Gold`), and monster drops are owner-protected for `Settings.Minute`.
 

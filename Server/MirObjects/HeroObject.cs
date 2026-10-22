@@ -1099,7 +1099,7 @@ namespace Server.MirObjects
                     {
                         if (x < 0) continue;
                         if (x >= Current.Width) break;
-                        Cell cell = Current.Cells[x, y];
+                        Cell cell = Current.GetCell(x, y);
                         if (cell.Objects == null || !cell.Valid) continue;
                         for (int i = 0; i < cell.Objects.Count; i++)
                         {

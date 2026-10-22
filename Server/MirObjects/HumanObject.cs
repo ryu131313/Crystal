@@ -4725,8 +4725,7 @@ namespace Server.MirObjects
                     if (y < 0 || y >= CurrentMap.Height) continue;
                     if (!CurrentMap.ValidPoint(x, y)) continue;
                     var cell = CurrentMap.GetCell(x, y);
-                    if (cell == null ||
-                        cell.Objects == null ||
+                    if (cell.Objects == null ||
                         cell.Objects.Count <= 0) continue;
                     foreach (var target in cell.Objects)
                     {

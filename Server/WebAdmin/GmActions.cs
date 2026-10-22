@@ -1512,24 +1512,17 @@ namespace Server.WebAdmin
 
             var victims = new List<MonsterObject>();
             var seen = new HashSet<MapObject>();
-            var cells = map.Cells;
-
-            if (cells != null)
+            if (map.CellData != null)
             {
-                for (var x = 0; x < map.Width; x++)
+                foreach (var cell in map.ObjectCells())
                 {
-                    for (var y = 0; y < map.Height; y++)
+                    var objects = cell.Objects;
+                    for (var i = 0; i < objects.Count; i++)
                     {
-                        var cell = cells[x, y];
-                        if (cell?.Objects == null) continue;
-
-                        for (var i = 0; i < cell.Objects.Count; i++)
-                        {
-                            if (!(cell.Objects[i] is MonsterObject mob) || mob.Race != ObjectType.Monster || mob.Dead) continue;
-                            if (mob.Master != null) continue; // pets
-                            if (mob.Info != null && GmCatalog.ConquestAIs.Contains((int)mob.Info.AI)) continue;
-                            if (seen.Add(mob)) victims.Add(mob);
-                        }
+                        if (!(objects[i] is MonsterObject mob) || mob.Race != ObjectType.Monster || mob.Dead) continue;
+                        if (mob.Master != null) continue; // pets
+                        if (mob.Info != null && GmCatalog.ConquestAIs.Contains((int)mob.Info.AI)) continue;
+                        if (seen.Add(mob)) victims.Add(mob);
                     }
                 }
             }
