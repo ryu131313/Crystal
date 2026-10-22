@@ -57,6 +57,73 @@ using System.Drawing;
         public MineSet Mine;
     }
 
+    /// <summary>
+    /// A map's mine: the mine set of every cell (the map's MineIndex, overridden by its mine zones, later zones winning) and the
+    /// spot state of the cells mined so far. A spot is created on first use with the state a spot had at map load
+    /// (StonesLeft 0, LastRegenTick 0), so only mined cells cost memory. Game thread only (mining is player/hero code).
+    /// </summary>
+    public sealed class MineGrid
+    {
+        private readonly struct Zone
+        {
+            public readonly int Left, Top, Right, Bottom;
+            public readonly MineSet Set;
+
+            public Zone(int left, int top, int right, int bottom, MineSet set)
+            {
+                Left = left; Top = top; Right = right; Bottom = bottom; Set = set;
+            }
+        }
+
+        private readonly int _width, _height;
+        private readonly MineSet _baseSet;
+        private readonly List<Zone> _zones = new List<Zone>();
+        private readonly Dictionary<int, MineSpot> _spots = new Dictionary<int, MineSpot>();
+
+        public MineGrid(int width, int height, MineSet baseSet)
+        {
+            _width = width;
+            _height = height;
+            _baseSet = baseSet;
+        }
+
+        /// <summary>Cells left &lt;= x &lt;= right, top &lt;= y &lt;= bottom use <paramref name="set"/> (null = no mine).</summary>
+        public void AddZone(int left, int top, int right, int bottom, MineSet set)
+        {
+            _zones.Add(new Zone(left, top, right, bottom, set));
+        }
+
+        /// <summary>The spot at (x, y), or null when the cell has no mine set. Throws outside the map, as the old array did.</summary>
+        public MineSpot this[int x, int y]
+        {
+            get
+            {
+                if ((uint)x >= (uint)_width || (uint)y >= (uint)_height) throw new IndexOutOfRangeException();
+
+                var key = x * _height + y;
+                if (_spots.TryGetValue(key, out var spot)) return spot;
+
+                var set = SetAt(x, y);
+                if (set == null) return null;
+
+                spot = new MineSpot { Mine = set };
+                _spots.Add(key, spot);
+                return spot;
+            }
+        }
+
+        private MineSet SetAt(int x, int y)
+        {
+            for (int i = _zones.Count - 1; i >= 0; i--)
+            {
+                var zone = _zones[i];
+                if (x >= zone.Left && x <= zone.Right && y >= zone.Top && y <= zone.Bottom) return zone.Set;
+            }
+
+            return _baseSet;
+        }
+    }
+
     public class MineDrop
     {
         public string ItemName;

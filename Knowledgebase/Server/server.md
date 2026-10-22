@@ -275,6 +275,7 @@ Every path is relative to the **process cwd** (`Path.Combine(".", ...)`); `Progr
 - **NEVER** `new List<T>()` / `new Dictionary<K,V>()` per tick per object — hoist to fields, pre-size, reuse.
 - **NEVER** box value types or capture closures in per-tick code (note `DelayedAction`'s `params object[]` boxes — don't add new per-tick `DelayedAction`s where a field timer works).
 - **NEVER** add `GC.Collect()` — the only existing call is in `StopEnvir`.
+- **NEVER** change a map cell except through `Cell.Add`/`Cell.Remove` (2026-10-22, map memory): `Cell.Objects` of a cell that never held an object is one shared empty list, and wall cells are shared instances across all maps (`Cell.IsShared`; `Add` swaps in a map-owned copy). Don't mutate `cell.Objects`, `Attribute` or `FishingAttribute` directly, and don't keep a `Cell` reference across an `Add` to a wall. Per-cell side data goes in sparse structures (`Map.GetDoor`, `MineGrid`), not a `[Width, Height]` array.
 - **NEVER** let a per-connection queue grow unbounded — enforce `Settings.MaxPacket` on receive and cap any new queue you add.
 - **NEVER** parse JSON or build `Dictionary<string,object>` on the game thread; web admin delegates passed to `RunAsync` only read/mutate and snapshot — parsing, hashing, IO and serialisation happen on the HTTP thread.
 - **NEVER** use `Envir.GetObject/GetObjects`, `NPCObject.Get`, `NPCScript.GetOrAdd`, `Envir.GetMapByNameAndInstance` (LINQ over global collections) in per-tick code.
@@ -307,7 +308,7 @@ Every path is relative to the **process cwd** (`Path.Combine(".", ...)`); `Progr
 | `Envir.Process` timers | `Timers.Keys.ToArray()` once per second |
 | `SaveGuilds` | `Guilds.Find(lambda)` per guild per save |
 | `NPCObject` speech, `NPCScript.PriceRate`, `GuildObject` ctor `Any`, `MonsterInfo.GameName` (`Regex.Replace`), `UserMagic` info lookup | LINQ/regex over collections |
-| `Cell.LowWall/HighWall` static getters | allocate a new `Cell` per call |
+| `Cell.LowWall/HighWall` static getters | ~~allocate a new `Cell` per call~~ (fixed 2026-10-22: shared wall cells; `Future Optimisation/MapGrid-Memory-2026-10-22.md`) |
 | `MessageQueue.Enqueue` | `String.Format` + `DateTime.Now` + `Logger.GetLogger(type)` lookup + MinimalLock file write per message on the caller |
 
 #### 3.1.1 In-memory indexes over `Envir` lists

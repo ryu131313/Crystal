@@ -25,10 +25,15 @@ namespace Server.MirEnvir
 
         public int Width, Height;
         public Cell[,] Cells;
+        /// <summary>Walkable cells in x-major, y-minor order (exact capacity); <see cref="WalkableColumnStart"/> indexes it by column.</summary>
         public List<Point> WalkableCells;
-        public Door[,] DoorIndex;
+        /// <summary>Index of column x's first entry in <see cref="WalkableCells"/>; entry Width is the count (Width + 1 entries).</summary>
+        public int[] WalkableColumnStart;
+        /// <summary>Door of each door cell, keyed x * Height + y; null when the map has no doors (most maps).</summary>
+        private Dictionary<int, Door> _doorCells;
         public List<Door> Doors = new List<Door>();
-        public MineSpot[,] Mine;
+        /// <summary>Mine spots, created on first use; null when the map has no mine.</summary>
+        public MineGrid Mine;
         public long LightningTime, FireTime;
         public int MonsterCount;
 
@@ -84,16 +89,40 @@ namespace Server.MirEnvir
         /// </summary>
         public bool IsDoorNear(byte doorIndex, Point location, int range)
         {
-            if (DoorIndex == null) return false;
+            if (_doorCells == null) return false;
             doorIndex = (byte)(doorIndex & 0x7F);
             for (var x = location.X - range; x <= location.X + range; x++)
                 for (var y = location.Y - range; y <= location.Y + range; y++)
                 {
                     if (x < 0 || y < 0 || x >= Width || y >= Height) continue;
-                    var door = DoorIndex[x, y];
+                    var door = GetDoor(x, y);
                     if (door != null && door.index == doorIndex) return true;
                 }
             return false;
+        }
+
+        /// <summary>The door on cell (x, y), or null. x and y must be inside the map.</summary>
+        public Door GetDoor(int x, int y)
+        {
+            if (_doorCells == null) return null;
+            _doorCells.TryGetValue(x * Height + y, out var door);
+            return door;
+        }
+
+        private void SetDoorCell(int x, int y, Door door)
+        {
+            _doorCells ??= new Dictionary<int, Door>();
+            _doorCells[x * Height + y] = door;
+        }
+
+        // Map loaders: a wall cell is a shared instance, so a fishing value picks the shared wall that carries it.
+        private void SetFishingAttribute(int x, int y, sbyte value)
+        {
+            var cell = Cells[x, y];
+            if (cell.IsShared)
+                Cells[x, y] = Cell.SharedWall(cell.Attribute, value);
+            else
+                cell.FishingAttribute = value;
         }
 
         private byte FindType(byte[] input)
@@ -142,7 +171,6 @@ namespace Server.MirEnvir
             offSet += 2;
             Height = BitConverter.ToInt16(fileBytes, offSet);
             Cells = new Cell[Width, Height];
-            DoorIndex = new Door[Width, Height];
 
             offSet = 52;
 
@@ -166,14 +194,14 @@ namespace Server.MirEnvir
                     offSet += 4;
 
                     if (fileBytes[offSet] > 0)
-                        DoorIndex[x, y] = AddDoor(fileBytes[offSet], new Point(x, y));
+                        SetDoorCell(x, y, AddDoor(fileBytes[offSet], new Point(x, y)));
 
                     offSet += 3;
 
                     byte light = fileBytes[offSet++];
 
                     if (light >= 100 && light <= 119)
-                        Cells[x, y].FishingAttribute = (sbyte)(light - 100);
+                        SetFishingAttribute(x, y, (sbyte)(light - 100));
                 }
         }
         
@@ -189,7 +217,6 @@ namespace Server.MirEnvir
             Width = w ^ xor;
             Height = h ^ xor;
             Cells = new Cell[Width, Height];
-            DoorIndex = new Door[Width, Height];
 
             offSet = 54;
 
@@ -206,13 +233,13 @@ namespace Server.MirEnvir
                     if (Cells[x, y] == null) Cells[x, y] = new Cell { Attribute = CellAttribute.Walk };
                     offSet += 2;
                     if (fileBytes[offSet] > 0)
-                        DoorIndex[x, y] = AddDoor(fileBytes[offSet], new Point(x, y));
+                        SetDoorCell(x, y, AddDoor(fileBytes[offSet], new Point(x, y)));
                     offSet += 5;
 
                     byte light = fileBytes[offSet++];
 
                     if (light >= 100 && light <= 119)
-                        Cells[x, y].FishingAttribute = (sbyte)(light - 100);
+                        SetFishingAttribute(x, y, (sbyte)(light - 100));
 
                     offSet += 1;
                 }
@@ -225,7 +252,6 @@ namespace Server.MirEnvir
             offSet += 2;
             Height = BitConverter.ToInt16(fileBytes, offSet);
             Cells = new Cell[Width, Height];
-            DoorIndex = new Door[Width, Height];
 
             offSet = 52;
 
@@ -247,13 +273,13 @@ namespace Server.MirEnvir
 
                     offSet += 2;
                     if (fileBytes[offSet] > 0)
-                        DoorIndex[x, y] = AddDoor(fileBytes[offSet], new Point(x, y));
+                        SetDoorCell(x, y, AddDoor(fileBytes[offSet], new Point(x, y)));
                     offSet += 5;
 
                     byte light = fileBytes[offSet++];
 
                     if (light >= 100 && light <= 119)
-                        Cells[x, y].FishingAttribute = (sbyte)(light - 100);
+                        SetFishingAttribute(x, y, (sbyte)(light - 100));
 
                     offSet += 2;
                 }
@@ -266,7 +292,6 @@ namespace Server.MirEnvir
             offSet += 2;
             Height = BitConverter.ToInt16(fileBytes, offSet);
             Cells = new Cell[Width, Height];
-            DoorIndex = new Door[Width, Height];
 
             offSet = 52;
 
@@ -287,13 +312,13 @@ namespace Server.MirEnvir
                     if (Cells[x, y] == null) Cells[x, y] = new Cell { Attribute = CellAttribute.Walk };
                     offSet += 2;
                     if (fileBytes[offSet] > 0)
-                        DoorIndex[x, y] = AddDoor(fileBytes[offSet], new Point(x, y));
+                        SetDoorCell(x, y, AddDoor(fileBytes[offSet], new Point(x, y)));
                     offSet += 12;
 
                     byte light = fileBytes[offSet++];
 
                     if (light >= 100 && light <= 119)
-                        Cells[x, y].FishingAttribute = (sbyte)(light - 100);
+                        SetFishingAttribute(x, y, (sbyte)(light - 100));
 
                     offSet += 17;
                 }
@@ -310,7 +335,6 @@ namespace Server.MirEnvir
             Width = w ^ xor;
             Height = h ^ xor;
             Cells = new Cell[Width, Height];
-            DoorIndex = new Door[Width, Height];
 
             offSet = 64;
 
@@ -327,7 +351,7 @@ namespace Server.MirEnvir
                     if (Cells[x, y] == null) Cells[x, y] = new Cell { Attribute = CellAttribute.Walk };
                     offSet += 4;
                     if (fileBytes[offSet] > 0)
-                        DoorIndex[x, y] = AddDoor(fileBytes[offSet], new Point(x, y));
+                        SetDoorCell(x, y, AddDoor(fileBytes[offSet], new Point(x, y)));
                     offSet += 6;
                 }
         }
@@ -339,7 +363,6 @@ namespace Server.MirEnvir
             offSet += 2;
             Height = BitConverter.ToInt16(fileBytes, offSet);
             Cells = new Cell[Width, Height];
-            DoorIndex = new Door[Width, Height];
 
             offSet = 28 + (3 * ((Width / 2) + (Width % 2)) * (Height / 2));
             for (int x = 0; x < Width; x++)
@@ -356,7 +379,7 @@ namespace Server.MirEnvir
                     byte light = fileBytes[offSet++];
 
                     if (light >= 100 && light <= 119)
-                        Cells[x, y].FishingAttribute = (sbyte)(light - 100);
+                        SetFishingAttribute(x, y, (sbyte)(light - 100));
                 }
         }
 
@@ -367,7 +390,6 @@ namespace Server.MirEnvir
             offSet += 2;
             Height = BitConverter.ToInt16(fileBytes, offSet);
             Cells = new Cell[Width, Height];
-            DoorIndex = new Door[Width, Height];
 
             offSet = 40;
 
@@ -391,7 +413,6 @@ namespace Server.MirEnvir
             offSet += 4;
             Height = BitConverter.ToInt16(fileBytes, offSet);
             Cells = new Cell[Width, Height];
-            DoorIndex = new Door[Width, Height];
 
             offSet = 54;
 
@@ -407,13 +428,13 @@ namespace Server.MirEnvir
                     if (Cells[x, y] == null) Cells[x, y] = new Cell { Attribute = CellAttribute.Walk };
                     offSet += 2;
                     if (fileBytes[offSet] > 0)
-                        DoorIndex[x, y] = AddDoor(fileBytes[offSet], new Point(x, y));
+                        SetDoorCell(x, y, AddDoor(fileBytes[offSet], new Point(x, y)));
                     offSet += 4;
 
                     byte light = fileBytes[offSet++];
 
                     if (light >= 100 && light <= 119)
-                        Cells[x, y].FishingAttribute = (sbyte)(light - 100);
+                        SetFishingAttribute(x, y, (sbyte)(light - 100));
 
                     offSet += 2;
                 }
@@ -427,7 +448,6 @@ namespace Server.MirEnvir
             offset += 2;
             Height = BitConverter.ToInt16(Bytes, offset);
             Cells = new Cell[Width, Height];
-            DoorIndex = new Door[Width, Height];
 
             offset = 8;
 
@@ -444,13 +464,13 @@ namespace Server.MirEnvir
                     if (Cells[x, y] == null) Cells[x, y] = new Cell { Attribute = CellAttribute.Walk };
                     offset += 2;
                     if (Bytes[offset] > 0)
-                        DoorIndex[x, y] = AddDoor(Bytes[offset], new Point(x, y));
+                        SetDoorCell(x, y, AddDoor(Bytes[offset], new Point(x, y)));
                     offset += 11;
 
                     byte light = Bytes[offset++];
 
                     if (light >= 100 && light <= 119)
-                        Cells[x, y].FishingAttribute = (sbyte)(light - 100);
+                        SetFishingAttribute(x, y, (sbyte)(light - 100));
                 }
                 
         }
@@ -502,11 +522,7 @@ namespace Server.MirEnvir
                         MapRespawn info = new MapRespawn(Info.Respawns[i]);
                         if (info.Monster == null) continue;
                         info.Map = this;
-                        info.WalkableCells = WalkableCells.Where(x =>
-                        x.X <= info.Info.Location.X + info.Info.Spread &&
-                        x.X >= info.Info.Location.X - info.Info.Spread &&
-                        x.Y <= info.Info.Location.Y + info.Info.Spread &&
-                        x.Y >= info.Info.Location.Y - info.Info.Spread).ToList();
+                        info.WalkableCells = BuildRespawnCells(info.Info);
 
                         Respawns.Add(info);
 
@@ -544,12 +560,25 @@ namespace Server.MirEnvir
         {
             if (WalkableCells == null)
             {
-                WalkableCells = new List<Point>();
-
+                var count = 0;
                 for (int x = 0; x < Width; x++)
                     for (int y = 0; y < Height; y++)
                         if (Cells[x, y].Attribute == CellAttribute.Walk)
-                            WalkableCells.Add(new Point(x, y));
+                            count++;
+
+                var cells = new List<Point>(count);
+                var columnStart = new int[Width + 1];
+                for (int x = 0; x < Width; x++)
+                {
+                    columnStart[x] = cells.Count;
+                    for (int y = 0; y < Height; y++)
+                        if (Cells[x, y].Attribute == CellAttribute.Walk)
+                            cells.Add(new Point(x, y));
+                }
+
+                columnStart[Width] = cells.Count;
+                WalkableColumnStart = columnStart;
+                WalkableCells = cells;
             }
         }
 
@@ -684,36 +713,27 @@ namespace Server.MirEnvir
             CreateMine();
         }
 
-        /// <summary>LiveDb: the walkable cells a respawn spawns on (the same box as <see cref="Load"/>), with a plain loop.</summary>
-        internal List<Point> BuildRespawnCells(RespawnInfo info)
+        /// <summary>
+        /// The walkable cells a respawn spawns on: the map's walkable cells inside the respawn's spread box, in the map list's order
+        /// (map load and LiveDb). A view over <see cref="WalkableCells"/>, not a copy.
+        /// </summary>
+        internal WalkableBox BuildRespawnCells(RespawnInfo info)
         {
-            var cells = new List<Point>();
-            if (WalkableCells == null) return cells;
-            for (int i = 0; i < WalkableCells.Count; i++)
-            {
-                var p = WalkableCells[i];
-                if (p.X <= info.Location.X + info.Spread && p.X >= info.Location.X - info.Spread &&
-                    p.Y <= info.Location.Y + info.Spread && p.Y >= info.Location.Y - info.Spread)
-                    cells.Add(p);
-            }
-
-            return cells;
+            return new WalkableBox(this, info.Location.X - info.Spread, info.Location.Y - info.Spread,
+                info.Location.X + info.Spread, info.Location.Y + info.Spread);
         }
 
         private void CreateMine()
         {
             if ((Info.MineIndex == 0) && (Info.MineZones.Count == 0)) return;
-            Mine = new MineSpot[Width, Height];
-            for (int i = 0; i < Width; i++)
-                for (int j = 0; j < Height; j++)
-                    Mine[i, j] = new MineSpot();
+            MineSet baseSet = null;
             if ((Info.MineIndex != 0) && (Settings.MineSetList.Count > Info.MineIndex - 1))
             {
                 Settings.MineSetList[Info.MineIndex - 1].SetDrops(Envir.ItemInfoList);
-                for (int i = 0; i < Width; i++)
-                    for (int j = 0; j < Height; j++)
-                        Mine[i,j].Mine = Settings.MineSetList[Info.MineIndex - 1];
+                baseSet = Settings.MineSetList[Info.MineIndex - 1];
             }
+
+            var mine = new MineGrid(Width, Height, baseSet);
             if (Info.MineZones.Count > 0)
             {
                 for (int i = 0; i < Info.MineZones.Count; i++)
@@ -722,17 +742,13 @@ namespace Server.MirEnvir
                     if (Zone.Mine != 0)
                         Settings.MineSetList[Zone.Mine - 1].SetDrops(Envir.ItemInfoList);
                     if (Settings.MineSetList.Count < Zone.Mine) continue;
-                    for (int x =  Zone.Location.X - Zone.Size; x < Zone.Location.X + Zone.Size; x++)
-                        for (int y = Zone.Location.Y - Zone.Size; y < Zone.Location.Y + Zone.Size; y++)
-                        {
-                            if ((x < 0) || (x >= Width) || (y < 0) || (y >= Height)) continue;
-                            if (Zone.Mine == 0)
-                                Mine[x, y].Mine = null;
-                            else
-                                Mine[x, y].Mine = Settings.MineSetList[Zone.Mine - 1];
-                        }
+                    // The old per-cell fill covered [Location - Size, Location + Size) on both axes.
+                    mine.AddZone(Zone.Location.X - Zone.Size, Zone.Location.Y - Zone.Size, Zone.Location.X + Zone.Size - 1,
+                        Zone.Location.Y + Zone.Size - 1, Zone.Mine == 0 ? null : Settings.MineSetList[Zone.Mine - 1]);
                 }
             }
+
+            Mine = mine;
         }
 
         public Cell GetCell(Point location)
@@ -756,8 +772,9 @@ namespace Server.MirEnvir
 
         public bool CheckDoorOpen(Point location)
         {
-            if (DoorIndex[location.X, location.Y] == null) return true;
-            if (DoorIndex[location.X, location.Y].DoorState != DoorState.Open) return false;
+            var door = GetDoor(location.X, location.Y);
+            if (door == null) return true;
+            if (door.DoorState != DoorState.Open) return false;
             return true;
         }
 
@@ -2567,7 +2584,13 @@ namespace Server.MirEnvir
                 if (RespawnsAsleep) WakeRespawns();
             }
 
-            GetCell(ob.CurrentLocation).Add(ob);
+            // AddObject knows the map and cell, so it swaps in a map-owned copy of a shared wall itself: some callers (hero and
+            // monster spawns, login) set CurrentMap only after this call, which Cell.Add's own fallback relies on.
+            var location = ob.CurrentLocation;
+            var cell = Cells[location.X, location.Y];
+            if (cell.IsShared)
+                Cells[location.X, location.Y] = cell = cell.CreateOwnCopy();
+            cell.Add(ob);
         }
 
         public void RemoveObject(MapObject ob)
@@ -2683,17 +2706,54 @@ namespace Server.MirEnvir
     }
     public class Cell
     {
-        public static Cell LowWall { get { return new Cell { Attribute = CellAttribute.LowWall }; } }
-        public static Cell HighWall { get { return new Cell { Attribute = CellAttribute.HighWall }; } }
+        // Wall cells hold no per-cell state at load, so every map shares one instance per (attribute, fishing value): most of a
+        // map's cells are walls. A shared cell turns into a map-owned copy on its first Add (see Add), so nothing a script or
+        // spell places on a wall ends up on other maps' walls.
+        private static readonly Cell[] SharedLowWalls = CreateSharedWalls(CellAttribute.LowWall);
+        private static readonly Cell[] SharedHighWalls = CreateSharedWalls(CellAttribute.HighWall);
+
+        public static Cell LowWall { get { return SharedLowWalls[0]; } }
+        public static Cell HighWall { get { return SharedHighWalls[0]; } }
+
+        /// <summary>The shared wall cell for <paramref name="attribute"/> with <paramref name="fishingAttribute"/> (-1 = none).</summary>
+        public static Cell SharedWall(CellAttribute attribute, sbyte fishingAttribute)
+        {
+            var walls = attribute == CellAttribute.LowWall ? SharedLowWalls : SharedHighWalls;
+            var i = fishingAttribute + 1;
+            return i >= 0 && i < walls.Length ? walls[i] : new Cell { Attribute = attribute, FishingAttribute = fishingAttribute };
+        }
+
+        private static Cell[] CreateSharedWalls(CellAttribute attribute)
+        {
+            // Fishing values come from map light bytes 100-119, so -1..19.
+            var walls = new Cell[21];
+            for (int i = 0; i < walls.Length; i++)
+                walls[i] = new Cell { Attribute = attribute, FishingAttribute = (sbyte)(i - 1), IsShared = true };
+            return walls;
+        }
+
+        private static readonly List<MapObject> NoObjects = new List<MapObject>(0);
 
         public bool Valid
         {
             get { return Attribute == CellAttribute.Walk; }
         }
 
-        public List<MapObject> Objects = new List<MapObject>();
+        private List<MapObject> _objects;
+
+        /// <summary>
+        /// The objects on this cell. Read-only for callers: change it only through <see cref="Add"/> / <see cref="Remove"/>. A cell
+        /// that never held an object returns one shared empty list (the list is allocated on the first Add and kept after that).
+        /// </summary>
+        public List<MapObject> Objects
+        {
+            get { return _objects ?? NoObjects; }
+        }
+
         public CellAttribute Attribute;
         public sbyte FishingAttribute = -1;
+        /// <summary>One of the shared wall cells: never holds objects (Add moves the object to a map-owned copy).</summary>
+        public bool IsShared { get; private set; }
 
         public void Add(MapObject mapObject)
         {
@@ -2703,14 +2763,47 @@ namespace Server.MirEnvir
                 return;
             }
 
-            if (Objects.Contains(mapObject))
+            if (IsShared)
+            {
+                AddToOwnCopy(mapObject);
+                return;
+            }
+
+            if (_objects == null)
+                _objects = new List<MapObject>();
+            else if (_objects.Contains(mapObject))
             {
                 ReportCellIssue($"Duplicate MapObject add detected for ObjectID {mapObject.ObjectID}.");
                 return;
             }
 
-            Objects.Add(mapObject);
+            _objects.Add(mapObject);
         }
+
+        /// <summary>A map-owned cell with this cell's attributes and no objects.</summary>
+        internal Cell CreateOwnCopy()
+        {
+            return new Cell { Attribute = Attribute, FishingAttribute = FishingAttribute };
+        }
+
+        // Direct Cells[x, y].Add / GetCell(...).Add callers: a shared wall cell only knows where it is through the object (its
+        // CurrentMap / CurrentLocation). Map.AddObject swaps the copy in itself, so it does not depend on CurrentMap being set yet.
+        private void AddToOwnCopy(MapObject mapObject)
+        {
+            var map = mapObject.CurrentMap;
+            var location = mapObject.CurrentLocation;
+            if (map == null || map.Cells == null || location.X < 0 || location.Y < 0 || location.X >= map.Width || location.Y >= map.Height ||
+                !ReferenceEquals(map.Cells[location.X, location.Y], this))
+            {
+                ReportCellIssue($"MapObject {mapObject.ObjectID} added to a shared wall cell it is not on; not added.");
+                return;
+            }
+
+            var own = CreateOwnCopy();
+            map.Cells[location.X, location.Y] = own;
+            own.Add(mapObject);
+        }
+
         public void Remove(MapObject mapObject)
         {
             if (mapObject == null)
@@ -2719,11 +2812,11 @@ namespace Server.MirEnvir
                 return;
             }
 
-            if (!Objects.Remove(mapObject))
+            if (_objects == null || !_objects.Remove(mapObject))
             {
                 ReportCellIssue($"Failed to remove MapObject {mapObject.ObjectID} from Cell collection.");
             }
-            // DO NOT set Objects = null; keep the list to avoid re-alloc
+            // DO NOT set _objects = null; keep the list to avoid re-alloc (and so readers never see it vanish)
         }
 
         private static void ReportCellIssue(string message)
@@ -2754,7 +2847,8 @@ namespace Server.MirEnvir
         public byte ErrorCount = 0;
 
         public List<RouteInfo> Route;
-        public List<Point> WalkableCells;
+        /// <summary>The cells this respawn spawns on (a view over the map's walkable cells; <see cref="Map.BuildRespawnCells"/>).</summary>
+        public WalkableBox WalkableCells;
 
         public MapRespawn(RespawnInfo info)
         {
