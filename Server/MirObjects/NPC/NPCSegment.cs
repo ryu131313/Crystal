@@ -35,6 +35,19 @@ namespace Server.MirObjects
 
         public List<string> Args = new List<string>();
 
+        // Fixed patterns, built once (2026-10-22: a new Regex per call re-parsed its pattern; ReplaceValue was ~15% of server allocation under bots).
+        // The runtime patterns (ReplaceValue, FindVariable, AddVariable) are Compiled; the others run only at script load.
+        private static readonly Regex ArgRegex = new Regex(@"\%ARG\((\d+)\)");
+        private static readonly Regex FlagRegex = new Regex(@"\[(.*?)\]");
+        private static readonly Regex QuoteRegex = new Regex("\"([^\"]*)\"");
+        private static readonly Regex VarNameRegex = new Regex(@"[A-Z][0-9]", RegexOptions.IgnoreCase);
+        private static readonly Regex AddVariableRegex = new Regex(@"[A-Za-z][0-9]", RegexOptions.Compiled);
+        private static readonly Regex FindVariableRegex = new Regex(@"\%[A-Za-z][0-9]", RegexOptions.Compiled);
+        private static readonly Regex ValueRegex = new Regex(@"\<\$(.*)\>", RegexOptions.Compiled);
+        private static readonly Regex VarValueRegex = new Regex(@"(.*?)\(([A-Z][0-9])\)", RegexOptions.Compiled);
+        private static readonly Regex OneValRegex = new Regex(@"(.*?)\(((.*?))\)", RegexOptions.Compiled);
+        private static readonly Regex TwoValRegex = new Regex(@"(.*?)\(((.*?),(.*?))\)", RegexOptions.Compiled);
+
         public NPCSegment(NPCPage page, List<string> say, List<string> buttons, List<string> elseSay, List<string> elseButtons, List<string> gotoButtons)
         {
             Page = page;
@@ -50,11 +63,9 @@ namespace Server.MirObjects
 
         public string[] ParseArguments(string[] words)
         {
-            Regex r = new Regex(@"\%ARG\((\d+)\)");
-
             for (int i = 0; i < words.Length; i++)
             {
-                foreach (Match m in r.Matches(words[i].ToUpper()))
+                foreach (Match m in ArgRegex.Matches(words[i].ToUpper()))
                 {
                     if (!m.Success) continue;
 
@@ -69,9 +80,7 @@ namespace Server.MirObjects
 
         public void AddVariable(MapObject player, string key, string value)
         {
-            Regex regex = new Regex(@"[A-Za-z][0-9]");
-
-            if (!regex.Match(key).Success) return;
+            if (!AddVariableRegex.Match(key).Success) return;
 
             for (int i = 0; i < player.NPCVar.Count; i++)
             {
@@ -85,9 +94,7 @@ namespace Server.MirObjects
 
         public string FindVariable(MapObject player, string key)
         {
-            Regex regex = new Regex(@"\%[A-Za-z][0-9]");
-
-            if (!regex.Match(key).Success) return key;
+            if (!FindVariableRegex.Match(key).Success) return key;
 
             string tempKey = key.Substring(1);
 
@@ -108,9 +115,6 @@ namespace Server.MirObjects
             if (parts.Length == 0) return;
 
             string tempString, tempString2;
-
-            var regexFlag = new Regex(@"\[(.*?)\]");
-            var regexQuote = new Regex("\"([^\"]*)\"");
 
             Match quoteMatch;
 
@@ -179,7 +183,7 @@ namespace Server.MirObjects
                 case "CHECKNAMELIST":
                     if (parts.Length < 2) return;
 
-                    quoteMatch = regexQuote.Match(line);
+                    quoteMatch = QuoteRegex.Match(line);
 
                     string listPath = parts[1];
 
@@ -199,7 +203,7 @@ namespace Server.MirObjects
                 case "CHECKGUILDNAMELIST":
                     if (parts.Length < 2) return;
 
-                    quoteMatch = regexQuote.Match(line);
+                    quoteMatch = QuoteRegex.Match(line);
 
                     listPath = parts[1];
 
@@ -244,7 +248,7 @@ namespace Server.MirObjects
                 //cant use stored var
                 case "CHECK":
                     if (parts.Length < 3) return;
-                    var match = regexFlag.Match(parts[1]);
+                    var match = FlagRegex.Match(parts[1]);
                     if (match.Success)
                     {
                         string flagIndex = match.Groups[1].Captures[0].Value;
@@ -442,9 +446,6 @@ namespace Server.MirObjects
             if (parts.Length == 0) return;
 
             string fileName;
-            var regexQuote = new Regex("\"([^\"]*)\"");
-            var regexFlag = new Regex(@"\[(.*?)\]");
-
             Match quoteMatch = null;
 
             switch (parts[0].ToUpper())
@@ -556,7 +557,7 @@ namespace Server.MirObjects
                 case "CALL":
                     if (parts.Length < 2) return;
 
-                    quoteMatch = regexQuote.Match(line);
+                    quoteMatch = QuoteRegex.Match(line);
 
                     string listPath = parts[1];
 
@@ -584,7 +585,7 @@ namespace Server.MirObjects
                 case "ADDNAMELIST":
                     if (parts.Length < 2) return;
 
-                    quoteMatch = regexQuote.Match(line);
+                    quoteMatch = QuoteRegex.Match(line);
 
                     listPath = parts[1];
 
@@ -606,7 +607,7 @@ namespace Server.MirObjects
                 case "ADDGUILDNAMELIST":
                     if (parts.Length < 2) return;
 
-                    quoteMatch = regexQuote.Match(line);
+                    quoteMatch = QuoteRegex.Match(line);
 
                     listPath = parts[1];
 
@@ -627,7 +628,7 @@ namespace Server.MirObjects
                 case "DELNAMELIST":
                     if (parts.Length < 2) return;
 
-                    quoteMatch = regexQuote.Match(line);
+                    quoteMatch = QuoteRegex.Match(line);
 
                     listPath = parts[1];
 
@@ -647,7 +648,7 @@ namespace Server.MirObjects
                 case "DELGUILDNAMELIST":
                     if (parts.Length < 2) return;
 
-                    quoteMatch = regexQuote.Match(line);
+                    quoteMatch = QuoteRegex.Match(line);
 
                     listPath = parts[1];
 
@@ -666,7 +667,7 @@ namespace Server.MirObjects
                 case "CLEARNAMELIST":
                     if (parts.Length < 2) return;
 
-                    quoteMatch = regexQuote.Match(line);
+                    quoteMatch = QuoteRegex.Match(line);
 
                     listPath = parts[1];
 
@@ -685,7 +686,7 @@ namespace Server.MirObjects
                 case "CLEARGUILDNAMELIST":
                     if (parts.Length < 2) return;
 
-                    quoteMatch = regexQuote.Match(line);
+                    quoteMatch = QuoteRegex.Match(line);
 
                     listPath = parts[1];
 
@@ -758,7 +759,7 @@ namespace Server.MirObjects
                     break;
 
                 case "LOCALMESSAGE":
-                    var match = regexQuote.Match(line);
+                    var match = QuoteRegex.Match(line);
                     if (match.Success)
                     {
                         var message = match.Groups[1].Captures[0].Value;
@@ -769,7 +770,7 @@ namespace Server.MirObjects
                     break;
 
                 case "GLOBALMESSAGE":
-                    match = regexQuote.Match(line);
+                    match = QuoteRegex.Match(line);
                     if (match.Success)
                     {
                         var message = match.Groups[1].Captures[0].Value;
@@ -795,7 +796,7 @@ namespace Server.MirObjects
                 //cant use stored var
                 case "SET":
                     if (parts.Length < 3) return;
-                    match = regexFlag.Match(parts[1]);
+                    match = FlagRegex.Match(parts[1]);
                     if (match.Success)
                     {
                         string flagIndex = match.Groups[1].Captures[0].Value;
@@ -892,9 +893,9 @@ namespace Server.MirObjects
 
                 case "MOV":
                     if (parts.Length < 3) return;
-                    match = Regex.Match(parts[1], @"[A-Z][0-9]", RegexOptions.IgnoreCase);
+                    match = VarNameRegex.Match(parts[1]);
 
-                    quoteMatch = regexQuote.Match(line);
+                    quoteMatch = QuoteRegex.Match(line);
 
                     string valueToStore = parts[2];
 
@@ -908,9 +909,9 @@ namespace Server.MirObjects
                 case "CALC":
                     if (parts.Length < 4) return;
 
-                    match = Regex.Match(parts[1], @"[A-Z][0-9]", RegexOptions.IgnoreCase);
+                    match = VarNameRegex.Match(parts[1]);
 
-                    quoteMatch = regexQuote.Match(line);
+                    quoteMatch = QuoteRegex.Match(line);
 
                     valueToStore = parts[3];
 
@@ -961,7 +962,7 @@ namespace Server.MirObjects
                     break;
 
                 case "COMPOSEMAIL":
-                    match = regexQuote.Match(line);
+                    match = QuoteRegex.Match(line);
                     if (match.Success)
                     {
                         var message = match.Groups[1].Captures[0].Value;
@@ -1003,7 +1004,7 @@ namespace Server.MirObjects
                 case "LOADVALUE":
                     if (parts.Length < 5) return;
 
-                    quoteMatch = regexQuote.Match(line);
+                    quoteMatch = QuoteRegex.Match(line);
 
                     if (quoteMatch.Success)
                     {
@@ -1025,7 +1026,7 @@ namespace Server.MirObjects
                 case "SAVEVALUE":
                     if (parts.Length < 5) return;
 
-                    MatchCollection matchCol = regexQuote.Matches(line);
+                    MatchCollection matchCol = QuoteRegex.Matches(line);
 
                     if (matchCol.Count > 0 && matchCol[0].Success)
                     {
@@ -1092,7 +1093,7 @@ namespace Server.MirObjects
                     break;
                 case "GETRANDOMTEXT":
                     if (parts.Length < 3) return;
-                    match = Regex.Match(parts[2], @"[A-Z][0-9]", RegexOptions.IgnoreCase);
+                    match = VarNameRegex.Match(parts[2]);
                     if (match.Success)
                         acts.Add(new NPCActions(ActionType.GetRandomText, parts[1], parts[2]));
                     break;
@@ -1141,7 +1142,7 @@ namespace Server.MirObjects
                 case "DROP":
                     if (parts.Length < 2) return;
 
-                    quoteMatch = regexQuote.Match(line);
+                    quoteMatch = QuoteRegex.Match(line);
 
                     listPath = parts[1];
 
@@ -1265,31 +1266,27 @@ namespace Server.MirObjects
 
         public string ReplaceValue(PlayerObject player, string param)
         {
-            var regex = new Regex(@"\<\$(.*)\>");
-            var varRegex = new Regex(@"(.*?)\(([A-Z][0-9])\)");
-            var oneValRegex = new Regex(@"(.*?)\(((.*?))\)");
-            var twoValRegex = new Regex(@"(.*?)\(((.*?),(.*?))\)");
             ConquestObject Conquest;
             ConquestGuildArcherInfo Archer;
             ConquestGuildGateInfo Gate;
             ConquestGuildWallInfo Wall;
             ConquestGuildSiegeInfo Siege;
 
-            var match = regex.Match(param);
+            var match = ValueRegex.Match(param);
 
             if (!match.Success) return param;
 
             string innerMatch = match.Groups[1].Captures[0].Value.ToUpper();
 
-            Match varMatch = varRegex.Match(innerMatch);
-            Match oneValMatch = oneValRegex.Match(innerMatch);
-            Match twoValMatch = twoValRegex.Match(innerMatch);
+            Match varMatch = VarValueRegex.Match(innerMatch);
+            Match oneValMatch = OneValRegex.Match(innerMatch);
+            Match twoValMatch = TwoValRegex.Match(innerMatch);
 
-            if (varRegex.Match(innerMatch).Success)
+            if (varMatch.Success)
                 innerMatch = innerMatch.Replace(varMatch.Groups[2].Captures[0].Value.ToUpper(), "");
-            else if (twoValRegex.Match(innerMatch).Success)
+            else if (twoValMatch.Success)
                 innerMatch = innerMatch.Replace(twoValMatch.Groups[2].Captures[0].Value.ToUpper(), "");
-            else if (oneValRegex.Match(innerMatch).Success)
+            else if (oneValMatch.Success)
                 innerMatch = innerMatch.Replace(oneValMatch.Groups[2].Captures[0].Value.ToUpper(), "");
 
             string newValue = string.Empty;
@@ -1642,18 +1639,15 @@ namespace Server.MirObjects
         }
         public string ReplaceValue(MonsterObject Monster, string param)
         {
-            var regex = new Regex(@"\<\$(.*)\>");
-            var varRegex = new Regex(@"(.*?)\(([A-Z][0-9])\)");
-
-            var match = regex.Match(param);
+            var match = ValueRegex.Match(param);
 
             if (!match.Success) return param;
 
             string innerMatch = match.Groups[1].Captures[0].Value.ToUpper();
 
-            Match varMatch = varRegex.Match(innerMatch);
+            Match varMatch = VarValueRegex.Match(innerMatch);
 
-            if (varRegex.Match(innerMatch).Success)
+            if (varMatch.Success)
                 innerMatch = innerMatch.Replace(varMatch.Groups[2].Captures[0].Value.ToUpper(), "");
 
             string newValue = string.Empty;
