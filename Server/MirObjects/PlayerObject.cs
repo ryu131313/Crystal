@@ -6792,6 +6792,14 @@ namespace Server.MirObjects
                 return;
             }
 
+            // A rented item in the hero's bag is never returned to its lender (ProcessRentedItems looks in the renter's bag
+            // and equipment only).
+            if (temp.RentalInformation != null && (temp.RentalInformation.BindingFlags & (BindMode.DontSell | BindMode.DontTrade)) != 0)
+            {
+                Enqueue(p);
+                return;
+            }
+
             if (temp.Weight + Hero.CurrentBagWeight > Hero.Stats[Stat.BagWeight])
             {
                 ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.TooHeavyToTransfer), ChatType.System);
@@ -9595,6 +9603,14 @@ namespace Server.MirObjects
                 }
 
                 if (temp.Info.Bind.HasFlag(BindMode.DontSell))
+                {
+                    Enqueue(p);
+                    return;
+                }
+
+                // A rented item on the market is never returned to its lender (ProcessRentedItems looks in the renter's bag
+                // and equipment only).
+                if (temp.RentalInformation != null && (temp.RentalInformation.BindingFlags & (BindMode.DontSell | BindMode.DontTrade)) != 0)
                 {
                     Enqueue(p);
                     return;
