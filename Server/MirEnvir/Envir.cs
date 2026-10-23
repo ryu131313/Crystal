@@ -4302,6 +4302,8 @@ namespace Server.MirEnvir
                         TrueAccount++;
                     }
 
+                    PruneUnresolvedFriends();
+
                     foreach (var auction in Auctions)
                     {
                         auction.SellerInfo.AccountInfo.Auctions.Remove(auction);
@@ -6580,6 +6582,32 @@ namespace Server.MirEnvir
 
             return null;
         }
+        /// <summary>
+        /// Drops friend entries whose character is not in CharacterList (archived at load, ARCHIVEPLAYER, web admin account
+        /// delete). Called once from LoadAccounts after CharacterList is built; Save skips such entries anyway.
+        /// </summary>
+        private void PruneUnresolvedFriends()
+        {
+            var indexes = new HashSet<int>(CharacterList.Count);
+            for (var i = 0; i < CharacterList.Count; i++)
+                indexes.Add(CharacterList[i].Index);
+
+            var pruned = 0;
+            for (var i = 0; i < CharacterList.Count; i++)
+            {
+                var friends = CharacterList[i].Friends;
+                for (var f = friends.Count - 1; f >= 0; f--)
+                {
+                    if (indexes.Contains(friends[f].Index)) continue;
+                    friends.RemoveAt(f);
+                    pruned++;
+                }
+            }
+
+            if (pruned > 0)
+                MessageQueue.Enqueue($"[Load] Removed {pruned} friend entries that point to characters no longer in the database.");
+        }
+
         public HeroInfo GetHeroInfo(int index)
         {
             return HeroList.FirstOrDefault(x => x.Index == index);

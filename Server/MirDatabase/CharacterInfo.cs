@@ -555,7 +555,15 @@ namespace Server.MirDatabase
 
             writer.Write(RefineTimeRemaining);
 
-            writer.Write(Friends.Count);
+            // The count is the number of entries written: a friend whose character left CharacterList (archive, account
+            // delete) is skipped, and writing Friends.Count here made the reader parse the next fields as friend records.
+            int friendCount = 0;
+            for (int i = 0; i < Friends.Count; i++)
+            {
+                if (Friends[i].Info != null) friendCount++;
+            }
+
+            writer.Write(friendCount);
             for (int i = 0; i < Friends.Count; i++)
             {
                 if (Friends[i].Info == null) continue;
