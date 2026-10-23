@@ -32,11 +32,16 @@ namespace Client.Patching
             {
                 string path = PatchPaths.Normalize(e.GetProperty("p").GetString());
                 if (!PatchPaths.IsSafe(path) || PatchPaths.IsDenied(path)) continue;
+                // The hash names the part file (Patch\Temp\<h>-...part) and is compared lower-case: anything but 64 hex digits
+                // could leave Patch\Temp or break State.bin, so such an entry is skipped, as is a negative size.
+                string hash = e.GetProperty("h").GetString();
+                long size = e.GetProperty("s").GetInt64();
+                if (!PatchPaths.IsSha256(hash) || size < 0) continue;
                 manifest.Files[path] = new PatchFile
                 {
                     Path = path,
-                    Size = e.GetProperty("s").GetInt64(),
-                    Sha256 = e.GetProperty("h").GetString(),
+                    Size = size,
+                    Sha256 = hash.ToLowerInvariant(),
                     Tier = e.GetProperty("t").GetInt32(),
                     Version = e.GetProperty("v").GetString(),
                 };
@@ -170,6 +175,26 @@ namespace Client.Patching
             string ext = Path.GetExtension(file.Path);
             return ext.Equals(".exe", StringComparison.OrdinalIgnoreCase) || ext.Equals(".dll", StringComparison.OrdinalIgnoreCase)
                 || ext.Equals(".json", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// A usable patch host: an absolute https URL, or http to a loopback host (a local relay). Plain http elsewhere is
+        /// refused: the manifest carries the hashes the downloads are checked against, so a man in the middle could swap both.
+        /// </summary>
+        public static bool IsAllowedHost(string host)
+        {
+            if (string.IsNullOrWhiteSpace(host) || !Uri.TryCreate(host, UriKind.Absolute, out var uri)) return false;
+            if (uri.Scheme == Uri.UriSchemeHttps) return true;
+            return uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback;
+        }
+
+        /// <summary>A SHA-256 as the relay writes it: 64 hex digits (the hash names the Patch\Temp part file).</summary>
+        public static bool IsSha256(string hash)
+        {
+            if (hash == null || hash.Length != 64) return false;
+            foreach (char c in hash)
+                if (!char.IsAsciiHexDigit(c)) return false;
+            return true;
         }
 
         public static string Local(string rel) => Path.Combine(Root, rel.Replace('/', Path.DirectorySeparatorChar));

@@ -930,9 +930,9 @@ namespace Client.Patching
             string result = Download(file, part);
             if (result != "ok") return result;
             if (_stopping) return "later";
-            // A program file this folder does not have yet is not loaded by anything: install it now, no restart needed.
-            // Only one that exists (the running build's) is staged for PatchApply.
-            return program && File.Exists(local) ? Stage(file, part) : Install(file, part, local, program);
+            // Every program file is staged for PatchApply, also one this folder does not have yet: a new .dll can still be
+            // loaded by the next start (version.dll next to the apphost), so it waits for the update prompt like the rest.
+            return program ? Stage(file, part) : Install(file, part, local, program);
         }
 
         private static string Download(PatchFile file, string part)
@@ -1088,9 +1088,9 @@ namespace Client.Patching
         }
 
         /// <summary>
-        /// Under the lock: ready when every program file the manifest lists is recorded current, staged with its hash, or not
-        /// in this folder yet (those are installed directly); none is a rejected build; and at least one changed file the
-        /// running build uses is staged (a new-only or removal-only change never asks for a restart).
+        /// Under the lock: ready when every program file the manifest lists is recorded current or staged with its hash; none
+        /// is a rejected build; and at least one new or changed program file is staged (a removal-only change never asks for
+        /// a restart). New files are staged too since 2026-10-24 (never installed directly).
         /// </summary>
         private static void RecomputeReady()
         {
@@ -1103,11 +1103,10 @@ namespace Client.Patching
                 {
                     if (!PatchPaths.IsProgramFile(file)) continue;
                     if (_state.Files.TryGetValue(file.Path, out var rec) && rec.Sha256 == file.Sha256) continue;
-                    if (!File.Exists(PatchPaths.Local(file.Path))) continue; // new to this folder: installed directly (Fetch), no restart
                     if (_rejected.Contains(file.Sha256) || !IsStaged(file)) { ready = false; break; }
                     pending++;
                 }
-                // Only a changed program file the running build uses asks for a restart; removals ride along with it.
+                // Only a new or changed program file asks for a restart; removals ride along with it.
                 if (pending == 0) ready = false;
             }
             _updateReady = ready;

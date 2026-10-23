@@ -227,9 +227,10 @@ namespace Client
 
         //AutoPatcher
         public static bool P_Patcher = true;
-        /// <summary>[Launcher] Host: the WebRelay patch host (--patch-root) URL including its mount, ending in '/'. The built-in
-        /// default has no patch routes: a server ships Mir2Config.ini with its own (else the client runs on what is on disk).</summary>
-        public static string P_Host = @"http://mirfiles.com/mir2/cmir/patch/";
+        /// <summary>[Launcher] Host: the WebRelay patch host (--patch-root) URL including its mount, ending in '/'. Empty by
+        /// default (no patching; a server ships Mir2Config.ini with its own). https only, except a loopback host
+        /// (<see cref="Client.Patching.PatchPaths.IsAllowedHost"/>); the old default asked upstream's domain over plain http.</summary>
+        public static string P_Host = string.Empty;
         public static string P_ServerName = string.Empty;
         public static string P_Client = Application.StartupPath + "\\";
         public static int P_Concurrency = 6; // [Launcher] ConcurrentDownloads: background download workers (2 more are kept for priority files)
@@ -370,8 +371,11 @@ namespace Client
             P_Concurrency = Reader.ReadInt32("Launcher", "ConcurrentDownloads", P_Concurrency);
 
 
-            if (!P_Host.EndsWith("/")) P_Host += "/";
-            if (P_Host.StartsWith("www.", StringComparison.OrdinalIgnoreCase)) P_Host = P_Host.Insert(0, "http://");
+            P_Host = P_Host.Trim();
+            // The old built-in default (upstream's plain-http host, no patch routes) was saved into every ini: drop it.
+            if (P_Host.StartsWith("http://mirfiles.com/", StringComparison.OrdinalIgnoreCase)) P_Host = string.Empty;
+            if (P_Host.Length > 0 && !P_Host.EndsWith("/")) P_Host += "/";
+            if (P_Host.StartsWith("www.", StringComparison.OrdinalIgnoreCase)) P_Host = P_Host.Insert(0, "https://");
 
             if (P_Concurrency < 1) P_Concurrency = 1;
             if (P_Concurrency > 100) P_Concurrency = 100;

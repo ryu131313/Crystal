@@ -63,7 +63,12 @@ namespace Client
 
                 // In-game patcher: no launcher window. The game starts at once; the patcher starts on its own thread and
                 // downloads while the game runs (client.md §3.2 exception). [Launcher] Enabled=False turns it off.
-                if (Settings.P_Patcher && !renderTest) PatchService.StartInBackground();
+                // An empty or plain-http (non-loopback) [Launcher] Host is refused: the patcher installs program files.
+                if (Settings.P_Patcher && !renderTest)
+                {
+                    if (PatchPaths.IsAllowedHost(Settings.P_Host)) PatchService.StartInBackground();
+                    else if (Settings.P_Host.Length > 0) CMain.SaveError("[Patch] [Launcher] Host must be an https:// URL (http:// only for localhost); patching is off: " + Settings.P_Host);
+                }
 
                 Application.Run(Form = new CMain());
 
