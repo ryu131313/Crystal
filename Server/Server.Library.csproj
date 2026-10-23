@@ -21,6 +21,18 @@
     <ProjectReference Include="..\Shared\Shared.csproj" />
   </ItemGroup>
 
+  <!--
+    Procedural dungeons (MirEnvir/DungeonSystem.cs): Crystal.DungeonGen is built in the CrystalStudio repo and vendored here
+    by its tools/DungeonPublish (DLL + data\). monsters.json is ours. Both land in <output>\DungeonGen\.
+  -->
+  <ItemGroup>
+    <Reference Include="Crystal.DungeonGen">
+      <HintPath>..\Components\DungeonGen\Crystal.DungeonGen.dll</HintPath>
+    </Reference>
+    <None Include="..\Components\DungeonGen\data\**\*" Link="DungeonGen\data\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\Components\DungeonGen\monsters.json" Link="DungeonGen\monsters.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="Server.WebAdmin.Tests" />
     <InternalsVisibleTo Include="Server.Persistence.Tests" />

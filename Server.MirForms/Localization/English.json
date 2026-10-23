@@ -802,7 +802,16 @@
     "FriendListFullOther": "{0}'s friend list is full.",
     "FriendAdded": "You are now friends with {0}.",
     "FriendRemovedYou": "{0} removed you from their friends.",
-    "FriendRemoved": "You removed {0} from your friends."
+    "FriendRemoved": "You removed {0} from your friends.",
+    "DungeonsDisabled": "The dungeon finder is closed.",
+    "DungeonPreparing": "Preparing a dungeon for your party...",
+    "DungeonAlreadyInside": "You are already in a dungeon or waiting for one.",
+    "DungeonLimitReached": "Every dungeon is in use. Try again shortly.",
+    "DungeonUnknownProfile": "There is no dungeon called {0}.",
+    "DungeonFailed": "The dungeon could not be prepared. Try again.",
+    "DungeonEntered": "{0}: defeat {1} to open the way out.",
+    "DungeonExitOpened": "{0} has fallen. The way out has opened in its chamber.",
+    "DungeonLeaderOnly": "Only your group leader can take the group into a dungeon."
   },
   "Enum": {}
 }

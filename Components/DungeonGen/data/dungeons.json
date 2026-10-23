@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "styles": [
+    { "name": "Wooma Temple", "wallId": "wooma-temple", "floorId": "0:0:2000" },
+    { "name": "Zuma Temple", "wallId": "zuma-temple-stone", "floorId": "0:0:2400", "sideRooms": true },
+    { "name": "Stone Temple", "wallId": "stone-temple", "floorId": "0:0:2500", "entrances": "Stairs" },
+    { "name": "Bug Cave", "wallId": "bug-cave-dungeon", "floorId": "0:0:2450" },
+    { "name": "Insect Cave", "wallId": "bug-cave", "floorId": "0:0:2150" },
+    { "name": "Mines", "wallId": "mines", "floorId": "0:0:2150" },
+    { "name": "Red Moon Valley", "wallId": "black-dragon-dungeon", "floorId": "0:0:2950", "floorOffset": 0, "floorFrontOffset": -2 },
+    { "name": "Prajna Temple", "wallId": "prajna-temple-masonry", "floorId": "0:0:3100", "floorOffset": 0, "floorFrontOffset": -2 },
+    { "name": "Oma Cave", "wallId": "oma-cave", "floorId": "0:0:1900", "floorOffset": 2 },
+    { "name": "Prajna Stone Cave", "wallId": "prajna-stone-cave", "floorId": "0:0:3050", "margin": 48, "floorFrontOffset": -4, "floorRepairPadding": 2 },
+    { "name": "Fox Cave", "wallId": "fox-cave", "floorId": "0:0:2950", "floorOffset": 0, "floorFrontOffset": -2, "floorRepairPadding": 2 }
+  ]
+}

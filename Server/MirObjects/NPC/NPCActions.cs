@@ -116,5 +116,6 @@
         GTCancelSale,
         HeroGiveSkill,
         HeroRemoveSkill,
+        EnterDungeon,
     }
 }

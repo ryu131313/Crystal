@@ -1,0 +1,51 @@
+{
+  "_comment": "Procedural dungeon monsters per style (Server/MirEnvir/DungeonMonsterTable.cs). Monsters run easiest to hardest; deeper rooms draw from further up the list. Names are MonsterInfo names. Drafted from each style's original dungeon spawns; adjust freely.",
+  "cellsPerMonster": 40,
+  "maxPerRoom": 12,
+  "styles": {
+    "Wooma Temple": {
+      "monsters": [ "Dung", "Dark", "FlamingWooma", "WoomaSoldier", "WoomaFighter", "WoomaWarrior" ],
+      "boss": "WoomaTaurus"
+    },
+    "Zuma Temple": {
+      "monsters": [ "WedgeMoth", "BugBatMaggot", "GiantRat", "ZumaArcher", "ZumaStatue", "ZumaGuardian" ],
+      "boss": "ZumaTaurus"
+    },
+    "Stone Temple": {
+      "monsters": [ "BlackMaggot", "RedBoar", "BlackBoar", "ToxicGhoul", "RoninGhoul", "BoneArcher", "BoneSpearman", "BoneBlademan", "BoneCaptain" ],
+      "boss": "KingHog"
+    },
+    "Bug Cave": {
+      "monsters": [ "BlueHoroBlaster", "HoroBlaster", "SpiderFrog", "KekTal", "VioletKekTal" ],
+      "boss": "EvilCentipede"
+    },
+    "Insect Cave": {
+      "monsters": [ "GiantWorm", "Centipede", "WhimperingBee", "BlackMaggot", "Tongs" ],
+      "boss": "KingScorpion"
+    },
+    "Mines": {
+      "monsters": [ "Zombie3", "Zombie1", "Zombie2", "Zombie4", "Zombie5", "HungryZombie", "CursedZombie", "CursedShaman", "ShiZombie", "ToxicZombie" ],
+      "boss": "DarkDevil"
+    },
+    "Red Moon Valley": {
+      "monsters": [ "SpiderBat", "BigApe", "EvilApe", "LureSpider" ],
+      "boss": "RedMoonEvil"
+    },
+    "Prajna Temple": {
+      "monsters": [ "ToxicGhoul", "RoninGhoul", "BoneArcher", "BoneSpearman", "BoneBlademan", "BoneCaptain", "RightGuard", "LeftGuard" ],
+      "boss": "BoneLord"
+    },
+    "Prajna Stone Cave": {
+      "monsters": [ "Minotaur", "IceMinotaur", "FireMinotaur", "WindMinotaur", "ElectricMinotaur", "RightGuard", "LeftGuard" ],
+      "boss": "MinotaurKing"
+    },
+    "Oma Cave": {
+      "monsters": [ "CaveBat", "Skeleton", "BoneFighter", "BoneWarrior", "AxeSkeleton", "CaveMaggot", "SwordOma", "AxeOma", "CrossbowOma", "WingedOma", "FlailOma", "OmaGuard" ],
+      "boss": "OmaKing"
+    },
+    "Fox Cave": {
+      "monsters": [ "RedFrogSpider", "HedgeKekTal", "BigHedgeKekTal", "BrownFrogSpider", "ElectricElement", "CloudElement", "TrapRock", "RedFoxMan", "WhiteFoxMan", "BlackFoxMan" ],
+      "boss": "GreatFoxSpirit"
+    }
+  }
+}

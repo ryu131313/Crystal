@@ -4801,7 +4801,16 @@ public enum ServerTextKeys
     FriendListFullOther,
     FriendAdded,
     FriendRemovedYou,
-    FriendRemoved
+    FriendRemoved,
+    DungeonsDisabled,
+    DungeonPreparing,
+    DungeonAlreadyInside,
+    DungeonLimitReached,
+    DungeonUnknownProfile,
+    DungeonFailed,
+    DungeonEntered,
+    DungeonExitOpened,
+    DungeonLeaderOnly
 }
 
 public class TextMap
@@ -5623,6 +5632,15 @@ public static class GameLanguage
             { nameof(ServerTextKeys.FriendAdded), "You are now friends with {0}." },
             { nameof(ServerTextKeys.FriendRemovedYou), "{0} removed you from their friends." },
             { nameof(ServerTextKeys.FriendRemoved), "You removed {0} from your friends." },
+            { nameof(ServerTextKeys.DungeonsDisabled), "The dungeon finder is closed." },
+            { nameof(ServerTextKeys.DungeonPreparing), "Preparing a dungeon for your party..." },
+            { nameof(ServerTextKeys.DungeonAlreadyInside), "You are already in a dungeon or waiting for one." },
+            { nameof(ServerTextKeys.DungeonLimitReached), "Every dungeon is in use. Try again shortly." },
+            { nameof(ServerTextKeys.DungeonUnknownProfile), "There is no dungeon called {0}." },
+            { nameof(ServerTextKeys.DungeonFailed), "The dungeon could not be prepared. Try again." },
+            { nameof(ServerTextKeys.DungeonEntered), "{0}: defeat {1} to open the way out." },
+            { nameof(ServerTextKeys.DungeonExitOpened), "{0} has fallen. The way out has opened in its chamber." },
+            { nameof(ServerTextKeys.DungeonLeaderOnly), "Only your group leader can take the group into a dungeon." },
 
         },
         Enum = new Dictionary<string, string>

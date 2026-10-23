@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 2,
+  "familyFiles": [
+    "walls/black-dragon-dungeon/walls.json.gz",
+    "walls/bug-cave/walls.json.gz",
+    "walls/bug-cave-dungeon/walls.json.gz",
+    "walls/fox-cave/walls.json.gz",
+    "walls/mines/walls.json.gz",
+    "walls/oma-cave/walls.json.gz",
+    "walls/prajna-stone-cave/walls.json.gz",
+    "walls/prajna-temple-masonry/walls.json.gz",
+    "walls/stone-temple/walls.json.gz",
+    "walls/wooma-temple/walls.json.gz",
+    "walls/zuma-temple-stone/walls.json.gz"
+  ]
+}

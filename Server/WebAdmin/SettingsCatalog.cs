@@ -81,6 +81,7 @@ namespace Server.WebAdmin
         public const string GroupDatabase = "Database";
         public const string GroupRates = "Rates & Drops";
         public const string GroupGameplay = "Gameplay";
+        public const string GroupDungeons = "Dungeons";
         public const string GroupRested = "Rested";
         public const string GroupItems = "Items";
         public const string GroupMonsters = "Monster Names";
@@ -374,6 +375,15 @@ namespace Server.WebAdmin
             Add(GP, "PKTown", "PKTownMapName", "PKTownMapName", S, "PK town map", "Map file name where red-named players respawn.", format: "map");
             Add(GP, "PKTown", "PKTownPositionX", "PKTownPositionX", I32, "PK town X", "Respawn X coordinate on the PK town map.", min: 0, max: 10000);
             Add(GP, "PKTown", "PKTownPositionY", "PKTownPositionY", I32, "PK town Y", "Respawn Y coordinate on the PK town map.", min: 0, max: 10000);
+
+            // ---- Dungeons -----------------------------------------------------------------------------------------
+            const string DG = GroupDungeons;
+            Add(DG, "Dungeons", "Enabled", "DungeonsEnabled", B, "Procedural dungeons",
+                "Turns the whole procedural dungeon system on or off. Off: the dungeon finder refuses new runs at once; parties already inside finish their run and the instance closes when it empties. Live.");
+            Add(DG, "Dungeons", "MaxInstances", "DungeonMaxInstances", I32, "Most dungeons at once",
+                "Most dungeon instances alive at the same time, counting ones still being generated. Further parties are told to try again shortly. Live.", min: 1, max: 500);
+            Add(DG, "Dungeons", "EmptyMinutes", "DungeonEmptyMinutes", I32, "Close empty dungeons after (min)",
+                "A dungeon nobody is in (everyone left, died or logged out) is torn down after this many minutes, with every monster and item in it. Live.", min: 1, max: 60);
 
             // ---- Rested -------------------------------------------------------------------------------------------
             const string RS = GroupRested;

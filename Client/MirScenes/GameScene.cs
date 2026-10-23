@@ -1100,6 +1100,9 @@ namespace Client.MirScenes
                 case (short)ServerPacketIds.MapChanged:
                     MapChanged((S.MapChanged)p);
                     break;
+                case (short)ServerPacketIds.DungeonMap:
+                    GeneratedMaps.Add((S.DungeonMap)p);
+                    break;
                 case (short)ServerPacketIds.ObjectTeleportOut:
                     ObjectTeleportOut((S.ObjectTeleportOut)p);
                     break;
@@ -6759,10 +6762,13 @@ namespace Client.MirScenes
             MapObject.TargetObjectID = 0;
             MapObject.MagicObjectID = 0;
 
-            // In-game patcher: a missing map keeps the blank fallback and is demanded (the file check only on a map change).
-            WaitingForFile = PatchService.Active && !File.Exists(FileName) && PatchService.Demand(FileName);
+            // A generated dungeon arrives in packets before the map change (GeneratedMaps); it has no file to patch.
+            bool generated = GeneratedMaps.TryGet(FileName, out var generatedBytes);
 
-            MapReader Map = new MapReader(FileName);
+            // In-game patcher: a missing map keeps the blank fallback and is demanded (the file check only on a map change).
+            WaitingForFile = !generated && PatchService.Active && !File.Exists(FileName) && PatchService.Demand(FileName);
+
+            MapReader Map = generated ? new MapReader(FileName, generatedBytes) : new MapReader(FileName);
             M2CellInfo = Map.MapCells;
             Width = Map.Width;
             Height = Map.Height;

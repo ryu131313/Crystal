@@ -77,6 +77,7 @@ internal static class Fixtures
         moveBatch.Moves.Add(new S.ObjectMoveBatch.Move { Kind = S.ObjectMoveBatch.Run, ObjectID = 4_000_000_000, Location = new Point(65535, 0), Direction = MirDirection.UpLeft });
         moveBatch.Moves.Add(new S.ObjectMoveBatch.Move { Kind = S.ObjectMoveBatch.Turn, ObjectID = 1, Location = new Point(0, 999), Direction = MirDirection.Up });
         yield return moveBatch;
+        yield return new S.DungeonMap { FileName = "Dungeon1900001234", Part = 1, Parts = 2, Data = new byte[] { 0x1F, 0x8B, 0x08, 0x00, 0xFF } };
         yield return new S.ObjectRun { ObjectID = 77, Location = p, Direction = MirDirection.UpLeft };
         yield return new S.ObjectAttack { ObjectID = 77, Location = p, Direction = MirDirection.Left, Spell = Spell.Slaying, Level = 3, Type = 1 };
         yield return new S.Struck { AttackerID = 66 };

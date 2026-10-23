@@ -870,6 +870,12 @@ namespace Server.MirObjects
                     acts.Add(new NPCActions(ActionType.GroupRecall));
                     break;
 
+                case "ENTERDUNGEON":
+                    // ENTERDUNGEON <profile>: a procedural dungeon for the player, or their group when they lead it (MirEnvir/DungeonSystem).
+                    if (parts.Length < 2) return;
+                    acts.Add(new NPCActions(ActionType.EnterDungeon, parts[1]));
+                    break;
+
                 case "GROUPTELEPORT":
                     if (parts.Length < 2) return;
                     string x;
@@ -3070,6 +3076,10 @@ namespace Server.MirObjects
 
                 switch (act.Type)
                 {
+                    case ActionType.EnterDungeon:
+                        Envir.Dungeons?.RequestEntry(player, param[0]);
+                        break;
+
                     case ActionType.Move:
                         {
                             Map targetmap = Envir.GetMapByNameAndInstance(param[0]);

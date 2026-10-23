@@ -7858,4 +7858,39 @@ namespace ServerPackets
             }
         }
     }
+
+    /// <summary>
+    /// One part of a generated dungeon map: the gzipped map in the ".map" format, split to stay far below the packet
+    /// limit. The server sends every part before the <see cref="MapChanged"/> that enters the map; the client keeps the
+    /// map under <see cref="FileName"/> and loads it from memory instead of the Map folder. Observable, so spectators
+    /// following a player into a dungeon can draw it too.
+    /// </summary>
+    public sealed class DungeonMap : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.DungeonMap; } }
+
+        /// <summary>Most compressed map bytes one part carries.</summary>
+        public const int MaxPartBytes = 60000;
+
+        public string FileName;
+        public ushort Part, Parts;
+        public byte[] Data = Array.Empty<byte>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            FileName = reader.ReadString();
+            Part = reader.ReadUInt16();
+            Parts = reader.ReadUInt16();
+            Data = reader.ReadBytes(reader.ReadUInt16());
+        }
+
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(FileName);
+            writer.Write(Part);
+            writer.Write(Parts);
+            writer.Write((ushort)Data.Length);
+            writer.Write(Data);
+        }
+    }
 }

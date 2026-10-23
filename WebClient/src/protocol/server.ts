@@ -1172,6 +1172,12 @@ const decoders = {
     }
     return { Moves };
   },
+  /** S.DungeonMap: one part of a generated dungeon map (gzipped .map bytes). Every part arrives before the S.MapChanged
+   *  that enters the map; mapFiles.ts joins and inflates them and serves the map instead of a relay file. */
+  DungeonMap: (r: Reader) => {
+    const FileName = r.readString(), Part = r.readU16(), Parts = r.readU16();
+    return { FileName, Part, Parts, Data: r.readFixedBytes(r.readU16()) };
+  },
 } satisfies Record<string, (r: Reader) => object>;
 
 /** S.FriendRequestResult.Result codes (byte constants on the C# class, not an enum). */

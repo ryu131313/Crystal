@@ -1177,6 +1177,9 @@ namespace Server.MirObjects
                 }
             }
 
+            // Logging out inside a dungeon instance saves the player at its entrance; the instance is not saved.
+            Envir.Dungeons?.PlayerLeavingGame(this);
+
             for (int i = Pets.Count - 1; i >= 0; i--)
             {
                 MonsterObject pet = Pets[i];
@@ -2016,6 +2019,14 @@ namespace Server.MirObjects
         }
         public void StartGame()
         {
+            // Dungeon instances never outlive the process (MirEnvir/DungeonSystem). A saved index from their band means the
+            // server stopped while the player was inside: start at the bind point instead.
+            if (DungeonSystem.IsInstanceIndex(CurrentMapIndex))
+            {
+                Info.CurrentMapIndex = BindMapIndex;
+                Info.CurrentLocation = BindLocation;
+            }
+
             Map temp = Envir.GetMap(CurrentMapIndex);
 
             if (temp != null && temp.Info.NoReconnect)
@@ -3849,6 +3860,12 @@ namespace Server.MirObjects
                         if (!IsGM)
                             LastTeleportTime = Envir.Time + 10000;
                         Teleport(CurrentMap, new Point(x, y));
+                        break;
+
+                    case "DUNGEON":
+                        // @DUNGEON <profile>: what the ENTERDUNGEON NPC action does, for GMs and test servers.
+                        if ((!IsGM && !Settings.TestServer) || parts.Length < 2) return;
+                        Envir.Dungeons?.RequestEntry(this, parts[1]);
                         break;
 
                     case "MAPMOVE":

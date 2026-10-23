@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "profiles": [
+    {
+      "name": "Shallow", "level": 1, "baseTier": 1,
+      "styles": [ "Wooma Temple", "Bug Cave", "Insect Cave", "Mines" ], "types": [ "Temple", "Cave" ],
+      "rooms": 8, "roomSize": 4, "corridorWidth": 2, "linearity": 0.7, "loopChance": 0.05
+    },
+    {
+      "name": "Deep", "level": 2, "baseTier": 3,
+      "styles": [ "Zuma Temple", "Stone Temple", "Oma Cave", "Fox Cave" ], "types": [ "Temple", "Cave" ],
+      "rooms": 12, "roomSize": 5, "corridorWidth": 2, "linearity": 0.5, "loopChance": 0.1
+    },
+    {
+      "name": "Abyss", "level": 3, "baseTier": 5,
+      "styles": [ "Red Moon Valley", "Prajna Temple", "Prajna Stone Cave" ], "types": [ "Temple", "Cave" ],
+      "rooms": 16, "roomSize": 5, "corridorWidth": 2, "linearity": 0.35, "loopChance": 0.15
+    }
+  ]
+}

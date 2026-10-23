@@ -286,6 +286,8 @@ namespace Server.MirEnvir
         public List<string> CustomCommands = new List<string>();
 
         public Dragon DragonSystem;
+        /// <summary>Procedural instance dungeons (Main only; created by StartEnvir).</summary>
+        public DungeonSystem Dungeons;
         public NPCScript DefaultNPC, MonsterNPC, RobotNPC;
 
         public List<DropInfo> FishingDrops = new List<DropInfo>();
@@ -2432,6 +2434,15 @@ namespace Server.MirEnvir
 
                         try
                         {
+                            Dungeons?.Process();
+                        }
+                        catch (Exception ex)
+                        {
+                            WorldErrors.Record("Dungeons.Process", ex);
+                        }
+
+                        try
+                        {
                             Process();
                         }
                         catch (Exception ex)
@@ -2615,6 +2626,19 @@ namespace Server.MirEnvir
             map.ScheduledDue = due;
             map.ScheduledGeneration = WorldGeneration;
             _mapHeap.Enqueue(map, due);
+        }
+
+        /// <summary>
+        /// Game thread: takes a map added at runtime (a dungeon instance) out of the world. The caller has already removed
+        /// every object from it. Its queued scheduler entries go stale, and maps added after it stay scheduled.
+        /// </summary>
+        internal void RemoveMap(Map map)
+        {
+            int index = MapList.IndexOf(map);
+            if (index < 0) return;
+            MapList.RemoveAt(index);
+            if (index < _mapsKnown) _mapsKnown--;
+            map.ScheduledGeneration = int.MinValue;
         }
 
         private void RunMaps()
@@ -4978,6 +5002,8 @@ namespace Server.MirEnvir
 
                 MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.DragonLoaded));
             }
+
+            Dungeons = this == Main ? new DungeonSystem(this) : null;
 
             DefaultNPC = NPCScript.GetOrAdd((uint)Random.Next(1000000, 1999999), Settings.DefaultNPCFilename, NPCScriptType.AutoPlayer);
             MonsterNPC = NPCScript.GetOrAdd((uint)Random.Next(2000000, 2999999), Settings.MonsterNPCFilename, NPCScriptType.AutoMonster);

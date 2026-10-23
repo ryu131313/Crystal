@@ -601,6 +601,44 @@ namespace Server.MirEnvir
                             break;
                     }
 
+                    FinishLoad();
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageQueue.Enqueue(ex);
+            }
+
+            MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FailedToLoadMap) + Info.Title);
+            MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.Filename) + Info.FileName);
+            return false;
+        }
+
+        /// <summary>
+        /// Loads a map generated in memory (a procedural dungeon, MirEnvir/Dungeons) from bytes in the ".map" format 100,
+        /// then does everything <see cref="Load"/> does after reading a file. Game thread.
+        /// </summary>
+        public bool LoadGenerated(byte[] mapBytes)
+        {
+            try
+            {
+                if (mapBytes == null || mapBytes.Length < 8 || FindType(mapBytes) != 100) return false;
+                LoadMapCellsV100(mapBytes);
+                if (CellData == null) return false;
+                FinishLoad();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                MessageQueue.Enqueue(ex);
+                return false;
+            }
+        }
+
+        // The steps after the cells are read, shared by file maps and generated ones.
+        private void FinishLoad()
+        {
                     GetWalkableCells();
                     if (Settings.SectorGrid) Grid = new PlayerGrid(this);
                     
@@ -629,18 +667,6 @@ namespace Server.MirEnvir
                         CreateSafeZone(Info.SafeZones[i]);
 
                     CreateMine();
-
-                    return true;
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageQueue.Enqueue(ex);
-            }
-
-            MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.FailedToLoadMap) + Info.Title);
-            MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.Filename) + Info.FileName);
-            return false;
         }
 
         public void GetWalkableCells()

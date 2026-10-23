@@ -802,7 +802,16 @@
     "FriendListFullOther": "{0} 的好友列表已满。",
     "FriendAdded": "你和 {0} 已成为好友。",
     "FriendRemovedYou": "{0} 将你从好友列表中移除了。",
-    "FriendRemoved": "你已将 {0} 从好友列表中移除。"
+    "FriendRemoved": "你已将 {0} 从好友列表中移除。",
+    "DungeonsDisabled": "地下城探索已关闭。",
+    "DungeonPreparing": "正在为你的队伍准备地下城……",
+    "DungeonAlreadyInside": "你已经在地下城中或正在等待进入。",
+    "DungeonLimitReached": "所有地下城都在使用中，请稍后再试。",
+    "DungeonUnknownProfile": "没有名为 {0} 的地下城。",
+    "DungeonFailed": "地下城准备失败，请重试。",
+    "DungeonEntered": "{0}：击败 {1} 以打开出口。",
+    "DungeonExitOpened": "{0} 已被击败，出口已在其房间中打开。",
+    "DungeonLeaderOnly": "只有队长才能带领队伍进入地下城。"
   },
   "Enum": {}
 }

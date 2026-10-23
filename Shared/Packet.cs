@@ -602,6 +602,8 @@ public abstract class Packet
                 return new S.AllowToggles();
             case (short)ServerPacketIds.ObjectMoveBatch:
                 return new S.ObjectMoveBatch();
+            case (short)ServerPacketIds.DungeonMap:
+                return new S.DungeonMap();
             case (short)ServerPacketIds.Login:
                 return new S.Login();
             case (short)ServerPacketIds.LoginBanned:

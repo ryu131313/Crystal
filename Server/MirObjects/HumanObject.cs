@@ -7120,6 +7120,9 @@ namespace Server.MirObjects
 
             bool mapChanged = temp != oldMap;
 
+            // A generated dungeon map exists only in memory: the client gets it ahead of the S.MapChanged below.
+            if (mapChanged && this is PlayerObject player) Envir.Dungeons?.BeforeEnter(player, temp);
+
             if (!base.Teleport(temp, location, effects)) return false;
 
             Enqueue(new S.MapChanged

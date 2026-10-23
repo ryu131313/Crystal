@@ -129,6 +129,72 @@
         }
     }
 
+    /// <summary>
+    /// Maps the server sends in <see cref="ServerPackets.DungeonMap"/> parts (generated dungeons, which have no file),
+    /// kept by the path <see cref="MapControl.FileName"/> would read. UI thread only (packet handler and LoadMap). Holds the
+    /// two most recent maps: the one being entered and the one left.
+    /// </summary>
+    static class GeneratedMaps
+    {
+        private const int MaxParts = 64, MaxMapBytes = 64 * 1024 * 1024, Kept = 2;
+        private static readonly Dictionary<string, byte[][]> Partial = new Dictionary<string, byte[][]>();
+        private static readonly List<(string Path, byte[] Bytes)> Complete = new List<(string, byte[])>();
+
+        public static string PathOf(string fileName) => Path.Combine(Settings.MapPath, fileName + ".map");
+
+        /// <summary>Adds one part; when every part is in, unzips the map and keeps it.</summary>
+        public static void Add(ServerPackets.DungeonMap p)
+        {
+            // The name becomes part of a path: letters and digits only, as the server makes them.
+            if (string.IsNullOrEmpty(p.FileName) || p.FileName.Length > 64 || !p.FileName.All(char.IsLetterOrDigit)) return;
+            if (p.Parts == 0 || p.Parts > MaxParts || p.Part >= p.Parts || p.Data == null) return;
+
+            if (!Partial.TryGetValue(p.FileName, out var parts) || parts.Length != p.Parts)
+                Partial[p.FileName] = parts = new byte[p.Parts][];
+            parts[p.Part] = p.Data;
+            for (int i = 0; i < parts.Length; i++)
+                if (parts[i] == null) return;
+            Partial.Remove(p.FileName);
+
+            try
+            {
+                using var joined = new MemoryStream();
+                for (int i = 0; i < parts.Length; i++) joined.Write(parts[i], 0, parts[i].Length);
+                joined.Position = 0;
+                using var gzip = new System.IO.Compression.GZipStream(joined, System.IO.Compression.CompressionMode.Decompress);
+                using var map = new MemoryStream();
+                var buffer = new byte[81920];
+                int read;
+                while ((read = gzip.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    if (map.Length + read > MaxMapBytes) throw new InvalidDataException("Generated map too large.");
+                    map.Write(buffer, 0, read);
+                }
+
+                string path = PathOf(p.FileName);
+                Complete.RemoveAll(m => m.Path == path);
+                Complete.Add((path, map.ToArray()));
+                if (Complete.Count > Kept) Complete.RemoveAt(0);
+            }
+            catch (Exception ex)
+            {
+                if (Settings.LogErrors) CMain.SaveError("[GeneratedMaps] " + ex);
+            }
+        }
+
+        public static bool TryGet(string path, out byte[] bytes)
+        {
+            for (int i = Complete.Count - 1; i >= 0; i--)
+                if (Complete[i].Path == path)
+                {
+                    bytes = Complete[i].Bytes;
+                    return true;
+                }
+            bytes = null;
+            return false;
+        }
+    }
+
     class MapReader
     {
         public int Width, Height;
@@ -143,9 +209,22 @@
             initiate();
         }
 
+        /// <summary>A map the server sent instead of a file (a generated dungeon, <see cref="GeneratedMaps"/>).</summary>
+        public MapReader(string FileName, byte[] bytes)
+        {
+            this.FileName = FileName;
+            Bytes = bytes;
+
+            initiate();
+        }
+
         private void initiate()
         {
-            if (File.Exists(FileName))
+            if (Bytes != null)
+            {
+                // Already given by the server.
+            }
+            else if (File.Exists(FileName))
             {
                 Bytes = File.ReadAllBytes(FileName);
             }

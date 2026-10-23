@@ -109,6 +109,11 @@ namespace Server
         public static bool LogLoopProfile = false;     // [Diag] LogLoopProfile: one "[Diag] Loop" line per second (Debug log)
         public static int LoadTestLoopbackMaxPacket = 0; // 0 = use MaxPacket
 
+        // [Dungeons] Procedural instance dungeons (MirEnvir/Dungeons). One place for them, so a per-realm config can take them over later.
+        public static bool DungeonsEnabled = false;    // [Dungeons] Enabled: the dungeon finder accepts new runs; running instances finish either way
+        public static int DungeonMaxInstances = 50;    // [Dungeons] MaxInstances: most instances alive at once, including ones being generated (1-500)
+        public static int DungeonEmptyMinutes = 5;     // [Dungeons] EmptyMinutes: an instance nobody is in is torn down after N minutes (1-60)
+
         //HTTP
         public static bool StartHTTPService = false;
         public static string HTTPIPAddress = "http://127.0.0.1:5679/";
@@ -498,6 +503,11 @@ namespace Server
             EmptyMapSleep = Reader.ReadBoolean("Optimisation", "EmptyMapSleep", EmptyMapSleep);
             LogLoopProfile = Reader.ReadBoolean("Diag", "LogLoopProfile", LogLoopProfile);
             LoadTestLoopbackMaxPacket = Math.Max(0, Reader.ReadInt32("LoadTest", "LoopbackMaxPacket", LoadTestLoopbackMaxPacket));
+            DungeonsEnabled = Reader.ReadBoolean("Dungeons", "Enabled", DungeonsEnabled);
+            DungeonMaxInstances = Reader.ReadInt32("Dungeons", "MaxInstances", DungeonMaxInstances);
+            DungeonMaxInstances = Math.Clamp(DungeonMaxInstances, 1, 500);
+            DungeonEmptyMinutes = Reader.ReadInt32("Dungeons", "EmptyMinutes", DungeonEmptyMinutes);
+            DungeonEmptyMinutes = Math.Clamp(DungeonEmptyMinutes, 1, 60);
 
             //HTTP
             StartHTTPService = Reader.ReadBoolean("Network", "StartHTTPService", StartHTTPService);
@@ -841,6 +851,9 @@ namespace Server
             Reader.Write("Optimisation", "EmptyMapSleep", EmptyMapSleep);
             Reader.Write("Diag", "LogLoopProfile", LogLoopProfile);
             Reader.Write("LoadTest", "LoopbackMaxPacket", LoadTestLoopbackMaxPacket);
+            Reader.Write("Dungeons", "Enabled", DungeonsEnabled);
+            Reader.Write("Dungeons", "MaxInstances", DungeonMaxInstances);
+            Reader.Write("Dungeons", "EmptyMinutes", DungeonEmptyMinutes);
 
             //HTTP
             Reader.Write("Network", "StartHTTPService", StartHTTPService);

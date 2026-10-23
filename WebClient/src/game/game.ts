@@ -79,7 +79,7 @@ import { PoisonType, MirClass, BuffType, AttackMode, PetMode, EquipmentSlot, Sta
 import { KeybindOptions, matches, matchesAny, matchesAnyBinding, type KeybindOption } from "./keybinds.ts";
 import { createInputRouter, type KeyHandler } from "./input.ts";
 import { Emitter } from "./emitter.ts";
-import { mapCells, rememberMap } from "./mapFiles.ts";
+import { addGeneratedPart, mapCells, rememberMap } from "./mapFiles.ts";
 import { drawDamageNumber, makeDamageNumber, processDamageList, MAX_DAMAGE_NUMBERS, type DamageNumber } from "./damageNumbers.ts";
 import type { GameUi, GameUiContext, GameUiFactory, PlayerState, TouchControl, TouchHit } from "../ui/gameUi.ts";
 import { AMODE_TEXT, PMODE_TEXT } from "./modeText.ts";
@@ -951,6 +951,9 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
         weather.set(p.WeatherParticles); // GameScene.MapInformation -> MapControl.Weather + UpdateWeather
         void loadMap(p.FileName);
         progress.mapInfo.emit(p);
+        break;
+      case "DungeonMap": // a generated dungeon's map, ahead of the MapChanged that enters it (GameScene -> GeneratedMaps.Add)
+        addGeneratedPart(p);
         break;
       case "MapChanged": // MiniMap / Title / Lights / MapDarkLight: currentMap.ts
         autoPath = null;

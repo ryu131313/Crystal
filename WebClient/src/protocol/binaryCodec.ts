@@ -304,6 +304,12 @@ export class Reader {
     return textDecoder.decode(this._buf.subarray(at, at + byteLen));
   }
 
+  /** BinaryReader.ReadBytes(count): exactly count bytes, no length prefix. */
+  readFixedBytes(count: number): Uint8Array {
+    const at = this.take(count);
+    return this._buf.slice(at, at + count);
+  }
+
   readBytes(): Uint8Array {
     const count = this.readI32();
     if (count < 0 || count > this.remaining) {
