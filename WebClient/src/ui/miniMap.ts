@@ -4,11 +4,13 @@
 // TimeOfDay: 2092-2095). DrawMiniMap: the map's MMap image (MapInformation.MiniMap) cropped to 120 x 108 around the
 // user at (3, 22), a 2 x 2 dot per object (white players, green NPCs and guards (AI 6), red monsters, blue group
 // members / "...(<user>)" pets; items, the dead, spells and sneaking objects skipped) and the bold "!" / "?" NPC quest
-// labels. Maps without a minimap switch to the small mode. The map canvas redraws at 10 Hz.
+// labels. Maps without a minimap switch to the small mode. The map canvas redraws at 10 Hz. A generated dungeon (no MMap
+// art) uses the picture drawn from its cells (game/cellPicture.ts).
 
 import { LightSetting, ObjectType } from "../protocol/enums.generated.ts";
 import type { MapCells } from "../map/mapReader.ts";
 import { libAsync } from "../game/libraries.ts";
+import { cellPicture } from "../game/cellPicture.ts";
 import type { MapObj } from "../game/objects.ts";
 import { questMiniMapMarker } from "../game/quests.ts";
 import { KeybindOptions } from "../game/keybinds.ts";
@@ -141,16 +143,18 @@ export class MiniMap {
     }
 
     if (miniMap !== this.imageIndex) this.load(miniMap);
+    const cells = miniMap > 0 ? null : cellPicture(map); // a generated dungeon: drawn from its cells
+    const hasPicture = miniMap > 0 || !!cells;
     // DrawMiniMap: small mode without a minimap, back to big when the next map has one
-    if (miniMap === 0 && this.win.index !== 2091) this.setMode(2091);
-    else if (miniMap > 0 && this.bigMode && this.win.index === 2091) this.setMode(2090);
+    if (!hasPicture && this.win.index !== 2091) this.setMode(2091);
+    else if (hasPicture && this.bigMode && this.win.index === 2091) this.setMode(2090);
     if (now < this.nextDraw) return;
     this.nextDraw = now + 100;
     const g = this.g;
     g.clearRect(0, 0, VIEW_W, VIEW_H);
-    const img = this.image;
+    const img = cells ? cells.canvas : miniMap > 0 ? this.image : null;
     let used = 0;
-    if (img && miniMap > 0 && this.win.index === 2090 && map.width > 0 && map.height > 0) {
+    if (img && this.win.index === 2090 && map.width > 0 && map.height > 0) {
       const scaleX = img.width / map.width, scaleY = img.height / map.height;
       let vx = Math.trunc(scaleX * user.location.X) - VIEW_W / 2;
       let vy = Math.trunc(scaleY * user.location.Y) - VIEW_H / 2;

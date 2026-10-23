@@ -7,6 +7,8 @@
 //              hint = name, from S.SendMemberLocation) and the user (UserRadarDot); a click walks there (onWalk).
 //              Every viewed map: its movement buttons (MapLinkIcon; hint = title, hover = location, click = view the
 //              destination) and the selected NPC's icon. Other maps come from C.RequestMapInfo -> S.NewMapInfo (GameInfo).
+//              A generated dungeon (no MMap art, no server record) shows the picture drawn from its cells (game/cellPicture.ts),
+//              scaled to fit keeping its shape.
 //   NPC list:  BigMapNPCRow per ClientMapInfo.NPCs, 18 rows at (590, 50 + i * 21) with the Prguse2 scroll buttons / bar and
 //              the mouse wheel; click selects / deselects (Brown name); Teleport (C.TeleportToNPC) on the user's map for NPCs
 //              with CanTeleportTo, after a MirMessageBox showing GameScene.TeleportToNPCCost and a gold check.
@@ -30,6 +32,8 @@ import { messageBox } from "./messageBox.ts";
 import { dragY } from "./mir/controls.ts";
 import { SoundList } from "../game/audio.ts";
 import { gameSignal } from "../game/scope.ts";
+import { cellPicture } from "../game/cellPicture.ts";
+import { isGeneratedMap } from "../game/mapFiles.ts";
 import { KeybindOptions, matches } from "../game/keybinds.ts";
 
 const VIEW_W = 568, VIEW_H = 380;  // BigMapViewPort.Size
@@ -39,7 +43,7 @@ const SCROLL_UP_Y = 48, SCROLL_DOWN_Y = 417;
 const MAX_GROUP = 11;              // Globals.MaxGroup
 const MAX_CHAT_LENGTH = 150;       // Globals.MaxChatLength
 
-interface Bitmap { bmp: ImageBitmap; w: number; h: number }
+interface Bitmap { bmp: CanvasImageSource; w: number; h: number }
 const bitmaps = new Map<string, Promise<Bitmap | null>>();
 /** A library image as an ImageBitmap (cached), for the canvas. */
 function libBitmap(lib: string, index: number): Promise<Bitmap | null> {
@@ -125,6 +129,8 @@ export class BigMap {
 
   private imageIndex = -1;
   private image: Bitmap | null = null;
+  /** The viewport shows a generated dungeon's cell picture (not this.image). */
+  private cellsShown = false;
   private scaleX = 1; // BigMapViewPort.ScaleX / ScaleY (viewport px per cell)
   private scaleY = 1;
   private nextDraw = 0;
@@ -236,7 +242,7 @@ export class BigMap {
   /** BigMapDialog.Toggle: Show (nothing to show on maps without a big map; opens on the user's map) / Hide. */
   toggle(show = !this.win.visible): void {
     if (!show) { this.win.hide(); return; }
-    if (this.bigMapIndex <= 0) return;
+    if (this.bigMapIndex <= 0 && !isGeneratedMap(this.currentMap.fileName)) return;
     if (this.win.visible) { this.win.bringToFront(); return; }
     this.searchTextBox.input.disabled = true;
     this.win.show();
@@ -430,7 +436,7 @@ export class BigMap {
   }
 
   private cellAt(e: MouseEvent): WirePoint | null {
-    if (!this.image) return null;
+    if (!this.image && !this.cellsShown) return null;
     const r = this.canvas.getBoundingClientRect();
     const x = ((e.clientX - r.left) * this.canvas.width) / r.width, y = ((e.clientY - r.top) * this.canvas.height) / r.height;
     return { X: Math.trunc(x / this.scaleX), Y: Math.trunc(y / this.scaleY) };
@@ -481,12 +487,15 @@ export class BigMap {
     if (!record && own) this.titleLabel.text = title; // the user's map before its record arrives
     if (bigMap !== this.imageIndex) this.load(bigMap);
 
-    const img = this.image;
-    if (bigMap <= 0 || !img || width <= 0 || height <= 0) { this.viewPort.visible = false; return; }
+    const cells = own && bigMap <= 0 ? cellPicture(map) : null; // a generated dungeon: drawn from its cells
+    this.cellsShown = !!cells;
+    const img: Bitmap | null = cells ? { bmp: cells.canvas, w: cells.width, h: cells.height } : bigMap > 0 ? this.image : null;
+    if (!img || width <= 0 || height <= 0) { this.viewPort.visible = false; return; }
     this.viewPort.visible = true;
 
-    // viewRect: the image's size (at most 568 x 380) centred in the viewport area
-    const vw = Math.min(VIEW_W, img.w), vh = Math.min(VIEW_H, img.h);
+    // viewRect: the image's size (at most 568 x 380) centred in the viewport area; a cell picture keeps its shape
+    const fit = cells ? Math.min(1, VIEW_W / img.w, VIEW_H / img.h) : 1;
+    const vw = Math.min(VIEW_W, Math.max(1, Math.trunc(img.w * fit))), vh = Math.min(VIEW_H, Math.max(1, Math.trunc(img.h * fit)));
     this.viewPort.location = [VIEW_X + Math.trunc((VIEW_W - vw) / 2), VIEW_Y + Math.trunc((VIEW_H - vh) / 2)];
     this.viewPort.size = [vw, vh];
     if (this.canvas.width !== vw || this.canvas.height !== vh) { this.canvas.width = vw; this.canvas.height = vh; }

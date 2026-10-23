@@ -3,7 +3,8 @@
 // (KeybindOptions.Bigmap, the minimap's map button, the game menu).
 //  - maps are keyed by MapIndex. The current map is MapControl (Index, Title, BigMap; its loaded size until its record
 //    arrives, like BigMapDialog); any map is BigMapData.Map(index) (ClientMapInfo: Title, Width, Height, BigMap = MMap.Lib,
-//    NPCs, Movements) asked with C.RequestMapInfo. The picture is MMap.Lib[BigMap];
+//    NPCs, Movements) asked with C.RequestMapInfo. The picture is MMap.Lib[BigMap] (a generated dungeon: GeneratedMapPicture,
+//    drawn from the loaded cells; the server has no record for it);
 //  - the world map (S.WorldMapSetup, only when Enabled): Prguse2 1360 + the additive clouds 1365, each WorldMapIcon as a pin at
 //    the centre of its MapLinkIcon region (UseOffSet; the region lights up on hover like OnlyDrawWhenActive), a click views
 //    that map;
@@ -116,6 +117,7 @@ namespace Client.MirScenes.Modern.Windows
         internal Size Pic = Size.Empty;       // the picture's size in px
         internal MLibrary PicLib;
         internal int PicIndex = -1;
+        internal bool PicGenerated;           // the picture is GeneratedMapPicture (the user's generated dungeon)
         internal float Z = 1, Ox, Oy, FitZ = 1;
         private bool _fitPending;
         private string _query = string.Empty;
@@ -514,6 +516,7 @@ namespace Client.MirScenes.Modern.Windows
             MapControl map = GameScene.Scene?.MapControl;
             MLibrary lib = null;
             int index = -1;
+            bool generated = false;
             Size dims = Size.Empty;
             _missing = string.Empty;
             if (View == World)
@@ -532,10 +535,11 @@ namespace Client.MirScenes.Modern.Windows
                 else if (own && map != null && map.Width > 0) dims = new Size(map.Width, map.Height);
                 if (rec != null) _data?.Learn(View, rec.Title);
                 if (big > 0) { lib = Libraries.MiniMap; index = big; }
+                else if (own && GeneratedMapPicture.IsFor(map)) generated = true;
                 else if (rec != null || own) _missing = T(ClientTextKeys.ModernChatMapNoBigMap);
                 if (dims.Width <= 0 || dims.Height <= 0) dims = Size.Empty;
             }
-            Size pic = lib != null && index >= 0 ? lib.GetSize(index) : Size.Empty;
+            Size pic = generated ? GeneratedMapPicture.Size : lib != null && index >= 0 ? lib.GetSize(index) : Size.Empty;
             if (lib != null && (pic.Width <= 0 || pic.Height <= 0))
             {
                 lib = null;
@@ -543,9 +547,10 @@ namespace Client.MirScenes.Modern.Windows
                 pic = Size.Empty;
                 _missing = T(ClientTextKeys.ModernChatMapNoPicture);
             }
-            bool picChanged = lib != PicLib || index != PicIndex;
+            bool picChanged = lib != PicLib || index != PicIndex || generated != PicGenerated || (generated && pic != Pic);
             PicLib = lib;
             PicIndex = index;
+            PicGenerated = generated;
             Pic = pic;
             Dims = View == World ? pic : dims;
             if (View >= 0 && DetailsOn() && GameScene.Models?.MapDetails.Get(View) == null) GameScene.Models?.MapDetails.Request(View, GameScene.Models.ServerRules);

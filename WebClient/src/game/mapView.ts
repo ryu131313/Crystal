@@ -152,13 +152,13 @@ export class Painter {
 
   /** The hover outline's ring (from the WoOOLcraft web client's hoverOutline.ts, a port addition): the image drawn at
    *  every OUTLINE_OFFSETS offset as a flat `colour` silhouette (ColorOp 1 keeps alpha, replaces colour; AlphaRef drops
-   *  the baked shadow and the faint rim), so the sprite drawn next on top leaves only the ring. */
+   *  the faint rim; the ShadowFill program drops the opaque dither shadow), so the sprite drawn next on top leaves only the ring. */
   drawSilhouette(lib: string | null, index: number, x: number, y: number, colour: Colour): void {
     const s = sprite(lib, index);
     if (!s || !s.tex) return;
     x += s.x; y += s.y;
     if (x >= this.width || y >= this.height || x + s.width < 0 || y + s.height < 0) return;
-    this.shadowFill(false);
+    this.shadowFill(this.renderer.programAvailable("ShadowFill"));
     this.setBlend("normal");
     this.batch.ColorOp = 1;
     this.batch.AlphaRef = OUTLINE_ALPHA_REF;
@@ -202,7 +202,8 @@ const isCellSize = (s: { w: number; h: number }) => (s.w === CELL_W && s.h === C
  *  always on a party or guild member. */
 export const OUTLINE_RED: Colour = { r: 1, g: 0, b: 0, a: 1 };
 export const OUTLINE_BLUE: Colour = { r: 0, g: 191 / 255, b: 1, a: 1 };
-/** Silhouette texels at or below this alpha are dropped (WoOOLcraft measured 0.7: below it the ring traced shadows). */
+/** Silhouette texels at or below this alpha are dropped (WoOOLcraft measured 0.7: below it the ring traced shadows; Crystal's dither
+ *  shadows are opaque, so SHADOW_FILL_PS drops those). */
 const OUTLINE_ALPHA_REF = 0.7;
 /** Every offset of a disc of radius 2 except the centre (a 2 px ring). */
 const OUTLINE_OFFSETS: readonly { x: number; y: number }[] = (() => {

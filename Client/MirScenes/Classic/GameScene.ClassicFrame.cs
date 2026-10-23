@@ -296,7 +296,7 @@ namespace Client.MirScenes
 
         internal void ClassicObjectPositionsChanged()
         {
-            if (MiniMapDialog != null && MiniMapDialog.Visible && MapControl != null && MapControl.MiniMap > 0) MiniMapDialog.Redraw();
+            if (MiniMapDialog != null && MiniMapDialog.Visible && MapControl != null && (MapControl.MiniMap > 0 || GeneratedMapPicture.IsFor(MapControl))) MiniMapDialog.Redraw();
             if (BigMapDialog != null && BigMapDialog.Visible) BigMapDialog.Redraw();
         }
 

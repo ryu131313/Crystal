@@ -6775,6 +6775,10 @@ namespace Client.MirScenes
 
             PathFinder = new PathFinder(this);
 
+            // A generated dungeon has no MMap.Lib art: its minimap / big map picture is drawn from the cells, once.
+            if (generated) GeneratedMapPicture.Build(this);
+            else GeneratedMapPicture.Clear();
+
             try
             {
                 if (SetMusic != Music)

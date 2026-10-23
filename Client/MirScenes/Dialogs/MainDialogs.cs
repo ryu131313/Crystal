@@ -2005,16 +2005,20 @@ namespace Client.MirScenes.Dialogs
             MapControl map = GameScene.Scene.MapControl;
             if (map == null) return;
 
-            if (map.MiniMap == 0 && Index != 2091)
+            // A generated dungeon has no MMap.Lib art; its picture is drawn from the cells (GeneratedMapPicture).
+            bool generated = GeneratedMapPicture.IsFor(map);
+            bool hasPicture = map.MiniMap > 0 || generated;
+
+            if (!hasPicture && Index != 2091)
             {
                 SetSmallMode();
             }
-            else if (map.MiniMap > 0 && _bigMode && Index == 2091)
+            else if (hasPicture && _bigMode && Index == 2091)
             {
                 SetBigMode();
             }
 
-            if (map.MiniMap <= 0 || Index != 2090 || Libraries.MiniMap == null)
+            if (!hasPicture || Index != 2090 || (!generated && Libraries.MiniMap == null))
             {
                 return;
             }
@@ -2023,7 +2027,7 @@ namespace Client.MirScenes.Dialogs
             Point drawLocation = Location;
             drawLocation.Offset(3, 22);
 
-            Size miniMapSize = Libraries.MiniMap.GetSize(map.MiniMap);
+            Size miniMapSize = generated ? GeneratedMapPicture.Size : Libraries.MiniMap.GetSize(map.MiniMap);
             float scaleX = miniMapSize.Width / (float)map.Width;
             float scaleY = miniMapSize.Height / (float)map.Height;
 
@@ -2040,7 +2044,8 @@ namespace Client.MirScenes.Dialogs
             if (viewRect.X < 0) viewRect.X = 0;
             if (viewRect.Y < 0) viewRect.Y = 0;
 
-            Libraries.MiniMap.Draw(map.MiniMap, viewRect, drawLocation, Color.FromArgb(255, 255, 255), _fade);
+            if (generated) GeneratedMapPicture.Draw(viewRect, drawLocation, Color.FromArgb(255, 255, 255), _fade);
+            else Libraries.MiniMap.Draw(map.MiniMap, viewRect, drawLocation, Color.FromArgb(255, 255, 255), _fade);
 
 
             int startPointX = (int)(viewRect.X / scaleX);

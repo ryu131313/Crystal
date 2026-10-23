@@ -3,7 +3,8 @@
 //  - real data instead of play/lab-data: maps are keyed by MapIndex. The current map is CurrentMap (index, title,
 //    MapInformation.BigMap; the loaded MapCells give its size until its record arrives, like BigMapDialog); any map is
 //    GameInfo.map(index) (ClientMapInfo: Title, Width, Height, BigMap = MMap.Lib, NPCs, Movements) asked with
-//    C.RequestMapInfo (GameInfo.requestMap). The picture is MMap.Lib[BigMap];
+//    C.RequestMapInfo (GameInfo.requestMap). The picture is MMap.Lib[BigMap] (a generated dungeon: the picture drawn from
+//    its cells, game/cellPicture.ts; the server has no record for it);
 //  - the world map (S.WorldMapSetup via GameInfo.worldMap, only when Enabled): Prguse2 1360 + the additive clouds 1365,
 //    each WorldMapIcon as a pin at the centre of its MapLinkIcon region (UseOffSet; the region lights up on hover like
 //    OnlyDrawWhenActive), a click views that map;
@@ -34,6 +35,8 @@ import type { ClientMapInfo, ClientMonsterInfo, ClientNPCInfo } from "../../../p
 import { libAsync, monsterLibPath } from "../../../game/libraries.ts";
 import { monsterFrames } from "../../../game/frames.ts";
 import { serverRules } from "../../../game/serverRules.ts";
+import { cellPictureUrl } from "../../../game/cellPicture.ts";
+import { isGeneratedMap } from "../../../game/mapFiles.ts";
 import { KeybindOptions, keyLabel, onKeyBindsChange } from "../../../game/keybinds.ts";
 import { Lib, libPicture } from "../../mir/controls.ts";
 import { debounce, h, injectCss, rafCoalesce, setStyle, setText } from "../core/dom.ts";
@@ -468,6 +471,7 @@ export class BigMapWindow extends UiWindow {
       dims = rec ? { w: rec.Width, h: rec.Height } : own && ctx.world.map.width > 0 ? { w: ctx.world.map.width, h: ctx.world.map.height } : null;
       if (rec) this.learn(this.view, rec.Title);
       if (big > 0) { picKey = "m" + big; lib = Lib.MiniMap; index = big; }
+      else if (own && isGeneratedMap(cm.fileName)) picKey = "g" + cm.fileName; // drawn from its cells
       else if (rec || own) missing = "This map has no big map.";
       if (dims && (dims.w <= 0 || dims.h <= 0)) dims = null;
     }
@@ -477,7 +481,7 @@ export class BigMapWindow extends UiWindow {
       this.img.hidden = this.clouds.hidden = true;
       const job = ++this.picJob;
       if (picKey) {
-        void libPicture(lib, index).then((p) => {
+        void (picKey[0] === "g" ? cellPictureUrl(cm.fileName) : libPicture(lib, index)).then((p) => {
           if (job !== this.picJob || this.signal.aborted) return;
           if (!p) { this.picKey = ""; this.showLoading("This map has no picture."); return; }
           this.pic = p;

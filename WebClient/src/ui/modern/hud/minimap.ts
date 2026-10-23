@@ -1,7 +1,8 @@
 // Ported from play/hudMinimap.ts: the new UI's minimap (top right), the desktop's MiniMapDialog
 // (Client/MirScenes/Dialogs/MainDialogs.cs; classic port src/ui/miniMap.ts) in a themed round or square frame.
 //   Picture   MMap.Lib[MapControl.MiniMap] around the user (CurrentMap.miniMapIndex, the map's size from the loaded
-//             MapCells); maps without a minimap switch to the small mode (the banner only), like DrawMiniMap.
+//             MapCells); maps without a minimap switch to the small mode (the banner only), like DrawMiniMap. A generated
+//             dungeon (no MMap art) uses the picture drawn from its cells (game/cellPicture.ts).
 //   Banner    map title + the time-of-day icon (GameScene.Lights, LightSetting; name on hover). Under the disc: the user's location (Functions.PointToString).
 //   Marks     NPCs and exits from the map's ClientMapInfo (C.RequestMapInfo via GameInfo.requestMap; exits beyond the edge
 //             as arrows on the rim), the NPC quest "!" / "?" markers (Quests.npcQuestIcon + questMiniMapMarker, recomputed
@@ -24,6 +25,8 @@ import { LightSetting, ObjectType } from "../../../protocol/enums.generated.ts";
 import type { ClientMapInfo } from "../../../protocol/server.ts";
 import { CELL_H, CELL_W, type MapObj } from "../../../game/objects.ts";
 import { questMiniMapMarker } from "../../../game/quests.ts";
+import { cellPicture } from "../../../game/cellPicture.ts";
+import { isGeneratedMap } from "../../../game/mapFiles.ts";
 import type { GameUiContext } from "../../gameUi.ts";
 import { Lib, libPicture } from "../../mir/controls.ts";
 import { h, injectCss, rafCoalesce, setText } from "../core/dom.ts";
@@ -243,7 +246,8 @@ export class MinimapHud {
       if (!this.info && cm.index >= 0) gi.requestMap(cm.index);
     }
     const mini = cm.miniMapIndex;
-    this.el.classList.toggle("small", mini <= 0); // DrawMiniMap: the small mode without a minimap
+    // DrawMiniMap: the small mode without a minimap (a generated dungeon has its cell picture)
+    this.el.classList.toggle("small", mini <= 0 && !isGeneratedMap(cm.fileName));
     if (mini !== this.imgIndex) {
       this.imgIndex = mini;
       this.img = null;
@@ -342,10 +346,12 @@ export class MinimapHud {
     g.clearRect(0, 0, S, S);
     this.marks = [];
     const map = this.ctx.world.map;
-    if (this.img && map.width > 0 && map.height > 0) {
-      const sx = this.img.naturalWidth / map.width, sy = this.img.naturalHeight / map.height;
-      g.imageSmoothingEnabled = true;
-      g.drawImage(this.img, (cx - r) * sx, (cy - r) * sy, 2 * r * sx, 2 * r * sy, 0, 0, S, S);
+    const cells = this.img ? null : cellPicture(map); // a generated dungeon: drawn from its cells
+    const src = cells ? cells.canvas : this.img;
+    if (src && map.width > 0 && map.height > 0) {
+      const sx = (cells ? cells.width : this.img!.naturalWidth) / map.width, sy = (cells ? cells.height : this.img!.naturalHeight) / map.height;
+      g.imageSmoothingEnabled = !cells; // cell blocks stay sharp
+      g.drawImage(src, (cx - r) * sx, (cy - r) * sy, 2 * r * sx, 2 * r * sy, 0, 0, S, S);
     } else {
       g.fillStyle = "#0b0f16";
       g.fillRect(0, 0, S, S);

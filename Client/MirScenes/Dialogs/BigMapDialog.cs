@@ -286,7 +286,7 @@ namespace Client.MirScenes.Dialogs
         public override void Show()
         {
             var map = GameScene.Scene.MapControl;
-            if (map.BigMap <= 0) return;
+            if (map.BigMap <= 0 && !GeneratedMapPicture.IsFor(map)) return;
 
             SearchTextBox.Enabled = false;
 
@@ -310,11 +310,32 @@ namespace Client.MirScenes.Dialogs
             WorldMap.Visible = false;
             SearchTextBox.Visible = true;
             SelectedNPC = null;
-            if (!GameScene.MapInfoList.ContainsKey(MapIndex))
-                Network.Enqueue(new C.RequestMapInfo() { MapIndex = MapIndex });
+            if (TryGetRecord(MapIndex, out BigMapRecord record))
+                CurrentRecord = record;
             else
-                CurrentRecord = GameScene.MapInfoList[MapIndex];
+                Network.Enqueue(new C.RequestMapInfo() { MapIndex = MapIndex });
             Redraw();
+        }
+
+        private BigMapRecord generatedRecord;
+
+        /// <summary>The big-map record of a map: the server's (GameScene.MapInfoList), or for the generated dungeon the user is
+        /// in, one made from the loaded map (the server has no MapInfo record for a run-time map; no exits, no NPC list).</summary>
+        public bool TryGetRecord(int mapIndex, out BigMapRecord record)
+        {
+            if (GameScene.MapInfoList.TryGetValue(mapIndex, out record)) return true;
+
+            var map = GameScene.Scene.MapControl;
+            if (map == null || map.Index != mapIndex || !GeneratedMapPicture.IsFor(map)) return false;
+
+            if (generatedRecord == null || generatedRecord.Index != mapIndex)
+                generatedRecord = new BigMapRecord
+                {
+                    Index = mapIndex,
+                    MapInfo = new ClientMapInfo { Title = map.Title, Width = map.Width, Height = map.Height }
+                };
+            record = generatedRecord;
+            return true;
         }
 
         public void SetTargetNPC(uint NPCIndex)
@@ -628,6 +649,14 @@ namespace Client.MirScenes.Dialogs
         }
 
 
+        /// <summary>A generated picture scaled down, keeping its shape, to the 568 x 380 viewport (MMap big maps are drawn
+        /// for it; a cell picture can be up to 2048 px a side).</summary>
+        private static Size FitGenerated(Size picture)
+        {
+            float scale = Math.Min(1F, Math.Min(568F / picture.Width, 380F / picture.Height));
+            return new Size(Math.Max(1, (int)(picture.Width * scale)), Math.Max(1, (int)(picture.Height * scale)));
+        }
+
         private void OnBeforeDraw()
         {
             if (!Parent.Visible) return;
@@ -635,18 +664,20 @@ namespace Client.MirScenes.Dialogs
             MouseMove -= UpdateBigMapCoordinates;
 
             BigMapRecord currentRecord;
-            if (!GameScene.MapInfoList.TryGetValue(ParentDialog.TargetMapIndex, out currentRecord))
+            if (!ParentDialog.TryGetRecord(ParentDialog.TargetMapIndex, out currentRecord))
                 return;
 
             ParentDialog.CurrentRecord = currentRecord;
             int index = currentRecord.MapInfo.BigMap;
+            // A generated dungeon: the picture drawn from its cells (GeneratedMapPicture) instead of MMap.Lib.
+            bool generated = currentRecord.Index == GameScene.Scene.MapControl.Index && GeneratedMapPicture.IsFor(GameScene.Scene.MapControl);
 
-            if (index <= 0)
+            if (index <= 0 && !generated)
                 return;
 
             MouseMove += UpdateBigMapCoordinates;
 
-            Size = Libraries.MiniMap.GetSize(index);
+            Size = generated ? FitGenerated(GeneratedMapPicture.Size) : Libraries.MiniMap.GetSize(index);
             Rectangle viewRect = new Rectangle(0, 0, Math.Min(568, Size.Width), Math.Min(380, Size.Height));
 
             viewRect.X = 14 + (568 - viewRect.Width) / 2;
@@ -673,7 +704,8 @@ namespace Client.MirScenes.Dialogs
             if (viewRect.X < 0) viewRect.X = 0;
             if (viewRect.Y < 0) viewRect.Y = 0;
 
-            Libraries.MiniMap.Draw(index, DisplayLocation, Size, Color.FromArgb(255, 255, 255));
+            if (generated) GeneratedMapPicture.Draw(DisplayLocation, Size, Color.FromArgb(255, 255, 255));
+            else Libraries.MiniMap.Draw(index, DisplayLocation, Size, Color.FromArgb(255, 255, 255));
 
             int startPointX = (int)(viewRect.X / ScaleX);
             int startPointY = (int)(viewRect.Y / ScaleY);

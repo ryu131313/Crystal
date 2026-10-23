@@ -31,6 +31,8 @@ namespace Client.MirGraphics
         public static RenderTexture RadarTexture;
         public static List<RenderTexture> Lights = new List<RenderTexture>();
         public static RenderTexture PoisonDotBackground;
+        /// <summary>A generated dungeon's minimap picture (MirObjects.GeneratedMapPicture keeps the pixels and re-creates it).</summary>
+        public static RenderTexture GeneratedMapTexture;
 
         public static RenderTexture FloorTexture, LightTexture;
         /// <summary>Float light map of the enhanced lighting (D3D11 only, [Graphics] Lighting=Enhanced); released in CleanUp.</summary>
@@ -681,6 +683,7 @@ namespace Client.MirGraphics
             DisposeStatic(ref AtmosphereReflectMirror);
             DisposeStatic(ref AtmosphereReflectLamps);
             DisposeStatic(ref AtmosphereCellMask);
+            DisposeStatic(ref GeneratedMapTexture);
 
             if (Lights != null)
             {

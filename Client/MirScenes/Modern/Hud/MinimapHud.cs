@@ -1,7 +1,7 @@
 ﻿// Ported from WebClient/src/ui/modern/hud/minimap.ts (MinimapHud): the new UI's minimap, top right — the desktop's
 // MiniMapDialog (MirScenes/Dialogs/MainDialogs.cs) in a themed round or square frame.
 //   Picture  MMap.Lib[MapControl.MiniMap] around the user (the map's size from the loaded MapControl); a map without a minimap
-//            switches to the small mode (the banner only), like DrawMiniMap.
+//            switches to the small mode (the banner only), like DrawMiniMap. A generated dungeon: GeneratedMapPicture (its cells).
 //   Banner   map title + the time-of-day icon (GameScene.Lights; its name as the hint). Under the disc: the user's cell.
 //   Marks    NPCs and exits from the map's ClientMapInfo (BigMapData: C.RequestMapInfo; exits beyond the edge as arrows on the
 //            rim), the NPC quest "!" / "?" markers (NPCObject.QuestIcon, recomputed on quest changes and every 2 s), the objects
@@ -264,7 +264,7 @@ namespace Client.MirScenes.Modern.Hud
                 _miniIndex = map.MiniMap;
                 _title = map.Title;
                 _banner.SetTitle(ChatGfx.Pretty(map.Title));
-                bool small = map.MiniMap <= 0;
+                bool small = map.MiniMap <= 0 && !GeneratedMapPicture.IsFor(map); // a generated dungeon: drawn from its cells
                 if (small != _small)
                 {
                     _small = small;
@@ -803,8 +803,9 @@ namespace Client.MirScenes.Modern.Hud
         protected internal override void DrawControl()
         {
             MapControl map = GameScene.Scene?.MapControl;
-            if (map == null || map.MiniMap <= 0 || map.Width <= 0 || map.Height <= 0 || float.IsNaN(_hud.Cx)) return;
-            Size img = Libraries.MiniMap.GetSize(map.MiniMap);
+            bool generated = GeneratedMapPicture.IsFor(map); // a generated dungeon has no MMap.Lib art: drawn from its cells
+            if (map == null || (map.MiniMap <= 0 && !generated) || map.Width <= 0 || map.Height <= 0 || float.IsNaN(_hud.Cx)) return;
+            Size img = generated ? GeneratedMapPicture.Size : Libraries.MiniMap.GetSize(map.MiniMap);
             if (img.Width <= 0 || img.Height <= 0) return;
             float r = MinimapHud.Radius, size = Size.Width;
             float cellPx = size / (2 * r);                      // device px per cell on the disc
@@ -814,7 +815,8 @@ namespace Client.MirScenes.Modern.Hud
             int ox = at.X + (int)Math.Round(-(_hud.Cx - r) * cellPx), oy = at.Y + (int)Math.Round(-(_hud.Cy - r) * cellPx);
             try
             {
-                Libraries.MiniMap.Draw(map.MiniMap, new Point(ox, oy), new Size(dw, dh), Color.White);
+                if (generated) GeneratedMapPicture.Draw(new Point(ox, oy), new Size(dw, dh), Color.White);
+                else Libraries.MiniMap.Draw(map.MiniMap, new Point(ox, oy), new Size(dw, dh), Color.White);
             }
             catch (Exception ex)
             {

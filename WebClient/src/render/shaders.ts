@@ -759,7 +759,8 @@ void main() {
 // checkerboard shadow into a flat fill. Crystal's shadow texels are opaque near-black ((16,8,8) monsters, (0,4,0) armour). A shadow texel
 // whose orthogonal neighbours are (nearly) all clear is dither and becomes the fill; a clear texel fills from its orthogonal shadow neighbours
 // (full between two opposite ones, so 2-3 px bands fill too). Dark body outlines have shadow-coloured orthogonal neighbours and stay as drawn.
-// Neighbours are texelFetch'd: atlas gutters are transparent, and taps off the page read clear. ColorOp 1 (silhouettes) passes through unchanged.
+// Neighbours are texelFetch'd: atlas gutters are transparent, and taps off the page read clear. ColorOp 1 (hover-outline silhouettes) drops the
+// dither texels instead, so the outline does not trace the shadow.
 // The fill's alpha carries vCol.a, so callers put opacity in the vertex colour (the OpacityFactor blend ignores shader alpha).
 // Tuning (2026-10-14, scene lab): plain uniforms of this program only, set by WebGl2Renderer.setShadowFill from mapView.ts shadowTuning.
 //   ShadowColour: fill rgb + strength (the original look is black at 0.42).
@@ -796,9 +797,13 @@ void tent(float g, float k, inout float sum, inout float weight) {
 void main() {
   vec4 t = texture(SpriteTex, vUv);
   vec4 c = (ColorOp == 1u) ? vec4(vCol.rgb, t.a * vCol.a) : t * vCol;
-  if (ColorOp == 0u) {
-    ivec2 size = textureSize(SpriteTex, 0);
-    ivec2 at = ivec2(floor(vUv * vec2(size)));
+  ivec2 size = textureSize(SpriteTex, 0);
+  ivec2 at = ivec2(floor(vUv * vec2(size)));
+  if (ColorOp == 1u) {
+    // hover-outline silhouettes (Painter.drawSilhouette, 2026-10-23): dither shadow texels are left out, so the ring traces the body only
+    vec4 c0 = T(0, 0);
+    if (isShadow(c0) && fillOf(c0, T(-1, 0), T(1, 0), T(0, -1), T(0, 1)) >= 0.0) c.a = 0.0;
+  } else if (ColorOp == 0u) {
     // Fetched in rings, each only when the result can still need it: the centre alone settles a body / outline texel (drawn as is, most of a
     // sprite); the four around it settle the texel's own fill; the soft average needs the rest (21 texels in all).
     vec4 c0 = T(0, 0);

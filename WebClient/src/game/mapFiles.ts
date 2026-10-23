@@ -15,6 +15,8 @@ let playing = "";
 // inflated bytes are served from here (desktop: GeneratedMaps in MapCode.cs).
 const generatedParts = new Map<string, (Uint8Array | undefined)[]>();
 const generated = new Map<string, Promise<Uint8Array>>();
+/** The parsed cells of generated maps (their minimap / big map picture is drawn from them: cellPicture.ts). */
+const generatedCells = new WeakSet<MapCells>();
 
 /** S.DungeonMap: keep the part; when every part is in, inflate the map (async; mapCells waits for it). */
 export function addGeneratedPart(p: { FileName: string; Part: number; Parts: number; Data: Uint8Array }): void {
@@ -42,7 +44,11 @@ export function mapCells(fileName: string): Promise<MapCells> {
   }
   p = (async () => {
     const own = generated.get(fileName);
-    if (own) return readMap(await own);
+    if (own) {
+      const cells = readMap(await own);
+      generatedCells.add(cells);
+      return cells;
+    }
     const url = await assetUrl("map", `${fileName}.map`);
     if (!url) throw new Error("not in the client folder");
     const res = await fetchAsset(url);
@@ -53,6 +59,16 @@ export function mapCells(fileName: string): Promise<MapCells> {
   parsed.set(fileName, p);
   while (parsed.size > KEEP) parsed.delete(parsed.keys().next().value!);
   return p;
+}
+
+/** The map came from S.DungeonMap (a generated dungeon: no MMap.Lib art, MiniMap = BigMap = 0). */
+export function isGeneratedMap(fileName: string): boolean {
+  return generated.has(fileName);
+}
+
+/** These cells are a generated dungeon's (see isGeneratedMap). */
+export function isGeneratedCells(map: MapCells): boolean {
+  return generatedCells.has(map);
 }
 
 /** SelectScene: the character about to play (its map is remembered under this name). */

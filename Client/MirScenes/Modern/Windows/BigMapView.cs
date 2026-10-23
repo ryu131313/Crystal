@@ -172,14 +172,15 @@ namespace Client.MirScenes.Modern.Windows
         protected internal override void DrawControl()
         {
             MLibrary lib = _w.PicLib;
-            if (lib == null || _w.PicIndex < 0 || _w.Pic.IsEmpty) return;
+            if (((lib == null || _w.PicIndex < 0) && !_w.PicGenerated) || _w.Pic.IsEmpty) return;
             int dw = (int)Math.Round(_w.Pic.Width * _w.Z), dh = (int)Math.Round(_w.Pic.Height * _w.Z);
             if (dw <= 0 || dh <= 0) return;
             Point at = DisplayLocation;
             Point p = new Point(at.X + (int)Math.Round(_w.Ox), at.Y + (int)Math.Round(_w.Oy));
             try
             {
-                lib.Draw(_w.PicIndex, p, new Size(dw, dh), Color.White);
+                if (_w.PicGenerated) GeneratedMapPicture.Draw(p, new Size(dw, dh), Color.White);
+                else lib.Draw(_w.PicIndex, p, new Size(dw, dh), Color.White);
                 if (_w.View == BigMapData.World && lib == Libraries.Prguse2)
                 {
                     bool old = DXManager.Blending;
