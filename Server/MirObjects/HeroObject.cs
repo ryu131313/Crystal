@@ -639,6 +639,8 @@ namespace Server.MirObjects
         }
         public override void Die()
         {
+            if (DeferDeathOutsideMobPass()) return;
+
             if (SpecialMode.HasFlag(SpecialItemMode.Revival) && Envir.Time > LastRevivalTime)
             {
                 LastRevivalTime = Envir.Time + 300000;

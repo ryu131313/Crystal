@@ -471,6 +471,28 @@ namespace Server.MirObjects
             if (due > now && due < next) next = due;
         }
         public override void Die() { }
+
+        private bool _deathDeferred;
+
+        /// <summary>
+        /// True when this call is inside a mob pass (a monster's hit took HP to 0 on a mob thread): the death is queued once
+        /// for the game thread right after the barrier and the caller returns. Death runs the [@Die] script, despawns the hero
+        /// and creatures, drops items and raises web admin hooks, none of which may run in a mob pass (server.md 3.2;
+        /// codebase review 2026-10-24 #3). The queued call re-checks that the object is still spawned, alive and at 0 HP.
+        /// </summary>
+        protected bool DeferDeathOutsideMobPass()
+        {
+            if (!Envir.InMobPass) return false;
+            if (_deathDeferred) return true;
+
+            _deathDeferred = true;
+            Envir.RunOutsideMobPass(() =>
+            {
+                _deathDeferred = false;
+                if (Node != null && !Dead && HP == 0) Die();
+            });
+            return true;
+        }
         protected virtual void ProcessBuffs()
         {
             bool refresh = false;
