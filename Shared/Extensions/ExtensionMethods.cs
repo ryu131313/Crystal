@@ -2,7 +2,8 @@
 {
     public static class HelperExtensions
     {
-        private static Random rng = new Random();
+        // Random.Shared is thread-safe; a shared new Random() was not.
+        private static Random rng => Random.Shared;
 
         public static T ValueOrDefault<T>(this object value)
         {

@@ -124,7 +124,7 @@ namespace Server.Library.Utils
 
         public override void OnPostRequest(HttpListenerRequest request, HttpListenerResponse response)
         {
-            Console.WriteLine("POST request: {0}", request.Url);
+            MessageQueue.Instance.EnqueueDebugging("[HttpServer] POST request: " + request.Url);
         }
     }
 

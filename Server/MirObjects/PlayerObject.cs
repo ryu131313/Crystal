@@ -781,7 +781,7 @@ namespace Server.MirObjects
             MyGuild.SendServerPacket(new S.GuildStorageGoldChange() { Type = 2, Amount = (uint)Settings.BuyGTGold });
             ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.YouRentedGuildTerritory), ChatType.System);
             MyGuild.GTIndex = GTmap.Index;
-            MyGuild.GTRent = DateTime.Now.AddDays(Settings.GTDays);
+            MyGuild.GTRent = Envir.Now.AddDays(Settings.GTDays);
             MyGuild.GTKey = Envir.Random.Next(100, int.MaxValue - 100);
             MyGuild.GTPrice = 0;
             GTmap.Owner = MyGuild.Name;
@@ -11962,8 +11962,8 @@ namespace Server.MirObjects
             }
 
             MyGuild.GTIndex = gt.Index;
-            MyGuild.GTRent = DateTime.Now.AddDays(Settings.GTDays + 1);
-            MyGuild.GTBegin = DateTime.Now.AddDays(1);
+            MyGuild.GTRent = Envir.Now.AddDays(Settings.GTDays + 1);
+            MyGuild.GTBegin = Envir.Now.AddDays(1);
             MyGuild.GTKey = Envir.Random.Next(100, int.MaxValue - 100);
             MyGuild.GTPrice = 0;
             gt.Owner = MyGuild.Name;
@@ -16591,7 +16591,7 @@ namespace Server.MirObjects
 
             Enqueue(new S.UpdateHeroSpawnState { State = HeroSpawnState.Unsummoned });
 
-            Console.WriteLine("[Hero] Hero forcibly despawned and removed.");
+            MessageQueue.Enqueue($"[Hero] Hero of {Name} forcibly despawned and removed.");
         }
         public void ReviveHero()
         {

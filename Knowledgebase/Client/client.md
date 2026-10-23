@@ -251,7 +251,7 @@ Hot path = anything reached from `UpdateEnviroment` (every spin) or `RenderEnvir
 | `MLibrary.CheckImage` → `MImage.CreateTexture` | `ReadBytes` + GZip/MemoryStream on the main thread mid-frame → hitches when new monsters/effects appear |
 | `CachedSound` (`MirSounds/Libraries/`) | whole-file decode to `float[]` on the main thread on first play, LINQ `Take` per chunk |
 | `SoundManager.ProcessDelayedSounds` | `Where(...).ToList()` every spin while any delayed sound is pending |
-| `CMain.CreateScreenShot` | 5 `Font`s, the `Bitmap`, the `StringFormat` and the back-buffer `Surface` from `GetBackBuffer(0, 0)` never disposed (the leaked back-buffer ref may make a later `Device.Reset` fail; impact unverified) |
+| ~~`CMain.CreateScreenShot`~~ | **fixed 2026-10-24**: bitmap, font and `StringFormat` disposed (the back-buffer leak was already gone: the backends own the surface) |
 | `CMain_KeyDown/KeyUp` | `Enum.Parse(typeof(Keys), InputKeys.GetKey(...))` per key event |
 | `GameScene.Process` | repositions tooltip labels (`ItemLabel`, `MailLabel`, `MemoLabel`, `GuildBuffLabel`) every spin (cheap only because the `Location` setter early-outs on equal values) |
 | `MirLabel` defaults | `OutLine = true` → 5 GDI draws per label rasterise |
@@ -294,7 +294,7 @@ Hot path = anything reached from `UpdateEnviroment` (every spin) or `RenderEnvir
 
 #### Known debt — existing breaches (do not copy; do not drive-by fix)
 
-- **Library init race** (`MirGraphics/MLibrary.cs`): `_initialized = true` is set as the first statement of `Initialize()`, before `_images`/`_indexList` exist → main-thread `CheckImage` sees an initialised library with null `_images` and silently draws nothing; if the main thread reaches an uninitialised library first, both threads can run `Initialize()` on the same instance. Mitigated in practice because `SelectScene` waits for `Libraries.Loaded`.
+- ~~**Library init race**~~ — **fixed 2026-10-24**: `MLibrary._initialized` is volatile and set only after `Open` under `_initLock`; `Initialize` is idempotent; the UI thread's lazy path (`TryInitialize`) never waits and draws nothing while the loader holds the lock.
 - **`Network.Disconnect()` from the socket thread** nulls `_client`, `_sendList`, `_receiveList` statics while the main thread may be iterating them (`Process` re-checks `_receiveList != null` each loop).
 - **`CMain.BytesReceived`/`BytesSent`** are `double`s updated non-atomically from the socket thread (debug stat only).
 - `.Lib` version < 2 → `MessageBox` + `Application.Exit()` called from the loader thread; a corrupt/truncated `.Lib` makes `Initialize` rethrow on the loader thread → unhandled → process exit.
@@ -325,7 +325,7 @@ Hot path = anything reached from `UpdateEnviroment` (every spin) or `RenderEnvir
 
 #### Known debt — existing breaches (do not copy; do not drive-by fix)
 
-- `MonsterObject.Load` indexes `Libraries.Monsters[(ushort)BaseImage]` unguarded (~L208) — a `Monster` value ≥ array length throws **after** the `MapObject` ctor registered the object, leaving a half-built object in `MapControl.Objects`.
+- ~~`MonsterObject.Load` indexed `Libraries.Monsters[(ushort)BaseImage]` unguarded~~ — already guarded (`BaseImage` outside the array → `Libraries.Empty`; noted 2026-10-24).
 - `MapControl.DrawFloor` indexes `Libraries.MapLibs[cell.BackIndex/MiddleIndex/FrontIndex]` with no range check — an index outside 0-399 throws `IndexOutOfRangeException` every floor rebuild.
 - ~~`MapControl.DrawLights` sets raw blend render states and calls `Sprite.End/Begin` directly~~ — **moved behind helpers 2026-10-10 (roadmap C3)**: `SetLightAdditiveBlend`, `SetLightMultiplyBlend`, `RestartSpriteAlphaBlend` (same states, same order).
 - `DXManager.SetGrayscale(float, Color)` etc.: `tintcolor.R / 255` is integer division → tint components are 0 or 1.
@@ -370,7 +370,7 @@ Hot path = anything reached from `UpdateEnviroment` (every spin) or `RenderEnvir
 - `CMain.SaveError` doesn't check `Settings.LogErrors` itself (~12 callers gate on it, the rest don't), writes one CWD-relative `.\Error.txt` forever (no date, no dedupe).
 - `Network.cs` catch blocks (`BeginReceive`, `EndReceive`, `BeginSend`, `SendData`) disconnect or swallow without logging.
 - ~~`Network.ReceiveData` continued after `Disconnect()`; malformed packets threw on the socket thread~~ — **fixed 2026-10-10 (C1)**: returns after disconnect, decodes inside a try (logs to `Error.txt` and disconnects), and `Program.Main` logs unhandled exceptions to `Error.txt`.
-- `CMain_KeyUp` calls `Program.Form.CreateScreenShot()` **outside** its try block → an I/O failure escapes to WinForms.
+- ~~`CMain_KeyUp` called `CreateScreenShot()` outside its try block~~ — no longer: the screenshot is taken after the next Present inside `Application_Idle`'s try (noted 2026-10-24).
 - ~~`CMain_KeyDown/KeyUp` `Enum.Parse` on a modifier binding~~ — **fixed 2026-10-10 (C1)** (`IsBoundKey`, never throws). Original note: `Enum.Parse(typeof(Keys), GetKey(TargetSpellLockOn))` was outside the try; a modifier binding makes `GetKey` return `"Ctrl + X"`, so every key press throws an unhandled exception.
 - `GameScene.ProcessPacket` handlers mostly deref `User`/`MapControl` without guards (rely on server packet order).
 - `GameLanguage.LoadClientLanguage` swallows all exceptions (`catch { }`).
@@ -680,7 +680,7 @@ No profiler, perf log, packet monitor, ILogger or telemetry exists.
 
 #### Known debt — existing breaches (do not copy; do not drive-by fix)
 
-- `RenderEnvironment`'s `catch (Exception)` calls `SaveError` every drawn frame while an exception recurs (budget gone in ~100 frames).
+- ~~`RenderEnvironment` called `SaveError` every drawn frame while an exception recurred~~ — **fixed 2026-10-24**: `SaveRenderError` logs a repeat of the same exception only every 1000th time.
 - `Network.Connection` (threadpool) calls `SaveError` off the main thread.
 - Messages carry no subsystem prefix; `Settings.cs` logs `ex.Message` instead of `ex.ToString()`.
 

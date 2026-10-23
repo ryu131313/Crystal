@@ -1048,7 +1048,8 @@ public class Awake
         if (CheckAwakening(item, type) != true)
             return -1;
 
-        Random rand = new Random(DateTime.Now.Millisecond);
+        // Random.Shared: a per-call seed from the millisecond gave equal rolls to calls in the same ms (the hit rolls repeated the success roll).
+        Random rand = Random.Shared;
 
         if (rand.Next(0, 100) <= AwakeSuccessRate)
         {
@@ -1094,7 +1095,7 @@ public class Awake
         float stepValue = (float)maxValue / 5.0f;
         float totalValue = 0.0f;
         bool[] isHit = new bool[5];
-        Random rand = new Random(DateTime.Now.Millisecond);
+        Random rand = Random.Shared;
 
         for (int i = 0; i < 5; i++)
         {

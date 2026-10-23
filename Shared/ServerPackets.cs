@@ -172,6 +172,7 @@ namespace ServerPackets
         {
             get { return (short)ServerPacketIds.StorageUnlockResult; }
         }
+        public override bool Observable => false;
 
         public byte Result;
         public bool HasPassword;
@@ -201,6 +202,7 @@ namespace ServerPackets
         {
             get { return (short)ServerPacketIds.StoragePasswordResult; }
         }
+        public override bool Observable => false;
 
         public byte Result;
         public bool Removing;

@@ -463,14 +463,38 @@ namespace Client
             catch (Exception ex) when (DXManager.IsDeviceLostException(ex))
             {
                 DXManager.DeviceLost = true;
-                SaveError(ex.ToString());
+                SaveRenderError(ex);
             }
             catch (Exception ex)
             {
-                SaveError(ex.ToString());
+                SaveRenderError(ex);
 
                 DXManager.AttemptRecovery();
             }
+        }
+
+        private static string _lastRenderError;
+        private static int _renderErrorRepeats;
+
+        /// <summary>
+        /// Logs a draw exception once, then only every 1000th repeat of the same one: an error that recurs every frame used to
+        /// spend the whole <see cref="Settings.RemainingErrorLogs"/> budget in about a second. UI thread only.
+        /// </summary>
+        private static void SaveRenderError(Exception ex)
+        {
+            string text = ex.ToString();
+            if (text == _lastRenderError)
+            {
+                if (++_renderErrorRepeats % 1000 == 0)
+                    SaveError(string.Format("Render error repeated {0} times: {1}", _renderErrorRepeats, ex.Message));
+                return;
+            }
+
+            if (_renderErrorRepeats > 0)
+                SaveError(string.Format("Previous render error repeated {0} times.", _renderErrorRepeats));
+            _lastRenderError = text;
+            _renderErrorRepeats = 0;
+            SaveError(text);
         }
 
         private static void CreateDebugLabel()
@@ -695,21 +719,17 @@ namespace Client
                 Now.TimeOfDay);
 
             {
-                Bitmap image = DXManager.CaptureBackBuffer();
-
+                // Bitmap, font and StringFormat disposed: each screenshot used to leak one bitmap and six GDI handles.
+                using (Bitmap image = DXManager.CaptureBackBuffer())
                 using (Graphics graphics = Graphics.FromImage(image))
+                using (Font font = new Font(Settings.FontName, 9F))
+                using (StringFormat sf = new StringFormat { LineAlignment = StringAlignment.Center, Alignment = StringAlignment.Center })
                 {
-                    StringFormat sf = new StringFormat
-                    {
-                        LineAlignment = StringAlignment.Center,
-                        Alignment = StringAlignment.Center
-                    };
-
-                    graphics.DrawString(text, new Font(Settings.FontName, 9F), Brushes.Black, new Point((Settings.ScreenWidth / 2) + 3, 10), sf);
-                    graphics.DrawString(text, new Font(Settings.FontName, 9F), Brushes.Black, new Point((Settings.ScreenWidth / 2) + 4, 9), sf);
-                    graphics.DrawString(text, new Font(Settings.FontName, 9F), Brushes.Black, new Point((Settings.ScreenWidth / 2) + 5, 10), sf);
-                    graphics.DrawString(text, new Font(Settings.FontName, 9F), Brushes.Black, new Point((Settings.ScreenWidth / 2) + 4, 11), sf);
-                    graphics.DrawString(text, new Font(Settings.FontName, 9F), Brushes.White, new Point((Settings.ScreenWidth / 2) + 4, 10), sf);//SandyBrown               
+                    graphics.DrawString(text, font, Brushes.Black, new Point((Settings.ScreenWidth / 2) + 3, 10), sf);
+                    graphics.DrawString(text, font, Brushes.Black, new Point((Settings.ScreenWidth / 2) + 4, 9), sf);
+                    graphics.DrawString(text, font, Brushes.Black, new Point((Settings.ScreenWidth / 2) + 5, 10), sf);
+                    graphics.DrawString(text, font, Brushes.Black, new Point((Settings.ScreenWidth / 2) + 4, 11), sf);
+                    graphics.DrawString(text, font, Brushes.White, new Point((Settings.ScreenWidth / 2) + 4, 10), sf);//SandyBrown
 
                     string path = Path.Combine(Application.StartupPath, @"Screenshots\");
                     if (!Directory.Exists(path))

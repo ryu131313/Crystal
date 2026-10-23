@@ -50,7 +50,7 @@ namespace Server.WebAdmin
         public string Format { get; init; }
 
         /// <summary>
-        /// False for keys <c>Settings.Load()</c> reads but <c>Settings.Save()</c> never writes (GMPassword, MaxPacket, MonsterRecall*):
+        /// False for keys <c>Settings.Load()</c> reads but <c>Settings.Save()</c> never writes (none today; GMPassword, MaxPacket and MonsterRecall* were until 2026-10-24):
         /// the config route writes those to Setup.ini itself after Settings.Save().
         /// </summary>
         public bool SavedBySettingsSave { get; init; } = true;
@@ -178,7 +178,7 @@ namespace Server.WebAdmin
                 "Minimum delay between logging out and starting the game again. Currently unused by the server (the check is disabled in code).");
             Add(G, "General", "GMPassword", "GMPassword", S, "GM password",
                 "Password for the in-game @LOGIN GM command (non-admin accounts). Applies to players who log in after the change.",
-                secret: true, savedBySave: false);
+                secret: true);
             Add(G, "General", "TestServer", "TestServer", B, "Test server",
                 "Test-server mode: every player may use the test commands and gets the test-server start-game behaviour.");
             Add(G, "General", "EnforceDBChecks", "EnforceDBChecks", B, "Enforce database checks",
@@ -210,7 +210,7 @@ namespace Server.WebAdmin
                 "Connections allowed from one IP before it is temporarily blocked.", min: 1);
             Add(N, "Network", "MaxPacket", "MaxPacket", U16, "Max packets per interval",
                 "Flood protection: a connection that sends more packets than this per processing interval is disconnected.",
-                min: 1, savedBySave: false);
+                min: 1);
             Add(N, "Network", "IPBlockSeconds", "IPBlockSeconds", I32, "Reconnect block (s)",
                 "Seconds an IP is blocked after each new connection or after exceeding Max connections per IP.", min: 0, max: 3600);
             Add(N, "Security", "PasswordHashV2", "PasswordHashV2", B, "Stronger password hashes (v2)",
@@ -362,9 +362,9 @@ namespace Server.WebAdmin
             Add(GP, "Game", "MapDetailsEnabled", "MapDetailsEnabled", B, "Map details", "Clients may ask for map details (monsters, NPCs, exits) for the map panel (sent to clients when they log in).");
             Add(GP, "Game", "MaxFriends", "MaxFriends", I32, "Max friends", "Largest friend list a character may have (sent to clients when they log in).", min: 0, max: 1000);
             Add(GP, "Game", "PKDelay", "PKDelay", I32, "PK point decay (s)", "Seconds between PK point reductions.", min: 1);
-            Add(GP, "Game", "MonsterRecallEnabled", "MonsterRecallEnabled", B, "Monster recall", "Monsters pulled too far from their spawn are recalled.", savedBySave: false);
-            Add(GP, "Game", "MonsterRecallRange", "MonsterRecallRange", I32, "Monster recall range (cells)", "Distance from home before a monster is recalled.", min: 1, max: 1000, savedBySave: false);
-            Add(GP, "Game", "MonsterRecallCooldown", "MonsterRecallCooldown", I32, "Monster recall cooldown (ms)", "Minimum time between recalls of the same monster.", min: 0, savedBySave: false);
+            Add(GP, "Game", "MonsterRecallEnabled", "MonsterRecallEnabled", B, "Monster recall", "Monsters pulled too far from their spawn are recalled.");
+            Add(GP, "Game", "MonsterRecallRange", "MonsterRecallRange", I32, "Monster recall range (cells)", "Distance from home before a monster is recalled.", min: 1, max: 1000);
+            Add(GP, "Game", "MonsterRecallCooldown", "MonsterRecallCooldown", I32, "Monster recall cooldown (ms)", "Minimum time between recalls of the same monster.", min: 0);
             Add(GP, "Game", "NewbieGuild", "NewbieGuild", S, "Newbie guild name", "Name of the guild new players join automatically.", format: "name");
             Add(GP, "Game", "NewbieGuildMaxSize", "NewbieGuildMaxSize", I32, "Newbie guild size", "Member cap of the newbie guild (applied when the guild is loaded or levels).", min: 1);
             Add(GP, "Game", "GroupInviteDelay", "GroupInviteDelay", I64, "Group invite delay (ms)", "Minimum time between group invites from one player.", min: 0, max: 3600000, isProperty: true);

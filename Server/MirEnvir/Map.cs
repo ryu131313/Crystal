@@ -12,6 +12,8 @@ namespace Server.MirEnvir
 {
     public class Map
     {
+        private static readonly log4net.ILog SpawnLog = Logger.GetLogger(LogType.Spawn);
+
         private static Envir Envir
         {
             get { return Envir.Main; }
@@ -1110,7 +1112,7 @@ namespace Server.MirEnvir
                         {
                             respawn.ErrorCount++;
 
-                            Logger.GetLogger(LogType.Spawn).Info($"Failed to spawn: " +
+                            SpawnLog.Info($"Failed to spawn: " +
                                 $"mapindex: {respawn.Map.Info.Index}, " +
                                 $"mob info: index: {respawn.Info.MonsterIndex}, " +
                                 $"name: {respawn.Monster.Name}, " +

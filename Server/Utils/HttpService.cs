@@ -46,11 +46,7 @@ namespace Server.Library.Utils
                 {
                     var context = _listener.GetContext();
                     var request = context.Request;
-                    Console.WriteLine("{0} {1} HTTP/1.1", request.HttpMethod, request.RawUrl);
-                    Console.WriteLine("User-Agent: {0}", request.UserAgent);
-                    Console.WriteLine("Accept-Encoding: {0}", request.Headers["Accept-Encoding"]);
-                    Console.WriteLine("Connection: {0}", request.KeepAlive ? "Keep-Alive" : "close");
-                    Console.WriteLine("Host: {0}", request.UserHostName);
+                    MessageQueue.Instance.EnqueueDebugging($"[HttpService] {request.HttpMethod} {request.RawUrl} host={request.UserHostName} ua={request.UserAgent}");
                     var response = context.Response;
                     if (context.Request.RemoteEndPoint != null)
                     {

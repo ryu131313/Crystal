@@ -119,9 +119,9 @@ namespace Server.WebAdmin.Tests
             Assert.True(Field("GMPassword").Secret);
             Assert.Single(SettingsCatalog.All, d => d.Secret);
 
-            // Load() reads these but Save() never writes them: the route writes them itself.
+            // Save() writes these since 2026-10-24 (they were load-only and the route wrote them itself).
             foreach (var name in new[] { "GMPassword", "MaxPacket", "MonsterRecallEnabled", "MonsterRecallRange", "MonsterRecallCooldown" })
-                Assert.False(Field(name).SavedBySettingsSave, name);
+                Assert.True(Field(name).SavedBySettingsSave, name);
             Assert.True(Field("DropRate").SavedBySettingsSave);
 
             Assert.True(SettingsCatalog.IsVersionKey(Field("VersionPath")));

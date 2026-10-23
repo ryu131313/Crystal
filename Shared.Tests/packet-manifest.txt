@@ -276,8 +276,8 @@ S	273	SetCompass	SetCompass	1	1AEDDD1E
 S	274	GroupMembersMap	GroupMembersMap	1	1D40F3A7
 S	275	SendMemberLocation	SendMemberLocation	1	2EAAEE9C
 S	276	GuildTerritoryPage	GuildTerritoryPage	1	319BB764
-S	277	StorageUnlockResult	StorageUnlockResult	1	3217D722
-S	278	StoragePasswordResult	StoragePasswordResult	1	C5838BD9
+S	277	StorageUnlockResult	StorageUnlockResult	0	3217D722
+S	278	StoragePasswordResult	StoragePasswordResult	0	C5838BD9
 S	279	GameDataChanged	GameDataChanged	0	B16EF489
 S	280	MapAtmosphere	MapAtmosphere	1	9F640EDF
 S	281	ServerRules	ServerRules	1	442C5222

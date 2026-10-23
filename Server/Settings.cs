@@ -811,6 +811,7 @@ namespace Server
             Reader.Write("General", "TestServer", TestServer);
             Reader.Write("General", "EnforceDBChecks", EnforceDBChecks);
             Reader.Write("General", "MonsterProcessWhenAlone", MonsterProcessWhenAlone);
+            Reader.Write("General", "GMPassword", GMPassword);
             Reader.Write("General", "Language", Language);
 
             //Paths
@@ -819,6 +820,7 @@ namespace Server
             Reader.Write("Network", "TimeOut", TimeOut);
             Reader.Write("Network", "MaxUser", MaxUser);
             Reader.Write("Network", "MaxIP", MaxIP);
+            Reader.Write("Network", "MaxPacket", MaxPacket);
             Reader.Write("Network", "IPBlockSeconds", IPBlockSeconds);
             Reader.Write("Network", "StatusPortEnabled", StatusPortEnabled);
             Reader.Write("Security", "PasswordHashV2", PasswordHashV2);
@@ -898,6 +900,9 @@ namespace Server
             Reader.Write("Game", "DropRate", DropRate);
             Reader.Write("Game", "ExpRate", ExpRate);
             Reader.Write("Game", "ItemTimeOut", ItemTimeOut);
+            Reader.Write("Game", "MonsterRecallEnabled", MonsterRecallEnabled);
+            Reader.Write("Game", "MonsterRecallRange", MonsterRecallRange);
+            Reader.Write("Game", "MonsterRecallCooldown", MonsterRecallCooldown);
             Reader.Write("Game", "PlayerDiedItemTimeOut", PlayerDiedItemTimeOut);
             Reader.Write("Game", "PetSave", PetSave);
             Reader.Write("Game", "MaxBossTames", MaxBossTames);

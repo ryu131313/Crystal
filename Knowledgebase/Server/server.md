@@ -381,12 +381,12 @@ Crystal keeps plain `List<T>` on `Envir` (`AccountList`, `CharacterList`, `ItemI
 - Legacy `HttpServer` `/broadcast` calls `Envir.Main.Broadcast` from its own thread; `/newaccount` → `HTTPNewAccount` adds to `AccountList`/`++NextAccountID` from it (under `AccountLock`, but game-thread readers don't take it).
 - `WebAdminStatusSampler` reads `Envir.Main.Players.Count`/`Connections.Count` from a timer thread (racy; tolerated for counts only).
 - Game-thread blocking IO: `SaveDB()` (sync backup copy + rewrite), synchronous log4net writes in `MessageQueue`, file reads/writes in `ReloadNPCs`/`ReloadDrops`/`ReloadLineMessages` (sanctioned only as operator-triggered actions, never per tick). `lock (Connections)` is held across all packet handling every ms, plus `lock (StatusConnections)`.
-- Time: guild territory rent uses local `DateTime.Now` (`GuildObject`/`GuildInfo` `GTRent`, `PlayerObject` ~L10525, `NPCSegment` ~L3142) while `Envir.Now` is UTC. `Awake` upgrade/hit rolls (`Shared/Data/ItemData.cs` ~L995/1041) create `new Random(DateTime.Now.Millisecond)` per call.
+- ~~Time: guild territory rent used local `DateTime.Now`; `Awake` rolls created `new Random(DateTime.Now.Millisecond)` per call~~ — **fixed 2026-10-24**: `HasGT` and the rent/begin dates use `Envir.Now` (rent saved before the fix may read up to the UTC offset early or late, once), awakening rolls use `Random.Shared`.
 - ~~Monster code on mob threads: non-atomic `ObjectID`, `MonsterCount`, `Envir.Objects.AddLast` from `Spawned()`, die/spawn scripts, exp and drops~~ — **fixed**: `ObjectID` (roadmap P5); `Envir.MonsterCount`, `Map.MonsterCount` and `MapRespawn.Count` use `Interlocked`, and list links, scripts, death rewards and cross-map teleports are deferred to the barrier (monster threading review, 2026-10-11). Still open: other monster AI that reaches a player, another map or a global from inside `Process` without going through `RunOutsideMobPass` (audit case by case; same-map player damage is safe because players never run during the barrier).
 - Accept callback counts per-IP connections over `Connections` **without** the lock, and its `finally` spins `while (Connections.Count >= Settings.MaxUser) Thread.Sleep(1)` on an IOCP thread.
 - `MirConnection.Enqueue` iterates `Observers` (plain `List`) unsynchronised; `Saving` is a plain bool written on an IO thread.
 - WinForms `ConfigForm`/Balance/System forms write `Settings` without `WebAdminOptions.SettingsLock`.
-- `Shared/Extensions/ExtensionMethods.cs` `HelperExtensions.Shuffle` uses a `private static Random rng` — not thread-safe; don't call it from monster code.
+- ~~`HelperExtensions.Shuffle` used a shared `static Random`~~ — **fixed 2026-10-24** (`Random.Shared`).
 
 ### 3.3 Error Handling
 
@@ -518,8 +518,8 @@ Crystal keeps plain `List<T>` on `Envir` (`AccountList`, `CharacterList`, `ItemI
 ### 3.8 Known defects (found 2026-10-08, not fixed)
 - ~~**`C.PurchaseGuildTerritory`** has a class, a client sender and a server handler (`MirConnection.PurchaseGuildTerritory`) but **no `GetClientPacket` case** → never received, and the rest of that read buffer is dropped.~~ — **fixed 2026-10-16 (Scene Lab UI phase 2.1)**: factory case added; the handler (`PlayerObject.PurchaseGuildTerritory`) was reviewed and hardened in the same change: it now needs the player alive at the `[@GUILDTERRITORY]` NPC page within `DataRange`, null-checks `MyGuildRank`, looks the territory up with an index loop, pays the seller only when the owner is not `"None"` and that guild's `GTIndex` matches (no `EndGT` on a guild without a territory), clamps the seller's gold at `uint.MaxValue` and sets `NeedSave` on both guilds. Remaining limits: the wire carries the owner name, not the territory index, so `"None"` always buys the first unowned territory, and unlike the `GTSale` script action there is no on-territory-map requirement.
 - **`S.RefineCancel`** has a class and a client handler but no `GetServerPacket` case and no server sender — dead.
-- **`S.StorageUnlockResult` / `S.StoragePasswordResult`** are private but `Observable` (default true) → mirrored to spectators.
-- **`Settings.Save()` never writes** `[General] GMPassword`, `[Network] MaxPacket`, `[Game] MonsterRecallEnabled/Range/Cooldown` (`Load` reads them) — a change made from WinForms or in code is lost at the next restart. The web admin Config page persists these keys itself (`ConfigRoutes.WriteIni`, `SavedBySettingsSave=false`); otherwise edit `Setup.ini` with the server stopped. `[Game] FishMonster` in Setup.ini is ineffective (Fishing settings own `FishingMonster`; see `Server/WebAdmin/SettingsCatalog.cs`).
+- ~~**`S.StorageUnlockResult` / `S.StoragePasswordResult`** were private but `Observable`~~ — **fixed 2026-10-24** (`Observable => false`; no wire change).
+- ~~**`Settings.Save()` never wrote** `[General] GMPassword`, `[Network] MaxPacket`, `[Game] MonsterRecallEnabled/Range/Cooldown`~~ — **fixed 2026-10-24**: `Save()` writes them, and `SettingsCatalog` no longer marks them `SavedBySettingsSave=false`. `[Game] FishMonster` in Setup.ini is still ineffective (Fishing settings own `FishingMonster`).
 - ~~Mob-thread exception → world hang; duplicate ObjectIDs~~ — **fixed 2026-10-10 (roadmap P5)**: per-object catch inside `ThreadLoop` (quarantine), a dead thread is skipped by the barrier (`MobThread.Dead`), `Envir.ObjectID` uses `Interlocked.Increment`.
 - **Drop lines ignore the numerator**: `2/10` behaves as `1/10` (`parts[0].Substring(2)` in `DropInfo`). First failed `DropItem` aborts the remaining drops.
 - ~~Zero-character accounts dropped at load; stale `Envir.Guilds` after an in-process restart~~ — **fixed 2026-10-10 (roadmap P5)**: accounts are kept (decision #14); `LoadGuilds` clears `Envir.Guilds` first.
@@ -713,14 +713,14 @@ No `Errors.txt` and no per-packet diagnostics (contrast WoOOLcraft). Baseline nu
 ### 5.2 Logging Rules
 
 #### ALWAYS
-- **ALWAYS** log via `MessageQueue.Instance`: `Enqueue(string)` → Server log, `Enqueue(Exception)` → Server log at Error, `EnqueueDebugging` → Debug log, `EnqueueChat` → Chat log. Player/Spawn audit trails use a **cached** `static readonly ILog` from `Logger.GetLogger(LogType.Player/Spawn)` (Known debt: `MirEnvir/Map.cs` ~L779 uncached Spawn logger; `Server.MirForms/Systems/GuildItemForm.cs` ~L172 logs through log4net directly). Web admin code uses `WebAdminLog.Info/Error` (`[WebAdmin]` prefix).
+- **ALWAYS** log via `MessageQueue.Instance`: `Enqueue(string)` → Server log, `Enqueue(Exception)` → Server log at Error, `EnqueueDebugging` → Debug log, `EnqueueChat` → Chat log. Player/Spawn audit trails use a **cached** `static readonly ILog` from `Logger.GetLogger(LogType.Player/Spawn)` (Known debt: `Server.MirForms/Systems/GuildItemForm.cs` ~L172 logs through log4net directly; the uncached Spawn logger in `Map.cs` was fixed 2026-10-24). Web admin code uses `WebAdminLog.Info/Error` (`[WebAdmin]` prefix).
 - **ALWAYS** prefix subsystem lines (`[WebAdmin]`, `[Guild]`, ...) or use a localized `ServerTextKeys` message.
 - **ALWAYS** include identity (ObjectID, Name, account, IP) in error logs.
 - **ALWAYS** rate-limit chatty logs — aggregate per second; the write is synchronous on the game thread.
 
 #### NEVER
 - **NEVER** log inside innermost combat/AI loops.
-- **NEVER** use `Console.WriteLine` (invisible in the WinForms exe). Known debt: `MirDatabase/CharacterInfo.cs`, `PlayerObject.cs` (~L14565), `Utils/HttpServer.cs`, `Utils/HttpService.cs`.
+- **NEVER** use `Console.WriteLine` (invisible in the WinForms exe). No calls left (the last four moved to `MessageQueue` 2026-10-24; the legacy HTTP request lines go to the Debug log).
 - **NEVER** introduce Serilog/NLog/ILogger/OpenTelemetry without a dedicated migration; stay on log4net 3.3.0. If telemetry is ever added: aggregate on the game thread, flush off it, no PII in tags, config in `Configs\Setup.ini`, thin wrapper over `MessageQueue`.
 
 ### 5.3 Metrics to Instrument (new subsystems)

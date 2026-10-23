@@ -508,7 +508,10 @@ namespace Client.MirGraphics
         private FrameSet _frames;
         private int[] _indexList;
         private int _count;
-        private bool _initialized;
+        // Set only after Open finished, under _initLock: the loader thread initialises every library while the UI thread may
+        // draw one first (it used to see _initialized with no arrays yet, or both threads opened the same file).
+        private volatile bool _initialized;
+        private readonly object _initLock = new object();
         // In-game patcher: the file was missing at Initialize; _demandVersion = the patch list version it was last asked
         // for under (asked again only when a newer list arrived, e.g. the first one after a start before the relay answered).
         private bool _missing;
@@ -548,16 +551,34 @@ namespace Client.MirGraphics
 
         public void Initialize()
         {
-            _initialized = true;
+            lock (_initLock)
+            {
+                if (_initialized) return;
+                Open();
+                _initialized = true;
+            }
+        }
 
+        /// <summary>
+        /// The UI thread's lazy initialise: never waits. False while the loader thread is opening this library; the caller
+        /// draws nothing this frame, as it would for a missing frame.
+        /// </summary>
+        private bool TryInitialize()
+        {
+            if (_initialized) return true;
+            if (!Monitor.TryEnter(_initLock)) return false;
             try
             {
-                Open();
+                if (!_initialized)
+                {
+                    Open();
+                    _initialized = true;
+                }
+                return true;
             }
-            catch (Exception)
+            finally
             {
-                _initialized = false;
-                throw;
+                Monitor.Exit(_initLock);
             }
         }
 
@@ -661,8 +682,7 @@ namespace Client.MirGraphics
 
         private bool CheckImage(int index)
         {
-            if (!_initialized)
-                Initialize();
+            if (!TryInitialize()) return false;
 
             if (_images == null || index < 0 || index >= _images.Length)
             {
@@ -703,7 +723,7 @@ namespace Client.MirGraphics
 
         public Point GetOffSet(int index)
         {
-            if (!_initialized) Initialize();
+            if (!TryInitialize()) return Point.Empty;
 
             if (_images == null || index < 0 || index >= _images.Length)
             {
@@ -721,7 +741,7 @@ namespace Client.MirGraphics
         }
         public Size GetSize(int index)
         {
-            if (!_initialized) Initialize();
+            if (!TryInitialize()) return Size.Empty;
             if (_images == null || index < 0 || index >= _images.Length)
             {
                 if (_missing) Prefetch(); // in-game patcher: a size query asks for a missing library like a draw does
@@ -738,8 +758,7 @@ namespace Client.MirGraphics
         }
         public Size GetTrueSize(int index)
         {
-            if (!_initialized)
-                Initialize();
+            if (!TryInitialize()) return Size.Empty;
 
             if (_images == null || index < 0 || index >= _images.Length)
             {

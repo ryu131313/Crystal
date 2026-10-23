@@ -276,7 +276,7 @@ namespace Server.MirDatabase
 
                 if (quest == null || quest.Info == null || quest.IsOrphan)
                 {
-                    Console.WriteLine($"[Load] Skipped orphan QuestProgress (Index={quest?.Index}) for character: {Name}");
+                    MessageQueue.Instance.Enqueue($"[Load] Skipped orphan QuestProgress (Index={quest?.Index}) for character: {Name}");
                     continue;
                 }
                 if (Envir.BindQuest(quest))
