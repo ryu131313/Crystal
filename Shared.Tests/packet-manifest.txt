@@ -230,7 +230,7 @@ S	227	NPCReset	NPCReset	1	E3B0C442
 S	228	AwakeningNeedMaterials	AwakeningNeedMaterials	1	FD6B4BF1
 S	229	AwakeningLockedItem	AwakeningLockedItem	1	AEA71611
 S	230	Awakening	Awakening	1	B03F30C9
-S	231	ReceiveMail	ReceiveMail	1	8B5AD998
+S	231	ReceiveMail	ReceiveMail	0	50AEFBE2
 S	232	MailLockedItem	MailLockedItem	1	AEA71611
 S	233	MailSendRequest	MailSendRequest	1	E3B0C442
 S	234	MailSent	MailSent	1	7AF8E6BB

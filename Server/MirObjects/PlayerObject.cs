@@ -13165,7 +13165,7 @@ namespace Server.MirObjects
                 return;
             }
 
-            if (player.Mail.Count > 50)
+            if (player.Mail.Count >= 50) // 50 mails at most (was > 50, which let a 51st in)
             {
                 ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.RecipientsMailboxFull), ChatType.System);
                 return;
@@ -13219,7 +13219,7 @@ namespace Server.MirObjects
                 return;
             }
 
-            if (player.Mail.Count > 50)
+            if (player.Mail.Count >= 50) // 50 mails at most (was > 50, which let a 51st in)
             {
                 ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.RecipientsMailboxFull), ChatType.System);
                 return;
@@ -13571,7 +13571,48 @@ namespace Server.MirObjects
 
             NewMail = false;
 
-            Enqueue(new S.ReceiveMail { Mail = mail });
+            SendMailParts(mail);
+        }
+
+        /// <summary>
+        /// Sends the mailbox as one or more S.ReceiveMail parts of at most S.ReceiveMail.MaxPartBytes of mail each (one
+        /// packet used to carry the whole box and could pass the 65 535-byte frame, which locked the character out at every
+        /// login; codebase review 2026-10-24 #2). A single mail too big for a part is left out and logged.
+        /// </summary>
+        private void SendMailParts(List<ClientMail> mail)
+        {
+            var parts = new List<List<ClientMail>> { new List<ClientMail>() };
+            using (var buffer = new MemoryStream())
+            using (var writer = new BinaryWriter(buffer))
+            {
+                int partBytes = 0;
+                for (int i = 0; i < mail.Count; i++)
+                {
+                    buffer.SetLength(0);
+                    mail[i].Save(writer);
+                    writer.Flush();
+                    int size = (int)buffer.Length;
+
+                    if (size > S.ReceiveMail.MaxPartBytes)
+                    {
+                        MessageQueue.Enqueue($"[Mail] {Name} (ObjectID {ObjectID}): mail {mail[i].MailID} is {size} bytes, too big to send; left out.");
+                        continue;
+                    }
+
+                    if (partBytes + size > S.ReceiveMail.MaxPartBytes && parts[parts.Count - 1].Count > 0)
+                    {
+                        if (parts.Count == byte.MaxValue) break;
+                        parts.Add(new List<ClientMail>());
+                        partBytes = 0;
+                    }
+
+                    parts[parts.Count - 1].Add(mail[i]);
+                    partBytes += size;
+                }
+            }
+
+            for (int part = 0; part < parts.Count; part++)
+                Enqueue(new S.ReceiveMail { Mail = parts[part], Part = (byte)part, PartCount = (byte)parts.Count });
         }
 
         public int GetMailAwaitingCollectionAmount()
@@ -15712,7 +15753,7 @@ namespace Server.MirObjects
                 return;
             }
 
-            if (recipient.Mail.Count > 50) // the SendMail limit
+            if (recipient.Mail.Count >= 50) // the SendMail limit
             {
                 ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.GameshopGiftMailboxFull), recipient.Name), ChatType.System);
                 return;

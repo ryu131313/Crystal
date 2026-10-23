@@ -5869,13 +5869,21 @@ namespace Client.MirScenes
             Ui.ItemAwakeningResult(p.result);
         }
 
+        // Mail of the S.ReceiveMail parts received so far (Part 0 starts it, the last part completes the box).
+        private readonly List<ClientMail> _mailParts = new List<ClientMail>();
+
         private void ReceiveMail(S.ReceiveMail p)
         {
+            if (p.Part == 0) _mailParts.Clear();
+            _mailParts.AddRange(p.Mail);
+            if (p.Part + 1 < p.PartCount) return;
+
             NewMail = false;
             NewMailCounter = 0;
             User.Mail.Clear();
 
-            User.Mail = p.Mail.OrderByDescending(e => !e.Locked).ThenByDescending(e => e.DateSent).ToList();
+            User.Mail = _mailParts.OrderByDescending(e => !e.Locked).ThenByDescending(e => e.DateSent).ToList();
+            _mailParts.Clear();
 
             foreach (ClientMail mail in User.Mail)
             {

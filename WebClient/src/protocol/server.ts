@@ -715,7 +715,9 @@ const decoders = {
         Collected: r.readBool(), DateSent: r.readI64(), Gold: r.readU32(), Items: readUserItems(r),
       });
     }
-    return { Mail };
+    // Split by size since 2026-10-24: Part 0 replaces the box, parts 1 .. PartCount - 1 append (after the list on the wire).
+    const Part = r.readU8(), PartCount = r.readU8();
+    return { Mail, Part, PartCount };
   },
   MailLockedItem: (r: Reader) => ({ UniqueID: r.readU64(), Locked: r.readBool() }),
   MailSendRequest: (_r: Reader) => ({}),

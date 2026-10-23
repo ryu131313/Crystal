@@ -285,7 +285,7 @@ internal static class Fixtures
         };
         yield return new S.GainedQuestItem { Item = torch };
         yield return new S.DeleteQuestItem { UniqueID = 9_000_000_001UL, Count = 3 };
-        yield return new S.ReceiveMail { Mail = { new ClientMail { MailID = 9_000_000_003UL, SenderName = "WebAlly", Message = "Hi — 你好", Opened = true, Locked = false, CanReply = true, Collected = false, DateSent = new DateTime(2026, 10, 12, 1, 0, 0, DateTimeKind.Utc), Gold = 3_000_000_000, Items = { torch } } } };
+        yield return new S.ReceiveMail { Mail = { new ClientMail { MailID = 9_000_000_003UL, SenderName = "WebAlly", Message = "Hi — 你好", Opened = true, Locked = false, CanReply = true, Collected = false, DateSent = new DateTime(2026, 10, 12, 1, 0, 0, DateTimeKind.Utc), Gold = 3_000_000_000, Items = { torch } } }, Part = 1, PartCount = 2 };
         yield return new S.MailLockedItem { UniqueID = 5, Locked = true };
         yield return new S.MailSendRequest();
         yield return new S.MailSent { Result = -1 };

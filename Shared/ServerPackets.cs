@@ -5885,14 +5885,24 @@ namespace ServerPackets
         }
     }
 
+    /// <summary>
+    /// The mailbox. A big box is split by measured size (PlayerObject.GetMail, at most MaxPartBytes of mail per part):
+    /// Part 0 replaces the client's list, later parts (1 .. PartCount - 1) append, the last one completes it. Part and
+    /// PartCount come after the list so a client built before the split still reads part 0 (codebase review 2026-10-24 #2).
+    /// </summary>
     public sealed class ReceiveMail : Packet
     {
         public override short Index
         {
             get { return (short)ServerPacketIds.ReceiveMail; }
         }
+        public override bool Observable => false;
+
+        /// <summary>Most bytes of serialised ClientMail one part carries (frame limit 65 535).</summary>
+        public const int MaxPartBytes = 60000;
 
         public List<ClientMail> Mail = new List<ClientMail>();
+        public byte Part, PartCount = 1;
 
         protected override void ReadPacket(BinaryReader reader)
         {
@@ -5900,6 +5910,9 @@ namespace ServerPackets
 
             for (int i = 0; i < count; i++)
                 Mail.Add(new ClientMail(reader));
+
+            Part = reader.ReadByte();
+            PartCount = reader.ReadByte();
         }
 
         protected override void WritePacket(BinaryWriter writer)
@@ -5908,6 +5921,9 @@ namespace ServerPackets
 
             for (int i = 0; i < Mail.Count; i++)
                 Mail[i].Save(writer);
+
+            writer.Write(Part);
+            writer.Write(PartCount);
         }
     }
     public sealed class MailLockedItem : Packet

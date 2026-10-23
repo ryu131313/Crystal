@@ -158,7 +158,16 @@ export class MailBox {
   /** Server packets; true = consumed (the classic chain returned on every mail packet). */
   handle(p: ServerPacket): boolean {
     switch (p.type) {
-      case "ReceiveMail": this.receiveMail(p.Mail); return true;
+      case "ReceiveMail": {
+        // A big box comes in parts (GameScene.ReceiveMail): Part 0 starts it, the last part completes it.
+        if (p.Part === 0) this.mailParts = [];
+        this.mailParts.push(...p.Mail);
+        if (p.Part + 1 < p.PartCount) return true;
+        const list = this.mailParts;
+        this.mailParts = [];
+        this.receiveMail(list);
+        return true;
+      }
       case "MailLockedItem": {
         // GameScene.MailLockedItem: InventoryDialog.GetCell(UniqueID).Locked = Locked
         const item = this.inv.inventory.find((i) => i?.UniqueID === p.UniqueID);
@@ -179,6 +188,8 @@ export class MailBox {
       default: return false;
     }
   }
+
+  private mailParts: ClientMail[] = [];
 
   // GameScene.ReceiveMail: replace the list (unlocked first, then newest first), flag new mail, refresh the list
   private receiveMail(list: ClientMail[]): void {
