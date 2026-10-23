@@ -7,6 +7,8 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <BaseOutputPath>..\Build\Server\</BaseOutputPath>
+    <!-- P9-14: server GC (parallel, DATAS in .NET 10) instead of workstation GC; see Knowledgebase/Future Optimisation/P9-14-ServerGC.md -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
   </PropertyGroup>
 
   <PropertyGroup>

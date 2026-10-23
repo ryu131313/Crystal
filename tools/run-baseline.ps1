@@ -66,7 +66,7 @@ function Get-DiagLines([datetime]$since) {
 
 function Summarize($lines) {
     # average numeric fields across the window's lines
-    $keys = 'it','busy','attributed','conn','mob','obj','maps','envir','admin','saves','park','other','pin','pout','bout','alloc','send','sends','bcast','scan','recv','ehit','emiss','coal','alone','batched','senc','scall','ssend','sarr','sbusy'
+    $keys = 'mpass','mover','mproc','mmaxpass','mlate','it','busy','attributed','conn','mob','obj','maps','envir','admin','saves','park','other','pin','pout','bout','alloc','send','sends','bcast','scan','recv','ehit','emiss','coal','alone','batched','senc','scall','ssend','sarr','sbusy','cvis','fvis','chand'
     $sum = @{}; $n = 0; $maxIt = 0.0
     foreach ($l in $lines) {
         $n++
@@ -160,6 +160,17 @@ foreach ($r in $results) {
     $ratio = if ($d.recv -gt 0) { [math]::Round($d.scan / $d.recv, 2) } else { '' }
     [void]$sb.AppendLine(("| {0} | {1} | {2} | {13} | {14} | {15} | {16} | {17} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12} |" -f `
         $r.Name, [math]::Round($d.conn + $d.send, 2), $d.send, $d.sends, $d.bcast, $d.scan, $d.recv, $ratio, $d.emiss, $d.ehit, $d.coal, $d.alone, $d.batched, $d.senc, $d.scall, $d.ssend, $d.sarr, $d.sbusy))
+}
+[void]$sb.AppendLine('')
+[void]$sb.AppendLine('Connection visits (P9-13; per second, averaged; `handlers` is the part of `conn` spent in client packet handlers):')
+[void]$sb.AppendLine('')
+[void]$sb.AppendLine('| Scenario | conn ms/s | handlers ms/s | conn - handlers | connection pass visits/s | send pass visits/s | send ms/s |')
+[void]$sb.AppendLine('|---|---|---|---|---|---|---|')
+foreach ($r in $results) {
+    $d = $r.Diag
+    if (-not $d) { continue }
+    [void]$sb.AppendLine(("| {0} | {1} | {2} | {3} | {4} | {5} | {6} |" -f `
+        $r.Name, $d.conn, $d.chand, [math]::Round($d.conn - $d.chand, 2), $d.cvis, $d.fvis, $d.send))
 }
 [void]$sb.AppendLine('')
 [void]$sb.AppendLine('Bot client tail per run:')

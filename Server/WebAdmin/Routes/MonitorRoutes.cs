@@ -23,11 +23,16 @@ namespace Server.WebAdmin.Routes
             router.Get("/api/admin/monitor/maps/{index:int}/tiles/{z:int}/{tx:int}/{ty:int}", GetTile);
         }
 
-        /// <summary>?map=&lt;index&gt;:&lt;instance&gt; (focus map), ?mobs=off|all|bosses, ?evSince=&lt;seq&gt; (omit on the first poll).</summary>
+        /// <summary>
+        /// ?map=&lt;index&gt;:&lt;instance&gt; (focus map: the only one with player rows), ?mobs=off|all|bosses, ?evSince=&lt;seq&gt; (omit
+        /// on the first poll), ?sel=&lt;character name&gt; (that player's row and map key, on any map).
+        /// </summary>
         private static async Task GetSnapshot(WebAdminRequest req)
         {
             var world = WebAdminGame.WorldState;
             var focus = WebAdminMonitor.NormaliseKey(req.Query["map"]);
+            var sel = (req.Query["sel"] ?? "").Trim();
+            if (sel.Length == 0 || sel.Length > 32) sel = null;
             var mobs = (req.Query["mobs"] ?? "off").Trim().ToLowerInvariant();
             if (mobs != "all" && mobs != "bosses") mobs = "off";
             var evSince = req.Query.Has("evSince") ? Math.Max(0, req.QueryLong("evSince", 0)) : -1;
@@ -41,7 +46,7 @@ namespace Server.WebAdmin.Routes
             MonitorSnapshot snap;
             try
             {
-                snap = await WebAdminGame.RunAsync(() => WebAdminMonitor.BuildSnapshot(focus, mobs, evSince), 3000).ConfigureAwait(false);
+                snap = await WebAdminGame.RunAsync(() => WebAdminMonitor.BuildSnapshot(focus, mobs, evSince, sel), 3000).ConfigureAwait(false);
             }
             catch (WorldNotRunningException)
             {
@@ -51,11 +56,11 @@ namespace Server.WebAdmin.Routes
 
             snap.Maps.Sort((a, b) =>
             {
-                var c = b.Players.Count.CompareTo(a.Players.Count);
+                var c = b.PlayerCount.CompareTo(a.PlayerCount);
                 return c != 0 ? c : string.Compare(a.Title, b.Title, StringComparison.OrdinalIgnoreCase);
             });
             for (var i = 0; i < snap.Maps.Count; i++)
-                snap.Maps[i].Players.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+                snap.Maps[i].Players?.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
 
             await req.Json(new
             {
@@ -67,6 +72,7 @@ namespace Server.WebAdmin.Routes
                 latestSeq = snap.LatestSeq,
                 maps = snap.Maps,
                 mobs = snap.Mobs,
+                selected = snap.Selected,
                 events = snap.Events,
                 maxMobRows = WebAdminMonitor.MaxMobRows,
                 art = Art(),
@@ -96,6 +102,7 @@ namespace Server.WebAdmin.Routes
             latestSeq = 0,
             maps = Array.Empty<MonitorMap>(),
             mobs = (MonitorMobs)null,
+            selected = (MonitorSelected)null,
             events = Array.Empty<MonitorEvent>(),
             maxMobRows = WebAdminMonitor.MaxMobRows,
             art = Art(),

@@ -8650,6 +8650,13 @@ namespace Server.MirObjects
 
 			//if (p != null) MessageQueue.EnqueueDebugging(((ServerPacketIds)p.Index).ToString());
 		}
+        /// <summary>Broadcast path (P9-15): every recipient of one broadcast shares <paramref name="frame"/>; see MirConnection.Enqueue.</summary>
+        internal void Enqueue(Packet p, ref SharedFrame frame)
+        {
+            var c = Connection;
+            if (c == null) return;
+            c.Enqueue(p, ref frame);
+        }
 		public virtual void Enqueue(Packet p, MirConnection c)
         {            
             if (c == null)

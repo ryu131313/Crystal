@@ -1,8 +1,11 @@
 /**
  * Live Monitor section (#section-monitor).
  *
- * GET /api/admin/monitor/snapshot (one game-thread snapshot: every occupied map with its players, the monsters of the focus map when
- * that layer is on, and the events since the last poll) polled every 1 s while the section and the browser tab are visible.
+ * GET /api/admin/monitor/snapshot (one game-thread snapshot: every occupied map with its counts, player rows for the focus map only,
+ * the selected player's row on any map (?sel=), the monsters of the focus map when that layer is on, and the events since the last
+ * poll) polled every 1 s while the section and the browser tab are visible.
+ * Drawing stays cheap with many players: the layers below the death flashes are drawn into an offscreen canvas once per snapshot or
+ * view change, so a running flash animation only copies that and draws its rings; trails are stroked in batches per colour and alpha.
  * The map is drawn on one canvas. Base: with map art ([WebAdmin] ClientDataPath) the map's authored minimap
  * (GET .../maps/{index}/minimap) and, once zoomed in, real 768 x 512 tiles (GET .../maps/{index}/tiles/{z}/{tx}/{ty}, z = 0..3 =
  * 1/2^z scale) streamed in for the visible area; otherwise the walkability image (GET .../maps/{index}/image, 3:2 cells like the game),
@@ -22,6 +25,8 @@
   var TILE_CONCURRENCY = 3;         // map-art tile requests in flight (the server renders one at a time)
   var TILE_CACHE_MAX = 400;
   var FLASH_MS = 2600;
+  var MAX_TABLE_ROWS = 200;         // rows rebuilt every second; past this the filter narrows the list (the map still draws everyone)
+  var TRAIL_ALPHA_STEPS = 6;        // trail segments are batched per colour, dash and one of these fade steps
   var LS_KEY = 'mircraft_monitor_prefs';
   var CLASS_COLOURS = { Warrior: '#e0644f', Wizard: '#5b9cf0', Taoist: '#5fc47a', Assassin: '#b47ff0', Archer: '#e6c14f' };
   var esc = function (s) { return global.OpsUI.esc(s); };
@@ -31,6 +36,8 @@
     mapByKey: Object.create(null),
     focusKey: null,
     selected: null,                 // lower-case character name
+    selectedRow: null,              // the server's { key, player } for the selected name, wherever they are
+    followSel: false,               // a deep link named a player but no map: focus their map once the server says where they are
     filter: '',
     hideGms: false,
     paused: false,
@@ -62,6 +69,8 @@
   var stopPoll = null;
   var drawQueued = false;
   var flashTimer = null;
+  var base = { canvas: null, dirty: true };   // offscreen copy of every layer below the flashes
+  var lastHtml = { maps: null, table: null };
 
   // ---- preferences (per viewer; never required) ------------------------------------------------------------------------
 
@@ -256,16 +265,18 @@
     if (state.focusKey) q.push('map=' + encodeURIComponent(state.focusKey));
     if (state.layers.mobs !== 'off' && state.focusKey) q.push('mobs=' + state.layers.mobs);
     if (state.evSince != null) q.push('evSince=' + state.evSince);
+    var askedSel = state.selected;
+    if (askedSel) q.push('sel=' + encodeURIComponent(askedSel));
     var r = await global.OpsUI.fetchResult('/api/admin/monitor/snapshot' + (q.length ? '?' + q.join('&') : ''));
     if (!r.ok) {
       showBanner(r.status === 401 || r.status === 403 ? 'Not signed in as an admin.' : 'Snapshot failed: ' + (r.error || ('HTTP ' + r.status)) + '. Retrying every ' + (POLL_MS / 1000) + ' s.');
       renderStamp();
       return;
     }
-    apply(r.data || {});
+    apply(r.data || {}, askedSel);
   }
 
-  function apply(d) {
+  function apply(d, askedSel) {
     var now = Date.now();
     state.world = d.world || null;
     var artWas = JSON.stringify(state.art);
@@ -281,19 +292,25 @@
     if (state.world && state.world !== 'running') showBanner('The world is ' + state.world + '. The monitor shows live data while the world runs.');
     else showBanner(null);
 
-    if (!state.focusKey) {
-      var first = state.maps.filter(function (m) { return m.players && m.players.length; })[0];
-      if (first) setFocus(first.key, state.layers.mobs !== 'off');
+    var sel = d.selected && d.selected.player && state.selected && String(d.selected.player.name).toLowerCase() === state.selected ? d.selected : null;
+    if (askedSel === state.selected) state.selectedRow = sel;   // a poll sent before a new selection says nothing about it
+    if (state.followSel && askedSel === state.selected) {
+      state.followSel = false;
+      if (sel && sel.key !== state.focusKey) setFocus(sel.key, true);
     }
 
-    // trails: one point per player per snapshot
-    state.maps.forEach(function (m) {
-      (m.players || []).forEach(function (p) {
-        var k = String(p.name).toLowerCase();
-        var list = state.trails[k] || (state.trails[k] = []);
-        var last = list[list.length - 1];
-        if (!last || last.key !== m.key || last.x !== p.x || last.y !== p.y || now - last.t > 4000) list.push({ t: now, key: m.key, x: p.x, y: p.y });
-      });
+    if (!state.focusKey) {
+      var first = state.maps.filter(function (m) { return m.playerCount > 0; })[0];
+      if (first) setFocus(first.key, true);   // the next snapshot brings that map's rows
+    }
+
+    // trails: one point per player per snapshot (rows exist for the focus map only)
+    var fm = focusMap();
+    (fm && fm.players || []).forEach(function (p) {
+      var k = String(p.name).toLowerCase();
+      var list = state.trails[k] || (state.trails[k] = []);
+      var last = list[list.length - 1];
+      if (!last || last.key !== fm.key || last.x !== p.x || last.y !== p.y || now - last.t > 4000) list.push({ t: now, key: fm.key, x: p.x, y: p.y });
     });
     Object.keys(state.trails).forEach(function (k) {
       var list = state.trails[k];
@@ -399,17 +416,20 @@
     return (m.players || []).filter(function (p) { return String(p.name).toLowerCase() === k; })[0] || null;
   }
 
+  /** The focus map's row, else the server's row for the selected player (only the focus map carries rows). */
   function findPlayerAnywhere(name) {
     var k = String(name || '').toLowerCase();
-    for (var i = 0; i < state.maps.length; i++) {
-      var ps = state.maps[i].players || [];
-      for (var j = 0; j < ps.length; j++) if (String(ps[j].name).toLowerCase() === k) return { map: state.maps[i], player: ps[j] };
-    }
+    var m = focusMap();
+    var p = playerByName(name);
+    if (m && p) return { map: m, player: p };
+    var s = state.selectedRow;
+    if (s && String(s.player.name).toLowerCase() === k && state.mapByKey[s.key]) return { map: state.mapByKey[s.key], player: s.player };
     return null;
   }
 
   function select(name, centre) {
     var k = name ? String(name).toLowerCase() : null;
+    if (k !== state.selected) state.selectedRow = null;
     state.selected = k;
     if (global.portalSetHashParams) global.portalSetHashParams({ player: k ? name : null }, true);
     var p = playerByName(name);
@@ -469,12 +489,11 @@
 
   function renderTiles() {
     var m = focusMap();
-    var gms = 0;
-    state.maps.forEach(function (x) { (x.players || []).forEach(function (p) { if (p.gm) gms++; }); });
-    var occupied = state.maps.filter(function (x) { return x.players && x.players.length; }).length;
+    var gms = 0, occupied = 0;
+    state.maps.forEach(function (x) { gms += x.gms || 0; if (x.playerCount > 0) occupied++; });
     var html = tile('Players online', global.OpsUI.formatNumber(state.totalPlayers)) +
       tile('Occupied maps', occupied) +
-      tile('On this map', m ? (m.players || []).length : '–') +
+      tile('On this map', m ? global.OpsUI.formatNumber(m.playerCount || 0) : '–') +
       tile('Deaths (10 min)', state.deaths10m, 'Player deaths in the last 10 minutes, all maps', state.deaths10m > 0) +
       tile('GMs online', gms);
     if (state.layers.mobs !== 'off') {
@@ -486,18 +505,20 @@
   }
 
   function renderMaps() {
-    var list = state.maps.filter(function (m) { return (m.players && m.players.length) || m.key === state.focusKey; });
+    var list = state.maps.filter(function (m) { return m.playerCount > 0 || m.key === state.focusKey; });
+    var html;
     if (!list.length) {
-      els.maps.innerHTML = '<li class="mir-muted mon-maps-empty">' + (state.world && state.world !== 'running' ? 'World not running.' : 'Nobody online.') + '</li>';
-      return;
-    }
-    els.maps.innerHTML = list.map(function (m) {
+      html = '<li class="mir-muted mon-maps-empty">' + (state.world && state.world !== 'running' ? 'World not running.' : 'Nobody online.') + '</li>';
+    } else html = list.map(function (m) {
       var sel = m.key === state.focusKey;
       return '<li><button type="button" class="mon-map-btn' + (sel ? ' active' : '') + '" data-key="' + esc(m.key) + '"' + (sel ? ' aria-current="true"' : '') +
         ' title="' + esc(m.title + ' — #' + m.index + (m.fileName ? ', file ' + m.fileName : '') + (m.instance > 1 ? ', instance ' + m.instance : '')) + '">' +
         '<span class="mon-map-name">' + esc(m.title) + (m.instance > 1 ? ' <span class="mir-muted">#' + esc(m.instance) + '</span>' : '') + '</span>' +
-        '<span class="mon-map-count">' + esc((m.players || []).length) + '</span></button></li>';
+        '<span class="mon-map-count">' + esc(m.playerCount || 0) + '</span></button></li>';
     }).join('');
+    if (html === lastHtml.maps) return;   // unchanged: keep the DOM (and its hover/focus) as it is
+    lastHtml.maps = html;
+    els.maps.innerHTML = html;
   }
 
   function evTime(e) {
@@ -611,7 +632,13 @@
   function renderTable() {
     var m = focusMap();
     var rows = visibleRows();
-    els.tbody.innerHTML = rows.map(function (p, i) {
+    // Cap the rows (rebuilt every second); the selected player stays listed even past the cap.
+    var shown = [];
+    for (var r = 0; r < rows.length; r++) {
+      if (r < MAX_TABLE_ROWS || String(rows[r].name).toLowerCase() === state.selected) shown.push({ p: rows[r], i: r });
+    }
+    var html = shown.map(function (it) {
+      var p = it.p, i = it.i;
       var sel = String(p.name).toLowerCase() === state.selected;
       var colour = CLASS_COLOURS[p.className] || '#9aa4b2';
       var status = [];
@@ -631,11 +658,20 @@
         '<td>' + status.join(' ') + '</td>' +
         '</tr>';
     }).join('');
+    var hidden = rows.length - shown.length;
+    if (hidden > 0) {
+      html += '<tr class="mon-more"><td colspan="' + COLUMNS.length + '" class="mir-muted">' + esc(global.OpsUI.formatNumber(hidden)) +
+        ' more not listed: use the filter (the map shows everyone).</td></tr>';
+    }
+    if (html !== lastHtml.table) {
+      lastHtml.table = html;
+      els.tbody.innerHTML = html;
+    }
     var empty = !rows.length;
     els.empty.classList.toggle('hidden', !empty);
     if (empty) {
       els.empty.textContent = !m ? (state.focusKey ? 'This map is not loaded.' : 'Pick a map.') :
-        (m.players && m.players.length ? 'No player matches the filter.' : 'Nobody is on this map right now.');
+        (m.playerCount > 0 ? (m.players ? 'No player matches the filter.' : 'Loading…') : 'Nobody is on this map right now.');
     }
   }
 
@@ -788,12 +824,15 @@
   function toScreen(v, x, y) { return { x: (x + 0.5 - v.vx) * 3 * v.k, y: (y + 0.5 - v.vy) * 2 * v.k }; }
   function toCell(v, sx, sy) { return { x: Math.floor(sx / (3 * v.k) + v.vx), y: Math.floor(sy / (2 * v.k) + v.vy) }; }
 
+  /** Something below the flashes changed (data, view, layers, an image): redraw the base layer on the next frame. */
   function queueDraw() {
+    base.dirty = true;
     if (drawQueued) return;
     drawQueued = true;
     (global.requestAnimationFrame || function (f) { return setTimeout(f, 16); })(function () { drawQueued = false; draw(); });
   }
 
+  /** Copies the base layer (redrawn first when dirty) and draws the flashes on top: the flash animation only pays for this. */
   function draw() {
     var canvas = els.canvas;
     if (!canvas || !sectionVisible()) return;
@@ -802,22 +841,46 @@
     var dpr = global.devicePixelRatio || 1;
 
     if (!m || !m.width || !m.height) {
-      var w0 = Math.max(200, els.wrap.clientWidth || 600), h0 = 220;
-      sizeCanvas(canvas, w0, h0, dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.fillStyle = '#0b0d11';
-      ctx.fillRect(0, 0, w0, h0);
-      ctx.fillStyle = '#7d8696';
-      ctx.font = '13px Inter, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(state.focusKey ? 'This map is not loaded.' : 'Nobody is online — pick a map with "Go to any map…".', w0 / 2, h0 / 2);
+      base.dirty = true;
+      drawEmpty(canvas, ctx, dpr);
       return;
     }
 
-    ensureImage(m);
     var lay = layout(m);
-    var v = ensureView(m, lay);
+    var pw = Math.round(lay.cw * dpr), ph = Math.round(lay.ch * dpr);
+    if (!base.canvas) base.canvas = global.document.createElement('canvas');
+    if (base.dirty || base.canvas.width !== pw || base.canvas.height !== ph) {
+      base.dirty = false;
+      drawBase(base.canvas, m, lay, dpr);
+    }
+
     sizeCanvas(canvas, lay.cw, lay.ch, dpr);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(base.canvas, 0, 0);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (state.view) drawFlashes(ctx, m, state.view);
+  }
+
+  function drawEmpty(canvas, ctx, dpr) {
+    var w0 = Math.max(200, els.wrap.clientWidth || 600), h0 = 220;
+    sizeCanvas(canvas, w0, h0, dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = '#0b0d11';
+    ctx.fillRect(0, 0, w0, h0);
+    ctx.fillStyle = '#7d8696';
+    ctx.font = '13px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(state.focusKey ? 'This map is not loaded.' : 'Nobody is online — pick a map with "Go to any map…".', w0 / 2, h0 / 2);
+  }
+
+  /** Every layer below the flashes, into the offscreen canvas (sized in device px, drawn in CSS px). */
+  function drawBase(canvas, m, lay, dpr) {
+    var ctx = canvas.getContext('2d');
+    ensureImage(m);
+    var v = ensureView(m, lay);
+    var pw = Math.round(lay.cw * dpr), ph = Math.round(lay.ch * dpr);
+    if (canvas.width !== pw) canvas.width = pw;
+    if (canvas.height !== ph) canvas.height = ph;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = '#0b0d11';
     ctx.fillRect(0, 0, lay.cw, lay.ch);
@@ -837,7 +900,6 @@
     drawTrails(ctx, m, v);
     drawMobs(ctx, v);
     drawPlayers(ctx, m, v);
-    drawFlashes(ctx, m, v);
 
     if (v.k > v.fitK * 1.01) {
       ctx.fillStyle = 'rgba(11,13,17,0.75)';
@@ -875,7 +937,8 @@
     var win = state.layers.trail * 1000;
     if (!win) return;
     var now = Date.now();
-    ctx.lineWidth = 1.5;
+    // Segments grouped by colour, dash and fade step: one path and one stroke per group instead of one per segment.
+    var groups = Object.create(null);
     (m.players || []).forEach(function (p) {
       var list = state.trails[String(p.name).toLowerCase()];
       if (!list || list.length < 2) return;
@@ -885,18 +948,28 @@
         var pt = list[i];
         if (pt.key !== m.key || now - pt.t > win) { prev = null; continue; }
         if (prev) {
-          var a = toScreen(v, prev.x, prev.y), b = toScreen(v, pt.x, pt.y);
           var jump = Math.max(Math.abs(pt.x - prev.x), Math.abs(pt.y - prev.y)) > JUMP_CELLS;
-          ctx.globalAlpha = 0.25 + 0.5 * (1 - (now - pt.t) / win);
-          ctx.strokeStyle = colour;
-          ctx.setLineDash(jump ? [4, 4] : []);
-          ctx.beginPath();
-          ctx.moveTo(a.x, a.y);
-          ctx.lineTo(b.x, b.y);
-          ctx.stroke();
+          var step = Math.min(TRAIL_ALPHA_STEPS - 1, Math.floor((1 - (now - pt.t) / win) * TRAIL_ALPHA_STEPS));
+          var gk = colour + '|' + (jump ? 1 : 0) + '|' + step;
+          var g = groups[gk] || (groups[gk] = { colour: colour, jump: jump, alpha: 0.25 + 0.5 * (step + 0.5) / TRAIL_ALPHA_STEPS, pts: [] });
+          g.pts.push(prev.x, prev.y, pt.x, pt.y);
         }
         prev = pt;
       }
+    });
+    ctx.lineWidth = 1.5;
+    Object.keys(groups).forEach(function (gk) {
+      var g = groups[gk], pts = g.pts;
+      ctx.globalAlpha = g.alpha;
+      ctx.strokeStyle = g.colour;
+      ctx.setLineDash(g.jump ? [4, 4] : []);
+      ctx.beginPath();
+      for (var i = 0; i + 3 < pts.length; i += 4) {
+        var a = toScreen(v, pts[i], pts[i + 1]), b = toScreen(v, pts[i + 2], pts[i + 3]);
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+      }
+      ctx.stroke();
     });
     ctx.setLineDash([]);
     ctx.globalAlpha = 1;
@@ -928,12 +1001,13 @@
   function drawPlayers(ctx, m, v) {
     var r = pinRadius(v);
     var sel = null;
-    var players = (m.players || []).slice().sort(function (a, b) { return (matches(a) ? 1 : 0) - (matches(b) ? 1 : 0); });
-    players.forEach(function (p) {
+    // Filtered-out pins first (dimmed), matches on top: one matches() call per player, no sort.
+    var dim = [], lit = [];
+    (m.players || []).forEach(function (p) { (matches(p) ? lit : dim).push(p); });
+    var drawPin = function (p, on) {
       if (state.hideGms && p.gm) return;
       var s = toScreen(v, p.x, p.y);
       if (s.x < -20 || s.y < -20 || s.x > v.cw + 20 || s.y > v.ch + 20) return;
-      var on = matches(p);
       ctx.globalAlpha = on ? 1 : 0.28;
       ctx.beginPath();
       ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
@@ -951,7 +1025,9 @@
         ctx.stroke();
       }
       if (String(p.name).toLowerCase() === state.selected) sel = { p: p, s: s };
-    });
+    };
+    dim.forEach(function (p) { drawPin(p, false); });
+    lit.forEach(function (p) { drawPin(p, true); });
     ctx.globalAlpha = 1;
     if (sel) {
       ctx.beginPath();
@@ -1352,9 +1428,13 @@
     if (key && /^\d+$/.test(key)) key += ':1';
     if (key && /^\d+:\d+$/.test(key) && key !== state.focusKey) setFocus(key, true);
     if (p.player) {
-      var hit = findPlayerAnywhere(p.player);
-      if (hit && !key && hit.map.key !== state.focusKey) setFocus(hit.map.key, true);
       if (String(p.player).toLowerCase() !== state.selected) select(p.player, true);
+      if (!key) {
+        // Only the focus map carries rows: ask the server where the player is (?sel=) and follow them there.
+        var hit = findPlayerAnywhere(p.player);
+        if (hit && hit.map.key !== state.focusKey) setFocus(hit.map.key, true);
+        else if (!hit) { state.followSel = true; refresh(true); }
+      }
     }
   });
 

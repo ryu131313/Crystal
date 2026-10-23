@@ -143,7 +143,7 @@ internal sealed class Options
         }
 
         if (!PrefixReg.IsMatch(o.Prefix)) error = "--prefix must be 1-9 letters/digits (account = prefix+5 digits, character = prefix+'c'+5 digits, max 15)";
-        else if (o.Bots < 1 || o.Bots > 5000) error = "--bots must be 1..5000";
+        else if (o.Bots < 1 || o.Bots > 10000) error = "--bots must be 1..10000";
         else if (o.FirstIndex < 0 || o.FirstIndex + o.Bots > 100000) error = "--first-index + --bots must stay below 100000 (5-digit names)";
         else if (o.RampPerSecond <= 0) error = "--ramp must be > 0";
         else if (o.DurationSeconds < 0) error = "--duration must be >= 0 (0 = until stopped)";

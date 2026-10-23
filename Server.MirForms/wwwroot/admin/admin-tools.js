@@ -362,7 +362,7 @@
       '  </div>' +
       '  <div data-role="self-checks" class="hidden"></div>' +
       '  <div class="ops-form">' +
-      num('bots', 'Bots', 1, 5000, 1, 'How many bots to run (up to 5000).') +
+      num('bots', 'Bots', 1, 10000, 1, 'How many bots to run (up to 10000).') +
       num('ramp', 'Ramp (bots/s)', 0.1, 200, 0.1, 'Bots released per second.') +
       num('durationMinutes', 'Duration (min, 0 = until stopped)', 0, 1440, 1, '') +
       '    <label class="tl-narrow">Class<select class="fd-input" data-field="class">' +

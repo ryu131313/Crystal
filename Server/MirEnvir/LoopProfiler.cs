@@ -24,6 +24,10 @@ namespace Server.MirEnvir
         private static long _packetsIn, _packetsOut, _bytesOut;
         private static long _sends, _encodeHits, _encodeMisses, _coalesced, _batchedMoves;
         private static long _sendEncodeTicks, _sendCallTicks;
+        private static long _connVisits, _flushVisits, _handlerTicks;
+        private static long _directSends, _outboxReplayed, _frameHits, _frameMisses;
+        // Since the world started (ResetTotals): busy (non-park) ticks and iterations, for the run's average iteration.
+        private static long _totalBusyTicks, _totalIterations;
 
         /// <summary>
         /// Counters bumped from any thread that runs world code (game thread and mob threads), one instance per thread so the
@@ -103,10 +107,38 @@ namespace Server.MirEnvir
             public long SenderSends { get; init; }
             public long SenderArrays { get; init; }
             public double SenderBusyMs { get; init; }
+            /// <summary>Average iteration since the world started: total busy (non-park) time / total iterations.</summary>
+            public double RunAvgIterationMs { get; init; }
+            /// <summary>Connections visited by the connection pass (Process) and by the end-of-iteration send pass (P9-13).</summary>
+            public long ConnVisits { get; init; }
+            public long FlushVisits { get; init; }
+            /// <summary>Game-thread ms in client packet handlers (ProcessPacket), the part of Connections that is game logic (P9-13).</summary>
+            public double HandlerMs { get; init; }
+            /// <summary>P9-15 (DirectSend): game-thread direct enqueues, mob-outbox entries replayed at the barrier, shared-frame hits/encodes.</summary>
+            public long DirectSends { get; init; }
+            public long OutboxReplayed { get; init; }
+            public long FrameHits { get; init; }
+            public long FrameMisses { get; init; }
         }
 
         /// <summary>The most recent one-second snapshot (null until the first publish).</summary>
         public static Snapshot Last { get; private set; }
+
+        /// <summary>
+        /// WorkLoop start (a Stop / Start or Reboot begins a new run): starts the run totals and the current window over, so the time
+        /// the world was stopped counts neither as busy nor as park.
+        /// </summary>
+        public static void ResetTotals()
+        {
+            _totalBusyTicks = 0;
+            _totalIterations = 0;
+            _lastPublish = Stopwatch.GetTimestamp();
+            _mark = 0;
+            _iterations = 0;
+            _maxIterationTicks = 0;
+            Array.Clear(_phaseTicks);
+            Array.Clear(_buckets);
+        }
 
         public static void BeginIteration()
         {
@@ -145,6 +177,14 @@ namespace Server.MirEnvir
         public static void CountBatchedMoves(int moves) => _batchedMoves += moves;
         /// <summary>One flush's Stopwatch ticks: encode + copy, and the socket send call (P9-09). Game thread only.</summary>
         public static void CountSendTiming(long encodeTicks, long callTicks) { _sendEncodeTicks += encodeTicks; _sendCallTicks += callTicks; }
+        /// <summary>P9-13, game thread only: connections one pass visited, and handler ticks of one connection's packets.</summary>
+        public static void CountConnVisits(int n) => _connVisits += n;
+        public static void CountFlushVisits(int n) => _flushVisits += n;
+        public static void CountHandlerTicks(long ticks) => _handlerTicks += ticks;
+        /// <summary>P9-15, game thread only: one direct enqueue, one outbox replay, one shared-frame use (hit) or encode (miss).</summary>
+        public static void CountDirectSend() => _directSends++;
+        public static void CountOutboxReplayed(int n) => _outboxReplayed += n;
+        public static void CountFrame(bool hit) { if (hit) _frameHits++; else _frameMisses++; }
 
         /// <summary>One broadcast: <paramref name="scanned"/> players checked, <paramref name="recipients"/> enqueued. Any world thread.</summary>
         public static void CountBroadcast(int scanned, int recipients)
@@ -175,6 +215,8 @@ namespace Server.MirEnvir
             }
             var park = _phaseTicks[(int)Phase.Park];
             var nonPark = Math.Max(1, windowTicks - park);
+            _totalBusyTicks += Math.Max(0, windowTicks - park);
+            _totalIterations += _iterations;
 
             var hist = new Dictionary<string, long>(_buckets.Length);
             for (var i = 0; i < _buckets.Length; i++)
@@ -227,6 +269,14 @@ namespace Server.MirEnvir
                 SenderSends = senderSends,
                 SenderArrays = senderArrays,
                 SenderBusyMs = Math.Round(senderBusyMs, 3),
+                RunAvgIterationMs = _totalIterations > 0 ? Math.Round(ToMs(_totalBusyTicks) / _totalIterations, 3) : 0,
+                ConnVisits = _connVisits,
+                FlushVisits = _flushVisits,
+                HandlerMs = Math.Round(ToMs(_handlerTicks), 3),
+                DirectSends = _directSends,
+                OutboxReplayed = _outboxReplayed,
+                FrameHits = _frameHits,
+                FrameMisses = _frameMisses,
             };
             Last = snap;
 
@@ -236,6 +286,8 @@ namespace Server.MirEnvir
             _iterations = 0; _maxIterationTicks = 0; _packetsIn = 0; _packetsOut = 0; _bytesOut = 0;
             _sends = 0; _encodeHits = 0; _encodeMisses = 0; _coalesced = 0; _batchedMoves = 0;
             _sendEncodeTicks = 0; _sendCallTicks = 0;
+            _connVisits = 0; _flushVisits = 0; _handlerTicks = 0;
+            _directSends = 0; _outboxReplayed = 0; _frameHits = 0; _frameMisses = 0;
 
             if (Settings.LogLoopProfile)
                 MessageQueue.Instance.EnqueueDebugging(Format(snap));
@@ -252,7 +304,25 @@ namespace Server.MirEnvir
                    $"hist={string.Join(",", s.Histogram.Values)} " +
                    $"send={p["Send"]} sends={s.Sends} bcast={s.Broadcasts} scan={s.BroadcastScanned} recv={s.BroadcastRecipients} " +
                    $"ehit={s.EncodeHits} emiss={s.EncodeMisses} coal={s.Coalesced} alone={s.AloneRuns} batched={s.BatchedMoves} " +
-                   $"senc={s.SendEncodeMs} scall={s.SendCallMs} ssend={s.SenderSends} sarr={s.SenderArrays} sbusy={s.SenderBusyMs}";
+                   $"senc={s.SendEncodeMs} scall={s.SendCallMs} ssend={s.SenderSends} sarr={s.SenderArrays} sbusy={s.SenderBusyMs}" +
+                   FormatMob(s.MobThreads) +
+                   $" cvis={s.ConnVisits} fvis={s.FlushVisits} chand={s.HandlerMs}" +
+                   $" dsend={s.DirectSends} obox={s.OutboxReplayed} fhit={s.FrameHits} fmiss={s.FrameMisses}";
+        }
+
+        /// <summary>Mob threads summed over the window: passes, deadline overruns, AI runs, longest pass, worst lateness.</summary>
+        private static string FormatMob(MobThreadLoad[] mob)
+        {
+            if (mob == null) return "";
+            int passes = 0, overruns = 0, processed = 0; double maxPass = 0; long late = 0;
+            foreach (var t in mob)
+            {
+                if (t == null) continue;
+                passes += t.Passes; overruns += t.Overruns; processed += t.Processed;
+                if (t.MaxPassMs > maxPass) maxPass = t.MaxPassMs;
+                if (t.LateMs > late) late = t.LateMs;
+            }
+            return $" mpass={passes} mover={overruns} mproc={processed} mmaxpass={maxPass} mlate={late}";
         }
 
         private static string FormatUs(long us) => us >= 1000 ? (us / 1000) + "ms" : (us / 1000.0).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + "ms";

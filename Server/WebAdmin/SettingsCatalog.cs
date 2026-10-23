@@ -229,6 +229,8 @@ namespace Server.WebAdmin
                 "A packet sent to many players in the same connection pass (movement, chat, effects) is encoded once and the bytes are reused, instead of being encoded again for every recipient.");
             Add(N, "Optimisation", "HumanProcessMs", "HumanProcessMs", I32, "Player processing interval (ms)",
                 "Players and heroes run their per-tick housekeeping (buffs, regen, poison, timers) at most every N ms instead of on every loop iteration. Delayed actions (attack damage, spells, NPC actions) still run on time. 0 = every iteration (old behaviour).", min: 0, max: 50);
+            Add(N, "Optimisation", "MobPassDeadlineMs", "MobPassDeadlineMs", I32, "Mob pass deadline (ms)",
+                "Longest a monster-AI pass may run per loop iteration, on each mob thread and on the game thread's share. The game thread waits for the slowest pass (the mob barrier), so a lower value bounds that wait; monsters left over run on the next iteration, a little late. Live. Default 10.", min: 1, max: 20);
             Add(N, "Optimisation", "DueScheduler", "DueScheduler", B, "Due-time object scheduler",
                 "Players, monsters, NPCs, items and spells are processed from per-thread queues ordered by when each is next due, instead of walking every object on every loop iteration. Idle CPU then no longer grows with the number of monsters. Off = the old walk. Applies when the world starts.",
                 SettingRestart.World);
@@ -242,6 +244,12 @@ namespace Server.WebAdmin
                 "When a player has an older health, name, name-colour or poison update for the same object still waiting to be sent, the older one is dropped and only the newest is sent. Movement, attacks and effects are never dropped or reordered.");
             Add(N, "Optimisation", "SendThreads", "SendThreads", I32, "Sender threads",
                 "Socket sends run on this many dedicated sender threads instead of the game loop. The loop still builds every player's packets; a sender thread hands them to the network within microseconds, in order. Packets that queue up for a player while a send is in progress leave together. A player more than 4 MB behind is disconnected. 0 = send on the game loop (old behaviour).", min: 0, max: 4);
+            Add(N, "Optimisation", "FlushReadyOnly", "FlushReadyOnly", B, "Send pass skips idle players",
+                "The end-of-tick send pass visits only players who have packets waiting, instead of checking every connected player on every loop iteration. Same packets, same order. Off = check every connection (old behaviour).");
+            Add(N, "Optimisation", "DirectSend", "DirectSend", B, "Cheaper packet fan-out",
+                "Packets the game loop sends go straight into each player's send list instead of through a thread-safe queue, monster packets are handed over once per tick, and a packet broadcast to many players is encoded once for all of them. Same packets in the same order (only monster packets from different monster threads in one tick, which already raced, may interleave differently). Shortens the slowest game-loop iterations in crowds. Off = old send path.");
+            Add(N, "Optimisation", "ConnSweepMs", "ConnSweepMs", I32, "Full connection check interval (ms)",
+                "Each loop iteration handles only the players whose packets just arrived; every N ms all connections are checked for timeouts, closed sockets and failed sends. A dropped connection is noticed up to N ms later. 0 = check every connection on every iteration (old behaviour).", min: 0, max: 1000);
             Add(N, "Optimisation", "HumanIdleCapMs", "HumanIdleCapMs", I32, "Idle player processing cap (ms)",
                 "A player with nothing urgent going on runs its housekeeping only when one of its timers (buffs, poison, regen, durability, mount, fishing, ...) is due, and at least every N ms, instead of every 'Player processing interval'. Sending a packet, being poisoned or getting a buff wakes the player at once. Heroes are not affected. 0 = off (old behaviour).", min: 0, max: 1000);
             Add(N, "Optimisation", "MoveBatch", "MoveBatch", B, "Batch movement packets",

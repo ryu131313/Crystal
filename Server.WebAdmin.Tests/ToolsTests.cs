@@ -47,7 +47,7 @@ namespace Server.WebAdmin.Tests
         [Theory]
         [InlineData("{\"target\":\"live\"}")]
         [InlineData("{\"bots\":0}")]
-        [InlineData("{\"bots\":5001}")]
+        [InlineData("{\"bots\":10001}")]
         [InlineData("{\"bots\":2.5}")]
         [InlineData("{\"prefix\":\"too-long-prefix\"}")]
         [InlineData("{\"password\":\"abc\"}")]

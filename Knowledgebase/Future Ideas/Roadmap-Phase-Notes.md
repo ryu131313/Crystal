@@ -836,7 +836,7 @@ SlimDX is referenced from 16 client files. Some import it only for `Vector2/3`, 
 | P7 | WinForms editors | Keep them through the seam; retire only after a capability parity audit |
 | P7 | Load side effects (archiving, dropped items and accounts) | Preserve them inside the seam; turn them into logged jobs later |
 | C5 (or C2) | Client "remember password" | DPAPI |
-| P9 | Mob threads and GC mode | Decide from measurements |
+| P9 | Mob threads and GC mode | GC mode: server GC (DATAS) since 2026-10-22, `Future Optimisation/P9-14-ServerGC.md`; mob threads: decide from measurements |
 | C2 | Patch host and runtime delivery | HTTPS with AutoPatcherAdminV2 only; framework-dependent with detection and ≥2 weeks' notice |
 | C4 | Fallback cycle and shader compile | ≥1 two-week D3D9 fallback cycle; embedded HLSL compiled at runtime (`d3dcompiler_47` ships with Windows 10+) or offline `.cso` |
 | C5 | TLS; `PurchaseGuildTerritory` | TLS **in**: the server will face the internet (user, 2026-10-09), and TLS is part of the go-public gate. Enable `PurchaseGuildTerritory` only after its handler is reviewed (**done 2026-10-16**, Scene Lab UI phase 2.1: reviewed, hardened, enabled) |

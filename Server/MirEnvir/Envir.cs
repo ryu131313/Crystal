@@ -1,4 +1,4 @@
-using ClientPackets;
+﻿using ClientPackets;
 using Server.Library.MirDatabase;
 using Server.Library.Utils;
 using Server.MirDatabase;
@@ -27,6 +27,15 @@ namespace Server.MirEnvir
         /// <summary>Due-time scheduler of this thread's monsters (roadmap P9-05); used instead of walking ObjectsList.</summary>
         public readonly ObjectScheduler Scheduler = new ObjectScheduler();
         public bool Stop = false;
+
+        /// <summary>The mob sub-thread running on this OS thread (null on the game thread and every other thread). P9-15.</summary>
+        [ThreadStatic] internal static MobThread Current;
+
+        /// <summary>
+        /// Packets this sub-thread queued during a mob pass with [Optimisation] DirectSend (P9-15). Written by the owning thread
+        /// only; replayed and emptied by the game thread at the start of EndMobPass, while the thread is parked.
+        /// </summary>
+        internal readonly List<OutboxEntry> Outbox = new List<OutboxEntry>();
         /// <summary>Set when the thread ended on an unexpected exception; the barrier then ignores it (roadmap P5).</summary>
         public volatile bool Dead;
         /// <summary>
@@ -2183,6 +2192,7 @@ namespace Server.MirEnvir
                 }
 
                 OpenAdminQueue();
+                LoopProfiler.ResetTotals();
                 global::Server.WebAdmin.WebAdminHooks.RaiseWorldStarted();
 
                 try
@@ -2226,21 +2236,56 @@ namespace Server.MirEnvir
 
                             lock (Connections)
                             {
-                                for (var i = Connections.Count - 1; i >= 0; i--)
+                                // P9-13: between full sweeps only connections that received packets (or must send outside the
+                                // game) are processed; the sweep keeps timeouts, the pre-login limit and failed sends on time.
+                                // The ready list is drained on a sweep too, so its marks never go stale.
+                                MirConnection.TakeProcessReady(_processScratch);
+                                var sweepMs = Settings.ConnSweepMs;
+                                if (sweepMs <= 0 || Time >= _nextConnSweep || _nextConnSweep - Time > sweepMs) // last: a restart reset Time
                                 {
-                                    if (i >= Connections.Count) continue; // an isolated disconnect below may shrink the list
-                                    var connection = Connections[i];
-                                    // Isolation (roadmap P5): one client's packet or handler exception disconnects that client only.
-                                    try
+                                    if (sweepMs > 0) _nextConnSweep = Time + sweepMs;
+                                    LoopProfiler.CountConnVisits(Connections.Count);
+                                    for (var i = Connections.Count - 1; i >= 0; i--)
                                     {
-                                        connection.Process();
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        WorldErrors.Record(WorldErrors.Describe(connection), ex);
-                                        IsolateConnection(connection);
+                                        if (i >= Connections.Count) continue; // an isolated disconnect below may shrink the list
+                                        var connection = Connections[i];
+                                        // Isolation (roadmap P5): one client's packet or handler exception disconnects that client only.
+                                        try
+                                        {
+                                            connection.Process();
+                                            connection.KeepProcessReadyIfQueued(); // keeps marks right across a live switch
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            WorldErrors.Record(WorldErrors.Describe(connection), ex);
+                                            IsolateConnection(connection);
+                                        }
                                     }
                                 }
+                                else
+                                {
+                                    LoopProfiler.CountConnVisits(_processScratch.Count);
+                                    for (var i = 0; i < _processScratch.Count; i++)
+                                    {
+                                        var connection = _processScratch[i];
+                                        if (!connection.Listed)
+                                        {
+                                            connection.MarkProcessReady(); // packets before the accept thread listed it: next pass
+                                            continue;
+                                        }
+                                        try
+                                        {
+                                            connection.Process();
+                                            connection.KeepProcessReadyIfQueued();
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            WorldErrors.Record(WorldErrors.Describe(connection), ex);
+                                            IsolateConnection(connection);
+                                        }
+                                    }
+                                }
+                                _processScratch.Clear();
                                 MirConnection.EndEncodePass(); // roadmap P9: encoded bytes live for one pass only
                             }
 
@@ -2282,7 +2327,7 @@ namespace Server.MirEnvir
                                 if (!Info.Stop) continue;
                                 // Due scheduler: a parked thread with nothing due stays parked (its scheduler is safe to read here).
                                 if (_dueScheduler && !Info.Scheduler.HasWork(Time)) continue;
-                                Info.EndTime = Stopwatch.ElapsedMilliseconds + 10; // review M2: was Time + 10 (tick start)
+                                Info.EndTime = Stopwatch.ElapsedMilliseconds + Settings.MobPassDeadlineMs; // review M2: was Time + 10 (tick start)
                                 Info.Stop = false;
                                 armed = true;
                             }
@@ -2470,8 +2515,16 @@ namespace Server.MirEnvir
 
                         // P9-06: in-game sends go out here, after monsters, objects and maps ran, so this iteration's world
                         // packets leave this iteration. One pass over all connections keeps encode-once to one encode.
-                        if (connPass && Settings.FlushAtEnd)
-                            FlushEndOfTick();
+                        if (connPass)
+                        {
+                            if (Settings.FlushAtEnd) FlushEndOfTick();
+                            else
+                            {
+                                // P9-13: nothing flushes from the ready list, so empty it (its marks would otherwise stay set).
+                                MirConnection.TakeReady(_readyScratch);
+                                _readyScratch.Clear();
+                            }
+                        }
                         LoopProfiler.Mark(LoopProfiler.Phase.Send);
 
                         LoopProfiler.EndIteration();
@@ -2747,7 +2800,7 @@ namespace Server.MirEnvir
                 try
                 {
                     var start = Stopwatch.GetTimestamp();
-                    var deadline = Stopwatch.ElapsedMilliseconds + 10;
+                    var deadline = Stopwatch.ElapsedMilliseconds + Settings.MobPassDeadlineMs;
                     var n = RunDue(Info.Scheduler, deadline, Info);
                     Info.NotePass(start, n, Stopwatch.ElapsedMilliseconds >= deadline);
                 }
@@ -2893,6 +2946,21 @@ namespace Server.MirEnvir
             if (node.List == list) list.Remove(node);
         }
 
+        /// <summary>
+        /// Game thread, at the barrier: moves each parked sub-thread's outbox into the connections' pending lists, in thread
+        /// order (P9-15). A thread still running (the shutdown barrier gave up on it) keeps its outbox: its list is not touched.
+        /// </summary>
+        private void ReplayMobOutboxes()
+        {
+            for (var j = 1; j < MobThreads.Length; j++)
+            {
+                var t = MobThreads[j];
+                if (t == null || t.Outbox.Count == 0) continue;
+                if (!Volatile.Read(ref t.Stop) && !t.Dead && !t.Exited) continue;
+                MirConnection.ReplayOutbox(t.Outbox);
+            }
+        }
+
         /// <summary>Players moved by monster AI during the mob pass whose sector must be updated after it (P9-07).</summary>
         private readonly ConcurrentQueue<PlayerObject> _gridFixups = new ConcurrentQueue<PlayerObject>();
 
@@ -2929,6 +2997,7 @@ namespace Server.MirEnvir
         private void EndMobPass()
         {
             _inMobPass = false;
+            ReplayMobOutboxes(); // P9-15: first, so packets queued during the pass precede anything the deferred work below sends
             ApplyGridFixups(); // P9-07: first, so deferred monster work below already sees every player in its sector (review M2)
 
             // Queue order is real-time order, so a node's add is always applied before its remove.
@@ -2961,6 +3030,7 @@ namespace Server.MirEnvir
         private void ThreadLoop(MobThread Info)
         {
             if (Info.NativeThreadId == 0) Info.NativeThreadId = Info.Id == 0 ? GameThreadNativeId : NativeThread.CurrentId();
+            if (Info.Id != 0) MobThread.Current = Info; // P9-15: its enqueues during a pass go to Info.Outbox
 
             if (_dueScheduler)
             {
@@ -2986,7 +3056,7 @@ namespace Server.MirEnvir
                 var passComplete = false; // roadmap P6: sub-threads stop after one full pass instead of re-walking until EndTime
                 // Review H1: the game thread's own list also needs a pass/time rule, otherwise it walks only as many monsters
                 // as it loops while the (now quick) sub-threads finish, i.e. almost none.
-                var ownDeadline = Stopwatch.ElapsedMilliseconds + 10;
+                var ownDeadline = Stopwatch.ElapsedMilliseconds + Settings.MobPassDeadlineMs;
                 if (Info._current == null)
                     Info._current = Info.ObjectsList.First;
                 stopping = Info._current == null;
@@ -3113,23 +3183,57 @@ namespace Server.MirEnvir
 
             lock (Connections)
             {
-                for (var i = Connections.Count - 1; i >= 0; i--)
+                // P9-13: the ready list is always drained, so a live switch to FlushReadyOnly starts from clean marks.
+                MirConnection.TakeReady(_readyScratch);
+                if (Settings.FlushReadyOnly)
                 {
-                    if (i >= Connections.Count) continue; // an isolated disconnect below may shrink the list
-                    var connection = Connections[i];
-                    try
+                    LoopProfiler.CountFlushVisits(_readyScratch.Count);
+                    for (var i = 0; i < _readyScratch.Count; i++)
                     {
-                        connection.FlushEndOfTick(tick);
-                    }
-                    catch (Exception ex)
-                    {
-                        WorldErrors.Record(WorldErrors.Describe(connection), ex);
-                        IsolateConnection(connection);
+                        var connection = _readyScratch[i];
+                        // A connection removed from Connections (disconnected) is not in game, so FlushEndOfTick skips it.
+                        try
+                        {
+                            connection.FlushEndOfTick(tick);
+                            connection.KeepReadyIfPending();
+                        }
+                        catch (Exception ex)
+                        {
+                            WorldErrors.Record(WorldErrors.Describe(connection), ex);
+                            IsolateConnection(connection);
+                        }
                     }
                 }
+                else
+                {
+                    LoopProfiler.CountFlushVisits(Connections.Count);
+                    for (var i = Connections.Count - 1; i >= 0; i--)
+                    {
+                        if (i >= Connections.Count) continue; // an isolated disconnect below may shrink the list
+                        var connection = Connections[i];
+                        try
+                        {
+                            connection.FlushEndOfTick(tick);
+                            connection.KeepReadyIfPending(); // marks stay right across a live switch back to FlushReadyOnly
+                        }
+                        catch (Exception ex)
+                        {
+                            WorldErrors.Record(WorldErrors.Describe(connection), ex);
+                            IsolateConnection(connection);
+                        }
+                    }
+                }
+                _readyScratch.Clear();
                 MirConnection.EndEncodePass();
             }
         }
+
+        /// <summary>Connections taken from the ready list for one send pass (P9-13; game thread only, cleared after each pass).</summary>
+        private readonly List<MirConnection> _readyScratch = new List<MirConnection>();
+        /// <summary>Connections taken from the process-ready list for one connection pass (P9-13; game thread only).</summary>
+        private readonly List<MirConnection> _processScratch = new List<MirConnection>();
+        /// <summary>Next full connection sweep for [Optimisation] ConnSweepMs (game thread only).</summary>
+        private long _nextConnSweep;
 
         /// <summary>
         /// Called after a connection's Process threw (roadmap P5). Disconnects only that client; if the disconnect itself
@@ -5096,6 +5200,8 @@ namespace Server.MirEnvir
                             connected = true;
                             lock (Connections)
                                 Connections.Add(tempConnection);
+                            tempConnection.Listed = true;
+                            tempConnection.MarkProcessReady(); // P9-13: S.Connected goes out on the next pass, not the next sweep
                             WakeLoop();
                         }
                     }

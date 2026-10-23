@@ -224,6 +224,7 @@ namespace Server.MirNetwork
                 offset += used; // an unknown packet id drops the rest, as before
 
                 _rawData = offset >= count ? Array.Empty<byte>() : raw.AsSpan(offset, count - offset).ToArray();
+                MarkProcessReady(); // P9-13: the connection pass visits this connection on its next pass
                 Envir.WakeLoop(); // a parked game loop picks the packets up within ~1 ms at most (roadmap P6)
             }
             catch
@@ -513,12 +514,143 @@ namespace Server.MirNetwork
         public void Enqueue(Packet p)
         {
             if (p == null) return;
-            if (_sendList != null && p != null)
-                _sendList.Enqueue(p);
+            var queue = _sendList;
+            if (queue != null)
+            {
+                if (!Settings.DirectSend || !TryEnqueueOwned(new PendingPacket(p, null))) queue.Enqueue(p);
+                MarkReady();
+                // P9-13: outside the game (and with FlushAtEnd off) Process sends, so it must visit this connection soon.
+                // A stale Stage read on a mob thread only delays the send to the next full sweep.
+                if (Stage != GameStage.Game || !Settings.FlushAtEnd) MarkProcessReady();
+            }
 
             if (!p.Observable) return;
             foreach (MirConnection c in Observers)
                 c.Enqueue(p);
+        }
+
+        /// <summary>
+        /// Broadcast path (P9-15, [Optimisation] DirectSend): as <see cref="Enqueue(Packet)"/>, but every recipient of one
+        /// broadcast shares <paramref name="frame"/> (created by the first recipient), so the packet is encoded once at the first
+        /// flush and copied for the rest, without a per-recipient cache lookup. One frame per packet instance; the caller
+        /// starts with null. Any world thread.
+        /// </summary>
+        internal void Enqueue(Packet p, ref SharedFrame frame)
+        {
+            if (!Settings.DirectSend)
+            {
+                Enqueue(p);
+                return;
+            }
+            if (p == null) return;
+            var queue = _sendList;
+            if (queue != null)
+            {
+                frame ??= new SharedFrame(p);
+                if (!TryEnqueueOwned(new PendingPacket(p, frame))) queue.Enqueue(p);
+                MarkReady();
+                // P9-13: outside the game (and with FlushAtEnd off) Process sends, so it must visit this connection soon.
+                // A stale Stage read on a mob thread only delays the send to the next full sweep.
+                if (Stage != GameStage.Game || !Settings.FlushAtEnd) MarkProcessReady();
+            }
+
+            if (!p.Observable) return;
+            foreach (MirConnection c in Observers)
+                c.Enqueue(p, ref frame);
+        }
+
+        /// <summary>
+        /// P9-15 (DirectSend): on the game thread the packet goes straight into <see cref="_pending"/>; on a mob sub-thread during
+        /// a mob pass into that thread's outbox, which the game thread replays right after the barrier (<see cref="ReplayOutbox"/>),
+        /// so mob packets keep their place between the packets queued before and after the pass. Returns false on any other
+        /// thread (accept thread, a WinForms kick, a mob thread outside a pass at shutdown): the caller uses the concurrent queue.
+        /// </summary>
+        private bool TryEnqueueOwned(PendingPacket entry)
+        {
+            if (Environment.CurrentManagedThreadId == DesignStore.GameThreadId)
+            {
+                AddOwned(entry);
+                LoopProfiler.CountDirectSend();
+                return true;
+            }
+
+            var mob = MobThread.Current;
+            if (mob != null && Envir.InMobPass)
+            {
+                mob.Outbox.Add(new OutboxEntry(this, entry));
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Game thread: appends a direct or replayed entry after anything still waiting in the concurrent queue (queued before a
+        /// live switch to DirectSend, or by another thread), so those older packets keep their place (P9-15 review M1).
+        /// </summary>
+        private void AddOwned(PendingPacket entry)
+        {
+            var queue = _sendList;
+            if (queue != null && !queue.IsEmpty)
+            {
+                while (queue.TryDequeue(out var p))
+                    if (p != null) AddPending(new PendingPacket(p, null));
+            }
+            AddPending(entry);
+        }
+
+        /// <summary>Appends to the pending list (SendCoalesce applied on the way in). Game thread only.</summary>
+        private void AddPending(PendingPacket entry)
+        {
+            if (Settings.SendCoalesce) Supersede(entry.Packet);
+            _pending.Add(entry);
+        }
+
+        /// <summary>
+        /// Game thread, at the start of <c>Envir.EndMobPass</c> (the owning mob thread is parked): moves one mob thread's outbox
+        /// into the connections' pending lists in the order the thread queued them, then empties it.
+        /// </summary>
+        internal static void ReplayOutbox(List<OutboxEntry> outbox)
+        {
+            for (var i = 0; i < outbox.Count; i++)
+            {
+                var entry = outbox[i];
+                var c = entry.Connection;
+                if (c._sendList == null) continue; // disconnected during the pass
+                try
+                {
+                    c.AddOwned(entry.Pending);
+                }
+                catch (Exception ex)
+                {
+                    WorldErrors.Record(WorldErrors.Describe(c), ex);
+                }
+            }
+            LoopProfiler.CountOutboxReplayed(outbox.Count);
+            outbox.Clear();
+            if (outbox.Capacity > OutboxTrimAbove) outbox.Capacity = OutboxKeep;
+        }
+
+        private const int OutboxTrimAbove = 65536;
+        private const int OutboxKeep = 4096;
+
+        /// <summary>Shared frame bytes for one broadcast (P9-15); encoded once, on the game thread, at the first flush.</summary>
+        private static byte[] FrameBytes(SharedFrame frame)
+        {
+            if (!Settings.EncodeOnce) return ToBytes(frame.Packet);
+            var bytes = frame.Bytes;
+            if (bytes == null)
+            {
+                bytes = frame.Bytes = ToBytes(frame.Packet);
+                LoopProfiler.CountFrame(false);
+            }
+            else
+            {
+                LoopProfiler.CountFrame(true);
+                if (++_encodeHits % EncodeCheckEvery == 0)
+                    CheckNotMutated(frame.Packet, bytes);
+            }
+            return bytes;
         }
 
         /// <summary>
@@ -592,6 +724,7 @@ namespace Server.MirNetwork
             if (_sendFaulted) Disconnecting = true; // P9-09: a sender-thread send failed or the client fell too far behind
 
             var handled = false;
+            var handleStart = _receiveList.IsEmpty ? 0 : Stopwatch.GetTimestamp(); // P9-13 profiler: handler time
             while (!_receiveList.IsEmpty && !Disconnecting)
             {
                 Packet p;
@@ -606,8 +739,12 @@ namespace Server.MirNetwork
                 handled = true;
 
                 if (_receiveList == null)
+                {
+                    LoopProfiler.CountHandlerTicks(Stopwatch.GetTimestamp() - handleStart);
                     return;
+                }
             }
+            if (handleStart != 0) LoopProfiler.CountHandlerTicks(Stopwatch.GetTimestamp() - handleStart);
 
             // P9-08: a handler may have started a timer or set a flag Process acts on; with the idle cap the player could
             // otherwise sleep up to HumanIdleCapMs.
@@ -644,6 +781,83 @@ namespace Server.MirNetwork
             if (Stage == GameStage.Game) Flush(tick);
         }
 
+        #region Ready list (P9-13, [Optimisation] FlushReadyOnly)
+
+        /// <summary>
+        /// Connections that may have packets to send: <see cref="Enqueue"/> adds a connection the first time it queues a packet
+        /// after its last visit, so each connection is in here at most once (the list is bounded by the connection count). Any
+        /// world thread adds (game thread, mob threads, a WinForms kick); only the game thread drains it.
+        /// </summary>
+        private static readonly ConcurrentQueue<MirConnection> ReadyToFlush = new ConcurrentQueue<MirConnection>();
+        private int _readyQueued; // 1 while this connection is in ReadyToFlush (Interlocked)
+
+        private void MarkReady()
+        {
+            if (Volatile.Read(ref _readyQueued) == 0 && Interlocked.Exchange(ref _readyQueued, 1) == 0)
+                ReadyToFlush.Enqueue(this);
+        }
+
+        /// <summary>
+        /// Moves every ready connection into <paramref name="into"/> and clears their marks, so a packet queued from now on
+        /// marks its connection again. Game thread only.
+        /// </summary>
+        internal static void TakeReady(List<MirConnection> into)
+        {
+            while (ReadyToFlush.TryDequeue(out var c))
+            {
+                Interlocked.Exchange(ref c._readyQueued, 0); // full fence: cleared before the visit drains the send queue
+                into.Add(c);
+            }
+        }
+
+        /// <summary>
+        /// After a ready-list visit: a connection still holding unsent packets (off the shared SendFlushMs tick) goes back on the
+        /// list for the next pass. Game thread only.
+        /// </summary>
+        internal void KeepReadyIfPending()
+        {
+            if (_pending.Count > 0 && Connected && Stage == GameStage.Game) MarkReady();
+        }
+
+        /// <summary>
+        /// Connections the connection pass must visit (P9-13, [Optimisation] ConnSweepMs): packets arrived (receive thread), a
+        /// packet was queued outside the game (any world thread), or the connection was just listed (accept thread). Each
+        /// connection is in here at most once. Between full sweeps the game thread processes only these.
+        /// </summary>
+        private static readonly ConcurrentQueue<MirConnection> ReadyToProcess = new ConcurrentQueue<MirConnection>();
+        private int _processQueued; // 1 while this connection is in ReadyToProcess (Interlocked)
+
+        /// <summary>Set by the accept thread once the connection is in Envir.Connections; the ready pass skips it until then.</summary>
+        internal volatile bool Listed;
+
+        internal void MarkProcessReady()
+        {
+            if (Volatile.Read(ref _processQueued) == 0 && Interlocked.Exchange(ref _processQueued, 1) == 0)
+                ReadyToProcess.Enqueue(this);
+        }
+
+        /// <summary>Moves every connection waiting for Process into <paramref name="into"/> and clears their marks. Game thread only.</summary>
+        internal static void TakeProcessReady(List<MirConnection> into)
+        {
+            while (ReadyToProcess.TryDequeue(out var c))
+            {
+                Interlocked.Exchange(ref c._processQueued, 0); // full fence: cleared before Process drains the receive queue
+                into.Add(c);
+            }
+        }
+
+        /// <summary>
+        /// After Process: a connection with packets still waiting (retries moved back into the receive queue, or a handler
+        /// loop cut short by Disconnecting) is visited again on the next pass, as the full pass did. Game thread only.
+        /// </summary>
+        internal void KeepProcessReadyIfQueued()
+        {
+            var receive = _receiveList;
+            if (receive != null && !receive.IsEmpty && Connected) MarkProcessReady();
+        }
+
+        #endregion
+
         /// <summary>Pending packets above which a connection sends even off the shared tick.</summary>
         private const int FlushAtPending = 256;
         private const int PendingTrimAbove = 1024;
@@ -658,11 +872,11 @@ namespace Server.MirNetwork
             var queue = _sendList;
             if (queue == null) return;
 
+            // Packets queued off the game thread (or with DirectSend off); direct enqueues are already in _pending (P9-15).
             while (queue.TryDequeue(out var p))
             {
                 if (p == null) continue;
-                if (Settings.SendCoalesce) Supersede(p);
-                _pending.Add(p);
+                AddPending(new PendingPacket(p, null));
             }
 
             if (_pending.Count == 0) return;
@@ -682,11 +896,14 @@ namespace Server.MirNetwork
                 var batchMoves = Settings.MoveBatch && Stage != GameStage.None && Stage != GameStage.Login && Stage != GameStage.Select;
                 for (int i = 0; i < _pending.Count; i++)
                 {
-                    var p = _pending[i];
+                    var entry = _pending[i];
+                    var p = entry.Packet;
                     if (p == null) continue; // superseded (SendCoalesce)
                     byte[] bytes;
                     if (batchMoves && TryBatchMoves(ref i))
                         bytes = MoveBatchScratch.ToFrame(); // per connection, so never through the shared encode cache
+                    else if (entry.Frame != null && useEncodeCache)
+                        bytes = FrameBytes(entry.Frame); // P9-15: one encode per broadcast, no cache lookup
                     else
                         bytes = useEncodeCache ? Encode(p) : ToBytes(p);
                     SendScratch.Add(bytes);
@@ -733,14 +950,14 @@ namespace Server.MirNetwork
         /// </summary>
         private bool TryBatchMoves(ref int i)
         {
-            if (!AsMove(_pending[i], out _)) return false;
+            if (!AsMove(_pending[i].Packet, out _)) return false;
 
             var moves = MoveBatchScratch.Moves;
             moves.Clear();
             var j = i;
             for (; j < _pending.Count && moves.Count < S.ObjectMoveBatch.MaxMoves; j++)
             {
-                var p = _pending[j];
+                var p = _pending[j].Packet;
                 if (p == null) continue;
                 if (!AsMove(p, out var move)) break;
                 moves.Add(move);
@@ -798,14 +1015,17 @@ namespace Server.MirNetwork
             _coalesceIndex ??= new Dictionary<long, int>();
             if (_coalesceIndex.TryGetValue(key, out var at))
             {
-                _pending[at] = null;
+                _pending[at] = default;
                 LoopProfiler.CountCoalesced();
             }
             _coalesceIndex[key] = _pending.Count; // the index p is about to get
         }
 
-        /// <summary>Packets drained from the send queue and not yet sent (game thread only; see <see cref="Flush"/>).</summary>
-        private readonly List<Packet> _pending = new List<Packet>();
+        /// <summary>
+        /// Packets queued and not yet sent (game thread only; see <see cref="Flush"/>): drained from the send queue, or added
+        /// directly by game-thread enqueues and mob-outbox replays with DirectSend (P9-15). A superseded entry is default.
+        /// </summary>
+        private readonly List<PendingPacket> _pending = new List<PendingPacket>();
         /// <summary>SendCoalesce: (packet id, object id) → index in <see cref="_pending"/>; cleared after every send.</summary>
         private Dictionary<long, int> _coalesceIndex;
         /// <summary>Send at the next flush even off the shared tick (a KeepAlive reply). Game thread only.</summary>
@@ -2062,6 +2282,7 @@ namespace Server.MirNetwork
         private void ChangeAMode(C.ChangeAMode p)
         {
             if (Stage != GameStage.Game) return;
+            if (!Enum.IsDefined(p.Mode)) return; // an undefined mode falls through IsAttackTarget as "attack anyone"
 
             Player.AMode = p.Mode;
 
@@ -2070,6 +2291,7 @@ namespace Server.MirNetwork
         private void ChangePMode(C.ChangePMode p)
         {
             if (Stage != GameStage.Game) return;
+            if (!Enum.IsDefined(p.Mode)) return;
 
             Player.PMode = p.Mode;
 
@@ -2095,6 +2317,7 @@ namespace Server.MirNetwork
         private void RangeAttack(C.RangeAttack p)
         {
             if (Stage != GameStage.Game) return;
+            if (p.Direction > MirDirection.UpLeft) return;
 
             if (!Player.Dead && (Player.ActionTime > Envir.Time || Player.AttackTime > Envir.Time))
                 RetryLater(p);
@@ -2282,7 +2505,6 @@ namespace Server.MirNetwork
 
         private void SpellToggle(C.SpellToggle p)
         {
-            if (!Enum.IsDefined(p.Mode)) return; // an undefined mode falls through IsAttackTarget as "attack anyone"
             if (Stage != GameStage.Game) return;
 
             if (p.canUse > SpellToggleState.None)
@@ -2291,7 +2513,6 @@ namespace Server.MirNetwork
                 return;
             }
             if (Player.HeroSpawned)
-            if (!Enum.IsDefined(p.Mode)) return;
                 Player.Hero.SpellToggle(p.Spell, p.canUse);            
         }
         private void ConsignItem(C.ConsignItem p)
@@ -2317,7 +2538,6 @@ namespace Server.MirNetwork
         {
             if (Stage != GameStage.Game) return;
 
-            if (p.Direction > MirDirection.UpLeft) return;
             Player.UserMatch = p.Usermode;
             Player.MinShapes = p.MinShape;
             Player.MaxShapes = p.MaxShape;
@@ -3155,5 +3375,43 @@ namespace Server.MirNetwork
         public string IPAddress = "";
         public List<long> AccountsMade = new List<long>();
         public List<long> CharactersMade = new List<long>();
+    }
+
+    /// <summary>
+    /// One broadcast's packet and its encoded bytes, shared by every recipient (P9-15, [Optimisation] DirectSend). Created on any
+    /// world thread by the first recipient; <see cref="Bytes"/> is written and read on the game thread only (at flush).
+    /// </summary>
+    public sealed class SharedFrame
+    {
+        internal readonly Packet Packet;
+        internal byte[] Bytes;
+
+        internal SharedFrame(Packet packet) => Packet = packet;
+    }
+
+    /// <summary>A pending send: the packet, and the broadcast's shared frame when it came through a broadcast (else null).</summary>
+    public readonly struct PendingPacket
+    {
+        internal readonly Packet Packet;
+        internal readonly SharedFrame Frame;
+
+        internal PendingPacket(Packet packet, SharedFrame frame)
+        {
+            Packet = packet;
+            Frame = frame;
+        }
+    }
+
+    /// <summary>A packet a mob sub-thread queued during a mob pass, for replay after the barrier (P9-15).</summary>
+    public readonly struct OutboxEntry
+    {
+        internal readonly MirConnection Connection;
+        internal readonly PendingPacket Pending;
+
+        internal OutboxEntry(MirConnection connection, PendingPacket pending)
+        {
+            Connection = connection;
+            Pending = pending;
+        }
     }
 }

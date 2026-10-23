@@ -2,6 +2,7 @@ using System.Drawing;
 ﻿using Server.MirDatabase;
 using Server.MirEnvir;
 using Server.MirObjects.Monsters;
+using Server.MirNetwork;
 using S = ServerPackets;
 
 namespace Server.MirObjects
@@ -456,6 +457,7 @@ namespace Server.MirObjects
             if (p == null || CurrentMap == null) return;
 
             int sent = 0, scanned = 0;
+            SharedFrame frame = null; // P9-15: one encode for every recipient (DirectSend)
             foreach (var player in CurrentMap.PlayersNear(CurrentLocation, Globals.DataRange))
             {
                 scanned++;
@@ -463,7 +465,7 @@ namespace Server.MirObjects
 
                 if (Functions.InRange(CurrentLocation, player.CurrentLocation, Globals.DataRange))
                 {
-                    player.Enqueue(p);
+                    player.Enqueue(p, ref frame);
                     sent++;
                 }
             }

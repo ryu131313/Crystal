@@ -85,12 +85,16 @@ namespace Server
         public static bool MobThreadOnePass = true;    // [Optimisation] MobThreadOnePass: mob threads do one pass per tick
         public static bool EncodeOnce = true;          // [Optimisation] EncodeOnce: a packet sent to many clients is encoded once per pass (roadmap P9)
         public static int HumanProcessMs = 10;         // [Optimisation] HumanProcessMs: players/heroes run Process at most every N ms; 0 = every iteration (roadmap P9)
+        public static int MobPassDeadlineMs = 10;      // [Optimisation] MobPassDeadlineMs: cap on one mob-thread pass (and so on the mob barrier), 1-20 ms
         public static bool DueScheduler = true;        // [Optimisation] DueScheduler: process objects from per-thread due-time heaps instead of walking every object every tick; read at world start (roadmap P9-05)
         public static int MapRespawnCheckMs = 1000;    // [Optimisation] MapRespawnCheckMs: maps check respawns and doors at most every N ms; 0 = every iteration (roadmap P9)
         public static bool FlushAtEnd = true;          // [Optimisation] FlushAtEnd: in-game sends go out at the end of the loop iteration, after monsters/objects/maps (P9-06)
         public static int SendFlushMs = 0;             // [Optimisation] SendFlushMs: with FlushAtEnd, in-game sends are grouped into one shared flush every N ms (0-5; 0 = every iteration) (P9-06)
         public static bool SendCoalesce = true;        // [Optimisation] SendCoalesce: an older pending health/name/colour/poison packet for the same object is dropped from a flush (P9-06)
         public static int SendThreads = 1;             // [Optimisation] SendThreads: socket sends run on N dedicated sender threads instead of the game thread (0 = off, 1-4) (P9-09)
+        public static bool FlushReadyOnly = true;      // [Optimisation] FlushReadyOnly: the end-of-iteration send pass visits only connections with queued packets, not every connection (P9-13)
+        public static bool DirectSend = false;         // [Optimisation] DirectSend: game-thread packets go straight into the pending list, mob-thread ones through per-thread outboxes, and a broadcast is encoded once for all recipients (P9-15)
+        public static int ConnSweepMs = 50;            // [Optimisation] ConnSweepMs: the connection pass processes only connections that received packets, with a full sweep (timeouts, failed sends) every N ms (0 = every connection every pass, 0-1000) (P9-13)
         public static int HumanIdleCapMs = 250;        // [Optimisation] HumanIdleCapMs: players with nothing urgent run Process when a timer is due, at least every N ms (0 = every HumanProcessMs) (P9-08)
         public static bool MoveBatch = false;          // [Optimisation] MoveBatch: send runs of turn/walk/run packets as one S.ObjectMoveBatch; needs clients built from the same commit (P9-08)
         public static bool SectorGrid = true;          // [Optimisation] SectorGrid: each map keeps its players by 8x8 sector for broadcasts and alone checks; read at world start (P9-07)
@@ -465,6 +469,8 @@ namespace Server
             EncodeOnce = Reader.ReadBoolean("Optimisation", "EncodeOnce", EncodeOnce);
             HumanProcessMs = Math.Max(0, Reader.ReadInt32("Optimisation", "HumanProcessMs", HumanProcessMs));
             if (HumanProcessMs > 50) HumanProcessMs = 50;
+            MobPassDeadlineMs = Math.Max(1, Reader.ReadInt32("Optimisation", "MobPassDeadlineMs", MobPassDeadlineMs));
+            if (MobPassDeadlineMs > 20) MobPassDeadlineMs = 20;
             DueScheduler = Reader.ReadBoolean("Optimisation", "DueScheduler", DueScheduler);
             MapRespawnCheckMs = Math.Max(0, Reader.ReadInt32("Optimisation", "MapRespawnCheckMs", MapRespawnCheckMs));
             if (MapRespawnCheckMs > 5000) MapRespawnCheckMs = 5000;
@@ -474,6 +480,10 @@ namespace Server
             SendCoalesce = Reader.ReadBoolean("Optimisation", "SendCoalesce", SendCoalesce);
             SendThreads = Math.Max(0, Reader.ReadInt32("Optimisation", "SendThreads", SendThreads));
             if (SendThreads > MirNetwork.SocketSender.MaxThreads) SendThreads = MirNetwork.SocketSender.MaxThreads;
+            FlushReadyOnly = Reader.ReadBoolean("Optimisation", "FlushReadyOnly", FlushReadyOnly);
+            DirectSend = Reader.ReadBoolean("Optimisation", "DirectSend", DirectSend);
+            ConnSweepMs = Math.Max(0, Reader.ReadInt32("Optimisation", "ConnSweepMs", ConnSweepMs));
+            if (ConnSweepMs > 1000) ConnSweepMs = 1000;
             AloneCeiling = Reader.ReadBoolean("Optimisation", "AloneCeiling", AloneCeiling);
             AccountSaveOffThread = Reader.ReadBoolean("Optimisation", "AccountSaveOffThread", AccountSaveOffThread);
             OfflineAccountCache = Reader.ReadEnum("Optimisation", "OfflineAccountCache", OfflineAccountCache);
@@ -808,12 +818,16 @@ namespace Server
             Reader.Write("Optimisation", "MobThreadOnePass", MobThreadOnePass);
             Reader.Write("Optimisation", "EncodeOnce", EncodeOnce);
             Reader.Write("Optimisation", "HumanProcessMs", HumanProcessMs);
+            Reader.Write("Optimisation", "MobPassDeadlineMs", MobPassDeadlineMs);
             Reader.Write("Optimisation", "DueScheduler", DueScheduler);
             Reader.Write("Optimisation", "MapRespawnCheckMs", MapRespawnCheckMs);
             Reader.Write("Optimisation", "FlushAtEnd", FlushAtEnd);
             Reader.Write("Optimisation", "SendFlushMs", SendFlushMs);
             Reader.Write("Optimisation", "SendCoalesce", SendCoalesce);
             Reader.Write("Optimisation", "SendThreads", SendThreads);
+            Reader.Write("Optimisation", "FlushReadyOnly", FlushReadyOnly);
+            Reader.Write("Optimisation", "DirectSend", DirectSend);
+            Reader.Write("Optimisation", "ConnSweepMs", ConnSweepMs);
             Reader.Write("Optimisation", "AloneCeiling", AloneCeiling);
             Reader.Write("Optimisation", "AccountSaveOffThread", AccountSaveOffThread);
             Reader.Write("Optimisation", "OfflineAccountCache", OfflineAccountCache.ToString());

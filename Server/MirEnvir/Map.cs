@@ -5,6 +5,7 @@ using System.Drawing;
 ﻿using Server.MirDatabase;
 using Server.MirObjects;
 using Shared;
+using Server.MirNetwork;
 using S = ServerPackets;
 
 namespace Server.MirEnvir
@@ -2756,12 +2757,13 @@ namespace Server.MirEnvir
             if (p == null) return;
 
             int sent = 0, scanned = 0;
+            SharedFrame frame = null; // P9-15: one encode for every recipient (DirectSend)
             foreach (var player in PlayersNear(location, Globals.DataRange))
             {
                 scanned++;
                 if (Functions.InRange(location, player.CurrentLocation, Globals.DataRange))
                 {
-                    player.Enqueue(p);
+                    player.Enqueue(p, ref frame);
                     sent++;
                 }
             }
@@ -2773,12 +2775,13 @@ namespace Server.MirEnvir
             if (p == null) return;
 
             int sent = 0, scanned = 0;
+            SharedFrame frame = null; // P9-15: one encode for every recipient (DirectSend)
             foreach (var player in PlayersNear(location, Globals.DataRange))
             {
                 scanned++;
                 if (Functions.InRange(location, player.CurrentLocation, Globals.DataRange))
                 {
-                    player.Enqueue(p);
+                    player.Enqueue(p, ref frame);
                     sent++;
                 }
             }

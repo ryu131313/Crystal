@@ -14,7 +14,7 @@
     <IsPackable>false</IsPackable>
     <RootNamespace>StressClient</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
-    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
     <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
   </PropertyGroup>
 

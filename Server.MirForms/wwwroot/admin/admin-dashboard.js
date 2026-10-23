@@ -368,6 +368,8 @@
     var gameCpu = gameThreadCpu(h);
     var busyPct = lp ? (Number(lp.busy) || 0) * 100 : null;
     var awake = lp && lp.monstersAwake >= 0 ? lp.monstersAwake : null;
+    // Average iteration = busy (non-park) time / iterations; the slowest one is on the Game Loop card.
+    var avgTickMs = lp && lp.iterations > 0 ? (Number(lp.windowMs) || 1000) * (Number(lp.busy) || 0) / lp.iterations : null;
 
     var specs = [
       { key: 'world', label: 'World', value: crashed ? 'Crashed' : (WORLD_TEXT[world] || world), cls: crashed ? 'metric-bad' : worldCls, href: 'server',
@@ -382,9 +384,9 @@
         cls: busyPct != null ? level(busyPct, 70, 90) : '',
         sub: gameCpu != null ? 'CPU ' + pct(gameCpu) + ' of 1 core' : (lp ? lp.iterations + ' loops/s' : null),
         title: 'Share of the last second the game loop was busy (not idle-parked). The game loop is single-threaded: near 100 % it cannot keep up' },
-      { key: 'tick', label: 'Tick time', value: lp ? fmtMs(lp.maxIterationMs) : '—', cls: lp ? level(lp.maxIterationMs, 50, 100) : '',
-        sub: running ? 'late ' + fmtNum(st.cycleDelayMs) + ' ms' + (st.mobThreadDelays && st.mobThreadDelays.length ? ' · mobs ' + st.mobThreadDelays.join('/') : '') : null,
-        title: 'Slowest game loop iteration in the last second; "late" = worst delay past due of a processed object (game thread, then mob threads)' },
+      { key: 'tick', label: 'Tick time', value: avgTickMs != null ? fmtMs(avgTickMs) : '—', cls: avgTickMs != null ? level(avgTickMs, 10, 25) : '',
+        sub: lp && lp.runAvgIterationMs > 0 ? 'run avg ' + fmtMs(lp.runAvgIterationMs) : null,
+        title: 'Average game loop iteration in the last second (busy time / loops; the slowest is under This second); "run avg" = the average since the world started' },
       { key: 'uptime', label: 'Uptime', value: running && st.uptimeMs > 0 ? OpsUI.duration(st.uptimeMs / 1000) : '—', sub: procUp,
         title: 'Game world uptime (Stop / Start / Reboot reset it)' },
       { key: 'memory', label: 'Memory', value: h ? fmtMb(h.workingSetMb) : '—', sub: h ? 'GC heap ' + fmtMb(h.gcHeapMb) : null,

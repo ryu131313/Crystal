@@ -40,7 +40,17 @@ namespace Server.WebAdmin
         public int Height { get; set; }
         /// <summary>MapInfo.MiniMap: the frame of the client's MMap.Lib (0 = none).</summary>
         public int MiniMap { get; set; }
+        public int PlayerCount { get; set; }
+        public int Gms { get; set; }
+        /// <summary>Rows of the focus map only (null for the others: the page lists them by count).</summary>
         public List<MonitorPlayer> Players { get; set; }
+    }
+
+    /// <summary>The selected player wherever they are (?sel=), so the page can follow them off the focus map.</summary>
+    public sealed class MonitorSelected
+    {
+        public string Key { get; set; }
+        public MonitorPlayer Player { get; set; }
     }
 
     /// <summary>Monsters of one map: <c>rows</c> is a flat [nameIndex, x, y, level, hpPercent, flags, ...] list (flags: 1 boss, 2 pet).</summary>
@@ -74,6 +84,7 @@ namespace Server.WebAdmin
     {
         public List<MonitorMap> Maps { get; set; }
         public MonitorMobs Mobs { get; set; }
+        public MonitorSelected Selected { get; set; }
         public List<MonitorEvent> Events { get; set; }
         public long LatestSeq { get; set; }
         public int TotalPlayers { get; set; }
@@ -209,11 +220,13 @@ namespace Server.WebAdmin
         // ---- snapshot (game thread) -------------------------------------------------------------------------------------
 
         /// <summary>
-        /// Game thread. Every map with players (plus <paramref name="focusKey"/> when it names a loaded map), the monsters of the focus map
-        /// when <paramref name="mobMode"/> is "all" or "bosses", and the events after <paramref name="evSince"/> (a negative value = first
-        /// poll: the last few events, which the page lists but never flashes). O(maps + players), plus O(objects) when monsters are asked.
+        /// Game thread. Every map with players (plus <paramref name="focusKey"/> when it names a loaded map) with its counts, player rows for
+        /// the focus map only, the <paramref name="selectedName"/> player's row wherever they are, the monsters of the focus map when
+        /// <paramref name="mobMode"/> is "all" or "bosses", and the events after <paramref name="evSince"/> (a negative value = first poll:
+        /// the last few events, which the page lists but never flashes). O(maps + players), rows only for the focus map, plus O(objects)
+        /// when monsters are asked.
         /// </summary>
-        internal static MonitorSnapshot BuildSnapshot(string focusKey, string mobMode, long evSince)
+        internal static MonitorSnapshot BuildSnapshot(string focusKey, string mobMode, long evSince, string selectedName = null)
         {
             var envir = Envir.Main;
             var mapList = envir.MapList;
@@ -245,15 +258,19 @@ namespace Server.WebAdmin
                 var players = map.Players;
                 if (players.Count == 0 && !isFocus) continue;
 
-                var rows = new List<MonitorPlayer>(players.Count);
+                // Full rows (strings and all) only where the page shows them: with many bots online the other maps are just counts.
+                var rows = isFocus ? new List<MonitorPlayer>(players.Count) : null;
+                int count = 0, gms = 0;
                 for (var j = 0; j < players.Count; j++)
                 {
                     var p = players[j];
                     if (p?.Info == null) continue;
-                    rows.Add(PlayerRow(p));
+                    count++;
+                    if (p.IsGM) gms++;
+                    if (rows != null) rows.Add(PlayerRow(p));
                 }
 
-                total += rows.Count;
+                total += count;
                 maps.Add(new MonitorMap
                 {
                     Key = key,
@@ -264,15 +281,26 @@ namespace Server.WebAdmin
                     Width = map.Width,
                     Height = map.Height,
                     MiniMap = map.Info.MiniMap,
+                    PlayerCount = count,
+                    Gms = gms,
                     Players = rows,
                 });
             }
 
             DrainPending(keys);
 
+            MonitorSelected selected = null;
+            if (!string.IsNullOrEmpty(selectedName))
+            {
+                var sp = envir.GetPlayer(selectedName);
+                if (sp?.Info != null && sp.CurrentMap != null && keys.TryGetValue(sp.CurrentMap, out var selKey))
+                    selected = new MonitorSelected { Key = selKey, Player = PlayerRow(sp) };
+            }
+
             var snap = new MonitorSnapshot
             {
                 Maps = maps,
+                Selected = selected,
                 TotalPlayers = total,
                 LatestSeq = _seq,
                 Events = new List<MonitorEvent>(),

@@ -762,7 +762,7 @@ internal sealed class VirtualPlayer
                 break;
 
             case S.ObjectPlayer op:
-                World.Players[op.ObjectID] = new PlayerState
+                World.AddPlayer(new PlayerState
                 {
                     Id = op.ObjectID,
                     Name = op.Name ?? string.Empty,
@@ -770,11 +770,11 @@ internal sealed class VirtualPlayer
                     Location = op.Location,
                     Direction = op.Direction,
                     Dead = op.Dead,
-                };
+                });
                 break;
 
             case S.ObjectNPC on:
-                World.Npcs[on.ObjectID] = new NpcState { Id = on.ObjectID, Name = on.Name ?? string.Empty, Location = on.Location };
+                World.AddNpc(new NpcState { Id = on.ObjectID, Name = on.Name ?? string.Empty, Location = on.Location });
                 break;
 
             case S.ObjectItem oi:

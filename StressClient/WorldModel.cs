@@ -112,6 +112,7 @@ internal sealed class WorldModel
 
     public void ClearSession()
     {
+        _occupancyDirty = true;
         Monsters.Clear();
         Players.Clear();
         Npcs.Clear();
@@ -142,6 +143,7 @@ internal sealed class WorldModel
 
     public void ClearObjects()
     {
+        _occupancyDirty = true;
         Monsters.Clear();
         Players.Clear();
         Npcs.Clear();
@@ -152,6 +154,7 @@ internal sealed class WorldModel
 
     public MonsterState AddMonster(ServerPackets.ObjectMonster om, long now)
     {
+        _occupancyDirty = true;
         if (!Monsters.TryGetValue(om.ObjectID, out var mon))
         {
             mon = new MonsterState { Id = om.ObjectID };
@@ -177,6 +180,7 @@ internal sealed class WorldModel
         {
             mon.Location = location;
             mon.Direction = direction;
+            _occupancyDirty = true;
             return;
         }
 
@@ -184,11 +188,25 @@ internal sealed class WorldModel
         {
             player.Location = location;
             player.Direction = direction;
+            _occupancyDirty = true;
         }
+    }
+
+    public void AddPlayer(PlayerState player)
+    {
+        Players[player.Id] = player;
+        _occupancyDirty = true;
+    }
+
+    public void AddNpc(NpcState npc)
+    {
+        Npcs[npc.Id] = npc;
+        _occupancyDirty = true;
     }
 
     public void Remove(uint id)
     {
+        _occupancyDirty = true;
         Monsters.Remove(id);
         Players.Remove(id);
         Npcs.Remove(id);
@@ -200,16 +218,40 @@ internal sealed class WorldModel
     /// can end next to (or on the far side of) it.</summary>
     public bool IsBlockedByObject(int x, int y, uint ignoreMonster)
     {
+        if (_occupancyDirty) RebuildOccupancy();
+        if (!_occupied.TryGetValue(CellKey(x, y), out int count)) return false;
+
+        // The ignored monster is the only thing on its cell: free for this caller.
+        if (count == 1 && ignoreMonster != 0 && Monsters.TryGetValue(ignoreMonster, out var target) &&
+            !target.Dead && target.Location.X == x && target.Location.Y == y) return false;
+
+        return true;
+    }
+
+    // Cell -> live mobiles on it. A* asks per neighbour cell, so a scan of every known object per question made
+    // pathing O(cells x objects) and starved the workers once thousands of bots crowded together. Rebuilt lazily,
+    // at most once per batch of object changes.
+    private readonly Dictionary<int, int> _occupied = new();
+    private bool _occupancyDirty = true;
+
+    private static int CellKey(int x, int y) => (y << 16) | (x & 0xFFFF);
+
+    private void RebuildOccupancy()
+    {
+        _occupied.Clear();
         foreach (var mon in Monsters.Values)
-            if (!mon.Dead && mon.Id != ignoreMonster && mon.Location.X == x && mon.Location.Y == y) return true;
-
+            if (!mon.Dead) Occupy(mon.Location);
         foreach (var player in Players.Values)
-            if (!player.Dead && player.Location.X == x && player.Location.Y == y) return true;
-
+            if (!player.Dead) Occupy(player.Location);
         foreach (var npc in Npcs.Values)
-            if (npc.Location.X == x && npc.Location.Y == y) return true;
+            Occupy(npc.Location);
+        _occupancyDirty = false;
+    }
 
-        return false;
+    private void Occupy(Point p)
+    {
+        int key = CellKey(p.X, p.Y);
+        _occupied[key] = _occupied.TryGetValue(key, out int n) ? n + 1 : 1;
     }
 
     // ------------------------------------------------------------------ vitals, inventory, magic, quests

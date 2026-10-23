@@ -146,7 +146,9 @@ confirmation dialog, with a reason field for moderation actions. Every successfu
   monsters (all or bosses, focus map only, at most 4000 drawn) and death flashes. Scroll zooms, drag pans, right-click a pin
   or row for player actions, right-click the map to teleport the selected player there, spawn a monster there or clear the
   map's monsters (all through `POST /api/admin/gm/action`, so the usual reason + audit apply). Recent events (deaths with
-  the killer, logins, logouts) list on the side. Routes: `GET /api/admin/monitor/snapshot?map=<index>:<instance>&mobs=off|all|bosses&evSince=<seq>`,
+  the killer, logins, logouts) list on the side. Routes: `GET /api/admin/monitor/snapshot?map=<index>:<instance>&mobs=off|all|bosses&evSince=<seq>&sel=<name>`
+  (player rows for the focus map only, counts for the others, plus the `sel` player's row and map wherever they are; the table
+  lists at most 200 rows, the map draws everyone),
   `GET /api/admin/monitor/heat?map=<index>&minutes=1..15`, `GET /api/admin/monitor/maps/{index}/image` (PNG, cached per world run),
   `GET /api/admin/monitor/maps/{index}/minimap` and `GET /api/admin/monitor/maps/{index}/tiles/{z}/{tx}/{ty}` (768 x 512 PNG covering
   16·2^z x 16·2^z cells at 1/2^z scale, z = 0..3; rendered on demand from the server's own `Maps\*.map`, one render at a time,
@@ -165,7 +167,7 @@ confirmation dialog, with a reason field for moderation actions. Every successfu
   folder above the exe with `Legend of Mir.sln`) and the .NET SDK for *Build bots* / the first scratch start. **This server**
   is refused unless `[LoadTest] ExemptLoopback=True`, `CheckVersion=False`, logins and StartGame are allowed, the bind is
   loopback/any, the bot password is not the public default and the bot count is within `[Network] MaxUser` (shown as a
-  check; the form allows up to 5000 bots); the bots then create real accounts in this server's
+  check; the form allows up to 10000 bots); the bots then create real accounts in this server's
   account database. Routes: `GET /api/admin/tools/status`, `POST /api/admin/tools/{bots/start,bots/stop,bots/build,scratch/start,scratch/stop}`;
   audit `tools.bots.*`, `tools.scratch.*` (never the password).
 

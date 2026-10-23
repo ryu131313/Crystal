@@ -13,7 +13,7 @@ namespace Server.WebAdmin.Tools
         public const string TargetScratch = "scratch";
         public const string TargetSelf = "self";
         public const string DefaultPassword = "StressPw1";
-        public const int MaxBots = 5000;
+        public const int MaxBots = 10000;
 
         private static readonly Regex PrefixRegex = new Regex("^[A-Za-z0-9]{1,9}$");
         private static readonly Regex PasswordRegex = new Regex("^[A-Za-z0-9]{5,15}$");
