@@ -44,3 +44,8 @@
 4. `SMain.InterfaceTimer_Tick` (~10 %, WinForms host UI). This is not game-thread work.
 
 Artifacts: `%TEMP%\mir2-alloctail\` (`before|after.nettrace`, `*-alloc.txt`, `*-bots.log`, `*-logs`, `measure.ps1`, `tail.patch`, `verify.log`).
+
+## SendThreads=0 check (2026-10-22, later)
+- The same "after" Release build (ac78bc50 content), data and load (200 bots, ramp 20/s, 170 s, seed 7, port 17130) were run with `[Optimisation] SendThreads=0`. This exercises the legacy APM path, where `SendData` returns the pooled array after `EndSend`.
+- **PASS:** 200/200 in game, 0 errors, 0 decode errors, 0 disconnects, RTT 1.9 ms. No exceptions in the server logs.
+- A gc-verbose trace (60 s from 60 s in) was taken: `C:\Users\RyanNVME\AppData\Local\Temp\claude\C--Mir2--claude-worktrees-loving-roentgen-c91e4f\f4a5b61a-1e0e-4b90-ab05-734daa36a0bf\scratchpad\st0\st0.nettrace`. It was not broken down, because the analyzer used for `*-alloc.txt` was not kept with the artifacts. The SendThreads=1 before/after numbers above stand.
