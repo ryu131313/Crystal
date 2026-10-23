@@ -1177,9 +1177,6 @@ namespace Server.MirObjects
                 }
             }
 
-            // Logging out inside a dungeon instance saves the player at its entrance; the instance is not saved.
-            Envir.Dungeons?.PlayerLeavingGame(this);
-
             for (int i = Pets.Count - 1; i >= 0; i--)
             {
                 MonsterObject pet = Pets[i];
@@ -1306,6 +1303,11 @@ namespace Server.MirObjects
             Broadcast(new S.ObjectRemove { ObjectID = ObjectID });
 
             Despawn();
+
+            // Logging out inside a dungeon instance saves the player at its entrance; the instance is not saved. Only once the
+            // player is off the map: RemoveObject finds the player's cell from CurrentLocation, which this rewrites.
+            Envir.Dungeons?.PlayerLeavingGame(this);
+
             LeaveGroup();
             TradeCancel();
             CancelItemRental();

@@ -60,7 +60,11 @@ namespace Server.MirEnvir
             if (Settings.DungeonsEnabled && warming == null)
             {
                 var lazy = data;
-                warming = Task.Run(() => { try { _ = lazy.Value; } catch (Exception) { /* reported by the first request */ } });
+                warming = Task.Run(() =>
+                {
+                    try { Warm(lazy); }
+                    catch (Exception ex) { MessageQueue.Instance.Enqueue($"[Dungeon] The generator could not be loaded: {ex.Message}"); }
+                });
             }
 
             long emptyMs = Settings.DungeonEmptyMinutes * 60_000L;
@@ -82,10 +86,14 @@ namespace Server.MirEnvir
         /// </summary>
         public void RequestEntry(PlayerObject player, string profileName)
         {
-            if (player?.CurrentMap == null || player.Node == null) return;
+            if (player?.CurrentMap == null || player.Node == null)
+            {
+                MessageQueue.Instance.Enqueue($"[Dungeon] Ignored a request for {profileName} from {player?.Name ?? "?"}: not in the world.");
+                return;
+            }
             if (!Settings.DungeonsEnabled)
             {
-                Say(player, ServerTextKeys.DungeonsDisabled);
+                Refuse(player, ServerTextKeys.DungeonsDisabled, "the system is off ([Dungeons] Enabled)");
                 return;
             }
 
@@ -95,7 +103,7 @@ namespace Server.MirEnvir
             {
                 if (player.GroupMembers.Count == 0 || player.GroupMembers[0] != player)
                 {
-                    Say(player, ServerTextKeys.DungeonLeaderOnly);
+                    Refuse(player, ServerTextKeys.DungeonLeaderOnly, "not the group leader");
                     return;
                 }
                 for (int i = 0; i < player.GroupMembers.Count; i++)
@@ -110,13 +118,13 @@ namespace Server.MirEnvir
             for (int i = 0; i < party.Count; i++)
                 if (IsInstance(party[i].CurrentMap) || waiting.Contains(party[i].ObjectID))
                 {
-                    Say(player, ServerTextKeys.DungeonAlreadyInside);
+                    Refuse(player, ServerTextKeys.DungeonAlreadyInside, party[i].Name + " is already in or waiting for a dungeon");
                     return;
                 }
 
             if (instances.Count + generating >= Settings.DungeonMaxInstances)
             {
-                Say(player, ServerTextKeys.DungeonLimitReached);
+                Refuse(player, ServerTextKeys.DungeonLimitReached, $"{instances.Count} open and {generating} generating ([Dungeons] MaxInstances {Settings.DungeonMaxInstances})");
                 return;
             }
 
@@ -136,10 +144,29 @@ namespace Server.MirEnvir
                 Say(party[i], ServerTextKeys.DungeonPreparing);
             }
             generating++;
+            MessageQueue.Instance.Enqueue($"[Dungeon] {player.Name} asked for {request.Profile} with {party.Count} player(s); generating seed {request.Seed}.");
 
             var lazy = data;
-            Task.Run(() => Generate(request, lazy));
+            Task.Run(() => GenerateSafely(request, lazy));
         }
+
+        // Kept apart from Generate so that a missing Crystal.DungeonGen assembly (it fails when Generate is compiled, before
+        // its own try) still reaches the player and the log instead of faulting the task unobserved.
+        private void GenerateSafely(DungeonRequest request, Lazy<DungeonData> lazy)
+        {
+            try
+            {
+                Generate(request, lazy);
+            }
+            catch (Exception ex)
+            {
+                request.Error = ex;
+                if (!envir.QueueAdminAction(() => Complete(request)))
+                    MessageQueue.Instance.Enqueue($"[Dungeon] {request.LeaderName}'s dungeon failed and the game loop is not running: {ex.Message}");
+            }
+        }
+
+        private static void Warm(Lazy<DungeonData> lazy) => _ = lazy.Value;
 
         /// <summary>
         /// Game thread, from <see cref="HumanObject.Teleport"/>: a player about to enter an instance map gets the map first,
@@ -191,10 +218,10 @@ namespace Server.MirEnvir
                 request.Error = ex;
             }
 
-            if (!envir.QueueAdminAction(() => Complete(request), dropped: null))
-            {
-                // The world is stopping; its instances and waiting list go with it.
-            }
+            // MessageQueue may be called from any thread. A refused hand-back means the world loop is not running.
+            if (!envir.QueueAdminAction(() => Complete(request),
+                    dropped: ex => MessageQueue.Instance.Enqueue($"[Dungeon] {request.LeaderName}'s dungeon was dropped before the game loop took it.")))
+                MessageQueue.Instance.Enqueue($"[Dungeon] {request.LeaderName}'s dungeon was generated but the game loop is not running.");
         }
 
         // Game thread: build the instance and move the party in.
@@ -407,6 +434,13 @@ namespace Server.MirEnvir
             MessageQueue.Instance.Enqueue($"[Dungeon] Closed {map.Info.Title} (map {map.Info.Index}); {instances.Count} open.");
         }
 
+        // A request turned down: the player is told why, and the log says why too (operators cannot see player chat).
+        private static void Refuse(PlayerObject player, ServerTextKeys key, string reason)
+        {
+            Say(player, key);
+            MessageQueue.Instance.Enqueue($"[Dungeon] Refused {player.Name}: {reason}.");
+        }
+
         private static void Say(PlayerObject player, ServerTextKeys key, params object[] args) =>
             player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(key, args), ChatType.System);
 
@@ -465,12 +499,15 @@ namespace Server.MirEnvir
 
             public static DungeonData Load()
             {
+                var watch = System.Diagnostics.Stopwatch.StartNew();
                 string root = Path.Combine(AppContext.BaseDirectory, "DungeonGen");
-                return new DungeonData
+                var loaded = new DungeonData
                 {
                     Generator = Gen.DungeonGenerator.Load(Path.Combine(root, "data")),
                     Monsters = DungeonMonsterTable.Load(Path.Combine(root, "monsters.json")),
                 };
+                MessageQueue.Instance.Enqueue($"[Dungeon] Generator loaded from {root} in {watch.ElapsedMilliseconds} ms ({loaded.Generator.Profiles.Count} profiles).");
+                return loaded;
             }
         }
     }
