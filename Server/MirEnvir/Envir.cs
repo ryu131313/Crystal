@@ -6765,6 +6765,14 @@ namespace Server.MirEnvir
 
                     var rentingPlayer = GetCharacterInfo(rentedItemInfo.RentingPlayerName);
 
+                    if (rentingPlayer == null)
+                    {
+                        // The renter left CharacterList (archive, account delete): nothing to take back, drop the entry.
+                        MarkAccountDirty(characterInfo.AccountInfo);
+                        characterInfo.RentedItemsToRemove.Add(rentedItemInfo);
+                        continue;
+                    }
+
                     for (var i = 0; i < rentingPlayer.Inventory.Length; i++)
                     {
                         if (rentedItemInfo.ItemId != rentingPlayer?.Inventory[i]?.UniqueID)
@@ -6784,7 +6792,8 @@ namespace Server.MirEnvir
                             continue;
                         }
 
-                        ReturnRentalItem(item, item.RentalInformation.OwnerName, rentingPlayer, false);
+                        if (!ReturnRentalItem(item, item.RentalInformation.OwnerName, rentingPlayer, false))
+                            continue;
                         rentingPlayer.Inventory[i] = null;
                         rentingPlayer.HasRentedItem = false;
 
@@ -6812,7 +6821,8 @@ namespace Server.MirEnvir
                             continue;
                         }
 
-                        ReturnRentalItem(item, item.RentalInformation.OwnerName, rentingPlayer, false);
+                        if (!ReturnRentalItem(item, item.RentalInformation.OwnerName, rentingPlayer, false))
+                            continue;
                         rentingPlayer.Equipment[i] = null;
                         rentingPlayer.HasRentedItem = false;
 
@@ -6851,10 +6861,16 @@ namespace Server.MirEnvir
                 return false;
             }
 
-            // P9-12: the borrower's item and the lender's RentedItems change (both may be offline); before anything can throw.
-            MarkAccountDirty(rentingCharacterInfo?.AccountInfo);
+            // The lender left CharacterList (archive, account delete): there is no one to return it to, the caller keeps it.
             var owner = GetCharacterInfo(ownerName);
-            MarkAccountDirty(owner?.AccountInfo);
+            if (owner == null || rentingCharacterInfo == null)
+            {
+                return false;
+            }
+
+            // P9-12: the borrower's item and the lender's RentedItems change (both may be offline); before anything can throw.
+            MarkAccountDirty(rentingCharacterInfo.AccountInfo);
+            MarkAccountDirty(owner.AccountInfo);
             var returnItems = new List<UserItem>();
 
             foreach (var rentalInformation in owner.RentedItems)
