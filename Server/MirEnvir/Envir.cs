@@ -3518,9 +3518,16 @@ namespace Server.MirEnvir
 
             try
             {
-                using (var stream = File.Create(AccountPath + "n"))
-                    SaveAccounts(stream);
-                ReplaceAccountsFile(AccountPath + "n", null);
+                // A periodic save still holding Server.MirADBn after the wait: write beside it, and the generation bump below
+                // keeps that older save from being swapped in after this one.
+                var tempPath = Saving ? AccountPath + "s" : AccountPath + "n";
+                lock (_accountReplaceLock) Interlocked.Increment(ref _accountSaveGeneration);
+                using (var stream = File.Create(tempPath))
+                {
+                    SaveAccounts(stream, leaveOpen: true);
+                    stream.Flush(flushToDisk: true);
+                }
+                lock (_accountReplaceLock) ReplaceAccountsFile(tempPath, null);
             }
             catch (Exception ex)
             {
@@ -3539,6 +3546,25 @@ namespace Server.MirEnvir
         private static long _lastAccountSaveBytes;
 
         private const int AccountSaveWaitLimitMs = 30000;
+
+        // Bumped by every synchronous full save: an async save started before it (captured an older value) is not swapped
+        // in afterwards. Check + swap happen under _accountReplaceLock (save paths only, never per tick).
+        private int _accountSaveGeneration;
+        private readonly object _accountReplaceLock = new object();
+
+        /// <summary>Async save completion: swaps the temp file in unless a later synchronous save superseded it.</summary>
+        private void ReplaceAccountsFileUnlessSuperseded(int generation, string tempPath, string livePath, string backupFile)
+        {
+            lock (_accountReplaceLock)
+            {
+                if (generation != Volatile.Read(ref _accountSaveGeneration))
+                {
+                    MessageQueue.Enqueue("[Save] An account save finished after a newer full save; it was not swapped in.");
+                    return;
+                }
+                ReplaceAccountsFile(tempPath, livePath, backupFile);
+            }
+        }
         private static int _accountSaveFailures;
 
         /// <summary>Account saves that failed since the process started (each is logged). Read from any thread.</summary>
@@ -3726,6 +3752,7 @@ namespace Server.MirEnvir
                 var newfilename = fStream.Name;
                 var oldfilename = newfilename.Substring(0, newfilename.Length - 1);
                 fStream.EndWrite(result);
+                fStream.Flush(flushToDisk: true); // before the swap: a power cut must not leave a zero-filled live file
                 fStream.Dispose();
                 if (File.Exists(oldfilename)) File.Replace(newfilename, oldfilename, null);
                 else File.Move(newfilename, oldfilename);
@@ -3923,7 +3950,8 @@ namespace Server.MirEnvir
             // The name uses the game clock, as before; whether a backup is taken is decided with the file checks off the thread.
             // Full paths now, so the pool thread does not depend on the current directory.
             var job = new AccountSaveJob(writer.Buffer, length, Path.GetFullPath(AccountPath), Path.GetFullPath(AccountsBackUpPath),
-                $"Accounts {Now.Year:0000}-{Now.Month:00}-{Now.Day:00} {Now.Hour:00}-{Now.Minute:00}-{Now.Second:00}.bak", segments);
+                $"Accounts {Now.Year:0000}-{Now.Month:00}-{Now.Day:00} {Now.Hour:00}-{Now.Minute:00}-{Now.Second:00}.bak", segments)
+            { Generation = Volatile.Read(ref _accountSaveGeneration) };
             try
             {
                 ThreadPool.UnsafeQueueUserWorkItem(WriteAccountsFile, job, preferLocal: false);
@@ -3957,6 +3985,7 @@ namespace Server.MirEnvir
             public readonly int Length;
             public readonly string AccountPath, BackUpDir, BackupName;
             public readonly List<AccountSaveSegment> Segments; // null = the whole file is Data[0..Length)
+            public int Generation; // _accountSaveGeneration when the save started
             public AccountSaveJob(byte[] data, int length, string accountPath, string backUpDir, string backupName, List<AccountSaveSegment> segments = null)
             {
                 Data = data; Length = length; AccountPath = accountPath; BackUpDir = backUpDir; BackupName = backupName; Segments = segments;
@@ -3986,19 +4015,25 @@ namespace Server.MirEnvir
                 if (job.Segments == null)
                 {
                     using (var fStream = new FileStream(job.AccountPath + "n", FileMode.Create))
+                    {
                         fStream.Write(job.Data, 0, job.Length);
+                        fStream.Flush(flushToDisk: true);
+                    }
                 }
                 else
                 {
                     // Thousands of small blobs: a large FileStream buffer turns them into few writes.
                     using (var fStream = new FileStream(job.AccountPath + "n", FileMode.Create, FileAccess.Write, FileShare.Read, 256 * 1024))
+                    {
                         for (var i = 0; i < job.Segments.Count; i++)
                         {
                             var segment = job.Segments[i];
                             fStream.Write(segment.Blob ?? job.Data, segment.Offset, segment.Length);
                         }
+                        fStream.Flush(flushToDisk: true);
+                    }
                 }
-                ReplaceAccountsFile(job.AccountPath + "n", job.AccountPath, backupFile);
+                ReplaceAccountsFileUnlessSuperseded(job.Generation, job.AccountPath + "n", job.AccountPath, backupFile);
             }
             catch (Exception ex)
             {
@@ -4213,7 +4248,7 @@ namespace Server.MirEnvir
                 }
 
                 fStream = new FileStream(AccountPath + "n", FileMode.Create);
-                fStream.BeginWrite(data, 0, data.Length, EndSaveAccounts, new AccountSaveState(fStream, backupFile));
+                fStream.BeginWrite(data, 0, data.Length, EndSaveAccounts, new AccountSaveState(fStream, backupFile, Volatile.Read(ref _accountSaveGeneration)));
             }
             catch (Exception ex)
             {
@@ -4228,7 +4263,8 @@ namespace Server.MirEnvir
         {
             public readonly FileStream Stream;
             public readonly string BackupFile;
-            public AccountSaveState(FileStream stream, string backupFile) { Stream = stream; BackupFile = backupFile; }
+            public readonly int Generation;
+            public AccountSaveState(FileStream stream, string backupFile, int generation) { Stream = stream; BackupFile = backupFile; Generation = generation; }
         }
 
         // Runs on an IO completion thread: touches only the files and the Saving flag.
@@ -4238,8 +4274,9 @@ namespace Server.MirEnvir
             try
             {
                 state.Stream.EndWrite(result);
+                state.Stream.Flush(flushToDisk: true);
                 state.Stream.Dispose();
-                ReplaceAccountsFile(AccountPath + "n", state.BackupFile);
+                ReplaceAccountsFileUnlessSuperseded(state.Generation, AccountPath + "n", AccountPath, state.BackupFile);
             }
             catch (Exception ex)
             {
