@@ -49,7 +49,17 @@ namespace Server.MirObjects.Monsters
                 }
                 base.Process();
             }
-            else if (Envir.Time >= DieTime) Despawn();
+            else if (Envir.Time >= DieTime)
+            {
+                // Despawn does not touch cells: without this the totem stayed in its cell, sent to everyone walking by.
+                CurrentMap.RemoveObject(this);
+                if (Master != null)
+                {
+                    Master.Pets.Remove(this);
+                    Master = null;
+                }
+                Despawn();
+            }
         }
 
         public override void Process(DelayedAction action)
