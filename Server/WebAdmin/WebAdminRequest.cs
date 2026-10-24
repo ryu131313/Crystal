@@ -251,6 +251,71 @@ namespace Server.WebAdmin
             return Task.CompletedTask;
         }
 
+        /// <summary>
+        /// Streams the first <paramref name="length"/> bytes of <paramref name="source"/> without buffering or gzip (large downloads);
+        /// a non-empty fileName makes it an attachment. The caller owns the stream. A read error or short file is logged and the
+        /// connection aborted, so the client never takes a short file for a complete one.
+        /// </summary>
+        public async Task StreamBody(Stream source, long length, string contentType, string fileName = null)
+        {
+            if (!TryBeginResponse()) return;
+
+            var response = _context.Response;
+            var aborted = false;
+
+            try
+            {
+                response.StatusCode = 200;
+                response.ContentType = string.IsNullOrEmpty(contentType) ? "application/octet-stream" : contentType;
+                if (!string.IsNullOrEmpty(fileName))
+                    response.Headers["Content-Disposition"] = BuildContentDisposition(fileName);
+                response.ContentLength64 = Math.Max(0, length);
+
+                if (Method == "HEAD" || length <= 0) return;
+
+                var buffer = new byte[81920];
+                var left = length;
+                while (left > 0)
+                {
+                    int read;
+                    try
+                    {
+                        read = await source.ReadAsync(buffer, 0, (int)Math.Min(buffer.Length, left)).ConfigureAwait(false);
+                    }
+                    catch (IOException ex)
+                    {
+                        WebAdminLog.Error(ex, "Download " + Path + " failed while reading the file");
+                        read = -1;
+                    }
+
+                    if (read <= 0)
+                    {
+                        if (read == 0) WebAdminLog.Info("Download " + Path + " ended " + left + " bytes short (the file shrank)");
+                        aborted = true;
+                        response.Abort();
+                        return;
+                    }
+
+                    await response.OutputStream.WriteAsync(buffer, 0, read).ConfigureAwait(false);
+                    left -= read;
+                }
+            }
+            catch (HttpListenerException)
+            {
+                // client went away
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+            catch (InvalidOperationException)
+            {
+            }
+            finally
+            {
+                if (!aborted) CloseQuietly();
+            }
+        }
+
         public Task Redirect(string location, int status = 302)
         {
             if (!TryBeginResponse()) return Task.CompletedTask;

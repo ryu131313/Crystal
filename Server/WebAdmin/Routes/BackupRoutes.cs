@@ -251,7 +251,7 @@ namespace Server.WebAdmin.Routes
 
         public const long MaxDownloadBytes = 1024L * 1024 * 1024;
 
-        private static Task Download(WebAdminRequest req)
+        private static async Task Download(WebAdminRequest req)
         {
             var spec = Spec(req.Query["kind"]);
             var path = BackupStore.Resolve(spec.Root, req.Query["name"], spec.Recursive);
@@ -260,19 +260,17 @@ namespace Server.WebAdmin.Routes
             if (!fi.Exists) throw new WebAdminException(404, "Backup not found");
             if (fi.Length > MaxDownloadBytes) throw new WebAdminException(413, "Backup is too large to download through the web panel");
 
-            byte[] data;
-            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
-            using (var ms = new MemoryStream((int)fi.Length))
-            {
-                stream.CopyTo(ms);
-                data = ms.ToArray();
-            }
+            // Streamed from disk (a database backup can be close to MaxDownloadBytes); the length is taken from the open handle.
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 81920,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            var length = stream.Length;
+            if (length > MaxDownloadBytes) throw new WebAdminException(413, "Backup is too large to download through the web panel");
 
             var relative = Path.GetRelativePath(spec.Root, path).Replace('\\', '/');
-            WebAdminAudit.Record(req, "backup.download", spec.Kind + ":" + relative, new { kind = spec.Kind, name = relative, size = data.Length });
+            WebAdminAudit.Record(req, "backup.download", spec.Kind + ":" + relative, new { kind = spec.Kind, name = relative, size = length });
 
             var downloadName = (spec.Kind == Scripts ? relative.Replace('/', '_') : Path.GetFileName(path));
-            return req.Bytes(data, "application/octet-stream", downloadName);
+            await req.StreamBody(stream, length, "application/octet-stream", downloadName).ConfigureAwait(false);
         }
 
         // ------------------------------------------------------------------------------------------------ POST restore
