@@ -37,6 +37,7 @@ import { monsterFrames } from "../../../game/frames.ts";
 import { serverRules } from "../../../game/serverRules.ts";
 import { cellPictureUrl } from "../../../game/cellPicture.ts";
 import { isGeneratedMap } from "../../../game/mapFiles.ts";
+import { questMiniMapMarker } from "../../../game/quests.ts";
 import { KeybindOptions, keyLabel, onKeyBindsChange } from "../../../game/keybinds.ts";
 import { Lib, libPicture } from "../../mir/controls.ts";
 import { debounce, h, injectCss, rafCoalesce, setStyle, setText } from "../core/dom.ts";
@@ -140,6 +141,8 @@ const CSS = `
   text-shadow: 0 0 2px #000, 0 1px 2px #000, 0 0 4px #000; pointer-events: none; }
 .hudm .bmwin.zoomedout .mk:not(:hover):not(.focus):not(.sel):not(.wpin) .ml { display: none; }
 .hudm .bmwin .npc i { display: block; width: 20px; height: 20px; background: center / contain no-repeat; image-rendering: pixelated; filter: drop-shadow(0 0 2px #000); }
+.hudm .bmwin .npc .qmk { position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%); font-size: 13px; font-weight: 900; line-height: 1; pointer-events: none;
+  text-shadow: 0 0 2px #000, 0 1px 2px #000, 0 0 4px #000; }
 .hudm .bmwin .npc.dot i { width: 8px; height: 8px; border-radius: 50%; background: var(--gold); border: 1px solid #000; filter: none; }
 .hudm .bmwin .exit { width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff;
   background: color-mix(in srgb, var(--ac) 70%, #000); border: 1px solid #fff; box-shadow: 0 0 6px var(--glow); }
@@ -391,6 +394,7 @@ export class BigMapWindow extends UiWindow {
         own = cm.index;
       }),
       serverRules(ui.ctx.session).changed.on(() => this.invalidate()),
+      m.quests.onChange((c) => { if (c === "npcs" && this.isOwn()) this.invalidate(); }), // NPC quest marks (S.QuestAvailability)
       onKeyBindsChange(() => this.invalidate()),
       ui.packets.on((p) => {
         if (p.type !== "SearchMapResult") return;
@@ -764,6 +768,9 @@ export class BigMapWindow extends UiWindow {
       if (icon) setLinkIcon(i, npc.Icon);
       const n = this.add(h("div", "mk npc" + (icon ? "" : " dot"), i, h("span", "ml", name)), npc.Location.X, npc.Location.Y);
       n.title = role ? `${name} (${role})` : name;
+      // The NPC's quest mark on your own map (the server-chosen QuestIcon of S.QuestAvailability, as the minimap).
+      const qm = this.isOwn() ? questMiniMapMarker(this.ui.ctx.models.quests.npcQuestIcon(npc.ObjectID)) : null;
+      if (qm) { const b = h("b", "qmk", qm.text); b.style.color = qm.colour; n.append(b); n.title += qm.text === "!" ? " · has a quest for you" : " · quest"; }
       if (this.focus === "n:" + npc.ObjectID || this.selNpc === npc.ObjectID) n.classList.add("focus");
       n.addEventListener("click", () => this.selectNpc(npc));
     }
