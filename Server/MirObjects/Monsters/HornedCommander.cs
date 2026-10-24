@@ -561,8 +561,8 @@ namespace Server.MirObjects.Monsters
 
             if (mob == null) return;
 
-            if (!mob.Spawn(CurrentMap, Front))
-                mob.Spawn(CurrentMap, CurrentLocation);
+            if (!mob.Spawn(CurrentMap, Front) && !mob.Spawn(CurrentMap, CurrentLocation))
+                return; // never spawned: not a slave
 
             mob.Target = Target;
             mob.ActionTime = Envir.Time;
