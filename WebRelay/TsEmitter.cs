@@ -19,6 +19,10 @@ internal static class TsEmitter
         typeof(RequiredClass), typeof(RequiredGender), typeof(ItemGrade), typeof(MarketItemType), typeof(MarketPanelType), typeof(MarketCollectionMode), typeof(AwakeType), typeof(QuestState), typeof(QuestType), typeof(QuestIcon),
         typeof(IntelligentCreatureType), typeof(IntelligentCreaturePickupMode), typeof(MountSlot), typeof(FishingSlot), typeof(HeroSpawnState), typeof(HeroBehaviour),
         typeof(AllowToggle),
+        typeof(QuestCategory), typeof(QuestRepeatPolicy), typeof(QuestShareMode), typeof(QuestCreditMode), typeof(QuestFailPolicy), typeof(QuestFlags),
+        typeof(QuestStepCompletion), typeof(QuestObjectiveType), typeof(QuestPartyCredit), typeof(QuestTargetKind), typeof(QuestGroupKind), typeof(QuestRotatePolicy),
+        typeof(QuestEndpointRole), typeof(QuestEndpointKind), typeof(QuestRewardScope), typeof(QuestRewardKind), typeof(QuestRewardScaling),
+        typeof(QuestConditionOp), typeof(QuestConditionLeaf), typeof(QuestCompare),
     };
 
     public static int Emit(string outFile)

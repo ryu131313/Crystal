@@ -1896,3 +1896,223 @@ export const AllowToggle = {
 export type AllowToggle = (typeof AllowToggle)[keyof typeof AllowToggle];
 export const AllowToggleName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(AllowToggle).map(([k, v]) => [v, k]));
 
+export const QuestCategory = {
+  Story: 0,
+  Side: 1,
+  Daily: 2,
+  Weekly: 3,
+  Repeatable: 4,
+  Event: 5,
+  Guild: 6,
+  Hidden: 7,
+} as const;
+export type QuestCategory = (typeof QuestCategory)[keyof typeof QuestCategory];
+export const QuestCategoryName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestCategory).map(([k, v]) => [v, k]));
+
+export const QuestRepeatPolicy = {
+  Once: 0,
+  Daily: 1,
+  Weekly: 2,
+  Cooldown: 3,
+  Unlimited: 4,
+} as const;
+export type QuestRepeatPolicy = (typeof QuestRepeatPolicy)[keyof typeof QuestRepeatPolicy];
+export const QuestRepeatPolicyName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestRepeatPolicy).map(([k, v]) => [v, k]));
+
+export const QuestShareMode = {
+  None: 0,
+  Offer: 1,
+  AutoParty: 2,
+} as const;
+export type QuestShareMode = (typeof QuestShareMode)[keyof typeof QuestShareMode];
+export const QuestShareModeName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestShareMode).map(([k, v]) => [v, k]));
+
+export const QuestCreditMode = {
+  Solo: 0,
+  PartyInRange: 1,
+  Contribution: 2,
+} as const;
+export type QuestCreditMode = (typeof QuestCreditMode)[keyof typeof QuestCreditMode];
+export const QuestCreditModeName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestCreditMode).map(([k, v]) => [v, k]));
+
+export const QuestFailPolicy = {
+  Abandon: 0,
+  Fail: 1,
+  RestartStep: 2,
+} as const;
+export type QuestFailPolicy = (typeof QuestFailPolicy)[keyof typeof QuestFailPolicy];
+export const QuestFailPolicyName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestFailPolicy).map(([k, v]) => [v, k]));
+
+export const QuestFlags = {
+  None: 0,
+  AutoAccept: 1,
+  AutoComplete: 2,
+  HiddenInLog: 4,
+  AccountWide: 8,
+} as const;
+export type QuestFlags = (typeof QuestFlags)[keyof typeof QuestFlags];
+export const QuestFlagsName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestFlags).map(([k, v]) => [v, k]));
+
+export const QuestStepCompletion = {
+  All: 0,
+  Any: 1,
+  NOf: 2,
+} as const;
+export type QuestStepCompletion = (typeof QuestStepCompletion)[keyof typeof QuestStepCompletion];
+export const QuestStepCompletionName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestStepCompletion).map(([k, v]) => [v, k]));
+
+export const QuestObjectiveType = {
+  Kill: 0,
+  Collect: 1,
+  Deliver: 2,
+  Talk: 3,
+  ReachArea: 4,
+  UseItem: 5,
+  Craft: 6,
+  Gather: 7,
+  ReachLevel: 8,
+  UseSkill: 9,
+  Counter: 10,
+  Flag: 11,
+  Interact: 12,
+  Escort: 13,
+  Defend: 14,
+  PvpWin: 15,
+  Equip: 16,
+} as const;
+export type QuestObjectiveType = (typeof QuestObjectiveType)[keyof typeof QuestObjectiveType];
+export const QuestObjectiveTypeName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestObjectiveType).map(([k, v]) => [v, k]));
+
+export const QuestPartyCredit = {
+  Each: 0,
+  Shared: 1,
+  Self: 2,
+} as const;
+export type QuestPartyCredit = (typeof QuestPartyCredit)[keyof typeof QuestPartyCredit];
+export const QuestPartyCreditName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestPartyCredit).map(([k, v]) => [v, k]));
+
+export const QuestTargetKind = {
+  None: 0,
+  Monster: 1,
+  MonsterGroup: 2,
+  Item: 3,
+  ItemGroup: 4,
+  Npc: 5,
+  MapObject: 6,
+  Map: 7,
+  Spell: 8,
+  Flag: 9,
+} as const;
+export type QuestTargetKind = (typeof QuestTargetKind)[keyof typeof QuestTargetKind];
+export const QuestTargetKindName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestTargetKind).map(([k, v]) => [v, k]));
+
+export const QuestGroupKind = {
+  Monster: 0,
+  Item: 1,
+} as const;
+export type QuestGroupKind = (typeof QuestGroupKind)[keyof typeof QuestGroupKind];
+export const QuestGroupKindName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestGroupKind).map(([k, v]) => [v, k]));
+
+export const QuestRotatePolicy = {
+  Daily: 0,
+  Weekly: 1,
+} as const;
+export type QuestRotatePolicy = (typeof QuestRotatePolicy)[keyof typeof QuestRotatePolicy];
+export const QuestRotatePolicyName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestRotatePolicy).map(([k, v]) => [v, k]));
+
+export const QuestEndpointRole = {
+  Start: 0,
+  Finish: 1,
+} as const;
+export type QuestEndpointRole = (typeof QuestEndpointRole)[keyof typeof QuestEndpointRole];
+export const QuestEndpointRoleName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestEndpointRole).map(([k, v]) => [v, k]));
+
+export const QuestEndpointKind = {
+  Npc: 0,
+  ItemUse: 1,
+  AreaEnter: 2,
+  Auto: 3,
+  Board: 4,
+} as const;
+export type QuestEndpointKind = (typeof QuestEndpointKind)[keyof typeof QuestEndpointKind];
+export const QuestEndpointKindName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestEndpointKind).map(([k, v]) => [v, k]));
+
+export const QuestRewardScope = {
+  Quest: 0,
+  Step: 1,
+  Objective: 2,
+  Outcome: 3,
+  Accept: 4,
+} as const;
+export type QuestRewardScope = (typeof QuestRewardScope)[keyof typeof QuestRewardScope];
+export const QuestRewardScopeName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestRewardScope).map(([k, v]) => [v, k]));
+
+export const QuestRewardKind = {
+  Exp: 0,
+  Gold: 1,
+  Credit: 2,
+  Item: 3,
+  Reputation: 4,
+  Title: 5,
+  Spell: 6,
+  Unlock: 7,
+  Buff: 8,
+  Currency: 9,
+  ScriptPage: 10,
+} as const;
+export type QuestRewardKind = (typeof QuestRewardKind)[keyof typeof QuestRewardKind];
+export const QuestRewardKindName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestRewardKind).map(([k, v]) => [v, k]));
+
+export const QuestRewardScaling = {
+  Flat: 0,
+  ByLevel: 1,
+} as const;
+export type QuestRewardScaling = (typeof QuestRewardScaling)[keyof typeof QuestRewardScaling];
+export const QuestRewardScalingName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestRewardScaling).map(([k, v]) => [v, k]));
+
+export const QuestConditionOp = {
+  And: 0,
+  Or: 1,
+  Not: 2,
+  Leaf: 3,
+} as const;
+export type QuestConditionOp = (typeof QuestConditionOp)[keyof typeof QuestConditionOp];
+export const QuestConditionOpName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestConditionOp).map(([k, v]) => [v, k]));
+
+export const QuestConditionLeaf = {
+  None: 0,
+  Level: 1,
+  Class: 2,
+  Gender: 3,
+  QuestStatus: 4,
+  QuestCompletedCount: 5,
+  QuestOutcome: 6,
+  ItemCount: 7,
+  Equipped: 8,
+  Reputation: 9,
+  Guild: 10,
+  GuildRank: 11,
+  InParty: 12,
+  PartySize: 13,
+  Flag: 14,
+  QuestVar: 15,
+  TimeOfDay: 16,
+  DayOfWeek: 17,
+  MapIs: 18,
+  Married: 19,
+  HasHero: 20,
+} as const;
+export type QuestConditionLeaf = (typeof QuestConditionLeaf)[keyof typeof QuestConditionLeaf];
+export const QuestConditionLeafName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestConditionLeaf).map(([k, v]) => [v, k]));
+
+export const QuestCompare = {
+  Eq: 0,
+  Ne: 1,
+  Lt: 2,
+  Le: 3,
+  Gt: 4,
+  Ge: 5,
+} as const;
+export type QuestCompare = (typeof QuestCompare)[keyof typeof QuestCompare];
+export const QuestCompareName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestCompare).map(([k, v]) => [v, k]));
+

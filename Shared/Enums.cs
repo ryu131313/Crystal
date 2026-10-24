@@ -187,6 +187,212 @@ public enum QuestAction : byte
     TimeExpired
 }
 
+// Quest system V2 (Knowledgebase/Future Ideas/UserData-and-Quests-Plan.md, Part B). Stored by value in SystemData.db
+// and in user data: explicit values, append only, never renumbered.
+
+public enum QuestCategory : byte
+{
+    Story = 0,
+    Side = 1,
+    Daily = 2,
+    Weekly = 3,
+    Repeatable = 4,
+    Event = 5,
+    Guild = 6,
+    Hidden = 7
+}
+
+public enum QuestRepeatPolicy : byte
+{
+    Once = 0,
+    Daily = 1,
+    Weekly = 2,
+    Cooldown = 3,
+    Unlimited = 4
+}
+
+public enum QuestShareMode : byte
+{
+    None = 0,
+    Offer = 1,
+    AutoParty = 2
+}
+
+public enum QuestCreditMode : byte
+{
+    Solo = 0,
+    PartyInRange = 1,
+    Contribution = 2
+}
+
+public enum QuestFailPolicy : byte
+{
+    Abandon = 0,
+    Fail = 1,
+    RestartStep = 2
+}
+
+[Flags]
+public enum QuestFlags : int
+{
+    None = 0,
+    AutoAccept = 1,
+    AutoComplete = 2,
+    HiddenInLog = 4,
+    AccountWide = 8 //Reserved
+}
+
+public enum QuestStepCompletion : byte
+{
+    All = 0,
+    Any = 1,
+    NOf = 2
+}
+
+public enum QuestObjectiveType : byte
+{
+    Kill = 0,
+    Collect = 1,
+    Deliver = 2,
+    Talk = 3,
+    ReachArea = 4,
+    UseItem = 5,
+    Craft = 6,
+    Gather = 7,
+    ReachLevel = 8,
+    UseSkill = 9,
+    Counter = 10,
+    Flag = 11,
+
+    //Reserved: no runtime yet
+    Interact = 12,
+    Escort = 13,
+    Defend = 14,
+    PvpWin = 15,
+    Equip = 16
+}
+
+public enum QuestPartyCredit : byte
+{
+    Each = 0,
+    Shared = 1, //Reserved until shared quests
+    Self = 2
+}
+
+public enum QuestTargetKind : byte
+{
+    None = 0,
+    Monster = 1,
+    MonsterGroup = 2,
+    Item = 3,
+    ItemGroup = 4,
+    Npc = 5,
+    MapObject = 6,
+    Map = 7,
+    Spell = 8,
+    Flag = 9
+}
+
+public enum QuestGroupKind : byte
+{
+    Monster = 0,
+    Item = 1
+}
+
+public enum QuestRotatePolicy : byte
+{
+    Daily = 0,
+    Weekly = 1
+}
+
+public enum QuestEndpointRole : byte
+{
+    Start = 0,
+    Finish = 1
+}
+
+public enum QuestEndpointKind : byte
+{
+    Npc = 0,
+    ItemUse = 1,
+    AreaEnter = 2,
+    Auto = 3,
+    Board = 4 //Reserved
+}
+
+public enum QuestRewardScope : byte
+{
+    Quest = 0,
+    Step = 1,
+    Objective = 2,
+    Outcome = 3,
+    Accept = 4
+}
+
+public enum QuestRewardKind : byte
+{
+    Exp = 0,
+    Gold = 1,
+    Credit = 2,
+    Item = 3,
+    Reputation = 4,
+    Title = 5,
+    Spell = 6,
+    Unlock = 7,
+    Buff = 8,
+    Currency = 9,
+    ScriptPage = 10
+}
+
+public enum QuestRewardScaling : byte
+{
+    Flat = 0,
+    ByLevel = 1
+}
+
+public enum QuestConditionOp : byte
+{
+    And = 0,
+    Or = 1,
+    Not = 2,
+    Leaf = 3
+}
+
+public enum QuestConditionLeaf : byte
+{
+    None = 0,
+    Level = 1,
+    Class = 2,
+    Gender = 3,
+    QuestStatus = 4,
+    QuestCompletedCount = 5,
+    QuestOutcome = 6,
+    ItemCount = 7,
+    Equipped = 8,
+    Reputation = 9,
+    Guild = 10,
+    GuildRank = 11,
+    InParty = 12,
+    PartySize = 13,
+    Flag = 14,
+    QuestVar = 15,
+    TimeOfDay = 16,
+    DayOfWeek = 17,
+    MapIs = 18,
+    Married = 19,
+    HasHero = 20
+}
+
+public enum QuestCompare : byte
+{
+    Eq = 0,
+    Ne = 1,
+    Lt = 2,
+    Le = 3,
+    Gt = 4,
+    Ge = 5
+}
+
 public enum DefaultNPCType : byte
 {
     Login,
