@@ -92,8 +92,12 @@ export class Session {
         .then((p) => { if (p) this.deliver(p); }, (e) => console.error("[session] compressed packet failed:", e))
         .finally(() => {
           this.inflating = false;
+          // Each queued frame stands alone, as each live frame is its own onmessage event: a handler throw is reported
+          // like an uncaught one there (reportError) and the frames after it still run.
           const queued = this.backlog.splice(0);
-          for (const f of queued) this.receive(f);
+          for (const f of queued) {
+            try { this.receive(f); } catch (e) { reportError(e); }
+          }
         });
       return;
     }
