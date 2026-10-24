@@ -7428,9 +7428,9 @@ namespace Server.MirObjects
                 return;
             }
 
+            var nindex = -1;
             if (grid == MirGridType.Storage)
             {
-                var nindex = -1;
                 for (int i = 0; i < array.Length; i++)
                 {
                     if (array[i] != null) continue;
@@ -7457,6 +7457,15 @@ namespace Server.MirObjects
             p.Success = true;
             Enqueue(p);
             Enqueue(new S.SplitItem { Item = temp, Grid = grid });
+
+            // Storage: the free slot checked above. The search from BeltSize below could land on a page the account no
+            // longer has (expired expansion), where the stack was out of reach.
+            if (grid == MirGridType.Storage)
+            {
+                array[nindex] = temp;
+                RefreshBagWeight();
+                return;
+            }
 
             if (grid == MirGridType.Inventory && (temp.Info.Type == ItemType.Potion || temp.Info.Type == ItemType.Scroll || temp.Info.Type == ItemType.Amulet || (temp.Info.Type == ItemType.Script && temp.Info.Effect == 1)))
             {
@@ -9087,7 +9096,7 @@ namespace Server.MirObjects
                     UserItem item = Envir.CreateFreshItem(temp.Info);
                     item.Count = count;
 
-                    if (item.Price() / 2 + Account.Gold > uint.MaxValue)
+                    if ((ulong)item.Price() / 2 + Account.Gold > uint.MaxValue) // ulong: the uint sum wrapped, so the guard never fired
                     {
                         Enqueue(p);
                         return;
