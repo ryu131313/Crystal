@@ -10304,6 +10304,14 @@ namespace Server.MirObjects
                     if (gainItem == null) continue;
                     gainItem.Count = (ushort)Envir.Random.Next(Math.Min(ushort.MaxValue, (int)((((byte)item.Info.Grade * item.Info.RequiredAmount) / 10) + item.Quality())));
                     if (gainItem.Count < 1) gainItem.Count = 1;
+                    if (gainItem.Count > gainItem.Info.StackSize) gainItem.Count = Math.Max((ushort)1, gainItem.Info.StackSize);
+
+                    // The source used to be deleted even when the reward did not fit (codebase review 2026-10-24 #8).
+                    if (!CanGainItem(gainItem))
+                    {
+                        ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.BagNoRoomForItem), gainItem.FriendlyName), ChatType.System);
+                        return;
+                    }
 
                     GainItem(gainItem);
 
@@ -14615,34 +14623,36 @@ namespace Server.MirObjects
 
                 if (temp == null) continue;
 
+                int slot = -1;
                 for (int i = 0; i < Info.Inventory.Length; i++)
                 {
                     if (Info.Inventory[i] != null) continue;
-
-                    //Put item back in inventory
-                    if (CanGainItem(temp))
-                    {
-                        RetrieveRefineItem(t, i);
-                    }
-                    else //Send item via mail if it can no longer be stored
-                    {
-                        Enqueue(new S.DeleteItem { UniqueID = temp.UniqueID, Count = temp.Count });
-
-                        MailInfo mail = new MailInfo(Info.Index)
-                        {
-                            MailID = ++Envir.NextMailID,
-                            Sender = "Refiner",
-                            Message = GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.RefiningCancelledItemNotReturned),
-                            Items = new List<UserItem> { temp },
-                        };
-
-                        mail.Send();
-                    }
-
-                    Info.Refine[t] = null;
-
+                    slot = i;
                     break;
                 }
+
+                //Put item back in inventory
+                if (slot >= 0 && CanGainItem(temp))
+                {
+                    RetrieveRefineItem(t, slot);
+                }
+                else //Send item via mail if it can no longer be stored (a full bag used to leave it in Info.Refine, which is
+                     //not saved, so it vanished at logout; codebase review 2026-10-24 #8)
+                {
+                    Enqueue(new S.DeleteItem { UniqueID = temp.UniqueID, Count = temp.Count });
+
+                    MailInfo mail = new MailInfo(Info.Index)
+                    {
+                        MailID = ++Envir.NextMailID,
+                        Sender = "Refiner",
+                        Message = GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.RefiningCancelledItemNotReturned),
+                        Items = new List<UserItem> { temp },
+                    };
+
+                    mail.Send();
+                }
+
+                Info.Refine[t] = null;
             }
         }
         public void RefineItem(ulong uniqueID)
@@ -14652,6 +14662,14 @@ namespace Server.MirObjects
             if (Dead) return;
 
             if (NPCPage == null || (!String.Equals(NPCPage.Key, NPCScript.RefineKey, StringComparison.CurrentCultureIgnoreCase))) return;
+
+            // One refine at a time: a second request overwrote CurrentRefine, losing that item and the ingredients.
+            if (Info.CurrentRefine != null)
+            {
+                long left = Info.CollectTime > Envir.Time ? (Info.CollectTime - Envir.Time) / Settings.Minute : 0;
+                ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.ItemReadyInMinutes), Info.CurrentRefine.FriendlyName, left), ChatType.System);
+                return;
+            }
 
             int index = -1;
 
