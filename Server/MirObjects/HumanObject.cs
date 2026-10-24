@@ -7372,6 +7372,8 @@ namespace Server.MirObjects
 
             BroadcastDamageIndicator(DamageType.Hit, armour - damage);
 
+            if (Race == ObjectType.Player && attacker.Race == ObjectType.Player) PlayerStatHooks.PvpHit((PlayerObject)attacker, (PlayerObject)this, damage - armour);
+
             ChangeHP(armour - damage);
             return damage - armour;
         }
@@ -7465,6 +7467,8 @@ namespace Server.MirObjects
             }
 
             BroadcastDamageIndicator(DamageType.Hit, armour - damage);
+
+            if (Race == ObjectType.Player && attacker.Master != null) PlayerStatHooks.PvpPetHit(attacker, (PlayerObject)this, damage - armour);
 
             ChangeHP(armour - damage);
             return damage - armour;

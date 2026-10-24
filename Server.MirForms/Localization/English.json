@@ -812,7 +812,9 @@
     "DungeonEntered": "{0}: defeat {1} to open the way out.",
     "DungeonExitOpened": "{0} has fallen. The way out has opened in its chamber.",
     "DungeonLeaderOnly": "Only your group leader can take the group into a dungeon.",
-    "StoragePasswordLocked": "Too many wrong storage passwords. Try again in {0} minute(s)."
+    "StoragePasswordLocked": "Too many wrong storage passwords. Try again in {0} minute(s).",
+    "RankingsHidden": "You are now hidden from the public rankings. Type @showrank to show yourself again.",
+    "RankingsShown": "You are now shown in the public rankings. Type @hiderank to hide yourself."
   },
   "Enum": {}
 }

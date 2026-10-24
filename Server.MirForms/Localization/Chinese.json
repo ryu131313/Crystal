@@ -812,7 +812,9 @@
     "DungeonEntered": "{0}：击败 {1} 以打开出口。",
     "DungeonExitOpened": "{0} 已被击败，出口已在其房间中打开。",
     "DungeonLeaderOnly": "只有队长才能带领队伍进入地下城。",
-    "StoragePasswordLocked": "仓库密码错误次数过多，请在{0}分钟后再试。"
+    "StoragePasswordLocked": "仓库密码错误次数过多，请在{0}分钟后再试。",
+    "RankingsHidden": "你已在公开排行榜中隐藏。输入 @showrank 可重新显示。",
+    "RankingsShown": "你已在公开排行榜中显示。输入 @hiderank 可隐藏。"
   },
   "Enum": {}
 }
