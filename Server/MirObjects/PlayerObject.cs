@@ -5216,11 +5216,12 @@ namespace Server.MirObjects
 
                 for (int i = 0; i < array.Length; i++)
                 {
+                    if (array[i] == null || array[i].UniqueID != chatItem.UniqueID) continue;
                     item = array[i];
-                    if (item == null || item.UniqueID != chatItem.UniqueID) continue;
                     break;
                 }
 
+                // An unknown UniqueID links nothing (the last slot used to be linked).
                 if (item != null)
                 {
                     if (recipients == null)
