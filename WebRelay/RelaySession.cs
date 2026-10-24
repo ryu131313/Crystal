@@ -28,6 +28,11 @@ internal sealed class RelaySession
     private readonly string _ip;
     private readonly PlayerGuard? _guard;
     private readonly SemaphoreSlim _send = new(1, 1);
+    // Public relay (PlayerGuard): this session's login in flight (0/1) and the slots its forwarded creation requests hold,
+    // in request order (the server answers each connection in order). Both pumps touch them.
+    private int _loginPending;
+    private readonly System.Collections.Concurrent.ConcurrentQueue<DateTime> _accountSlots = new();
+    private readonly System.Collections.Concurrent.ConcurrentQueue<DateTime> _characterSlots = new();
 
     public RelaySession(int id, WebSocket ws, RelayOptions options, byte[]? versionHash, string ip, PlayerGuard? guard)
     {
@@ -65,6 +70,8 @@ internal sealed class RelaySession
         try { tcp.Client.Shutdown(SocketShutdown.Both); } catch { }
         await CloseWsAsync(WebSocketCloseStatus.NormalClosure, Trim(reason)).ConfigureAwait(false);
         try { await Task.WhenAll(toBrowser, toServer).ConfigureAwait(false); } catch { /* teardown */ }
+        // An unanswered login stops counting; unanswered creation slots stay taken until they expire (an hour).
+        if (_guard != null && Interlocked.Exchange(ref _loginPending, 0) == 1) _guard.EndLogin(_ip);
         _ws.Dispose();
         return reason;
     }
@@ -130,15 +137,33 @@ internal sealed class RelaySession
                 if (length != count) return $"browser frame length {length} != message {count}";
                 if (id < 0 || id > MaxClientPacketId) return $"unknown client packet id {id}";
 
-                if (_guard != null && id == (short)ClientPacketIds.NewAccount && !_guard.CanCreateAccount(_ip))
+                if (_guard != null && id == (short)ClientPacketIds.NewAccount)
                 {
-                    await SendToBrowserAsync(new ServerPackets.NewAccount { Result = 0 }.GetPacketBytes().ToArray(), ct).ConfigureAwait(false);
-                    continue;
+                    if (!_guard.TryReserveAccount(_ip, out var slot))
+                    {
+                        await SendToBrowserAsync(new ServerPackets.NewAccount { Result = 0 }.GetPacketBytes().ToArray(), ct).ConfigureAwait(false);
+                        continue;
+                    }
+                    _accountSlots.Enqueue(slot);
                 }
-                if (_guard != null && id == (short)ClientPacketIds.NewCharacter && !_guard.CanCreateCharacter(_ip))
+                if (_guard != null && id == (short)ClientPacketIds.NewCharacter)
                 {
-                    await SendToBrowserAsync(new ServerPackets.NewCharacter { Result = 0 }.GetPacketBytes().ToArray(), ct).ConfigureAwait(false);
-                    continue;
+                    if (!_guard.TryReserveCharacter(_ip, out var slot))
+                    {
+                        await SendToBrowserAsync(new ServerPackets.NewCharacter { Result = 0 }.GetPacketBytes().ToArray(), ct).ConfigureAwait(false);
+                        continue;
+                    }
+                    _characterSlots.Enqueue(slot);
+                }
+                if (_guard != null && id == (short)ClientPacketIds.Login)
+                {
+                    // One login at a time per session, as the server does (MirConnection.LoginPending drops the rest unanswered).
+                    if (Interlocked.CompareExchange(ref _loginPending, 1, 0) != 0) continue;
+                    if (!_guard.TryBeginLogin(_ip))
+                    {
+                        Volatile.Write(ref _loginPending, 0);
+                        return "too many failed logins";
+                    }
                 }
                 if (id == (short)ClientPacketIds.ClientVersion && _versionHash != null)
                 {
@@ -164,9 +189,17 @@ internal sealed class RelaySession
     {
         short id = BitConverter.ToInt16(frame, offset + 2);
         byte result = length > HeaderSize ? frame[offset + HeaderSize] : (byte)255;
+        if ((id == (short)ServerPacketIds.Login || id == (short)ServerPacketIds.LoginSuccess || id == (short)ServerPacketIds.LoginBanned)
+            && Interlocked.Exchange(ref _loginPending, 0) == 1)
+            _guard!.EndLogin(_ip);
         if (id == (short)ServerPacketIds.Login && result is 3 or 4) return _guard!.FailedLogin(_ip); // no account / wrong password
-        if (id == (short)ServerPacketIds.NewAccount && result == 8) _guard!.AccountCreated(_ip);     // success
-        else if (id == (short)ServerPacketIds.NewCharacterSuccess) _guard!.CharacterCreated(_ip);
+        if (id == (short)ServerPacketIds.NewAccount && _accountSlots.TryDequeue(out var account))
+        {
+            if (result != 8) _guard!.ReleaseAccount(_ip, account); // refused: the slot is given back
+        }
+        else if (id == (short)ServerPacketIds.NewCharacterSuccess) _characterSlots.TryDequeue(out _);
+        else if (id == (short)ServerPacketIds.NewCharacter && _characterSlots.TryDequeue(out var character))
+            _guard!.ReleaseCharacter(_ip, character); // S.NewCharacter is only sent for a refusal
         return false;
     }
 

@@ -11,6 +11,10 @@ namespace WebRelay;
 ///   - new accounts (S.NewAccount Result 8) and new characters (S.NewCharacterSuccess) per hour, the server's
 ///     "AccountsMade.Count &gt; 2" / "CharactersMade.Count &gt; 4" rules: an over-quota request is answered by the relay
 ///     with the server's own refusal (Result 0, "disabled") and never forwarded.
+/// Slots are taken when a request is forwarded, not when the server answers (codebase review 2026-10-24 #10: a burst of
+/// pipelined requests, or logins over several sessions, all passed the check before the first answer counted): a
+/// forwarded C.NewAccount / C.NewCharacter reserves a creation slot that a refusal gives back, and a forwarded C.Login
+/// counts as in flight, so failures plus logins in flight never pass <see cref="FailedLoginLimit"/>.
 /// The relay only reads packet ids and the first payload byte; it still never decodes a packet.
 /// Called from the session pumps and the accept path (pool threads): one lock, held for a few list operations.
 /// </summary>
@@ -59,10 +63,36 @@ internal sealed class PlayerGuard
         }
     }
 
-    public bool CanCreateAccount(string ip) => UnderQuota(ip, e => e.Accounts, _accountsPerHour);
-    public bool CanCreateCharacter(string ip) => UnderQuota(ip, e => e.Characters, _charactersPerHour);
-    public void AccountCreated(string ip) => Record(ip, e => e.Accounts);
-    public void CharacterCreated(string ip) => Record(ip, e => e.Characters);
+    /// <summary>Takes an account slot for a request about to be forwarded; false when the address is over quota.</summary>
+    public bool TryReserveAccount(string ip, out DateTime stamp) => TryReserve(ip, e => e.Accounts, _accountsPerHour, out stamp);
+    public bool TryReserveCharacter(string ip, out DateTime stamp) => TryReserve(ip, e => e.Characters, _charactersPerHour, out stamp);
+    /// <summary>The server refused the request: its slot is given back.</summary>
+    public void ReleaseAccount(string ip, DateTime stamp) => Release(ip, e => e.Accounts, stamp);
+    public void ReleaseCharacter(string ip, DateTime stamp) => Release(ip, e => e.Characters, stamp);
+
+    /// <summary>A C.Login about to be forwarded; false when the address is blocked or failures + logins in flight reach the limit.</summary>
+    public bool TryBeginLogin(string ip)
+    {
+        var now = DateTime.UtcNow;
+        lock (_lock)
+        {
+            var e = Get(ip);
+            if (e.BlockedUntil > now) return false;
+            Drop(e.FailedLogins, now - FailedLoginWindow);
+            if (e.FailedLogins.Count + e.PendingLogins >= FailedLoginLimit) return false;
+            e.PendingLogins++;
+            return true;
+        }
+    }
+
+    /// <summary>The server answered a forwarded login (or the session ended before it did).</summary>
+    public void EndLogin(string ip)
+    {
+        lock (_lock)
+        {
+            if (_byIp.TryGetValue(IpKey.Normalize(ip), out var e) && e.PendingLogins > 0) e.PendingLogins--;
+        }
+    }
 
     /// <summary>Drops expired history and idle addresses (called once a minute).</summary>
     public void PruneExpired()
@@ -76,27 +106,33 @@ internal sealed class PlayerGuard
                 Drop(e.FailedLogins, now - FailedLoginWindow);
                 Drop(e.Accounts, now - CreationWindow);
                 Drop(e.Characters, now - CreationWindow);
-                if (e.FailedLogins.Count == 0 && e.Accounts.Count == 0 && e.Characters.Count == 0 && e.BlockedUntil <= now)
+                if (e.FailedLogins.Count == 0 && e.Accounts.Count == 0 && e.Characters.Count == 0 && e.PendingLogins == 0 && e.BlockedUntil <= now)
                     (dead ??= new()).Add(key);
             }
             if (dead != null) foreach (var key in dead) _byIp.Remove(key);
         }
     }
 
-    private bool UnderQuota(string ip, Func<Entry, List<DateTime>> list, int max)
+    private bool TryReserve(string ip, Func<Entry, List<DateTime>> list, int max, out DateTime stamp)
     {
+        var now = DateTime.UtcNow;
         lock (_lock)
         {
-            if (!_byIp.TryGetValue(IpKey.Normalize(ip), out var e)) return true;
-            var times = list(e);
-            Drop(times, DateTime.UtcNow - CreationWindow);
-            return times.Count < max;
+            var times = list(Get(ip));
+            Drop(times, now - CreationWindow);
+            stamp = now;
+            if (times.Count >= max) return false;
+            times.Add(now);
+            return true;
         }
     }
 
-    private void Record(string ip, Func<Entry, List<DateTime>> list)
+    private void Release(string ip, Func<Entry, List<DateTime>> list, DateTime stamp)
     {
-        lock (_lock) list(Get(ip)).Add(DateTime.UtcNow);
+        lock (_lock)
+        {
+            if (_byIp.TryGetValue(IpKey.Normalize(ip), out var e)) list(e).Remove(stamp);
+        }
     }
 
     private Entry Get(string ip)
@@ -114,5 +150,6 @@ internal sealed class PlayerGuard
         public readonly List<DateTime> Accounts = new();
         public readonly List<DateTime> Characters = new();
         public DateTime BlockedUntil;
+        public int PendingLogins;
     }
 }
