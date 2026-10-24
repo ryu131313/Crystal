@@ -938,13 +938,14 @@ namespace Server.MirObjects
                     {
                         var callingNPC = NPCObject.Get(player.NPCObjectID);
 
+                        // Null for BUY pages of default / item scripts (no NPC on a map).
                         if (callingNPC != null)
                         {
                             for (int i = 0; i < callingNPC.UsedGoods.Count; i++)
                                 player.CheckItem(callingNPC.UsedGoods[i]);
-                        }
 
-                        sentGoods.AddRange(callingNPC.UsedGoods);
+                            sentGoods.AddRange(callingNPC.UsedGoods);
+                        }
                     }
 
                     player.SendNPCGoods(sentGoods, PriceRate(player), PanelType.Buy, Settings.GoodsHideAddedStats);
