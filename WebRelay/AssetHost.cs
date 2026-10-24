@@ -36,6 +36,20 @@ internal sealed class AssetHost
         _compression = compression;
     }
 
+    /// <summary>
+    /// A client-folder path ('/'-separated, relative to --client-data) the relay never serves or lists: the patch host's
+    /// hard deny list (--client-data is often a played-from client: Data/UserData, *.ini, ...), plus any "~&lt;digit&gt;" so an
+    /// 8.3 short name (Data/USERDA~1/...) cannot slip past the folder rules.
+    /// </summary>
+    internal static bool IsDenied(string relPath) => HasShortName(relPath) || PatchIndex.IsDenied(relPath);
+
+    private static bool HasShortName(string relPath)
+    {
+        for (int i = relPath.IndexOf('~'); i >= 0; i = relPath.IndexOf('~', i + 1))
+            if (i + 1 < relPath.Length && char.IsAsciiDigit(relPath[i + 1])) return true;
+        return false;
+    }
+
     /// <summary>A file's version: 10 hex digits of FNV-1a over its length and last-write ticks.</summary>
     internal static string VersionOf(FileInfo info)
     {
@@ -63,9 +77,9 @@ internal sealed class AssetHost
         using (var w = new Utf8JsonWriter(stream))
         {
             w.WriteStartObject();
-            WriteFolder(w, "data", new[] { Path.Combine(_options.ClientDataPath, "Data") });
-            WriteFolder(w, "map", new[] { Path.Combine(_options.ClientDataPath, "Map") }.Concat(_options.ExtraMapPaths));
-            WriteFolder(w, "sound", new[] { Path.Combine(_options.ClientDataPath, "Sound") });
+            WriteFolder(w, "data", "Data/", new[] { Path.Combine(_options.ClientDataPath, "Data") });
+            WriteFolder(w, "map", "Map/", new[] { Path.Combine(_options.ClientDataPath, "Map") }.Concat(_options.ExtraMapPaths));
+            WriteFolder(w, "sound", "Sound/", new[] { Path.Combine(_options.ClientDataPath, "Sound") });
             w.WriteEndObject();
         }
         byte[] json = stream.ToArray();
@@ -74,8 +88,9 @@ internal sealed class AssetHost
         return (json, etag);
     }
 
-    /// <summary>Every file under the folders (the first folder holding a name wins, as the map lookup does).</summary>
-    private static void WriteFolder(Utf8JsonWriter w, string name, IEnumerable<string> folders)
+    /// <summary>Every file under the folders (the first folder holding a name wins, as the map lookup does) but the
+    /// <see cref="IsDenied"/> ones (checked as <paramref name="prefix"/> + the folder-relative path).</summary>
+    private static void WriteFolder(Utf8JsonWriter w, string name, string prefix, IEnumerable<string> folders)
     {
         w.WriteStartObject(name);
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -85,7 +100,9 @@ internal sealed class AssetHost
             var root = new DirectoryInfo(folder);
             foreach (var file in root.EnumerateFiles("*", SearchOption.AllDirectories))
             {
-                string key = Path.GetRelativePath(root.FullName, file.FullName).Replace('\\', '/').ToLowerInvariant();
+                string rel = Path.GetRelativePath(root.FullName, file.FullName).Replace('\\', '/');
+                if (IsDenied(prefix + rel)) continue;
+                string key = rel.ToLowerInvariant();
                 if (seen.Add(key)) w.WriteString(key, VersionOf(file));
             }
         }

@@ -44,6 +44,10 @@ internal sealed class PatchIndex
         "DirectX/** = x", "Patch/** = x", "Old__* = x",
     }, "deny list");
 
+    /// <summary>True for a root-relative path ('/'-separated) the hard deny list never serves; the web client's /data/,
+    /// /sound/ and /map/ use it too (<see cref="AssetHost.IsDenied"/>).</summary>
+    internal static bool IsDenied(string relPath) => PatchTiers.TierOf(Deny, relPath) < 0;
+
     internal sealed record Entry(string Path, string FullPath, long Size, long Ticks, string Sha256, int Tier, string Version);
 
     internal sealed class Snapshot
@@ -177,7 +181,7 @@ internal sealed class PatchIndex
             string rel = Path.GetRelativePath(_root, info.FullName).Replace('\\', '/');
             if (rel.StartsWith("../", StringComparison.Ordinal) || rel.Contains(':')) continue;
             if (string.Equals(rel, MarkerName, StringComparison.OrdinalIgnoreCase)) continue;
-            if (PatchTiers.TierOf(Deny, rel) < 0) continue;
+            if (IsDenied(rel)) continue;
             result[rel] = info;
         }
         return result;

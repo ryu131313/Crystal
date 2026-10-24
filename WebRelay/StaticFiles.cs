@@ -12,11 +12,15 @@ internal sealed class StaticFiles
 {
     private readonly string[] _roots;
     private readonly bool _cacheImmutable;
+    private readonly Func<string, bool>? _deny;
 
-    public StaticFiles(IEnumerable<string> roots, bool cacheImmutable)
+    /// <param name="deny">Optional: true for a root-relative path ('/'-separated, from the resolved full path) that is
+    /// never served (answered as missing).</param>
+    public StaticFiles(IEnumerable<string> roots, bool cacheImmutable, Func<string, bool>? deny = null)
     {
         _roots = roots.Select(r => Path.GetFullPath(r).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar).ToArray();
         _cacheImmutable = cacheImmutable;
+        _deny = deny;
     }
 
     public async Task ServeAsync(HttpListenerContext ctx, string urlPath)
@@ -107,7 +111,7 @@ internal sealed class StaticFiles
         finally { ArrayPool<byte>.Shared.Return(buffer); }
     }
 
-    /// <summary>Maps "/a/b.c" onto the first root holding it; null for traversal attempts or missing files.</summary>
+    /// <summary>Maps "/a/b.c" onto the first root holding it; null for traversal attempts, denied or missing files.</summary>
     internal string? Resolve(string urlPath)
     {
         string rel = Uri.UnescapeDataString(urlPath).TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
@@ -116,7 +120,9 @@ internal sealed class StaticFiles
         {
             string full = Path.GetFullPath(Path.Combine(root, rel));
             if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) continue;
-            if (File.Exists(full)) return full;
+            if (!File.Exists(full)) continue;
+            if (_deny != null && _deny(full[root.Length..].Replace(Path.DirectorySeparatorChar, '/'))) return null;
+            return full;
         }
         return null;
     }

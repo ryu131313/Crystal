@@ -37,7 +37,7 @@ internal sealed class RelayHost
         _budget = new ConnectionBudget(options.MaxPerIp, options.MaxTotal, options.ConnectsPerMinutePerIp);
         if (options.Public) _guard = new PlayerGuard(options.AccountsPerHourPerIp, options.CharactersPerHourPerIp);
         _web = new StaticFiles(new[] { options.WebRoot }, cacheImmutable: false);
-        _clientData = new StaticFiles(new[] { options.ClientDataPath }, cacheImmutable: true);
+        _clientData = new StaticFiles(new[] { options.ClientDataPath }, cacheImmutable: true, deny: AssetHost.IsDenied);
         _assets = new AssetHost(options, _clientData, _compression);
         _page = new PageBuild(options.WebRoot, _compression);
         if (options.PatchRoot.Length > 0)
