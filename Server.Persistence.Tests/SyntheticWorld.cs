@@ -95,7 +95,20 @@ internal static class SyntheticWorld
         c1.Inventory[0] = Item(e, potion, 11, count: 20);
         c1.Equipment[(int)EquipmentSlot.Weapon] = Item(e, sword, 12);
         c1.Equipment[(int)EquipmentSlot.Armour] = Item(e, armour, 13);
-        c1.CompletedQuests.Add(1);
+        // v121 quest V2 state, statistics (incl. an id this build does not know) and the rankings opt-out, all non-default.
+        // The legacy CompletedQuests / CurrentQuests are no longer saved (v120 and older fixtures carry one completed quest).
+        c1.QuestRuns.Add(new QuestRunState { Quest = 1, Status = QuestRunStatus.Active, Step = 2, Revision = 3, AcceptedAt = now.AddHours(-2).ToBinary(), ExpiresAt = now.AddDays(1).ToBinary(), StepExpiresAt = now.AddHours(1).ToBinary(), SharedFrom = 2, Branch = 1 });
+        c1.QuestRuns.Add(new QuestRunState { Quest = 7, Status = QuestRunStatus.Failed, Step = -1, Revision = 1, AcceptedAt = now.AddDays(-1).ToBinary() });
+        c1.QuestObjectives.Add(new QuestObjectiveState { Quest = 1, Objective = 1, Value = 4 });
+        c1.QuestObjectives.Add(new QuestObjectiveState { Quest = 1, Objective = 2, Value = unchecked((int)0x80000005) }); // multi-spot bitmask
+        c1.QuestHistory.Add(new QuestHistoryEntry { Quest = 1, Times = 3, FirstAt = now.AddDays(-9).ToBinary(), LastAt = now.AddDays(-2).ToBinary(), LastOutcome = 2 });
+        c1.QuestVars.Add(new QuestVarState { Quest = 1, Key = 1, Value = -7 });
+        c1.Statistics.Add(PlayerStat.MonstersKilled, 1234);
+        c1.Statistics.Add(PlayerStat.GoldEarned, 5_000_000_000L);
+        c1.Statistics.Max(PlayerStat.HighestHit, 987);
+        c1.Statistics.Add(PlayerStat.HighestPkPoints, 0); // a zero Add stores nothing
+        c1.Statistics.Set((PlayerStat)60000, 42);         // unknown to this build: kept and written back
+        c1.HideFromRankings = true;
         c1.Flags[3] = true;
         // v119 character fields, all non-default
         c1.PlayTime = 5 * 3600 + 7;

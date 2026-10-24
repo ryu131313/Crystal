@@ -117,6 +117,31 @@ internal static class Oracle
         return string.Join("\n", kept);
     }
 
+    /// <summary>Oracle lines of the v121 character block (quest V2 state, statistics, rankings opt-out).</summary>
+    private static readonly System.Text.RegularExpressions.Regex V121Line = new(
+        @"\.((QuestRuns|QuestObjectives|QuestHistory|QuestVars)(\[|\.Count=)|Statistics\.|HideFromRankings=)");
+
+    /// <summary>Oracle lines of the legacy quest lists, which v121 no longer saves (a pre-121 load discards them).</summary>
+    private static readonly System.Text.RegularExpressions.Regex LegacyQuestLine = new(@"\.(CurrentQuests|CompletedQuests)(\[|\.Count=)");
+
+    /// <summary>
+    /// Drops the v121 lines and the legacy quest-list lines from a dump, so a pre-121 oracle compares with the dump of the same
+    /// file loaded by v121 code. v121 lines that do not hold the value a pre-121 file loads as (empty lists, no stats,
+    /// HideFromRankings false) go to <paramref name="nonDefault"/>.
+    /// </summary>
+    public static string WithoutV121(string dump, List<string> nonDefault)
+    {
+        var kept = new List<string>();
+        foreach (var line in dump.Split('\n'))
+        {
+            if (LegacyQuestLine.IsMatch(line)) continue;
+            if (!V121Line.IsMatch(line)) { kept.Add(line); continue; }
+            bool isDefault = line.EndsWith(".Count=0", StringComparison.Ordinal) || line.EndsWith(".HideFromRankings=False", StringComparison.Ordinal);
+            if (!isDefault) nonDefault.Add(line);
+        }
+        return string.Join("\n", kept);
+    }
+
     private static void Walk(StringBuilder sb, Dictionary<object, string> visited, string path, object v, int depth)
     {
         if (_spill != null && sb.Length > 4_000_000) { _spill.Write(sb.ToString()); sb.Clear(); }

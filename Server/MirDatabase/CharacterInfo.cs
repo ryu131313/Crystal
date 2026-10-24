@@ -88,8 +88,19 @@ namespace Server.MirDatabase
         public List<UserIntelligentCreature> IntelligentCreatures = new List<UserIntelligentCreature>();
         public int PearlCount;
 
+        // Legacy quest state: NOT saved since Envir.Version 121 and always empty after a load (the < 121 bytes are skipped by
+        // SkipLegacyCurrentQuests / SkipLegacyCompletedQuests). Kept only so the legacy consumers compile until lane F moves
+        // them to the V2 state below; wave 4 deletes both.
         public List<QuestProgressInfo> CurrentQuests = new List<QuestProgressInfo>();
         public List<int> CompletedQuests = new List<int>();
+
+        //v121: quest V2 state (Part B "Character state"), player statistics and the rankings opt-out (Part A)
+        public List<QuestRunState> QuestRuns = new List<QuestRunState>();
+        public List<QuestObjectiveState> QuestObjectives = new List<QuestObjectiveState>();
+        public List<QuestHistoryEntry> QuestHistory = new List<QuestHistoryEntry>();
+        public List<QuestVarState> QuestVars = new List<QuestVarState>();
+        public PlayerStatistics Statistics = new PlayerStatistics();
+        public bool HideFromRankings;
 
         public bool[] Flags = new bool[Globals.FlagIndexCount];
 
@@ -268,22 +279,8 @@ namespace Server.MirDatabase
             if (version > 104)
                 AllowObserve = reader.ReadBoolean();
 
-            count = reader.ReadInt32();
-
-            for (int i = 0; i < count; i++)
-            {
-                QuestProgressInfo quest = new QuestProgressInfo(reader, version, customVersion);
-
-                if (quest == null || quest.Info == null || quest.IsOrphan)
-                {
-                    MessageQueue.Instance.Enqueue($"[Load] Skipped orphan QuestProgress (Index={quest?.Index}) for character: {Name}");
-                    continue;
-                }
-                if (Envir.BindQuest(quest))
-                {
-                    CurrentQuests.Add(quest);
-                }
-            }
+            if (version < 121)
+                SkipLegacyCurrentQuests(reader, version);
 
             count = reader.ReadInt32();
             for (int i = 0; i < count; i++)
@@ -315,11 +312,8 @@ namespace Server.MirDatabase
 
             PearlCount = reader.ReadInt32();
 
-            count = reader.ReadInt32();
-            for (int i = 0; i < count; i++)
-            {
-                CompletedQuests.Add(reader.ReadInt32());
-            }
+            if (version < 121)
+                SkipLegacyCompletedQuests(reader);
 
             if (reader.ReadBoolean())
             {
@@ -413,6 +407,62 @@ namespace Server.MirDatabase
                 ChatBanned = reader.ReadBoolean();
                 ChatBanExpiryDate = DateTime.FromBinary(reader.ReadInt64());
             }
+
+            if (version >= 121)
+            {
+                count = reader.ReadInt32();
+                for (int i = 0; i < count; i++) QuestRuns.Add(new QuestRunState(reader));
+                count = reader.ReadInt32();
+                for (int i = 0; i < count; i++) QuestObjectives.Add(new QuestObjectiveState(reader));
+                count = reader.ReadInt32();
+                for (int i = 0; i < count; i++) QuestHistory.Add(new QuestHistoryEntry(reader));
+                count = reader.ReadInt32();
+                for (int i = 0; i < count; i++) QuestVars.Add(new QuestVarState(reader));
+                Statistics = new PlayerStatistics(reader);
+                HideFromRankings = reader.ReadBoolean();
+            }
+        }
+
+        /// <summary>
+        /// Reads and discards a pre-121 CurrentQuests list (QuestProgressInfo.Save layout; before version 90 the task counts had
+        /// no ids). Quest V2 converts nothing (the D2 wipe): its own field reads, independent of QuestProgressInfo, Envir.BindQuest
+        /// and the loaded quest definitions, so old backups and fixtures keep loading after wave 4 deletes the legacy class.
+        /// </summary>
+        internal static void SkipLegacyCurrentQuests(BinaryReader reader, int version)
+        {
+            int count = reader.ReadInt32();
+            for (int i = 0; i < count; i++)
+            {
+                reader.ReadInt32(); // Index
+                reader.ReadInt64(); // StartDateTime
+                reader.ReadInt64(); // EndDateTime
+
+                if (version < 90)
+                {
+                    int n = reader.ReadInt32();
+                    for (int j = 0; j < n; j++) reader.ReadInt32(); // kill count
+                    n = reader.ReadInt32();
+                    for (int j = 0; j < n; j++) reader.ReadInt32(); // item count
+                    n = reader.ReadInt32();
+                    for (int j = 0; j < n; j++) reader.ReadBoolean(); // flag state
+                }
+                else
+                {
+                    int n = reader.ReadInt32();
+                    for (int j = 0; j < n; j++) { reader.ReadInt32(); reader.ReadInt32(); } // MonsterID, Count
+                    n = reader.ReadInt32();
+                    for (int j = 0; j < n; j++) { reader.ReadInt32(); reader.ReadInt32(); } // ItemID, Count
+                    n = reader.ReadInt32();
+                    for (int j = 0; j < n; j++) { reader.ReadInt32(); reader.ReadBoolean(); } // flag Number, State
+                }
+            }
+        }
+
+        /// <summary>Reads and discards a pre-121 CompletedQuests list (int count + quest indexes).</summary>
+        internal static void SkipLegacyCompletedQuests(BinaryReader reader)
+        {
+            int count = reader.ReadInt32();
+            for (int i = 0; i < count; i++) reader.ReadInt32();
         }
 
         public virtual void Save(BinaryWriter writer)
@@ -509,11 +559,7 @@ namespace Server.MirDatabase
             writer.Write(AllowTrade);
             writer.Write(AllowObserve);
 
-            writer.Write(CurrentQuests.Count);
-            for (int i = 0; i < CurrentQuests.Count; i++)
-            {
-                CurrentQuests[i].Save(writer);
-            }
+            // 121: no legacy CurrentQuests here any more (the V2 quest block is written at the end)
 
             writer.Write(Buffs.Count);
             for (int i = 0; i < Buffs.Count; i++)
@@ -535,12 +581,7 @@ namespace Server.MirDatabase
 
             writer.Write(PearlCount);
 
-            writer.Write(CompletedQuests.Count);
-            for (int i = 0; i < CompletedQuests.Count; i++)
-            {
-                writer.Write(CompletedQuests[i]);
-            }
-
+            // 121: no legacy CompletedQuests here any more (QuestHistory replaces it)
 
             writer.Write(CurrentRefine != null);
             if (CurrentRefine != null)
@@ -611,6 +652,17 @@ namespace Server.MirDatabase
 
             writer.Write(ChatBanned);
             writer.Write(ChatBanExpiryDate.ToBinary());
+
+            writer.Write(QuestRuns.Count);
+            for (int i = 0; i < QuestRuns.Count; i++) QuestRuns[i].Save(writer);
+            writer.Write(QuestObjectives.Count);
+            for (int i = 0; i < QuestObjectives.Count; i++) QuestObjectives[i].Save(writer);
+            writer.Write(QuestHistory.Count);
+            for (int i = 0; i < QuestHistory.Count; i++) QuestHistory[i].Save(writer);
+            writer.Write(QuestVars.Count);
+            for (int i = 0; i < QuestVars.Count; i++) QuestVars[i].Save(writer);
+            Statistics.Save(writer);
+            writer.Write(HideFromRankings);
         }
 
         /// <summary>

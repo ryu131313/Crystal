@@ -154,7 +154,7 @@ namespace Server.MirEnvir
         public static object LoadLock = new object();
 
         public const int MinVersion = 60;
-        public const int Version = 120;   // 120: persisted CharacterInfo chat ban; 119: persisted social toggles/play time/profile, mail sender, spell AutoCast, guild log, market sales, GameShop deal prices
+        public const int Version = 121;   // 121: CharacterInfo quest V2 state block (runs, objectives, history, vars), PlayerStatistics, HideFromRankings; legacy CurrentQuests/CompletedQuests no longer saved; 120: persisted CharacterInfo chat ban; 119: persisted social toggles/play time/profile, mail sender, spell AutoCast, guild log, market sales, GameShop deal prices
         public const int CustomVersion = 0;
         public static readonly string DatabasePath = Path.Combine(".", "Server.MirDB");
         public static readonly string AccountPath = Path.Combine(".", "Server.MirADB");
