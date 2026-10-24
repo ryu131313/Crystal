@@ -3679,19 +3679,14 @@ namespace Server.MirEnvir
         {
             if (!Directory.Exists(Settings.GuildPath)) Directory.CreateDirectory(Settings.GuildPath);
 
-            var refreshing = false;
             if (GuildRefreshNeeded == true) //resaves with new indexing if a guild is deleted.
             {
-                refreshing = true; // GuildRefreshNeeded is cleared only after every write below was started (review M3)
-                // Crash-safe (roadmap P5): the old code deleted every .mgd first, so a crash before the async writes finished
-                // lost guilds. Now every guild is rewritten (each file swapped atomically) and the surplus files (index >=
-                // count; LoadGuilds never reads them) are pruned only after all of those writes have succeeded.
-                forced = true; //triggers a full resave of all guilds
-                Interlocked.Exchange(ref _guildRefreshFailed, 0);
-                Interlocked.Exchange(ref _guildRefreshPending, GuildList.Count);
-                _guildRefreshKeep = GuildList.Count;
-                if (GuildList.Count == 0) PruneSurplusGuildFiles(0);
+                BeginGuildReindex();
+                return;
             }
+
+            // A re-index is moving files into place: positions are changing, so per-guild writes wait (NeedSave stays set).
+            if (Volatile.Read(ref _guildReindexRunning) == 1) return;
 
             for (var i = 0; i < GuildList.Count; i++)
             {
@@ -3699,44 +3694,140 @@ namespace Server.MirEnvir
                 {
                     GuildList[i].NeedSave = false;
 
-					GuildObject liveGuild = Guilds.Find(g => g.Guildindex == GuildList[i].GuildIndex);
-					if (liveGuild != null)
-					{
-						GuildList[i] = liveGuild.Info;
-					}
-
-					var mStream = new MemoryStream();
-                    var writer = new BinaryWriter(mStream);
-					GuildList[i].Save(writer);
+                    var data = GuildFileBytes(i);
                     var fStream = new FileStream(Path.Combine(Settings.GuildPath, i + ".mgdn"), FileMode.Create);
-                    var data = mStream.ToArray();
-                    BeginSideFileWrite(fStream, data, EndSaveGuildsAsync, new SideFileSave(fStream, refreshing));
+                    BeginSideFileWrite(fStream, data, EndSaveGuildsAsync, fStream);
                 }
             }
-
-            if (refreshing) GuildRefreshNeeded = false; // an exception above leaves it set, so the next save retries the re-index
         }
+
+        /// <summary>Game thread: the live guild's info for list position <paramref name="i"/>, serialised.</summary>
+        private byte[] GuildFileBytes(int i)
+        {
+            GuildObject liveGuild = Guilds.Find(g => g.Guildindex == GuildList[i].GuildIndex);
+            if (liveGuild != null)
+            {
+                GuildList[i] = liveGuild.Info;
+            }
+
+            var mStream = new MemoryStream();
+            var writer = new BinaryWriter(mStream);
+            GuildList[i].Save(writer);
+            return mStream.ToArray();
+        }
+
         private void EndSaveGuildsAsync(IAsyncResult result)
         {
-            var state = (SideFileSave)result.AsyncState;
-            var ok = CompleteSideFileSave(state.Stream, result);
+            CompleteSideFileSave(result.AsyncState as FileStream, result);
             Interlocked.Decrement(ref _sideFileWrites);
-            if (!state.CountsTowardRefresh) return;
-            if (!ok) Interlocked.Exchange(ref _guildRefreshFailed, 1);
-            if (Interlocked.Decrement(ref _guildRefreshPending) == 0)
+        }
+
+        // Guild files are named by list position, so deleting a guild renames every later one. Codebase review 2026-10-24:
+        // swapping them one by one was not crash-consistent (a crash mid-way loaded the deleted guild and dropped the last).
+        // Now every file is first staged in Guilds\Reindex\ with a "done" marker; only then are they moved into place, and a
+        // load that finds the marker finishes the moves first (roll forward). A crash before the marker leaves the old files.
+        private const string GuildReindexDir = "Reindex", GuildReindexMarker = "done";
+        private int _guildReindexRunning;
+
+        /// <summary>Game thread: snapshots every guild, then stages and swaps them on a pool thread.</summary>
+        private void BeginGuildReindex()
+        {
+            if (Interlocked.CompareExchange(ref _guildReindexRunning, 1, 0) != 0) return; // one at a time; GuildRefreshNeeded stays set
+
+            byte[][] files;
+            try
             {
-                if (Volatile.Read(ref _guildRefreshFailed) == 0) PruneSurplusGuildFiles(_guildRefreshKeep);
-                else MessageQueue.Enqueue("[Save] A guild file failed to save during a full guild resave; surplus guild files were kept.");
+                files = new byte[GuildList.Count][];
+                for (var i = 0; i < GuildList.Count; i++)
+                {
+                    GuildList[i].NeedSave = false;
+                    files[i] = GuildFileBytes(i);
+                }
+            }
+            catch
+            {
+                Volatile.Write(ref _guildReindexRunning, 0);
+                throw; // GuildRefreshNeeded stays set, so the next save retries the re-index
+            }
+
+            GuildRefreshNeeded = false;
+            var guildPath = Settings.GuildPath;
+            Interlocked.Increment(ref _sideFileWrites); // shutdown and reboot wait for it (WaitForSideFileSaves)
+            Task.Run(() =>
+            {
+                try
+                {
+                    // Per-guild writes started before the re-index would land on the new positions: let them finish first.
+                    var waitStart = Stopwatch.ElapsedMilliseconds;
+                    while (Volatile.Read(ref _sideFileWrites) > 1 && Stopwatch.ElapsedMilliseconds - waitStart < AccountSaveWaitLimitMs)
+                        Thread.Sleep(1);
+
+                    StageGuildReindex(guildPath, files);
+                    CompleteGuildReindex(guildPath);
+                }
+                catch (Exception ex)
+                {
+                    WorldErrors.Record("guild re-index", ex);
+                }
+                finally
+                {
+                    Volatile.Write(ref _guildReindexRunning, 0);
+                    Interlocked.Decrement(ref _sideFileWrites);
+                }
+            });
+        }
+
+        /// <summary>Writes every guild file and then the marker into &lt;guildPath&gt;\Reindex (any thread; files only).</summary>
+        internal static void StageGuildReindex(string guildPath, byte[][] files)
+        {
+            var stage = Path.Combine(guildPath, GuildReindexDir);
+            if (Directory.Exists(stage)) Directory.Delete(stage, true);
+            Directory.CreateDirectory(stage);
+
+            for (var i = 0; i < files.Length; i++)
+            {
+                using var stream = new FileStream(Path.Combine(stage, i + ".mgd"), FileMode.Create);
+                stream.Write(files[i], 0, files[i].Length);
+                stream.Flush(flushToDisk: true);
+            }
+
+            using (var marker = new FileStream(Path.Combine(stage, GuildReindexMarker), FileMode.Create))
+            {
+                var bytes = System.Text.Encoding.ASCII.GetBytes(files.Length.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                marker.Write(bytes, 0, bytes.Length);
+                marker.Flush(flushToDisk: true);
             }
         }
 
-        private int _guildRefreshPending, _guildRefreshFailed, _guildRefreshKeep;
-
-        private sealed class SideFileSave
+        /// <summary>
+        /// Moves a staged re-index into place and prunes the surplus files (idempotent, so a crash part-way is finished by the
+        /// next call). Without a marker the staging was incomplete: it is discarded and the old files stay. Called after
+        /// staging and by LoadGuilds before it reads anything.
+        /// </summary>
+        internal static void CompleteGuildReindex(string guildPath)
         {
-            public readonly FileStream Stream;
-            public readonly bool CountsTowardRefresh;
-            public SideFileSave(FileStream stream, bool countsTowardRefresh) { Stream = stream; CountsTowardRefresh = countsTowardRefresh; }
+            var stage = Path.Combine(guildPath, GuildReindexDir);
+            if (!Directory.Exists(stage)) return;
+
+            var markerPath = Path.Combine(stage, GuildReindexMarker);
+            if (!File.Exists(markerPath) || !int.TryParse(File.ReadAllText(markerPath), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var count))
+            {
+                Directory.Delete(stage, true);
+                return;
+            }
+
+            for (var i = 0; i < count; i++)
+            {
+                var staged = Path.Combine(stage, i + ".mgd");
+                if (!File.Exists(staged)) continue; // already moved before a crash
+                var live = Path.Combine(guildPath, i + ".mgd");
+                if (File.Exists(live)) File.Replace(staged, live, null);
+                else File.Move(staged, live);
+            }
+
+            PruneSurplusGuildFiles(guildPath, count);
+            File.Delete(markerPath);
+            Directory.Delete(stage, true);
         }
 
         /// <summary>
@@ -3767,11 +3858,13 @@ namespace Server.MirEnvir
         }
 
         /// <summary>Deletes guild files whose index is outside 0..keep-1 (LoadGuilds never reads them).</summary>
-        internal static void PruneSurplusGuildFiles(int keep)
+        internal static void PruneSurplusGuildFiles(int keep) => PruneSurplusGuildFiles(Settings.GuildPath, keep);
+
+        internal static void PruneSurplusGuildFiles(string guildPath, int keep)
         {
             try
             {
-                foreach (var file in Directory.GetFiles(Settings.GuildPath, "*.mgd"))
+                foreach (var file in Directory.GetFiles(guildPath, "*.mgd"))
                 {
                     if (int.TryParse(Path.GetFileNameWithoutExtension(file), out var index) && index >= keep)
                         File.Delete(file);
@@ -4487,6 +4580,10 @@ namespace Server.MirEnvir
                 // GuildObject ctor skips an index that is already listed), so the next SaveGuilds wrote stale guild data over
                 // the freshly loaded files (roadmap P5 known defect).
                 Guilds.Clear();
+
+                // A re-index interrupted after its marker is finished before anything is read (see BeginGuildReindex).
+                try { CompleteGuildReindex(Settings.GuildPath); }
+                catch (Exception ex) { MessageQueue.Enqueue(ex); }
 
                 for (var i = 0; i < GuildCount; i++)
                 {

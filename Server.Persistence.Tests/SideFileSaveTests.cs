@@ -67,4 +67,28 @@ public class SideFileSaveTests
         });
         Directory.Delete(dir, true);
     }
+
+    [Fact]
+    public void Guild_reindex_rolls_forward_after_its_marker_and_is_discarded_without_it()
+    {
+        var dir = NewTempFolder("guild-reindex");
+        foreach (var n in new[] { "0", "1", "2" }) File.WriteAllText(Path.Combine(dir, n + ".mgd"), "old" + n);
+
+        // Staged but not swapped (a crash right after the marker): the next call finishes it.
+        Envir.StageGuildReindex(dir, new[] { new byte[] { 10 }, new byte[] { 11 } });
+        Envir.CompleteGuildReindex(dir);
+        Assert.Equal(new byte[] { 10 }, File.ReadAllBytes(Path.Combine(dir, "0.mgd")));
+        Assert.Equal(new byte[] { 11 }, File.ReadAllBytes(Path.Combine(dir, "1.mgd")));
+        Assert.False(File.Exists(Path.Combine(dir, "2.mgd")));
+        Assert.False(Directory.Exists(Path.Combine(dir, "Reindex")));
+
+        // Staging without its marker (a crash while staging): discarded, the live files stay.
+        Envir.StageGuildReindex(dir, new[] { new byte[] { 20 } });
+        File.Delete(Path.Combine(dir, "Reindex", "done"));
+        Envir.CompleteGuildReindex(dir);
+        Assert.Equal(new byte[] { 10 }, File.ReadAllBytes(Path.Combine(dir, "0.mgd")));
+        Assert.True(File.Exists(Path.Combine(dir, "1.mgd")));
+        Assert.False(Directory.Exists(Path.Combine(dir, "Reindex")));
+        Directory.Delete(dir, true);
+    }
 }
