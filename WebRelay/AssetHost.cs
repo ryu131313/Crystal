@@ -147,6 +147,8 @@ internal sealed class AssetHost
                 fs.Seek(o, SeekOrigin.Begin);
                 await fs.ReadExactlyAsync(buffer).ConfigureAwait(false);
             }
+            string after = VersionOf(new FileInfo(full)); // patched while it was read: never under this immutable URL
+            if (after != current) { Stale(ctx, after); return true; }
             res.StatusCode = 200;
             res.ContentLength64 = n;
             if (ctx.Request.HttpMethod != "HEAD") await res.OutputStream.WriteAsync(buffer).ConfigureAwait(false);
@@ -155,7 +157,11 @@ internal sealed class AssetHost
         }
 
         // Whole file (maps compress ~20x; sounds a little).
-        await _compression.WriteAsync(ctx, $"file|{full}|{current}", () => File.ReadAllBytes(full), StaticFiles.ContentType(full), Immutable, $"\"{current}\"").ConfigureAwait(false);
+        try
+        {
+            await _compression.WriteAsync(ctx, $"file|{full}|{current}", () => ReadVersion(full, current, File.ReadAllBytes), StaticFiles.ContentType(full), Immutable, $"\"{current}\"").ConfigureAwait(false);
+        }
+        catch (FileChangedException) { Stale(ctx, VersionOf(new FileInfo(full))); }
         return true;
     }
 
@@ -169,7 +175,11 @@ internal sealed class AssetHost
         var info = new FileInfo(full);
         string current = VersionOf(info);
         if (v == null || !string.Equals(v, current, StringComparison.Ordinal)) { Stale(ctx, current); return true; }
-        await _compression.WriteAsync(ctx, $"lix|{full}|{current}", () => LibIndex(full), "application/octet-stream", Immutable, $"\"lix-{current}\"").ConfigureAwait(false);
+        try
+        {
+            await _compression.WriteAsync(ctx, $"lix|{full}|{current}", () => ReadVersion(full, current, LibIndex), "application/octet-stream", Immutable, $"\"lix-{current}\"").ConfigureAwait(false);
+        }
+        catch (FileChangedException) { Stale(ctx, VersionOf(new FileInfo(full))); }
         return true;
     }
 
@@ -226,9 +236,21 @@ internal sealed class AssetHost
         return null;
     }
 
+    /// <summary>
+    /// <paramref name="read"/>(<paramref name="full"/>), re-checked against <paramref name="version"/> afterwards: bytes of a
+    /// file patched while it was read are never cached or sent under the old version's immutable URL.
+    /// </summary>
+    private static byte[] ReadVersion(string full, string version, Func<string, byte[]> read)
+    {
+        byte[] bytes = read(full);
+        if (VersionOf(new FileInfo(full)) != version) throw new FileChangedException();
+        return bytes;
+    }
+
     /// <summary>412: the URL names another version of the file (the client folder was patched). Never cached.</summary>
     private static void Stale(HttpListenerContext ctx, string current)
     {
+        ctx.Response.Headers.Remove("ETag");
         ctx.Response.Headers["Cache-Control"] = "no-store";
         ctx.Response.Headers["X-Asset-Version"] = current;
         RelayHost.Respond(ctx, 412, "asset version changed: reload the page");
@@ -237,3 +259,6 @@ internal sealed class AssetHost
     private static FileStream OpenRead(string full) =>
         new(full, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024, useAsync: true);
 }
+
+/// <summary>A file changed between its version check and the read: the caller answers 412 instead of serving it.</summary>
+internal sealed class FileChangedException() : Exception("the file changed while it was read");

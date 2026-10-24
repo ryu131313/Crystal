@@ -249,10 +249,11 @@ internal sealed class PatchIndex
         if (snap == null || !snap.Files.TryGetValue(rel, out var entry)) { RelayHost.Respond(ctx, 404, "not found"); return; }
         string? v = ctx.Request.QueryString["v"];
         if (string.IsNullOrEmpty(v)) { RelayHost.Respond(ctx, 400, "v required"); return; }
-        var info = new FileInfo(entry.FullPath);
         // A stale v, or the file changed in the root after this index was built (a copy in progress): never serve
-        // bytes the manifest's hash does not describe under an immutable URL.
-        if (v != entry.Version || !info.Exists || AssetHost.VersionOf(info) != entry.Version)
+        // bytes the manifest's hash does not describe under an immutable URL. The file can still change after this check
+        // (--patch-auto on a live build folder), so a buffered body is hashed before it is cached or sent, and a streamed
+        // one is re-checked before its last chunk (else the connection is aborted).
+        if (v != entry.Version || !Unchanged(entry))
         {
             RelayHost.Respond(ctx, 412, "stale version");
             return;
@@ -262,12 +263,39 @@ internal sealed class PatchIndex
         {
             if (Compression.Choose(ctx.Request.Headers["Accept-Encoding"]) == "br" && await TryServeCompressedAsync(ctx, entry).ConfigureAwait(false))
                 return;
-            await _compression.WriteAsync(ctx, "patch|" + entry.Path + "|" + entry.Version, () => ReadAll(entry.FullPath),
-                StaticFiles.ContentType(entry.FullPath), AssetHost.Immutable, "\"" + entry.Version + "\"").ConfigureAwait(false);
+            try
+            {
+                await _compression.WriteAsync(ctx, "patch|" + entry.Path + "|" + entry.Version, () => ReadIndexed(entry),
+                    StaticFiles.ContentType(entry.FullPath), AssetHost.Immutable, "\"" + entry.Version + "\"").ConfigureAwait(false);
+            }
+            catch (FileChangedException)
+            {
+                ctx.Response.Headers["Cache-Control"] = "no-store";
+                ctx.Response.Headers.Remove("ETag");
+                RelayHost.Respond(ctx, 412, "stale version");
+            }
             return;
         }
-        await _files.ServeFileAsync(ctx, entry.FullPath).ConfigureAwait(false);
+        await _files.ServeFileAsync(ctx, entry.FullPath, () => Unchanged(entry)).ConfigureAwait(false);
     }
+
+    /// <summary>The file still has the size and write time it was indexed with.</summary>
+    private static bool Unchanged(Entry entry)
+    {
+        var info = new FileInfo(entry.FullPath);
+        return info.Exists && AssetHost.VersionOf(info) == entry.Version;
+    }
+
+    /// <summary>The whole file, only when it still hashes to the indexed sha256.</summary>
+    private static byte[] ReadIndexed(Entry entry)
+    {
+        byte[] bytes = ReadAll(entry.FullPath);
+        if (!HasIndexedHash(bytes, entry)) throw new FileChangedException();
+        return bytes;
+    }
+
+    private static bool HasIndexedHash(byte[] bytes, Entry entry) =>
+        string.Equals(Convert.ToHexString(SHA256.HashData(bytes)), entry.Sha256, StringComparison.OrdinalIgnoreCase);
 
     private static bool Compressible(Entry entry) =>
         entry.Size <= MaxCompressed && CompressedExtensions.Contains(Path.GetExtension(entry.Path));
@@ -287,7 +315,7 @@ internal sealed class PatchIndex
         {
             if (fs.Length > entry.Size * 95 / 100)
             {
-                await _files.ServeFileAsync(ctx, entry.FullPath).ConfigureAwait(false);
+                await _files.ServeFileAsync(ctx, entry.FullPath, () => Unchanged(entry)).ConfigureAwait(false);
                 return true;
             }
             string etag = "\"" + entry.Version + "\"";
@@ -375,7 +403,7 @@ internal sealed class PatchIndex
         byte[] source;
         try { source = ReadAll(entry.FullPath); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return -1; }
-        if (!string.Equals(Convert.ToHexString(SHA256.HashData(source)), entry.Sha256, StringComparison.OrdinalIgnoreCase)) return -1;
+        if (!HasIndexedHash(source, entry)) return -1;
         ct.ThrowIfCancellationRequested();
 
         var output = new byte[BrotliEncoder.GetMaxCompressedLength(source.Length)];

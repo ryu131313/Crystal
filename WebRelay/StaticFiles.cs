@@ -36,8 +36,10 @@ internal sealed class StaticFiles
         return true;
     }
 
-    /// <summary>Streams an already resolved file (the caller has checked it lies inside a root).</summary>
-    public async Task ServeFileAsync(HttpListenerContext ctx, string full)
+    /// <summary>Streams an already resolved file (the caller has checked it lies inside a root). <paramref name="unchanged"/>,
+    /// when given, runs after the last read and before the last chunk goes out: false (the file changed while it streamed)
+    /// aborts the connection, so no client or cache ever holds a complete body that the caller's version does not describe.</summary>
+    public async Task ServeFileAsync(HttpListenerContext ctx, string full, Func<bool>? unchanged = null)
     {
         var info = new FileInfo(full);
         string etag = $"\"{info.Length:x}-{info.LastWriteTimeUtc.Ticks:x}\"";
@@ -81,7 +83,11 @@ internal sealed class StaticFiles
         await using (var fs = OpenRead(full))
         {
             fs.Seek(start, SeekOrigin.Begin);
-            await CopyAsync(fs, res.OutputStream, length).ConfigureAwait(false);
+            if (!await CopyAsync(fs, res.OutputStream, length, unchanged).ConfigureAwait(false))
+            {
+                res.Abort();
+                return;
+            }
         }
         res.Close();
     }
@@ -92,10 +98,12 @@ internal sealed class StaticFiles
     internal static FileStream OpenRead(string path) =>
         new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, bufferSize: 0, useAsync: true);
 
-    /// <summary>Copies <paramref name="length"/> bytes in chunks of up to 1 MB through a pooled buffer.</summary>
-    internal static async Task CopyAsync(Stream source, Stream output, long length)
+    /// <summary>Copies <paramref name="length"/> bytes in chunks of up to 1 MB through a pooled buffer. <paramref name="verify"/>
+    /// (optional) runs after the last read, before the last write: false from it, or a source that ends early while it is
+    /// set, returns false with the last chunk unsent.</summary>
+    internal static async Task<bool> CopyAsync(Stream source, Stream output, long length, Func<bool>? verify = null)
     {
-        if (length <= 0) return;
+        if (length <= 0) return verify?.Invoke() ?? true;
         byte[] buffer = ArrayPool<byte>.Shared.Rent((int)Math.Min(ChunkSize, length));
         try
         {
@@ -103,10 +111,12 @@ internal sealed class StaticFiles
             while (left > 0)
             {
                 int n = await source.ReadAsync(buffer.AsMemory(0, (int)Math.Min(Math.Min(buffer.Length, ChunkSize), left))).ConfigureAwait(false);
-                if (n == 0) break;
+                if (n == 0) return verify == null;
+                if (n == left && verify != null && !verify()) return false;
                 await output.WriteAsync(buffer.AsMemory(0, n)).ConfigureAwait(false);
                 left -= n;
             }
+            return true;
         }
         finally { ArrayPool<byte>.Shared.Return(buffer); }
     }
