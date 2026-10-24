@@ -45,8 +45,10 @@ public class RoundTripTests
 
     /// <summary>
     /// Same harness on a COPY of real data. Set MIR2_PERSISTENCE_DATA to a folder holding
-    /// Server.MirDB and Server.MirADB (optionally Configs\). The source folder is never written.
-    /// Passes trivially (and says so) when the variable is unset.
+    /// Server.MirDB and Server.MirADB (optionally Configs\, Guilds\, Conquests\ and Envir\Goods\, which the
+    /// first load imports into UserData.db with its count checks). The source folder is never written.
+    /// Passes trivially (and says so) when the variable is unset. Also the D1 dry run (UserData plan, Part A,
+    /// First start): it prints the imported counts, and NPC goods must stay equal to the *.msd files.
     /// </summary>
     [Fact]
     public void Real_data_copy_round_trips_and_is_stable()
@@ -64,16 +66,36 @@ public class RoundTripTests
         var dir = NewTempFolder("realdata");
         File.Copy(Path.Combine(srcFull, "Server.MirDB"), Path.Combine(dir, "Server.MirDB"));
         File.Copy(Path.Combine(srcFull, "Server.MirADB"), Path.Combine(dir, "Server.MirADB"));
-        var cfg = Path.Combine(srcFull, "Configs");
-        if (Directory.Exists(cfg)) CopyDir(cfg, Path.Combine(dir, "Configs"));
+        foreach (var sub in new[] { "Configs", "Guilds", "Conquests", Path.Combine("Envir", "Goods") })
+        {
+            var from = Path.Combine(srcFull, sub);
+            if (Directory.Exists(from)) CopyDir(from, Path.Combine(dir, sub));
+        }
 
         InFolder(dir, () =>
         {
             var origAccounts = new FileInfo(Envir.AccountPath).Length; // before the import renames it
+            var goodsFiles = new Dictionary<int, byte[]>();
+            if (Directory.Exists(Settings.GoodsPath))
+                foreach (var f in Directory.GetFiles(Settings.GoodsPath, "*.msd"))
+                    if (int.TryParse(Path.GetFileNameWithoutExtension(f), out var npc)) goodsFiles[npc] = File.ReadAllBytes(f);
+            var guildFiles = Directory.Exists(Settings.GuildPath) ? Directory.GetFiles(Settings.GuildPath, "*.mgd").Length : 0;
+            var conquestFiles = Directory.Exists(Settings.ConquestsPath) ? Directory.GetFiles(Settings.ConquestsPath, "*.mcd").Length : 0;
+
             Assert.True(LoadAll(), "first load failed (version range? see Logs)");
             _out.WriteLine($"Envir.LoadVersion={Envir.LoadVersion}  original Server.MirADB={origAccounts} bytes");
+            var imported = ReadStore();
+            _out.WriteLine($"imported into UserData.db: accounts={imported.Accounts.Count} guilds={imported.Guilds.Count} (files {guildFiles}) " +
+                           $"goods={imported.Goods.Count} (files {goodsFiles.Count}) conquests={imported.Conquests.Count} (files {conquestFiles}) " +
+                           $"head={imported.Head.Length} tail={imported.Tail.Length} bytes");
             var report = DropReport(-1);
-            AssertStable(report);
+            AssertStableLarge();
+
+            // No NPC is spawned here, so after the saves every goods row is still the file's bytes.
+            var rows = ReadStore();
+            Assert.Equal(goodsFiles.Count, rows.Goods.Count);
+            foreach (var row in rows.Goods)
+                Assert.True(goodsFiles.TryGetValue(row.Key, out var file) && file.AsSpan().SequenceEqual(row.Data), "goods row " + row.Key + " differs from its .msd file");
             return 0;
         });
         // Holds a copy of live data: remove it unless asked to keep it for inspection.
@@ -97,6 +119,25 @@ public class RoundTripTests
         _out.WriteLine(report);
         File.WriteAllText("drop-report.txt", report);
         return report;
+    }
+
+    /// <summary><see cref="AssertStable"/> for real data: the oracle dumps are streamed to files and compared line by line.</summary>
+    private void AssertStableLarge()
+    {
+        using (var w = new StreamWriter("oracle-1.txt")) Oracle.DumpTo(Envir.Main, w);
+        SaveAll();
+        var gen2 = ReadFiles();
+
+        Assert.True(LoadAll(), "second load failed");
+        using (var w = new StreamWriter("oracle-2.txt")) Oracle.DumpTo(Envir.Main, w);
+        SaveAll();
+        var gen3 = ReadFiles();
+
+        var diff = Oracle.FirstFileDifference("oracle-1.txt", "oracle-2.txt");
+        Assert.True(diff == null, "oracle differs between consecutive loads: " + diff);
+        Assert.True(gen2.db.AsSpan().SequenceEqual(gen3.db), $"Server.MirDB not byte-stable ({gen2.db.Length} vs {gen3.db.Length})");
+        Assert.True(gen2.accounts.AsSpan().SequenceEqual(gen3.accounts), $"user data not byte-stable ({gen2.accounts.Length} vs {gen3.accounts.Length})");
+        _out.WriteLine($"stable: MirDB {gen3.db.Length} bytes, user data image {gen3.accounts.Length} bytes, UserData.db {new FileInfo(Envir.UserDataPath).Length} bytes, oracle {new FileInfo("oracle-2.txt").Length} bytes");
     }
 
     private void AssertStable(string report)

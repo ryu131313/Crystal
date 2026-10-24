@@ -22,7 +22,33 @@ internal static class Oracle
         "Rank", "Connection", "Player", "Owner", "Caster", "RecipientInfo", "AccountInfo",
         "SaveBlob", "SaveBlobEpoch", "SaveHot", // P9-12 offline account cache (AccountInfo)
         "StoragePasswordFailures", "StoragePasswordLockedUntil", // wrong storage passwords, memory only (AccountInfo)
+        "_Info", // FriendInfo.Info's lazy lookup cache: resolved by whatever touched it first, not persisted
     };
+
+    // DumpTo: the dump is spilled to this writer in chunks, so a real-data dump (13k accounts) never builds one giant string.
+    [ThreadStatic] private static TextWriter _spill;
+
+    /// <summary>The dump written to <paramref name="writer"/> in chunks (same text as <see cref="Dump"/>).</summary>
+    public static void DumpTo(Envir e, TextWriter writer)
+    {
+        _spill = writer;
+        try { writer.Write(Dump(e)); }
+        finally { _spill = null; }
+    }
+
+    /// <summary>Null when the two dump files are identical, else the first differing line (streamed, for large dumps).</summary>
+    public static string FirstFileDifference(string pathA, string pathB)
+    {
+        using var a = new StreamReader(pathA);
+        using var b = new StreamReader(pathB);
+        for (var line = 1; ; line++)
+        {
+            var x = a.ReadLine();
+            var y = b.ReadLine();
+            if (x == null && y == null) return null;
+            if (x != y) return $"line {line}:\n  before: {x ?? "<end>"}\n  after:  {y ?? "<end>"}";
+        }
+    }
 
     public static string Dump(Envir e)
     {
@@ -93,6 +119,7 @@ internal static class Oracle
 
     private static void Walk(StringBuilder sb, Dictionary<object, string> visited, string path, object v, int depth)
     {
+        if (_spill != null && sb.Length > 4_000_000) { _spill.Write(sb.ToString()); sb.Clear(); }
         if (depth > 40) { sb.Append(path).Append("=<depth>\n"); return; }
         if (v == null) { sb.Append(path).Append("=null\n"); return; }
         var t = v.GetType();

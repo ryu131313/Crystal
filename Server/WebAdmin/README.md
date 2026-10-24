@@ -68,7 +68,7 @@ How the password is checked depends on the world state:
   sign-in never changes the game's `WrongPasswordCount` lockout.
 - **World stopped:** the panel uses the **offline admin directory** `WebAdmin\admins.dat` (next to the exe). This is a snapshot of
   the admin accounts (index, id, password hash and salt, ban) that is written atomically every time the world loads or saves
-  accounts. The panel ignores it when `Server.MirADB` is missing or was written noticeably later than the snapshot (for example
+  accounts. The panel ignores it when `UserData.db` is missing or was written noticeably later than the snapshot (for example
   restored or edited while the server was down). Deleting `admins.dat` turns off all sign-ins while the world is stopped.
 - **Fresh install / empty directory:** no one has loaded the accounts yet, so nothing can verify a password. Sign-in returns
   `503` with *"The world is starting; web sign-in will be available as soon as the accounts have loaded"* (or *"... unavailable
@@ -291,8 +291,11 @@ confirmation dialog, with a reason field for moderation actions. Every successfu
   search, validate, backups; Save / Create / Delete / Rename answer `409`): edit them in Game Data › Drops. Restoring a drops backup
   still works here, as the undo for a grid save.
 - **Backups & History:** lists `Back Up\Database`, `Back Up\Accounts` and the script backups. You can make a manual copy of
-  `Server.MirDB` or `Server.MirADB`, download, and prune. **Restore only works while the world is stopped** (`409` otherwise).
-  It backs up the current file first, then reloads the editor copy or the account list. The *History* tab shows per-field
+  `SystemData.db` or `UserData.db` (both `VACUUM INTO` on the store's writer thread, never a file copy), download, and prune.
+  **Restore only works while the world is stopped** (`409` otherwise). It backs up the current file first (`Pre-restore <ts>.bak`),
+  then reloads the editor copy or the account list. An accounts restore swaps the file through the UserData writer (integrity,
+  schema and world checks first), drops every pending account / guild delete, and refuses a binary `Server.MirADB` backup with
+  the import route instead (Runbook §12). The live version shown for accounts is `meta.envir_version`, read through the writer. The *History* tab shows per-field
   game-data changes from the audit log, with a Revert action (not for inserts, deletes or position-keyed child tables).
 - **LiveDb History:** every LiveDb batch from the journal (filter by table, admin and date; paged), each expandable to the
   before → after of every field with what reached the running world, the live counters and the client push. **Undo** previews
@@ -343,7 +346,7 @@ Subscribers run on the calling thread, which is usually the game thread, so keep
 | `WorldStarted` | `Envir.WorkLoop`, after `StartNetwork()` and `OpenAdminQueue()` |
 | `WorldStopped` | `Envir.WorkLoop` exit (and the early-exit path when `CanStartEnvir()` refuses to start) |
 | `AccountsLoaded` | `Envir.StartNetwork`, right after `LoadAccounts()` |
-| `AccountsSaved` | after Main serialises accounts (`BeginSaveAccounts` / `SaveAccounts`) |
+| `AccountsSaved` | after Main serialises accounts (`SaveUserData`, the shutdown save, the offline `SaveAccounts`) |
 | `LoginAttempt(accountId, ip, result)` | `Envir.Login`: `no-account`, `banned`, `bad-password`, `refused:<reason>`, `ok` |
 | `LoginGate` (single `Func<AccountInfo,string>`) | `Envir.Login`, before a successful login. Owned by Maintenance; a non-empty result refuses the login. |
 | `PlayerEntered` / `PlayerLeft` | `PlayerObject.StartGame` (after joining `Envir.Players`, before the Login scripts) / `PlayerObject.StopGame` |

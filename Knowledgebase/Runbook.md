@@ -33,7 +33,7 @@ powershell -ExecutionPolicy Bypass -File C:\Mir2\tools\verify.ps1 -Scratch D:\mi
 5. **Start the server and watch.** At least 3 autosaves (`SaveDelay`, default 5 min), 1 planned full-process restart, and a read of `Logs\Server\Server (dd-MM-yyyy).log`. The watch length per change type is in `roadmap.md` §6.
 
 Protected paths (never overwritten or deleted by the script):
-- **Server:** `Server.MirDB*`, `Server.MirADB*`, `SystemData.db*` (roadmap P7), `Guilds\`, `Conquests\`, `Archive\`, `Back Up\`, `WebAdmin\admins.dat`, `Exports\`, `Configs\`, `Envir\`, `Maps\`, `Logs\`
+- **Server:** `Server.MirDB*`, `Server.MirADB*` (incl. `Server.MirADB.imported`), `SystemData.db*` (roadmap P7), `UserData.db*` (incl. `UserData.db-journal` and `UserData.db.tmp`; UserData plan Part A, §12), `Guilds\`, `Guilds.imported\`, `Conquests\`, `Conquests.imported\`, `Archive\`, `Back Up\`, `WebAdmin\admins.dat`, `Exports\`, `Configs\`, `Envir\` (incl. `Envir\Goods.imported\`), `Maps\`, `Logs\`. A binary-only rollback therefore never copies an old `UserData.db` over the live one.
 - **Client:** `Data\`, `Sound\`, `Map\`, `Screenshots\`, `Mir2Config.ini`, `Mir2Test.ini`, `KeyBinds.ini`, `Error.txt`
 
 ## 3. Rollback
@@ -81,14 +81,14 @@ The player belt grows 6 → 8 cells (`Inventory[0..7]`, new characters 48 cells,
 
 1. Make a scratch folder, e.g. `D:\mir2-drill`.
 2. Copy a scratch build of `Server.exe` into it (`verify.ps1 -Only Server -Scratch D:\mir2-drill-build`, then copy the output in).
-3. Copy `Configs\`, `Envir\`, `Maps\`, `Guilds\` and `Conquests\` from a snapshot into it. Copy the newest `Back Up\Accounts\*.bak` in as `Server.MirADB`, and the matching `Back Up\Database\*.bak` as `Server.MirDB`.
+3. Copy `Configs\`, `Envir\` and `Maps\` from a snapshot into it. Copy the newest `Back Up\Accounts\Accounts *.bak` in as `UserData.db` (a SQLite copy since §12; an older binary `.bak` goes in as `Server.MirADB` together with the snapshot's `Guilds\`, `Conquests\` and `Envir\Goods\`, and the first start imports it), and the newest `Back Up\Database\*.bak` as `SystemData.db` (set its time to now, §10).
 4. In the drill copy's `Configs\Setup.ini`, change the game port and the web admin port, so the drill never collides with the live server.
 5. Start `D:\mir2-drill\Server.exe` from that folder. The working directory must be the drill folder. Log in with a known account and check a character.
 
 ## 5. Operator mitigations from roadmap P0 (no code)
 
 - [ ] Change `GMPassword` away from the default `C#Mir 4.0` in the web admin Config page, then do a full process restart. Online players keep the old value until they relog.
-- [ ] Take an off-box copy with the world stopped: `Server.MirDB`, `Server.MirADB`, `Guilds`, `Conquests`, `Archive`, `WebAdmin\admins.dat`, `Configs`, `Envir`, and `Maps` if not stored elsewhere.
+- [ ] Take an off-box copy with the world stopped: `SystemData.db`, `UserData.db` (§12; before it, `Server.MirADB`, `Guilds`, `Conquests`), `Server.MirDB`, `Archive`, `WebAdmin\admins.dat`, `Configs`, `Envir`, and `Maps` if not stored elsewhere.
 - [ ] Check free disk space and prune `Back Up\`, **keeping at least the last 48 h** of `Back Up\Accounts` and `Back Up\Database`.
 - [ ] Use full process restarts, not the in-process reboot (stale guilds), until roadmap P5 ships.
 - [ ] Use one editor surface at a time (web admin *or* WinForms).
@@ -181,7 +181,7 @@ Desktop clients download the raw client files from a WebRelay started with `--pa
 
 ## 10. System data in SQLite (`SystemData.db`, roadmap P7, 2026-10-21)
 
-Since P7 phase 7.3 the server keeps items, monsters, maps, NPCs, quests, magic, the game shop, conquests and the dragon in `SystemData.db` (SQLite) next to `Server.exe`. Accounts, guilds, goods and conquest state stay in `Server.MirADB` and the side files. `Server.MirDB` is read once, on the first start, and never written again: it stays as the rollback. `MirDbExport` (`dotnet build C:\Mir2\tools\MirDbExport\MirDbExport.csproj`, exe in `tools\MirDbExport\bin\Debug\net10.0\`) works on copies, never on a running server's files.
+Since P7 phase 7.3 the server keeps items, monsters, maps, NPCs, quests, magic, the game shop, conquests and the dragon in `SystemData.db` (SQLite) next to `Server.exe`. Accounts, guilds, goods and conquest state are in `UserData.db` since the UserData plan's Part A (§12; before it, `Server.MirADB` and the side files). `Server.MirDB` is read once, on the first start, and never written again: it stays as the rollback. `MirDbExport` (`dotnet build C:\Mir2\tools\MirDbExport\MirDbExport.csproj`, exe in `tools\MirDbExport\bin\Debug\net10.0\`) works on copies, never on a running server's files.
 
 **First deploy of a P7 build (the flip):**
 1. Optional dry run on a copy: copy the live `Server.MirDB` to a scratch folder, then `MirDbExport import <folder> <folder>\SystemData.db` and `MirDbExport export-binary <folder>\SystemData.db <folder>\out`, and compare `out\Server.MirDB` with the copy (`fc /b`): they must be identical.
@@ -221,3 +221,34 @@ Since P7 phase 7.3 the server keeps items, monsters, maps, NPCs, quests, magic, 
 2. Rebuild (`tsc`) and publish `WebClient/` (`tools\publish-webclient.ps1`, §8). Rebuild StressClient for bot runs.
 3. Let players patch, or restart the server so everyone reconnects through the patcher.
 4. Set `MoveBatch=True` on the web admin settings page. It is live, so no restart is needed, and `False` turns it off again at once.
+
+## 12. User data in SQLite (`UserData.db`, UserData-and-Quests-Plan.md Part A, phases 1-2)
+
+Accounts and characters, the world counters and hero list (`world.head`), auctions, mail ids, the GameShop log, saved spawns and market sales (`world.tail`), guilds, NPC goods and conquest state are rows of `UserData.db` next to `Server.exe` (tables `meta`, `world`, `accounts`, `guilds`, `goods`, `conquests`; journal mode DELETE). Every save is one transaction: the changed rows, `world`, `meta` and the pending account / guild deletes. No `Envir.Version` change: a row holds exactly the bytes the old files held.
+
+**First start (the import):** with no `UserData.db` and a `Server.MirADB`, the server loads the old files as before, writes `UserData.db` (via `UserData.db.tmp`, integrity check, read back), checks the counts against the sources, and renames `Server.MirADB`, `Guilds\`, `Envir\Goods\` and `Conquests\` to `*.imported`. The log shows `[UserData] Imported Server.MirADB into .\UserData.db: N accounts, N guilds, N goods, N conquests.` and one `Renamed ...` line each.
+- The count checks: accounts against the count saved in `Server.MirADB`, guilds against the `Guilds\*.mgd` files, goods against the `*.msd` files, conquests against the `*.mcd` files, plus duplicate indexes. A mismatch **stops the start** with each problem logged (`[UserData] Import check: ...`) and nothing renamed: fix the files (for a duplicate guild index, decide which file wins), then start again. A conquest whose map is missing is not an error: its file is kept as a row, unparsed.
+- A crash during the import leaves only `UserData.db.tmp` and the old files: the next start imports again.
+- Dry run before a deploy: copy `Server.MirADB`, `Server.MirDB`, `Configs\`, `Guilds\`, `Conquests\` and `Envir\Goods\` from the live folder to a scratch folder and run `dotnet test C:\Mir2\Server.Persistence.Tests\Server.Persistence.Tests.csproj --filter Real_data_copy` with `MIR2_PERSISTENCE_DATA=<scratch folder>`: it imports the copy, prints the counts and checks import → save → load. (2026-10-24, live copy: 13,142 accounts, 13,068 characters, 2 guilds, 53 goods, 1 conquest; no mismatch.)
+
+**Startup refusals:**
+- `UserData.db and Server.MirADB are missing but Back Up\Accounts, a *.imported file or folder, or a temp file shows earlier data`: the store was lost. Restore the newest backup (below). The server never creates an empty user database while evidence of data exists; after a deliberate wipe, move every piece of evidence aside first (`Back Up\Accounts\`, `*.imported`, `Server.MirADBn/o`).
+- `UserData.db is missing and Back Up\Accounts holds a UserData backup newer than Server.MirADB`: the store was lost after an import; restore the newest backup instead of importing the older `Server.MirADB`.
+- `no world row`, `meta.envir_version ... differs from the version in world.head`, `outside the supported range`, `integrity_check failed`, `schema_version is ...`: the file is damaged or from a newer build. Restore a backup or run the build that wrote it.
+- `The import of Server.MirADB stopped: N count check(s) failed`: see the import above.
+
+**Saves and shutdown:** the periodic save (`[Database] SaveDelay`) is posted to the UserData writer thread. A stop (web admin, SMain, `Reboot`) runs one final full save after the network is closed and waits for it at most 60 s; the log shows `[UserData] Shutdown save written in N ms (...)`, or an `ERROR` line when it timed out or failed (the data is then as of the last good save). While the world is stopped, web admin and WinForms account edits are saved at once (accounts and world only). Failures count in `/status` → `accountSaveFailures`; a failed save makes the next one rewrite every row.
+
+**Backups:** after a periodic save, at most every `[Database] AccountBackupMinutes` (default = `SaveDelay`; 0 = none), the writer takes a `VACUUM INTO` copy: `Back Up\Accounts\Accounts yyyy-MM-dd HH-mm-ss.bak` (a SQLite file; `[Backup] RetentionEnabled` prunes them like before). The web admin's "Create backup" (Backups → Accounts) is a `VACUUM INTO` too (`Manual <time>.bak`). Never copy the live `UserData.db` while the server runs: a plain copy can be torn.
+
+**Restore a backup:** stop the world, then web admin → Backups → Accounts → Restore: it takes a `Pre-restore <time>.bak` copy, swaps the backup in through the writer (integrity, schema and world checks first), drops every pending account / guild delete, and reloads the accounts. By hand: stop `Server.exe`, move `UserData.db` (and any `UserData.db-journal`) aside, copy the `.bak` in as `UserData.db`, start. Guilds, goods and conquests come from the restored file at the next world start.
+
+**Restore an old binary backup** (a `Back Up\Accounts\*.bak` from before Part A; the web admin refuses it with a message): stop `Server.exe`, move `UserData.db` aside, put the `.bak` in as `Server.MirADB` together with the matching `Guilds\`, `Conquests\` and `Envir\Goods\` folders (from the deploy snapshot), move any newer SQLite `Accounts *.bak` out of `Back Up\Accounts\` (or the import is refused as older than them), start: the import runs.
+
+**Roll back to a build before UserData.db (the D1 rollback's data part):**
+1. Stop `Server.exe` (the shutdown save runs).
+2. With the **D1 build's** `MirDbExport`: `MirDbExport export-userdata <live>\UserData.db <live> --force`. It writes `Server.MirADB`, `Guilds\<n>.mgd`, `Envir\Goods\<npc>.msd` and `Conquests\<index>.mcd` from the store, byte for byte what the old build reads (without the export the old build refuses to start only because SQLite `.bak` files exist in `Back Up\Accounts\`; it does not know `*.imported`).
+3. Move `UserData.db` and the `*.imported` file and folders aside.
+4. Put back the previous build (§3) and start. Everything written since the import is carried over by the export.
+
+**Back to UserData.db after such a rollback:** the old build wrote `Server.MirADB` after every SQLite backup, so moving `UserData.db` away (step 3 above) and starting the new build imports `Server.MirADB` again. If a SQLite backup is newer than `Server.MirADB`, the import is refused (above).

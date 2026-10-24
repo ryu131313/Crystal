@@ -29,7 +29,9 @@
 .PARAMETER Reset     Regenerate the world and delete accounts, logs and backups in <Scratch>\run.
 .PARAMETER NoBuild   Reuse the existing <Scratch>\build output.
 .PARAMETER Multithreaded  [General] Multithreaded (default True, as on a real server).
-.PARAMETER ExtraIni  Lines appended to Setup.ini (e.g. '[Optimisation]','EncodeOnce=False') for A/B runs.
+.PARAMETER ExtraIni  Lines appended to Setup.ini (e.g. '[Optimisation]','EncodeOnce=False') for A/B runs. A section that the
+                     profile already writes ([General], [Network], ...) is not read a second time: use the switches below for those.
+.PARAMETER TestServer  [General] TestServer=True (e.g. @CREATEGUILD for every player; smoke tests).
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File tools\start-scratch-server.ps1 -Port 17000 -Reset
@@ -46,7 +48,8 @@ param(
     [switch]$NoBuild,
     [bool]$Multithreaded = $true,
     [int]$StartTimeoutSeconds = 90,
-    [string[]]$ExtraIni = @()
+    [string[]]$ExtraIni = @(),
+    [switch]$TestServer
 )
 
 $ErrorActionPreference = 'Stop'
@@ -116,6 +119,7 @@ if (-not (Test-Path (Join-Path $runDir 'Server.MirDB'))) {
 $configs = Join-Path $runDir 'Configs'
 New-Item -ItemType Directory -Force $configs | Out-Null
 $mt = if ($Multithreaded) { 'True' } else { 'False' }
+$ts = if ($TestServer) { 'True' } else { 'False' }
 $ini = @"
 ; SCRATCH / LOAD-TEST PROFILE written by tools\start-scratch-server.ps1. NEVER use on a real server.
 [General]
@@ -123,6 +127,7 @@ CheckVersion=False
 EnforceDBChecks=False
 Multithreaded=$mt
 ThreadLimit=2
+TestServer=$ts
 [Network]
 StatusPortEnabled=False
 IPAddress=127.0.0.1

@@ -259,7 +259,7 @@ namespace Server.MirEnvir
         public int GuildCount; //This shouldn't be needed?? -> remove in the future
 
         //Live Info
-        public volatile bool Saving; // written by EndSaveAccounts on an IO thread (review, roadmap P5)
+        public volatile bool Saving; // a UserData save job is running; cleared by that job on the UserData writer thread (UserData plan Part A)
         public List<Map> MapList = new List<Map>();
         public List<SafeZoneInfo> StartPoints = new List<SafeZoneInfo>();
         public List<ItemInfo> StartItems = new List<ItemInfo>();

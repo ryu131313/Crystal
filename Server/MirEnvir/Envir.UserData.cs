@@ -807,6 +807,8 @@ namespace Server.MirEnvir
                 }
             }
 
+            // A reload while stopped (a restore) used to Add into the previous load's entries and throw on the first repeated key.
+            GameshopLog.Clear();
             if (LoadVersion >= 63)
             {
                 var logCount = reader.ReadInt32();
