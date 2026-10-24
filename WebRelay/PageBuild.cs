@@ -140,7 +140,9 @@ internal sealed partial class PageBuild
         }
         string? full = web.Resolve("/js/" + rest);
         if (full == null) { RelayHost.Respond(ctx, 404, "not found"); return; }
-        await _compression.WriteAsync(ctx, $"js|{current}|{rest}", () => File.ReadAllBytes(full), StaticFiles.ContentType(full), AssetHost.Immutable, $"\"{current}\"").ConfigureAwait(false);
+        // Keyed on the resolved file, not the URL: "a.js", "./a.js", "A.JS", "x//a.js" share one Brotli pass and cache slot.
+        string key = OperatingSystem.IsWindows() ? full.ToLowerInvariant() : full;
+        await _compression.WriteAsync(ctx, $"js|{current}|{key}", () => File.ReadAllBytes(full), StaticFiles.ContentType(full), AssetHost.Immutable, $"\"{current}\"").ConfigureAwait(false);
     }
 
     /// <summary>The request path up to and including "/js/" (keeps the mount), for the redirect.</summary>
