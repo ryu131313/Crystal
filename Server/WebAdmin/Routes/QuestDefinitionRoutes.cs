@@ -42,7 +42,10 @@ namespace Server.WebAdmin.Routes
             };
 
             if (!dryRun)
+            {
                 WebAdminAudit.Record(req, "quests.reimport", "SystemData.db", new { r.Quests, r.Errors, r.Warnings }, string.IsNullOrWhiteSpace(reason) ? null : reason.Trim());
+                WebAdminPending.Add("gamedata", "Quest V2 definitions re-imported from the legacy quests (loaded at the next world start; not used at runtime yet)", req.AdminName);
+            }
             await req.Ok(data, dryRun ? "Dry run: " + r.Summary() : r.Summary() + " Saved; the running world still uses the legacy quests.").ConfigureAwait(false);
         }
 
