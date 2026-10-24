@@ -147,15 +147,13 @@ namespace Server.WebAdmin
             WebAdminHooks.WorldStarted += () => MapImages.Clear();
         }
 
-        /// <summary>O(1), any thread (a death may be raised on a mob thread): one allocation, dropped beyond the cap.</summary>
+        /// <summary>
+        /// O(1), any thread (a death may be raised on a mob thread): one allocation. The queue drains only when a page polls the
+        /// snapshot, so beyond the cap the oldest event is dropped and a page opened later still sees the latest ones.
+        /// </summary>
         private static void Enqueue(string type, PlayerObject p, MapObject killer)
         {
             if (p == null) return;
-            if (Interlocked.Increment(ref _pendingCount) > MaxPendingEvents)
-            {
-                Interlocked.Decrement(ref _pendingCount);
-                return;
-            }
 
             var e = new PendingEvent
             {
@@ -174,6 +172,8 @@ namespace Server.WebAdmin
             }
 
             Pending.Enqueue(e);
+            if (Interlocked.Increment(ref _pendingCount) > MaxPendingEvents && Pending.TryDequeue(out _))
+                Interlocked.Decrement(ref _pendingCount);
         }
 
         // ---- event ring (game thread only) ------------------------------------------------------------------------------
