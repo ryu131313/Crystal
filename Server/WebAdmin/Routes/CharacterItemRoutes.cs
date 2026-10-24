@@ -90,7 +90,7 @@ namespace Server.WebAdmin.Routes
             var container = CharacterLogic.NormalizeAddContainer(CharacterRouteUtil.OptionalString(body, "container"));
             if (container == null) throw new WebAdminException(422, "container must be inventory or storage");
 
-            var result = await WebAdminGame.RunOrInlineAsync(() =>
+            var result = await AccountRoutes.AuditIfTimedOutAsync(req, "character.item-add", "character #" + index, new { index, itemIndex, item = itemText, count, container, reason }, () => WebAdminGame.RunOrInlineAsync(() =>
             {
                 var envir = Envir.Main;
                 var ci = CharacterRouteUtil.Find(index);
@@ -184,7 +184,7 @@ namespace Server.WebAdmin.Routes
                     },
                     Data = new { added = addedCount, uniqueIds = uids },
                 };
-            });
+            }));
 
             WebAdminAudit.Record(req, "character.item-add", result.Target, result.Details, reason);
             await req.Ok(result.Data, result.Message);
@@ -199,7 +199,7 @@ namespace Server.WebAdmin.Routes
             var body = await req.ReadJsonAsync();
             var reason = body.ValueKind == JsonValueKind.Object ? CharacterRouteUtil.Reason(body) : null;
 
-            var result = await WebAdminGame.RunOrInlineAsync(() =>
+            var result = await AccountRoutes.AuditIfTimedOutAsync(req, "character.item-remove", "character #" + index, new { index, uid, reason }, () => WebAdminGame.RunOrInlineAsync(() =>
             {
                 var ci = CharacterRouteUtil.Find(index);
                 var loc = Locate(ci, uid);
@@ -245,7 +245,7 @@ namespace Server.WebAdmin.Routes
                         online = player != null,
                     },
                 };
-            });
+            }));
 
             WebAdminAudit.Record(req, "character.item-remove", result.Target, result.Details, reason);
             await req.Ok(null, result.Message);
@@ -273,7 +273,7 @@ namespace Server.WebAdmin.Routes
             if (count == null && currentDura == null && maxDura == null && stats == null)
                 throw new WebAdminException(400, "Nothing to update");
 
-            var result = await WebAdminGame.RunOrInlineAsync(() =>
+            var result = await AccountRoutes.AuditIfTimedOutAsync(req, "character.item-edit", "character #" + index, new { index, uid, count, currentDura, maxDura, reason }, () => WebAdminGame.RunOrInlineAsync(() =>
             {
                 var ci = CharacterRouteUtil.Find(index);
                 var loc = Locate(ci, uid);
@@ -357,7 +357,7 @@ namespace Server.WebAdmin.Routes
                     },
                     Data = CharacterProjection.Item(item, loc.Container, loc.Slot),
                 };
-            });
+            }));
 
             WebAdminAudit.Record(req, "character.item-edit", result.Target, result.Details, reason);
             await req.Ok(result.Data, result.Message);

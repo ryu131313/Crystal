@@ -49,7 +49,12 @@
       var j = await r.json().catch(function () { return {}; });
       if (!j || typeof j !== 'object') j = { value: j };
       var ok = r.ok && j.ok !== false;
-      if (!ok || !opts.quiet) portalToast(j.message || j.error || (ok ? 'Done.' : ('Failed (HTTP ' + r.status + ').')), ok ? 'ok' : 'error');
+      // 504 after the game thread started the action: it may still be applied. Not a failure to retry (a retry of a
+      // mass grant applies it twice); the server audits it with outcome "unknown".
+      var unknown = r.status === 504 && !!(j.data && j.data.started);
+      if (unknown) portalToast('Outcome unknown: ' + (j.message || 'the game thread is still completing this action.') + ' Check the result (or the audit log) before trying again.', 'warn', 15000);
+      else if (!ok || !opts.quiet) portalToast(j.message || j.error || (ok ? 'Done.' : ('Failed (HTTP ' + r.status + ').')), ok ? 'ok' : 'error');
+      j.__unknown = unknown;
       j.__status = r.status;
       j.__ok = ok;
       return j;

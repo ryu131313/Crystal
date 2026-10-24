@@ -734,11 +734,14 @@ namespace Server.WebAdmin
             var plan = Prepare(verb, args);
             plan.Admin = req?.AdminName ?? "system";
 
+            // A 504 after the action started may still apply it: audited with an unknown outcome (codebase review 2026-10-24 #11).
+            var target = plan.CharacterName ?? plan.Who ?? plan.Guild ?? "world";
+            var request = new { action = verb.Action, plan.CharacterName, plan.Amount, plan.Level, plan.Count, plan.ItemRef, plan.MonsterRef, plan.MapRef, plan.Text, plan.Reason };
             GmResult result;
             if (verb.WorksOffline)
-                result = await WebAdminGame.RunOrInlineAsync(() => Run(plan)).ConfigureAwait(false);
+                result = await Routes.AccountRoutes.AuditIfTimedOutAsync(req, "gm." + verb.Action, target, request, () => WebAdminGame.RunOrInlineAsync(() => Run(plan))).ConfigureAwait(false);
             else
-                result = await WebAdminGame.RunAsync(() => Run(plan)).ConfigureAwait(false);
+                result = await Routes.AccountRoutes.AuditIfTimedOutAsync(req, "gm." + verb.Action, target, request, () => WebAdminGame.RunAsync(() => Run(plan))).ConfigureAwait(false);
 
             result.Details["action"] = verb.Action;
             WebAdminAudit.Record(req, "gm." + verb.Action, result.Target, result.Details, plan.Reason);

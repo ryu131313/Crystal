@@ -376,7 +376,7 @@ namespace Server.WebAdmin.Routes
             if (lines.Any(l => l.Length > MaxNoticeLineLength)) throw new WebAdminException(422, "Notice lines are limited to " + MaxNoticeLineLength + " characters");
 
             var admin = req.AdminName;
-            var result = await WebAdminGame.RunAsync(() =>
+            var result = await AccountRoutes.AuditIfTimedOutAsync(req, "guild.notice", "guild #" + index, new { index, lines = lines.Count }, () => WebAdminGame.RunAsync(() =>
             {
                 var guild = LiveGuild(index);
                 var before = guild.Info.Notice?.Count ?? 0;
@@ -387,7 +387,7 @@ namespace Server.WebAdmin.Routes
                 MessageQueue.Instance.EnqueueChat(log);
 
                 return new { name = guild.Name, before, after = lines.Count };
-            }).ConfigureAwait(false);
+            })).ConfigureAwait(false);
 
             WebAdminAudit.Record(req, "guild.notice", result.name + " (#" + index + ")", new { linesBefore = result.before, linesAfter = result.after, notice = lines.Take(50).ToList() });
             await req.Ok(new { lines = result.after }, "Notice updated for " + result.name + ".").ConfigureAwait(false);
@@ -402,7 +402,7 @@ namespace Server.WebAdmin.Routes
             var reason = body.GetString("reason");
             if (name.Length == 0) throw new WebAdminException(400, "name is required");
 
-            var result = await WebAdminGame.RunAsync(() =>
+            var result = await AccountRoutes.AuditIfTimedOutAsync(req, "guild.member-remove", "guild #" + index, new { index, name, force, reason }, () => WebAdminGame.RunAsync(() =>
             {
                 var guild = LiveGuild(index);
 
@@ -470,7 +470,7 @@ namespace Server.WebAdmin.Routes
                 MessageQueue.Instance.EnqueueChat("Guild: '" + guild.Name + "' member " + memberName + " removed by web admin.");
 
                 return new { guild = guild.Name, member = memberName, rank = rankName, wasOnline, disbanded };
-            }).ConfigureAwait(false);
+            })).ConfigureAwait(false);
 
             WebAdminAudit.Record(req, "guild.member-remove", result.guild + " (#" + index + ")",
                 new { member = result.member, rank = result.rank, result.wasOnline, result.disbanded, force },
@@ -489,13 +489,13 @@ namespace Server.WebAdmin.Routes
             if (text.Length == 0) throw new WebAdminException(400, "text is required");
             if (text.Length > MaxMessageLength) throw new WebAdminException(422, "Messages are limited to " + MaxMessageLength + " characters");
 
-            var result = await WebAdminGame.RunAsync(() =>
+            var result = await AccountRoutes.AuditIfTimedOutAsync(req, "guild.message", "guild #" + index, new { index, text }, () => WebAdminGame.RunAsync(() =>
             {
                 var guild = LiveGuild(index);
                 guild.SendMessage("SYSTEM: " + text, ChatType.Guild);
                 MessageQueue.Instance.EnqueueChat("SYSTEM to Guild: '" + guild.Name + "': " + text);
                 return new { guild = guild.Name, online = guild.GetOnlinePlayers().Count };
-            }).ConfigureAwait(false);
+            })).ConfigureAwait(false);
 
             WebAdminAudit.Record(req, "guild.message", result.guild + " (#" + index + ")", new { text, recipients = result.online });
             await req.Ok(result, "Sent to " + result.online + " online member(s) of " + result.guild + ".").ConfigureAwait(false);
@@ -515,7 +515,7 @@ namespace Server.WebAdmin.Routes
 
             var reason = body.GetString("reason");
 
-            var result = await WebAdminGame.RunAsync(() =>
+            var result = await AccountRoutes.AuditIfTimedOutAsync(req, "guild.funds", "guild #" + index, new { index, mode, gold = hasGold ? goldValue : (long?)null, sparePoints = hasPoints ? pointsValue : (long?)null, reason }, () => WebAdminGame.RunAsync(() =>
             {
                 var guild = LiveGuild(index);
                 var info = guild.Info;
@@ -556,7 +556,7 @@ namespace Server.WebAdmin.Routes
                     pointsBefore = (int)pointsBefore,
                     pointsAfter = (int)pointsAfter,
                 };
-            }).ConfigureAwait(false);
+            })).ConfigureAwait(false);
 
             WebAdminAudit.Record(req, "guild.funds", result.guild + " (#" + index + ")", new
             {

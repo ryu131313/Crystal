@@ -127,7 +127,7 @@ namespace Server.WebAdmin.Routes
             var body = await req.ReadJsonAsync().ConfigureAwait(false);
             var reason = ReadReason(body);
 
-            var result = await WebAdminGame.RunAsync(() =>
+            var result = await AccountRoutes.AuditIfTimedOutAsync(req, "market.expire", "#" + id, new { id, reason }, () => WebAdminGame.RunAsync(() =>
             {
                 var auction = FindAuction(id);
                 if (auction.Sold) throw new WebAdminException(409, "Listing #" + id + " is already sold");
@@ -158,7 +158,7 @@ namespace Server.WebAdmin.Routes
                     currentBid = auction.CurrentBid,
                     notified,
                 };
-            }).ConfigureAwait(false);
+            })).ConfigureAwait(false);
 
             WebAdminAudit.Record(req, "market.expire", "#" + id + " " + result.item, new { result.seller, result.bidder, result.currentBid, result.notified }, reason.Length > 0 ? reason : null);
             await req.Ok(result, "Listing #" + id + " (" + result.item + ") expired; " + (result.seller ?? "the seller") + " can collect it at the market.").ConfigureAwait(false);
@@ -171,7 +171,7 @@ namespace Server.WebAdmin.Routes
             var reason = ReadReason(body);
             var returnItem = body.GetBool("returnItem", true);
 
-            var result = await WebAdminGame.RunAsync(() =>
+            var result = await AccountRoutes.AuditIfTimedOutAsync(req, "market.remove", "#" + id, new { id, returnItem, reason }, () => WebAdminGame.RunAsync(() =>
             {
                 var auction = FindAuction(id);
                 var envir = Envir.Main;
@@ -230,7 +230,7 @@ namespace Server.WebAdmin.Routes
                     refundBid = plan.RefundBid,
                     notified,
                 };
-            }).ConfigureAwait(false);
+            })).ConfigureAwait(false);
 
             WebAdminAudit.Record(req, "market.remove", "#" + id + " " + result.item, new
             {
