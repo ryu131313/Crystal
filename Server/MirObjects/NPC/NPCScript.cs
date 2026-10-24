@@ -791,6 +791,7 @@ namespace Server.MirObjects
                 NPCPage page = NPCPages[i];
                 if (!String.Equals(page.Key, key, StringComparison.CurrentCultureIgnoreCase)) continue;
 
+                page.BreakFromSegments = false; // a BREAK in the last segment of the previous call must not stop this one
                 foreach (NPCSegment segment in page.SegmentList)
                 {
                     if (page.BreakFromSegments)
@@ -812,6 +813,7 @@ namespace Server.MirObjects
                 NPCPage page = NPCPages[i];
                 if (!String.Equals(page.Key, key, StringComparison.CurrentCultureIgnoreCase)) continue;
 
+                page.BreakFromSegments = false; // a BREAK in the last segment of the previous call must not stop this one
                 foreach (NPCSegment segment in page.SegmentList)
                 {
                     if (page.BreakFromSegments)
@@ -875,6 +877,7 @@ namespace Server.MirObjects
                 player.NPCSpeech = new List<string>();
                 player.NPCSuccess.Clear();
 
+                page.BreakFromSegments = false; // a BREAK in the last segment of the previous call must not stop this one
                 foreach (NPCSegment segment in page.SegmentList)
                 {
                     if (page.BreakFromSegments)
