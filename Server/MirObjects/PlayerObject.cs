@@ -10136,7 +10136,7 @@ namespace Server.MirObjects
 
         public void Awakening(ulong UniqueID, AwakeType type)
         {
-            if (NPCPage == null || !String.Equals(NPCPage.Key, NPCScript.AwakeningKey, StringComparison.CurrentCultureIgnoreCase))
+            if (!IsAtNpcPage(NPCScript.AwakeningKey)) // the NPC must be on this map and within DataRange, as SellItem requires
                 return;
 
             if (type == AwakeType.None || Awake.AwakeMaterials.Count < (int)type) return;
@@ -10209,7 +10209,7 @@ namespace Server.MirObjects
 
         public void DowngradeAwakening(ulong UniqueID)
         {
-            if (NPCPage == null || !String.Equals(NPCPage.Key, NPCScript.DowngradeKey, StringComparison.CurrentCultureIgnoreCase))
+            if (!IsAtNpcPage(NPCScript.DowngradeKey)) // the NPC must be on this map and within DataRange, as SellItem requires
                 return;
 
             for (int i = 0; i < Info.Inventory.Length; i++)
@@ -10257,7 +10257,7 @@ namespace Server.MirObjects
 
         public void DisassembleItem(ulong UniqueID)
         {
-            if (NPCPage == null || !String.Equals(NPCPage.Key, NPCScript.DisassembleKey, StringComparison.CurrentCultureIgnoreCase))
+            if (!IsAtNpcPage(NPCScript.DisassembleKey)) // the NPC must be on this map and within DataRange, as SellItem requires
                 return;
 
             for (int i = 0; i < Info.Inventory.Length; i++)
@@ -10327,7 +10327,7 @@ namespace Server.MirObjects
 
         public void ResetAddedItem(ulong UniqueID)
         {
-            if (NPCPage == null || !String.Equals(NPCPage.Key, NPCScript.ResetKey, StringComparison.CurrentCultureIgnoreCase))
+            if (!IsAtNpcPage(NPCScript.ResetKey)) // the NPC must be on this map and within DataRange, as SellItem requires
                 return;
 
             for (int i = 0; i < Info.Inventory.Length; i++)
@@ -14662,7 +14662,7 @@ namespace Server.MirObjects
 
             if (Dead) return;
 
-            if (NPCPage == null || (!String.Equals(NPCPage.Key, NPCScript.RefineKey, StringComparison.CurrentCultureIgnoreCase))) return;
+            if (!IsAtNpcPage(NPCScript.RefineKey)) return; // the NPC must be on this map and within DataRange, as SellItem requires
 
             // One refine at a time: a second request overwrote CurrentRefine, losing that item and the ingredients.
             if (Info.CurrentRefine != null)
@@ -14928,7 +14928,7 @@ namespace Server.MirObjects
         {
             if (Dead) return;
 
-            if (NPCPage == null || (!String.Equals(NPCPage.Key, NPCScript.RefineCheckKey, StringComparison.CurrentCultureIgnoreCase))) return;
+            if (!IsAtNpcPage(NPCScript.RefineCheckKey)) return; // the NPC must be on this map and within DataRange, as SellItem requires
 
             int index = -1;
 
@@ -15080,7 +15080,7 @@ namespace Server.MirObjects
         {
             if (Dead) return;
 
-            if (NPCPage == null || (!String.Equals(NPCPage.Key, NPCScript.ReplaceWedRingKey, StringComparison.CurrentCultureIgnoreCase))) return;
+            if (!IsAtNpcPage(NPCScript.ReplaceWedRingKey)) return; // the NPC must be on this map and within DataRange, as SellItem requires
 
             UserItem temp = null;
             UserItem CurrentRing = Info.Equipment[(int)EquipmentSlot.RingL];
