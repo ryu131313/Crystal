@@ -2578,10 +2578,14 @@ namespace Server.MirEnvir
                 _timerResolutionSet = false;
 
                 StopNetwork();
+                // A periodic side-file write still in flight would hold the "...n" file the forced saves below create.
+                WaitForSideFileSaves();
                 StopEnvir();
                 SaveAccounts();
                 SaveGuilds(true);
                 SaveConquests(true);
+                // Shutdown and Reboot (which reloads .mgd/.mcd right after) must not outrun the writes they just queued.
+                WaitForSideFileSaves();
             }
             catch (Exception ex)
             {
@@ -3680,7 +3684,7 @@ namespace Server.MirEnvir
 					GuildList[i].Save(writer);
                     var fStream = new FileStream(Path.Combine(Settings.GuildPath, i + ".mgdn"), FileMode.Create);
                     var data = mStream.ToArray();
-                    fStream.BeginWrite(data, 0, data.Length, EndSaveGuildsAsync, new SideFileSave(fStream, refreshing));
+                    BeginSideFileWrite(fStream, data, EndSaveGuildsAsync, new SideFileSave(fStream, refreshing));
                 }
             }
 
@@ -3690,6 +3694,7 @@ namespace Server.MirEnvir
         {
             var state = (SideFileSave)result.AsyncState;
             var ok = CompleteSideFileSave(state.Stream, result);
+            Interlocked.Decrement(ref _sideFileWrites);
             if (!state.CountsTowardRefresh) return;
             if (!ok) Interlocked.Exchange(ref _guildRefreshFailed, 1);
             if (Interlocked.Decrement(ref _guildRefreshPending) == 0)
@@ -3789,13 +3794,14 @@ namespace Server.MirEnvir
 
                     var fStream = new FileStream(path, FileMode.Create);
                     var data = mStream.ToArray();
-                    fStream.BeginWrite(data, 0, data.Length, EndSaveGoodsAsync, fStream);
+                    BeginSideFileWrite(fStream, data, EndSaveGoodsAsync, fStream);
                 }
             }
         }
         private void EndSaveGoodsAsync(IAsyncResult result)
         {
             CompleteSideFileSave(result.AsyncState as FileStream, result);
+            Interlocked.Decrement(ref _sideFileWrites);
         }
 
         private void SaveConquests(bool forced = false)
@@ -3810,12 +3816,46 @@ namespace Server.MirEnvir
                 ConquestList[i].Save(writer);
                 var fStream = new FileStream(Path.Combine(Settings.ConquestsPath, ConquestList[i].Info.Index + ".mcdn"), FileMode.Create);
                 var data = mStream.ToArray();
-                fStream.BeginWrite(data, 0, data.Length, EndSaveConquestsAsync, fStream);
+                BeginSideFileWrite(fStream, data, EndSaveConquestsAsync, fStream);
             }
         }
         private void EndSaveConquestsAsync(IAsyncResult result)
         {
             CompleteSideFileSave(result.AsyncState as FileStream, result);
+            Interlocked.Decrement(ref _sideFileWrites);
+        }
+
+        // Guild, goods and conquest writes started and not yet completed (codebase review 2026-10-24 #7): the forced saves at
+        // shutdown and reboot used to be queued and never awaited, so Reboot reloaded stale files or the process exited first.
+        private int _sideFileWrites;
+
+        /// <summary>Starts an async side-file write and counts it until its callback (which decrements) runs.</summary>
+        private void BeginSideFileWrite(FileStream fStream, byte[] data, AsyncCallback callback, object state)
+        {
+            Interlocked.Increment(ref _sideFileWrites);
+            try
+            {
+                fStream.BeginWrite(data, 0, data.Length, callback, state);
+            }
+            catch
+            {
+                Interlocked.Decrement(ref _sideFileWrites);
+                fStream.Dispose();
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// World teardown only (the loop has ended): waits up to AccountSaveWaitLimitMs for the side-file writes in flight,
+        /// so the files are complete before the process exits or Reboot loads them again.
+        /// </summary>
+        private void WaitForSideFileSaves()
+        {
+            var waitStart = Stopwatch.ElapsedMilliseconds;
+            while (Volatile.Read(ref _sideFileWrites) > 0 && Stopwatch.ElapsedMilliseconds - waitStart < AccountSaveWaitLimitMs)
+                Thread.Sleep(1);
+            if (Volatile.Read(ref _sideFileWrites) > 0)
+                MessageQueue.Enqueue($"[Save] {Volatile.Read(ref _sideFileWrites)} guild/goods/conquest file writes did not finish within {AccountSaveWaitLimitMs / 1000} s.");
         }
 
         /// <summary>
