@@ -4827,7 +4827,9 @@ namespace Server.MirEnvir
         public void UpdateIPBlock(string ipAddress, TimeSpan value)
         {
             if (IsLoadTestExempt(ipAddress)) return; // [LoadTest] ExemptLoopback (roadmap P6), scratch servers only
-            IPBlocks[ipAddress] = Now.Add(value);
+            // Keeps the later expiry: a short block (5 bad logins, 1 min) used to overwrite a 24 h or operator block.
+            var until = Now.Add(value);
+            IPBlocks.AddOrUpdate(ipAddress, until, (_, current) => current > until ? current : until);
         }
 
         /// <summary>
