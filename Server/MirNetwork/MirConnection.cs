@@ -1761,12 +1761,14 @@ namespace Server.MirNetwork
                 return;
             }
 
-            if (!Account.ValidateStoragePassword(p.Password))
+            if (StoragePasswordLocked() || !Account.ValidateStoragePassword(p.Password))
             {
+                CountStoragePasswordFailure();
                 Enqueue(new S.StorageUnlockResult { Result = 2, HasPassword = true });
                 return;
             }
 
+            Account.StoragePasswordFailures = 0;
             Player.SetStorageUnlocked(true);
             Enqueue(new S.StorageUnlockResult { Result = 0, HasPassword = true });
             Player.SendStorage();
@@ -1799,12 +1801,15 @@ namespace Server.MirNetwork
                     return;
                 }
 
-                if (!Account.ValidateStoragePassword(p.CurrentPassword))
+                if (StoragePasswordLocked() || !Account.ValidateStoragePassword(p.CurrentPassword))
                 {
+                    CountStoragePasswordFailure();
                     Enqueue(new S.StoragePasswordResult { Result = 2, Removing = false, HasPassword = true, LastSetTime = Account.StoragePasswordLastSet });
                     return;
                 }
             }
+
+            Account.StoragePasswordFailures = 0;
 
             Account.StoragePassword = p.NewPassword;
             Account.StoragePasswordLastSet = Envir.Now;
@@ -1837,16 +1842,44 @@ namespace Server.MirNetwork
                 return;
             }
 
-            if (!Account.ValidateStoragePassword(p.CurrentPassword))
+            if (StoragePasswordLocked() || !Account.ValidateStoragePassword(p.CurrentPassword))
             {
+                CountStoragePasswordFailure();
                 Enqueue(new S.StoragePasswordResult { Result = 2, Removing = true, HasPassword = true, LastSetTime = Account.StoragePasswordLastSet });
                 return;
             }
 
+            Account.StoragePasswordFailures = 0;
             Account.ClearStoragePassword();
             Player.SetStorageUnlocked(true);
             Enqueue(new S.StoragePasswordResult { Result = 4, Removing = true, HasPassword = false, LastSetTime = DateTime.MinValue });
         }
+        private const int StoragePasswordFailureLimit = 5;
+        private const int StoragePasswordLockMinutes = 10;
+
+        /// <summary>
+        /// Wrong storage passwords used to be free (a cheap v1 hash, no count; codebase review 2026-10-24 #9). Per account, in
+        /// memory: after StoragePasswordFailureLimit wrong ones every attempt is refused, unchecked, for StoragePasswordLockMinutes.
+        /// True (and a chat line) while locked.
+        /// </summary>
+        private bool StoragePasswordLocked()
+        {
+            var now = Envir.Now;
+            if (Account.StoragePasswordLockedUntil <= now) return false;
+            var minutes = (int)Math.Ceiling((Account.StoragePasswordLockedUntil - now).TotalMinutes);
+            Player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.StoragePasswordLocked, minutes), ChatType.System);
+            return true;
+        }
+
+        private void CountStoragePasswordFailure()
+        {
+            if (Account.StoragePasswordLockedUntil > Envir.Now) return; // already locked: the lock is not extended
+            if (++Account.StoragePasswordFailures < StoragePasswordFailureLimit) return;
+            Account.StoragePasswordFailures = 0;
+            Account.StoragePasswordLockedUntil = Envir.Now.AddMinutes(StoragePasswordLockMinutes);
+            MessageQueue.Enqueue($"[Storage] {Account.AccountID} ({IPAddress}): {StoragePasswordFailureLimit} wrong storage passwords, locked for {StoragePasswordLockMinutes} minutes.");
+        }
+
         private bool CanAccessStorageNpc()
         {
             if (Player == null) return false;

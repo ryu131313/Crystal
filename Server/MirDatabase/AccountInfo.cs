@@ -63,6 +63,10 @@ namespace Server.MirDatabase
         public DateTime ExpiryDate;
         public int WrongPasswordCount;
 
+        // Wrong storage passwords (codebase review 2026-10-24 #9): memory only, never saved (a restart clears them).
+        public int StoragePasswordFailures;
+        public DateTime StoragePasswordLockedUntil;
+
         public string LastIP = string.Empty;
         public DateTime LastDate;
 

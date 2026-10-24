@@ -811,7 +811,8 @@
     "DungeonFailed": "地下城准备失败，请重试。",
     "DungeonEntered": "{0}：击败 {1} 以打开出口。",
     "DungeonExitOpened": "{0} 已被击败，出口已在其房间中打开。",
-    "DungeonLeaderOnly": "只有队长才能带领队伍进入地下城。"
+    "DungeonLeaderOnly": "只有队长才能带领队伍进入地下城。",
+    "StoragePasswordLocked": "仓库密码错误次数过多，请在{0}分钟后再试。"
   },
   "Enum": {}
 }

@@ -811,7 +811,8 @@
     "DungeonFailed": "The dungeon could not be prepared. Try again.",
     "DungeonEntered": "{0}: defeat {1} to open the way out.",
     "DungeonExitOpened": "{0} has fallen. The way out has opened in its chamber.",
-    "DungeonLeaderOnly": "Only your group leader can take the group into a dungeon."
+    "DungeonLeaderOnly": "Only your group leader can take the group into a dungeon.",
+    "StoragePasswordLocked": "Too many wrong storage passwords. Try again in {0} minute(s)."
   },
   "Enum": {}
 }

@@ -4810,7 +4810,8 @@ public enum ServerTextKeys
     DungeonFailed,
     DungeonEntered,
     DungeonExitOpened,
-    DungeonLeaderOnly
+    DungeonLeaderOnly,
+    StoragePasswordLocked
 }
 
 public class TextMap
@@ -5641,6 +5642,7 @@ public static class GameLanguage
             { nameof(ServerTextKeys.DungeonEntered), "{0}: defeat {1} to open the way out." },
             { nameof(ServerTextKeys.DungeonExitOpened), "{0} has fallen. The way out has opened in its chamber." },
             { nameof(ServerTextKeys.DungeonLeaderOnly), "Only your group leader can take the group into a dungeon." },
+            { nameof(ServerTextKeys.StoragePasswordLocked), "Too many wrong storage passwords. Try again in {0} minute(s)." },
 
         },
         Enum = new Dictionary<string, string>
