@@ -117,7 +117,7 @@ internal static class Program
             if (force)
             {
                 // Stale data from an earlier run would otherwise be backed up and kept next to the new DB.
-                foreach (var f in new[] { "Server.MirDB", "Server.MirDBn", "Server.MirADB", "Server.MirADBn" })
+                foreach (var f in new[] { "Server.MirDB", "Server.MirDBn", "Server.MirADB", "Server.MirADBn", "Server.MirADB.imported", "UserData.db", "UserData.db-journal", "UserData.db.tmp" })
                     if (File.Exists(f)) File.Delete(f);
             }
 

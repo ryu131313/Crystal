@@ -13,8 +13,9 @@
   5. Writes the new manifest to <Target>\.deploy-manifest.txt.
 
   Protected (never copied over, never deleted):
-    Server: Server.MirDB*, Server.MirADB* (incl. n/o temp files), SystemData.db*, Guilds\, Conquests\, Archive\,
-            Back Up\, WebAdmin\admins.dat, Exports\, Configs\, Envir\, Maps\, Logs\
+    Server: Server.MirDB*, Server.MirADB* (incl. n/o temp files and Server.MirADB.imported), SystemData.db*, UserData.db*
+            (incl. UserData.db-journal and UserData.db.tmp), Guilds\, Guilds.imported\, Conquests\, Conquests.imported\, Archive\,
+            Back Up\, WebAdmin\admins.dat, Exports\, Configs\, Envir\ (incl. Envir\Goods.imported\), Maps\, Logs\
     Client: Data\, Sound\, Map\, Screenshots\, Mir2Config.ini, Mir2Test.ini, KeyBinds.ini, Error.txt
 
 .PARAMETER Source      Scratch build folder (e.g. the -o folder used by tools\verify.ps1).
@@ -48,7 +49,7 @@ if ($BackupRoot.StartsWith($Target + '\', [StringComparison]::OrdinalIgnoreCase)
 }
 
 $protectedDirs = @{
-    'Server' = @('Guilds', 'Conquests', 'Archive', 'Back Up', 'Exports', 'Configs', 'Envir', 'Maps', 'Logs')
+    'Server' = @('Guilds', 'Guilds.imported', 'Conquests', 'Conquests.imported', 'Archive', 'Back Up', 'Exports', 'Configs', 'Envir', 'Maps', 'Logs')
     'Client' = @('Data', 'Sound', 'Map', 'Screenshots')
 }[$Kind]
 $protectedFiles = @{
@@ -56,7 +57,7 @@ $protectedFiles = @{
     'Client' = @('Mir2Config.ini', 'Mir2Test.ini', 'KeyBinds.ini', 'Error.txt')
 }[$Kind]
 $protectedPrefixes = @{
-    'Server' = @('Server.MirDB', 'Server.MirADB', 'SystemData.db')   # root files incl. Server.MirADBn / Server.MirADBo, SystemData.db.tmp (roadmap P7)
+    'Server' = @('Server.MirDB', 'Server.MirADB', 'SystemData.db', 'UserData.db')   # root files incl. Server.MirADBn / Server.MirADBo / Server.MirADB.imported, SystemData.db.tmp (roadmap P7), UserData.db-journal / UserData.db.tmp (UserData-and-Quests-Plan.md Part A)
     'Client' = @()
 }[$Kind]
 
