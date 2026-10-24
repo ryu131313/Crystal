@@ -16,6 +16,12 @@ namespace Client.MirGraphics
     {
         public static List<MImage> TextureList = new List<MImage>();
         public static List<MirControl> ControlList = new List<MirControl>();
+        /// <summary>
+        /// Plain textures a feature keeps outside TextureList/ControlList and makes again once Disposed (atmosphere splash
+        /// sprites, NPC portrait frames, the modern character body). CleanUp disposes them on every device reset, so none
+        /// keeps a view of a re-created D3D11 device; the D3D9 managed pool would have kept them, so the pixels are the same.
+        /// </summary>
+        public static List<RenderTexture> OwnedTextures = new List<RenderTexture>();
 
         public static IRenderBackend Backend;
 
@@ -223,6 +229,14 @@ namespace Client.MirGraphics
 
         /// <summary>A CPU-written BGRA texture (sprites, text). Write it between <see cref="LockTexture"/>/<see cref="UnlockTexture"/>.</summary>
         public static RenderTexture CreateTexture(int width, int height) => Backend.CreateTexture(width, height);
+
+        /// <summary><see cref="CreateTexture"/> registered in <see cref="OwnedTextures"/>: the owner re-makes it when it finds it Disposed.</summary>
+        public static RenderTexture CreateOwnedTexture(int width, int height)
+        {
+            RenderTexture texture = Backend.CreateTexture(width, height);
+            OwnedTextures.Add(texture);
+            return texture;
+        }
 
         /// <summary>A render target. Must be a control texture registered in <see cref="ControlList"/> or a DXManager static released in CleanUp.</summary>
         public static RenderTexture CreateRenderTarget(int width, int height) => Backend.CreateRenderTarget(width, height);
@@ -617,6 +631,11 @@ namespace Client.MirGraphics
 
                 c.DisposeTexture();
             }
+
+            for (int i = OwnedTextures.Count - 1; i >= 0; i--)
+            {
+                if (OwnedTextures[i] == null || OwnedTextures[i].Disposed) OwnedTextures.RemoveAt(i); // disposed by its owner
+            }
         }
 
 
@@ -715,6 +734,13 @@ namespace Client.MirGraphics
                 c.DisposeTexture();
             }
             ControlList.Clear();
+
+            for (int i = OwnedTextures.Count - 1; i >= 0; i--)
+            {
+                RenderTexture t = OwnedTextures[i];
+                if (t != null && !t.Disposed) t.Dispose();
+            }
+            OwnedTextures.Clear();
         }
 
         public static void Dispose()

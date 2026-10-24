@@ -123,7 +123,7 @@ namespace Client.MirScenes.Modern.Windows
             const int cx = BodyX - 8, cy = BodyY - 90;
             if (size.Width < cx + BodyW || size.Height < cy + BodyH) return null;
 
-            t = DXManager.CreateTexture(BodyW, BodyH);
+            t = DXManager.CreateOwnedTexture(BodyW, BodyH);
             byte* dst = DXManager.LockTexture(t);
             try
             {

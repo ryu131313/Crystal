@@ -32,7 +32,7 @@ namespace Client.MirScenes.Modern.Core
                 return p[i + 3] > 102 && hi < 41 && hi - lo < 20;
             }
 
-            RenderTexture t = DXManager.CreateTexture(w, h);
+            RenderTexture t = DXManager.CreateOwnedTexture(w, h);
             byte* dst = DXManager.LockTexture(t);
             try
             {

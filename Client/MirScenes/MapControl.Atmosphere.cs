@@ -673,12 +673,12 @@ namespace Client.MirScenes
             if (_dotTexture != null && !_dotTexture.Disposed && _ringTexture != null && !_ringTexture.Disposed) return;
             if (_dotTexture == null || _dotTexture.Disposed)
             {
-                _dotTexture = DXManager.CreateTexture(16, 16);
+                _dotTexture = DXManager.CreateOwnedTexture(16, 16);
                 UploadTexture(_dotTexture, SoftDot(16));
             }
             if (_ringTexture == null || _ringTexture.Disposed)
             {
-                _ringTexture = DXManager.CreateTexture(48, 48);
+                _ringTexture = DXManager.CreateOwnedTexture(48, 48);
                 UploadTexture(_ringTexture, SoftRing(48));
             }
         }
