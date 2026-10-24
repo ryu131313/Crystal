@@ -16204,6 +16204,10 @@ namespace Server.MirObjects
             if (ItemRentalPartner == null)
                 return;
 
+            // The renter locked the fee for the period shown then: no change after that (same class as X1-13).
+            if (ItemRentalPartner.ItemRentalFeeLocked)
+                return;
+
             ItemRentalPeriodLength = days;
             ItemRentalPartner.Enqueue(new S.ItemRentalPeriod { Days = days });
         }
