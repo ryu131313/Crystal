@@ -2528,13 +2528,15 @@ namespace Server.MirObjects
 
                         string tempString = param[1].ToUpper();
 
+                        // Quest V2: ACTIVE = a run that is active or ready to turn in (not failed); COMPLETE = completed at least once.
                         if (tempString == "ACTIVE")
                         {
-                            failed = !player.CurrentQuests.Any(e => e.Index == tempInt);
+                            var checkStatus = player.Quests.QuestStatus(tempInt);
+                            failed = checkStatus != QuestRunStatus.Active && checkStatus != QuestRunStatus.Ready;
                         }
                         else //COMPLETE
                         {
-                            failed = !player.CompletedQuests.Contains(tempInt);
+                            failed = player.Quests.TimesCompleted(tempInt) <= 0;
                         }
                         break;
                     case CheckType.CheckRelationship:
@@ -3599,7 +3601,7 @@ namespace Server.MirObjects
                                     player.CurrentMap.NPCs[f].CheckVisible(player);
                             }
 
-                            if (flagIsOn) player.CheckNeedQuestFlag(flagIndex);
+                            player.Quests.FlagChanged(flagIndex); // quest V2: Flag objectives are met while set, so both on and off
                         }
                         break;
 

@@ -353,7 +353,7 @@ namespace Server.MirDatabase
             if (RequiredMinLevel > player.Level || RequiredMaxLevel < player.Level)
                 return false;
 
-            if (RequiredQuest > 0 && !player.CompletedQuests.Contains(RequiredQuest))
+            if (RequiredQuest > 0 && player.Quests.TimesCompleted(RequiredQuest) <= 0) // quest V2 history (legacy check, oracle only)
                 return false;
 
             switch (player.Class)

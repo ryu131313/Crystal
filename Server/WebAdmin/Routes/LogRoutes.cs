@@ -124,6 +124,7 @@ namespace Server.WebAdmin.Routes
             ["debug"] = "Debug",
             ["player"] = "Player",
             ["spawn"] = "Spawn",
+            ["quests"] = "Quests", // quest V2 telemetry (lane F)
         };
 
         /// <summary>Logs folder next to the exe (log4net resolves its relative paths against the application base directory).</summary>

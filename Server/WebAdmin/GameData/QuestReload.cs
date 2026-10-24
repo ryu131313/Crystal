@@ -178,9 +178,7 @@ namespace Server.WebAdmin.GameData
                             if (slot >= 0) f.Info = q.FlagTasks[slot];
                         }
 
-                        var player = character.Player;
-                        if (player != null && player.Info == character && player.Connection != null)
-                            player.SendUpdateQuest(progress, QuestState.Update);
+                        // Quest V2 (lane F): legacy progress is never sent any more; the wave 3 quest-replace hook migrates V2 runs.
                     }
                 }
             }

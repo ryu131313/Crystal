@@ -86,7 +86,8 @@ namespace Server.MirNetwork
         public List<ItemInfo> SentItemInfo = new List<ItemInfo>();
         public List<MonsterInfo> SentMonsterInfo = new List<MonsterInfo>();
         public List<NPCInfo> SentNPCInfo = new List<NPCInfo>();
-        public List<QuestInfo> SentQuestInfo = new List<QuestInfo>();
+        /// <summary>Quest V2 definitions sent on this connection, by quest index (S.QuestDefinition is sent once per connection; game thread).</summary>
+        public HashSet<int> SentQuestDefinitions = new HashSet<int>();
         public List<RecipeInfo> SentRecipeInfo = new List<RecipeInfo>();
         public List<UserItem> SentChatItem = new List<UserItem>(); //TODO - Add Expiry time
         public List<MapInfo> SentMapInfo = new List<MapInfo>();
@@ -2821,33 +2822,15 @@ namespace Server.MirNetwork
             Player.FishingChangeAutocast(p.AutoCast);
         }
 
-        private void AcceptQuest(C.AcceptQuest p)
-        {
-            if (Stage != GameStage.Game) return;
+        // Legacy quest packets (C.AcceptQuest, C.FinishQuest, C.AbandonQuest, C.ShareQuest): ignored since quest V2 (lane F); the
+        // V2 packets below replace them. The classes leave Shared/ in phase 4.
+        private void AcceptQuest(C.AcceptQuest p) { }
 
-            Player.AcceptQuest(p.QuestIndex); //p.NPCIndex,
-        }
+        private void FinishQuest(C.FinishQuest p) { }
 
-        private void FinishQuest(C.FinishQuest p)
-        {
-            if (Stage != GameStage.Game) return;
+        private void AbandonQuest(C.AbandonQuest p) { }
 
-            Player.FinishQuest(p.QuestIndex, p.SelectedItemIndex);
-        }
-
-        private void AbandonQuest(C.AbandonQuest p)
-        {
-            if (Stage != GameStage.Game) return;
-
-            Player.AbandonQuest(p.QuestIndex);
-        }
-
-        private void ShareQuest(C.ShareQuest p)
-        {
-            if (Stage != GameStage.Game) return;
-
-            Player.ShareQuest(p.QuestIndex);
-        }
+        private void ShareQuest(C.ShareQuest p) { }
 
         private void AcceptReincarnation()
         {

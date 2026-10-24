@@ -5953,12 +5953,11 @@ namespace Server.MirEnvir
 
         public void ProcessNewDay()
         {
-            InvalidateAccountCache(); // P9-12: daily quests are cleared on every character, offline ones too
+            InvalidateAccountCache(); // P9-12: NewDay is set on every character, offline ones too
 
+            // Quest V2: no daily clear here; repeat policies read the completion history against ResetClock boundaries.
             foreach (var c in CharacterList)
             {
-                ClearDailyQuests(c);
-
                 c.NewDay = true;
 
                 c.Player?.CallDefaultNPC(DefaultNPCType.Daily);
@@ -6125,22 +6124,6 @@ namespace Server.MirEnvir
             return true;
         }
 
-        private void ClearDailyQuests(CharacterInfo info)
-        {
-            foreach (var quest in QuestInfoList)
-            {
-                if (quest.Type != QuestType.Daily) continue;
-
-                for (var i = 0; i < info.CompletedQuests.Count; i++)
-                {
-                    if (info.CompletedQuests[i] != quest.Index) continue;
-
-                    info.CompletedQuests.RemoveAt(i);
-                }
-            }
-
-            info.Player?.GetCompletedQuests();
-        }
 
         public GuildBuffInfo FindGuildBuffInfo(int Id)
         {

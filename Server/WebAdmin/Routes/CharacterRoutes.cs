@@ -599,29 +599,35 @@ namespace Server.WebAdmin.Routes
                 var player = ci.Player;
                 Func<int, bool> match = q => all || q == (int)questIndex.Value;
 
-                var current = ci.CurrentQuests.Where(q => q != null && match(q.Index)).ToList();
-                var completed = ci.CompletedQuests.Where(match).ToList();
+                // Quest V2 records: runs (active / failed) and completion history.
+                var current = new List<int>();
+                for (var i = 0; i < ci.QuestRuns.Count; i++)
+                    if (ci.QuestRuns[i] != null && match(ci.QuestRuns[i].Quest) && !current.Contains(ci.QuestRuns[i].Quest)) current.Add(ci.QuestRuns[i].Quest);
+                var completed = new List<int>();
+                for (var i = 0; i < ci.QuestHistory.Count; i++)
+                    if (ci.QuestHistory[i] != null && match(ci.QuestHistory[i].Quest) && !completed.Contains(ci.QuestHistory[i].Quest)) completed.Add(ci.QuestHistory[i].Quest);
 
                 if (current.Count == 0 && completed.Count == 0)
                     throw new WebAdminException(404, all ? ci.Name + " has no quest progress." : "Quest " + questIndex + " is neither active nor completed on " + ci.Name + ".");
 
                 if (player != null)
                 {
-                    foreach (var q in current) player.SendUpdateQuest(q, QuestState.Remove);
-                    ci.CompletedQuests.RemoveAll(q => match(q));
-                    player.GetCompletedQuests();
+                    // Online: through PlayerQuests, so the index and the client stay in step (game thread).
+                    if (all) player.Quests.AdminClearAll();
+                    else player.Quests.AdminReset((int)questIndex.Value);
                 }
                 else
                 {
-                    ci.CurrentQuests.RemoveAll(q => q != null && match(q.Index));
-                    ci.CompletedQuests.RemoveAll(q => match(q));
+                    ci.QuestRuns.RemoveAll(q => q == null || match(q.Quest));
+                    ci.QuestObjectives.RemoveAll(q => q == null || match(q.Quest));
+                    ci.QuestVars.RemoveAll(q => q == null || match(q.Quest));
+                    ci.QuestHistory.RemoveAll(q => q == null || match(q.Quest));
                 }
 
                 CharacterRouteUtil.PersistIfStopped();
 
-                var names = current.Select(q => q.Index).Concat(completed).Distinct()
+                var names = current.Concat(completed).Distinct()
                     .Select(q => envir.GetQuestInfo(q)?.Name ?? ("#" + q)).ToList();
-
                 return new CharacterMutation
                 {
                     Target = CharacterRouteUtil.Label(ci),
@@ -630,7 +636,7 @@ namespace Server.WebAdmin.Routes
                     {
                         all,
                         questIndex,
-                        active = current.Select(q => q.Index).ToList(),
+                        active = current,
                         completed,
                         quests = names,
                         online = player != null,

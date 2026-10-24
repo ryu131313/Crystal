@@ -26,6 +26,20 @@ namespace Server.MirEnvir
         /// <summary>The world-start quest import is running (it saves Envir.Edit): WinForms editors must not open meanwhile.</summary>
         public static bool QuestImportRunning => QuestImportRunner.BackgroundRunning;
 
+        private QuestCatalog _questCatalog;
+
+        /// <summary>
+        /// Runtime lookups over this envir's quest V2 definitions (Main, game thread only): built on first use from the lists above and
+        /// QuestInfoList. Never mutated; <see cref="InvalidateQuestCatalog"/> drops it so the next use rebuilds it.
+        /// </summary>
+        public QuestCatalog QuestCatalog => _questCatalog ??= QuestCatalog.Build(this);
+
+        /// <summary>
+        /// Drops the quest catalog (game thread). The caller (wave 3: the LiveDb quest-replace hook) then migrates every online player
+        /// with <c>PlayerQuests.ApplyDefinitionChange</c>, so no player keeps references into the old graph.
+        /// </summary>
+        public void InvalidateQuestCatalog() => _questCatalog = null;
+
         private void StartQuestDefinitionImport()
         {
             if (this != Main || !(Store is Storage.SqliteWorldStore)) return;

@@ -4811,7 +4811,11 @@ public enum ServerTextKeys
     DungeonEntered,
     DungeonExitOpened,
     DungeonLeaderOnly,
-    StoragePasswordLocked
+    StoragePasswordLocked,
+
+    // Lane F (quest engine)
+    QuestFailed,
+    QuestNotChanged,
 }
 
 public class TextMap
@@ -5643,6 +5647,10 @@ public static class GameLanguage
             { nameof(ServerTextKeys.DungeonExitOpened), "{0} has fallen. The way out has opened in its chamber." },
             { nameof(ServerTextKeys.DungeonLeaderOnly), "Only your group leader can take the group into a dungeon." },
             { nameof(ServerTextKeys.StoragePasswordLocked), "Too many wrong storage passwords. Try again in {0} minute(s)." },
+
+            // Lane F (quest engine)
+            { nameof(ServerTextKeys.QuestFailed), "Quest failed: {0}." },
+            { nameof(ServerTextKeys.QuestNotChanged), "Quest {0} was not changed (unknown quest, or nothing to change)." },
 
         },
         Enum = new Dictionary<string, string>

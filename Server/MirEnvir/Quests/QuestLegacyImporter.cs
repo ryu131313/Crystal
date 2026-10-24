@@ -529,7 +529,7 @@ namespace Server.MirEnvir.Quests
             var leaves = new List<(QuestConditionLeaf Leaf, int Arg1, int Arg2, QuestCompare Cmp)>();
             if (q.RequiredMinLevel > 0) leaves.Add((QuestConditionLeaf.Level, q.RequiredMinLevel, 0, QuestCompare.Ge));
             if (q.RequiredMaxLevel < ushort.MaxValue) leaves.Add((QuestConditionLeaf.Level, q.RequiredMaxLevel, 0, QuestCompare.Le));
-            if (q.RequiredQuest > 0) leaves.Add((QuestConditionLeaf.QuestCompletedCount, q.RequiredQuest, 0, QuestCompare.Ge));
+            if (q.RequiredQuest > 0) leaves.Add((QuestConditionLeaf.QuestCompletedCount, q.RequiredQuest, 1, QuestCompare.Ge)); // completed at least once (Arg1 = quest, Arg2 = times)
             var classes = new List<MirClass>();
             foreach (MirClass c in Enum.GetValues(typeof(MirClass)))
                 if (((byte)q.RequiredClass & (1 << (int)c)) != 0) classes.Add(c);

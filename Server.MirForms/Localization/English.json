@@ -812,7 +812,9 @@
     "DungeonEntered": "{0}: defeat {1} to open the way out.",
     "DungeonExitOpened": "{0} has fallen. The way out has opened in its chamber.",
     "DungeonLeaderOnly": "Only your group leader can take the group into a dungeon.",
-    "StoragePasswordLocked": "Too many wrong storage passwords. Try again in {0} minute(s)."
+    "StoragePasswordLocked": "Too many wrong storage passwords. Try again in {0} minute(s).",
+    "QuestFailed": "Quest failed: {0}.",
+    "QuestNotChanged": "Quest {0} was not changed (unknown quest, or nothing to change)."
   },
   "Enum": {}
 }

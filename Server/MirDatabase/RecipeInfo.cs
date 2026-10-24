@@ -215,7 +215,7 @@ namespace Server.MirDatabase
             {
                 foreach (var quest in RequiredQuest)
                 {
-                    if (!player.Info.CompletedQuests.Contains(quest))
+                    if (player.Quests.TimesCompleted(quest) <= 0) // quest V2 history
                         return false;
                 }
             }

@@ -469,10 +469,11 @@ namespace Server.MirObjects
                 return;
             }
 
-            if (Visible && !canSee) CurrentMap.Broadcast(GetInfo(), CurrentLocation, Player);
-            else if (Force && Visible) CurrentMap.Broadcast(GetInfo(), CurrentLocation, Player);
+            var sent = Visible && (!canSee || Force);
+            if (sent) CurrentMap.Broadcast(GetInfo(), CurrentLocation, Player);
 
             VisibleLog[Player.Info.Index] = true;
+            if (sent) Player.Quests.NoteNpcInView(this); // quest V2: S.QuestAvailability follows a fresh S.ObjectNPC
         }
 
         public override int CurrentMapIndex { get; set; }
