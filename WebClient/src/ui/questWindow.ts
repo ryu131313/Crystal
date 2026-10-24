@@ -513,7 +513,7 @@ export class QuestWindow {
 
   /** QuestListDialog.Show: CurrentNPCID = GameScene.NPCID, Reset, DisplayInfo. */
   private showList(): void {
-    this.currentNpcId = this.session.npcId;
+    this.currentNpcId = this.session.talkedNpcId;
     this.selected = -1;
     this.startIndex = 0;
     this.selectedIndex = 0;

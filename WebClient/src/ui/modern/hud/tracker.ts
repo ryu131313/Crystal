@@ -114,7 +114,8 @@ export class QuestTracker {
     }, { signal: rt.signal });
     this.el = h("div", "qtrack" + (this.shut ? " shut" : ""), this.head, this.body);
     this.el.hidden = true;
-    rt.layers.wins.append(this.el, this.toasts);
+    rt.layers.wins.append(this.el);
+    rt.layers.guides.append(this.toasts); // above the windows (pointer-events none), so a banner shows over an open NPC dialogue
     this.refresh = rafCoalesce(() => this.render(), rt.signal);
     this.fit = rafCoalesce(() => this.marquee(), rt.signal);
     const q = ctx.models.quests;

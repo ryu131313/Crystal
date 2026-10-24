@@ -406,12 +406,12 @@ class NpcWindow extends UiWindow {
     this.renderPortrait();
 
     // Quests tab only when this NPC has quests (QuestButton visibility); badge = acceptable + ready to hand in.
-    const quests = this.npcQuestIds(s.npcId);
+    const quests = this.npcQuestIds(s.talkedNpcId);
     const qTab = this.tabsW.el.children[1] as HTMLElement | undefined;
     if (qTab) qTab.hidden = quests.length === 0;
     if (quests.length === 0 && this.tab === 1) { this.tab = 0; this.tabsW.select(0); }
     this.tabsW.badge(1, quests.filter((id) => { const r = this.m.quests.run(id); return !r || r.status === QuestRunStatus.Ready; }).length);
-    const marker = questMiniMapMarker(this.m.quests.npcQuestIcon(s.npcId));
+    const marker = questMiniMapMarker(this.m.quests.npcQuestIcon(s.talkedNpcId));
     this.mark.hidden = !marker;
     if (marker) { setText(this.mark, marker.text); setStyle(this.mark, "color", marker.colour); }
 
@@ -627,7 +627,7 @@ class NpcWindow extends UiWindow {
   }
 
   private questCard(quest: number): HTMLElement {
-    const q = this.m.quests, def = q.def(quest), run = q.run(quest), npcId = this.npc.npcId;
+    const q = this.m.quests, def = q.def(quest), run = q.run(quest), npcId = this.npc.talkedNpcId;
     const marker = questMarker(q, quest);
     const qm = h("div", "qm", marker?.text ?? "…");
     qm.style.color = marker?.colour ?? "var(--dim)";
@@ -834,11 +834,11 @@ class NpcWindow extends UiWindow {
   // — Portrait (the NPC's library: Standing in its direction, Harvest as the page gesture) —
 
   private renderPortrait(): void {
-    const ob = this.ui.ctx.world.objects.get(this.npc.npcId);
+    const ob = this.ui.ctx.world.objects.get(this.npc.talkedNpcId);
     const path = ob ? npcLibPath(ob.image) : null;
     if (!ob || path === null) {
       // Keep this NPC's portrait if it left the view; another NPC (or none loaded) shows no portrait.
-      if (this.portraitNpc !== this.npc.npcId || !this.portrait) { this.portraitLoads++; this.portrait = null; this.portraitKey = ""; this.stage.hidden = true; }
+      if (this.portraitNpc !== this.npc.talkedNpcId || !this.portrait) { this.portraitLoads++; this.portrait = null; this.portraitKey = ""; this.stage.hidden = true; }
       return;
     }
     const stand = ob.frames.get(MirAction.Standing);

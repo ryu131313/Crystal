@@ -493,7 +493,7 @@ class QuestsWindow extends UiWindow {
     const branches = q.pendingBranches(def.Quest);
     if (branches.length) {
       const s = this.m.npcSession;
-      const atNpc = s.open && (q.npcQuests(s.npcId)?.finishing.includes(def.Quest) ?? false);
+      const atNpc = s.open && (q.npcQuests(s.talkedNpcId)?.finishing.includes(def.Quest) ?? false);
       const row = h("div", "branches");
       for (const b of branches) {
         const btn = button(b.Text || b.ChoiceKey, () => this.choose(def.Quest, b.ChoiceKey), { cls: "main" });
@@ -614,7 +614,7 @@ class QuestsWindow extends UiWindow {
         bar.append(acc.el, dec.el);
         return bar;
       }
-      const here = s.open && s.npcId === e.npc && (q.npcQuests(e.npc)?.offered.includes(quest) ?? false);
+      const here = s.open && s.talkedNpcId === e.npc && (q.npcQuests(e.npc)?.offered.includes(quest) ?? false);
       if (here) {
         const acc = button(pending ? "Accepting…" : "Accept", () => this.accept(quest, e.npc), { cls: "main", icon: "check" });
         if (pending) acc.setDisabled(true, "Waiting for the server");
@@ -642,7 +642,7 @@ class QuestsWindow extends UiWindow {
     else if (!def.AbandonAllowed) abandon.setDisabled(true, "This quest cannot be abandoned");
     bar.append(track.el, share.el, find.el, abandon.el);
     if (ready) {
-      const npc = s.open && (q.npcQuests(s.npcId)?.finishing.includes(quest) ?? false) ? s.npcId : 0;
+      const npc = s.open && (q.npcQuests(s.talkedNpcId)?.finishing.includes(quest) ?? false) ? s.talkedNpcId : 0;
       if (npc) {
         const picks = q.picksFor(def);
         const turn = button(pending ? "Turning in…" : "Turn in", () => this.turnIn(def, npc), { cls: "main", icon: "check" });
@@ -680,7 +680,7 @@ class QuestsWindow extends UiWindow {
     const s = this.m.npcSession;
     if (!s.open || this.pending.has(quest)) return;
     this.lock(quest);
-    this.m.quests.choose(quest, s.npcId, key);
+    this.m.quests.choose(quest, s.talkedNpcId, key);
   }
 
   private toggleTrack(id: number): void {
