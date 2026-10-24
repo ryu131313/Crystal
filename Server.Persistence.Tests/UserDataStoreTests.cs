@@ -495,6 +495,118 @@ public class UserDataStoreTests
         }
     }
 
+    private static T Field<T>(string name) =>
+        (T)typeof(Envir).GetField(name, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(Envir.Main);
+
+    private static void SetField(string name, object value) =>
+        typeof(Envir).GetField(name, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(Envir.Main, value);
+
+    /// <summary>
+    /// Wave 1 review: a delete whose job failed stays pending; a reload (as Reboot does) brings the account and the guild back, and the
+    /// load drops their pending deletes, so the next save keeps both rows.
+    /// </summary>
+    [Fact]
+    public void A_reload_after_a_failed_delete_keeps_the_rows_and_drops_the_pending_deletes()
+    {
+        var dir = NewTempFolder("ud-stale-delete");
+        try
+        {
+            InFolder(dir, () =>
+            {
+                WriteLegacyWorld(dir);
+                Assert.True(LoadAll());
+                SaveUserData();
+                var e = Envir.Main;
+                var victim = e.AccountList[e.AccountList.Count - 1];
+                var guildIndex = e.GuildList[0].GuildIndex;
+                e.AccountList.Remove(victim);
+                e.MarkAccountDeleted(victim.Index);
+                e.DeleteGuild(e.Guilds[0]);
+
+                Exec("CREATE TRIGGER fail_save BEFORE INSERT ON world BEGIN SELECT RAISE(ABORT, 'injected failure'); END");
+                Assert.Equal(Envir.UserDataSaveOutcome.Posted, e.SaveUserData(false, allowBackup: false));
+                Envir.UserStore.WaitIdle();
+                Exec("DROP TRIGGER fail_save");
+                Assert.Contains(victim.Index, Field<System.Collections.Concurrent.ConcurrentDictionary<int, byte>>("_pendingAccountDeletes").Keys);
+
+                LoadUserData(); // the reload brings both back
+                Assert.Contains(e.AccountList, a => a.Index == victim.Index);
+                Assert.Contains(e.GuildList, g => g.GuildIndex == guildIndex);
+                Assert.Empty(Field<System.Collections.Concurrent.ConcurrentDictionary<int, byte>>("_pendingAccountDeletes"));
+                Assert.Empty(Field<System.Collections.Concurrent.ConcurrentDictionary<int, byte>>("_pendingGuildDeletes"));
+
+                SaveUserData(full: false);
+                var rows = ReadStore();
+                Assert.Contains(rows.Accounts, r => r.Key == victim.Index);
+                Assert.Contains(rows.Guilds, r => r.Key == guildIndex);
+                return 0;
+            });
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    /// <summary>
+    /// Wave 1 review: an offline save (accounts + world only) is refused while the rows were loaded at an older version than Envir.Version
+    /// (the head would be newer than the conquest rows), and allowed once a full save rewrote every row. The import counts as such a save.
+    /// </summary>
+    [Fact]
+    public void An_offline_save_is_refused_until_a_full_save_rewrote_rows_loaded_at_an_older_version()
+    {
+        var dir = NewTempFolder("ud-rows-version");
+        try
+        {
+            InFolder(dir, () =>
+            {
+                WriteLegacyWorld(dir, withSideFiles: false);
+                Assert.True(LoadAll()); // the import writes every row at the current version
+                var e = Envir.Main;
+                Assert.Equal(Envir.Version, Field<int>("_userDataRowsVersion"));
+                Assert.True(e.SaveAccounts());
+
+                LoadUserData(); // from the store: the rows' version is the head's
+                Assert.Equal(Envir.LoadVersion, Field<int>("_userDataRowsVersion"));
+
+                SetField("_userDataRowsVersion", Envir.Version - 1); // as after loading a store written by the previous version
+                Assert.False(e.SaveAccounts(), "an offline save ran over rows at an older version");
+
+                SaveUserData(full: false); // forced full after the load: every row rewritten
+                Assert.Equal(Envir.Version, Field<int>("_userDataRowsVersion"));
+                Assert.True(e.SaveAccounts());
+                return 0;
+            });
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    /// <summary>Wave 1 review: CleanUp runs inside the shutdown save, so a deleted character's spouse is unlinked in the store.</summary>
+    [Fact]
+    public void The_shutdown_save_writes_CleanUps_changes()
+    {
+        var dir = NewTempFolder("ud-cleanup");
+        try
+        {
+            InFolder(dir, () =>
+            {
+                WriteLegacyWorld(dir, withSideFiles: false);
+                Assert.True(LoadAll());
+                var e = Envir.Main;
+                var a = e.CharacterList[0];
+                var b = e.CharacterList[1];
+                a.Married = b.Index; b.Married = a.Index;
+                SaveUserData();
+                b.Deleted = true;
+
+                typeof(Envir).GetMethod("SaveUserDataAtShutdown", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(e, null);
+                Assert.False(e.Saving);
+
+                LoadUserData();
+                Assert.Equal(0, e.CharacterList.Single(c => c.Index == a.Index).Married);
+                return 0;
+            });
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
     [Fact]
     public void Block_flag_write_matches_one_write_per_flag_for_any_bool_pattern()
     {

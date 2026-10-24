@@ -1084,6 +1084,7 @@ namespace Server.MirEnvir
             UserDataStore.Create(UserStore.FullPath, rows, Version, meta);
             _userDataSource = UserDataSource.Store;
             _forceNextSave = true;
+            _userDataRowsVersion = Version; // every row was just written at the current version (from memory, or self-versioned goods files)
 
             if (!legacy)
             {
