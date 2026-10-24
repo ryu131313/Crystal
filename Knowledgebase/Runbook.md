@@ -77,6 +77,12 @@ The player belt grows 6 → 8 cells (`Inventory[0..7]`, new characters 48 cells,
 - **`Server.MirDB` gets v120 too:** `MirDbExport export-binary` (the §10 rollback path) writes the current `Envir.Version`, so a file exported by this build will not load on a v119 build. Use an export from a v119 build, or the deploy snapshot.
 - After rollback to a v119 build you lose: chat bans set since the deploy (they become memory-only again).
 
+### 3.4 Version 121 (quest V2 state + player statistics, branch `quests-v2`, ships at D2)
+
+- `CharacterInfo` saves the quest V2 state (runs, objective values, history, quest variables), `PlayerStatistics` and `HideFromRankings`, and no longer saves the legacy `CurrentQuests` / `CompletedQuests`. A pre-121 file still loads, with its legacy quest progress discarded (no conversion).
+- Ships **only at D2** (§14), together with the user-data wipe and the quest V2 wire change (`S.ObjectNPC` changed layout: an older desktop client would crash on it), so server, desktop client (patch root), WebRelay and web client come from one commit and the version check is refreshed (§14).
+- **Rollback = the D2 rollback** (§14, written at D2): a v120 build refuses a v121 `UserData.db`, so the pre-D2 `UserData.db` backup goes back with the previous binaries; everything played since D2 is lost.
+
 ## 4. Restore drill (do once, then after any backup-format change)
 
 1. Make a scratch folder, e.g. `D:\mir2-drill`.
@@ -272,3 +278,18 @@ D1 changes nothing players see. It moves user data into `UserData.db` (§12) and
 2. User data: §12 "Roll back to a build before UserData.db" (run the **D1 build's** `MirDbExport export-userdata` first, then move `UserData.db` and the `*.imported` names aside).
 3. System data: put the `Back Up\Database\Pre-migrate <time>.bak` taken at the D1 start in place as `SystemData.db` and set its `LastWriteTime` to now (§10). The previous build refuses the migrated store (`unknown column(s)` / unknown tables). Design edits made since D1 are lost.
 4. Put back the previous server build (§3), the previous client build in the patch root, and the previous WebRelay + web client publish. Start.
+
+## 14. D2: quest V2 ship (UserData-and-Quests-Plan.md, wave 3) — draft, completed in wave 3
+
+Only the version-check part is written (wave 2 kick-off, 2026-10-24). Wave 3 adds the backups, the last legacy re-import, the wipe list, the deploy order, `log4net.config` (new `Quests` logger, `Logs\Quests\`), the new `[Quests]` / `[Website]` settings and the rollback.
+
+**Why the version check matters here:** the quest V2 `S.ObjectNPC` layout makes a pre-D2 desktop client misread every NPC on its socket thread and crash, so D2 must refuse old desktop builds at login. The server compares the MD5 of the client's `Client.exe` (the apphost) with `[General] VersionPath`. That file's version resource carries `ProductVersion` = `1.0.0+<git commit sha>`, so every commit's build hashes differently (a rebuild of one commit does not). WebRelay replaces only the browser's all-zero hash with the MD5 of its `--version-path`; a desktop client on `[Network] Relay` keeps its own hash (D2 relay build). A **pre-D2 WebRelay rewrites every hash**, desktop ones included, so old desktop clients would pass: the relay must be the D2 build.
+
+**Version-check refresh (in the D2 stop window, before the server starts):**
+1. Build the client (Release) from the D2 commit. Check `(Get-Item <client build>\Client.exe).VersionInfo.ProductVersion` ends with `+<the D2 commit sha>`.
+2. Put that build into the patch root (§9; the simple path's `Build\Client\Release` is written by the build itself) before the server starts.
+3. Server `Setup.ini`: `[General] CheckVersion=True` and `VersionPath=` the D2 `Client.exe` only (a path relative to the server folder works, e.g. `..\..\Client\Release\Client.exe` on the simple path; the list is comma-separated, so make sure no older `Client.exe` is still listed). The hash is read at server start (and when the web admin changes a version key): **a later client build that overwrites that file needs a server restart, or every client is refused** until the server re-reads it.
+4. Rebuild WebRelay from the D2 commit and start it after the server: `tools\start-public-webrelay.ps1` passes the server's `VersionPath` as `--version-path` itself when `CheckVersion=True` (a manual start needs `--version-path <same Client.exe>`), so the web client (all-zero hash) is accepted.
+5. Check: the web client logs in; a pre-D2 desktop client shows "wrong version" (server log: wrong client version); a patched desktop client logs in.
+
+**Players with an old desktop client:** they are refused at login, while the in-game patcher keeps downloading the D2 build in the background. The modern login screen closes the game when the message is confirmed, so: leave the message open for a minute, then start the game again (the staged update is applied at exit, then the client starts on the D2 build).
