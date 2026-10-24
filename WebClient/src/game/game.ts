@@ -31,7 +31,7 @@ import { SoundManager, SoundList } from "./audio.ts";
 import { addBuffEffect, removeBuffEffect, processBuffs, setEffects, actionRefresh, poisonDots, userBuff, type UserBuff } from "./buffs.ts";
 import { Doors } from "./doors.ts";
 import { setUiRoot, setScreenSize } from "../ui/mir/controls.ts";
-import { GameInfo } from "./gameInfo.ts";
+import { GameInfo, itemFriendlyName } from "./gameInfo.ts";
 import { ItemChanges } from "./itemChanges.ts";
 import { AutoPot } from "./autoPot.ts";
 import { Hero } from "./hero.ts";
@@ -256,6 +256,19 @@ export function startGame(session: Session, start: StartInfo, canvas: HTMLCanvas
   const itemPick = new ItemPick();
   /** Quests: state (quests.ts); the windows are the UI's. */
   const quests = new Quests((f) => session.send(f), itemInfos);
+  // Quest text names its targets from the infos (a missing one is asked for; its arrival redraws the quest text).
+  quests.namer = {
+    item: (i) => { const it = gameInfo.item(i); if (it) return itemFriendlyName(it) || it.Name; gameInfo.requestItem(i); return null; },
+    monster: (i) => { const m = gameInfo.monster(i); if (m) return m.GameName || m.Name; gameInfo.requestMonster(i); return null; },
+    npc: (i) => { const n = gameInfo.npc(i); if (n) return n.Name.split("_")[0] || n.Name; gameInfo.requestNPC(i); return null; },
+    map: (i) => { const m = gameInfo.map(i); if (m) return m.Title; gameInfo.requestMap(i); return null; },
+  };
+  gameInfo.onChange((kind, index) => {
+    if (kind === "item") quests.nameArrived("ITEM", index);
+    else if (kind === "monster") quests.nameArrived("MONSTER", index);
+    else if (kind === "npc") quests.nameArrived("NPC", index);
+    else if (kind === "map") quests.nameArrived("MAP", index);
+  });
   const objects = new Map<number, MapObj>();
   /** Floating damage numbers per object id (damageNumbers.ts); `critAt` = when S.DamageIndicator Critical arrived, the next Hit is the crit. */
   const damageNumbers = new Map<number, DamageNumber[]>();

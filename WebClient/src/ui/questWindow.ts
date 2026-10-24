@@ -1,5 +1,9 @@
-// Quest windows: port of Client/MirScenes/Dialogs/QuestDialogs.cs with the desktop artwork, over the state in
-// src/game/quests.ts:
+// Quest windows: port of Client/MirScenes/Dialogs/QuestDialogs.cs with the desktop artwork, over the quest V2 state in
+// src/game/quests.ts. Quest V2 adapter (plan Part B "Clients": minimal, no bars, markers or new classic features): the
+// message shows the summary, the current step's objectives as client-built text lines and the step / quest time limit;
+// the NPC list comes from the NPC's S.QuestAvailability entry; Accept = C.QuestAccept (the NPC's ObjectID), Finish =
+// C.QuestTurnIn (one pick per choice group from the select cells), Cancel = C.QuestAbandon; an S.QuestOffer (share,
+// item, area) is the old "would like to share a quest" box (Yes = C.QuestAccept with 0).
 //   QuestListDialog     (Prguse 950) the NPC's available quests (NPCDialog.QuestButton): 5 QuestRows + up / down,
 //                       QuestMessage, QuestRewards with the select-reward cells, Accept (C.AcceptQuest) / Finish
 //                       (C.FinishQuest) / Leave.
@@ -13,11 +17,11 @@
 //   QuestRewards / QuestCell  exp / gold / credit, the fixed and the select item cells.
 //   Quest items         InventoryDialog's quest tab (QuestButton + QuestGrid, read-only cells) as its own window on the
 //                       inventory artwork, until the inventory window ports its tabs (toggleItems() is public for it).
-//   GameScene.ShareQuest the "X would like to share a quest with you" box (Yes = C.AcceptQuest with NPCIndex 0).
+//   S.QuestOffer        the "X would like to share a quest with you" box (Yes = C.QuestAccept with NpcObjectID 0).
 
-import type { ItemInfo, QuestItemReward, ServerPacket, UserItem } from "../protocol/server.ts";
-import { MirGender, RequiredGender } from "../protocol/enums.generated.ts";
-import { MAX_CONCURRENT_QUESTS, MAX_TRACKED_QUESTS, entryIcon, printTimeSpanFromSeconds, sameFinishNPC, type QuestEntry, type Quests } from "../game/quests.ts";
+import type { ItemInfo, QuestDefinitionInfo, ServerPacket, UserItem } from "../protocol/server.ts";
+import { QuestEndpointRole, QuestRewardKind, QuestRunStatus } from "../protocol/enums.generated.ts";
+import { MAX_CONCURRENT_QUESTS, MAX_TRACKED_QUESTS, QUEST_CATEGORY_LABEL, printTimeSpanFromSeconds, questIconFor, type Quests } from "../game/quests.ts";
 import type { ItemInfos } from "../game/items.ts";
 import { type GameInfo, itemFriendlyName } from "../game/gameInfo.ts";
 import type { NpcWindow } from "./npcWindow.ts";
@@ -169,20 +173,8 @@ class QuestMessageView {
     this.bar.location = [this.layout.bar[0], y];
   }
 
-  /** UpdateQuest + AdjustDescription. `currentNpcId` = QuestListDialog.CurrentNPCID. */
-  update(q: QuestEntry, currentNpcId: number): void {
-    const { info, progress } = q;
-    const lines: string[] = [info.Name];
-    const section = (title: string, body: string[]) => { lines.push(" ", title, ...body); };
-    if (progress.Taken && !sameFinishNPC(info) && info.CompletionDescription.length > 0 && currentNpcId === info.FinishNPCIndex) {
-      lines.push(...info.CompletionDescription);
-    } else {
-      lines.push(...info.Description);
-      if (info.TaskDescription.length > 0) section(TASK_TITLE, info.TaskDescription);
-      if (info.ReturnDescription.length > 0) section(RETURN_TITLE, info.ReturnDescription);
-      if (info.TimeLimitInSeconds > 0) section(TIME_LIMIT_TITLE, [printTimeSpanFromSeconds(info.TimeLimitInSeconds)]);
-      if (progress.Taken && progress.TaskList.length > 0 && this.layout.displayProgress) section(PROGRESS_TITLE, progress.TaskList);
-    }
+  /** UpdateQuest + AdjustDescription: the quest V2 text lines (see QuestWindow.messageLines). */
+  update(lines: string[]): void {
     this.lines = lines;
     this.newText(true);
   }
@@ -235,59 +227,65 @@ class QuestMessageView {
 
 class QuestRewardsView {
   readonly box: MirControl;
-  /** QuestRewards.SelectedItemIndex (index into RewardsSelectItem). */
-  selectedItemIndex = -1;
-  private quest: QuestEntry | null = null;
+  private quest = -1;
   private readonly owner: QuestWindow;
+  private readonly quests: Quests;
 
-  constructor(parent: MirControl, location: Point, size: Size, owner: QuestWindow) {
+  constructor(parent: MirControl, location: Point, size: Size, owner: QuestWindow, quests: Quests) {
     this.owner = owner;
+    this.quests = quests;
     this.box = new MirControl({ parent, location, size });
   }
 
-  /** UpdateRewards (CleanRewards drops the selected item; kept here while the quest stays the same). */
-  update(q: QuestEntry): void {
-    if (this.quest?.info.Index !== q.info.Index) this.selectedItemIndex = -1;
-    this.quest = q;
+  /** UpdateRewards. */
+  update(quest: number): void {
+    this.quest = quest;
     this.render();
   }
 
-  /** QuestReward_BeforeDraw + UpdateInterface. */
+  /** QuestReward_BeforeDraw + UpdateInterface: exp / gold / credit, the fixed item cells (no choice group), the select
+   *  cells (every choice group's items; a click picks that group's reward). */
   private render(): void {
-    const q = this.quest;
+    const q = this.quests, def = q.def(this.quest);
     this.box.el.replaceChildren();
     hideItemLabel();
-    if (!q) return;
-    const info = q.info;
+    if (!def) return;
+    const list = q.rewards(def);
+    const amount = (kind: number) => list.reduce((n, r) => n + (r.reward.Kind === kind && r.reward.ChoiceGroup === 0 ? Number(r.reward.Amount) : 0), 0);
+    const exp = amount(QuestRewardKind.Exp), gold = amount(QuestRewardKind.Gold), credit = amount(QuestRewardKind.Credit);
     let goldX = 0, creditX = 0;
-    if (info.RewardExp > 0) {
+    if (exp > 0) {
       new MirImage({ parent: this.box, library: Lib.Prguse, index: 966, location: [10, 2], notControl: true });
-      new MirLabel({ parent: this.box, location: [40, 0], size: [75, 20], text: String(info.RewardExp) });
+      new MirLabel({ parent: this.box, location: [40, 0], size: [75, 20], text: String(exp) });
     } else { goldX = -90; creditX -= 90; }
-    if (info.RewardGold > 0) {
+    if (gold > 0) {
       new MirImage({ parent: this.box, library: Lib.Prguse, index: 965, location: [100 + goldX, 2], notControl: true });
-      new MirLabel({ parent: this.box, location: [120 + goldX, 0], size: [75, 20], text: String(info.RewardGold) });
+      new MirLabel({ parent: this.box, location: [120 + goldX, 0], size: [75, 20], text: String(gold) });
     } else creditX -= 90;
-    if (info.RewardCredit > 0) {
+    if (credit > 0) {
       new MirImage({ parent: this.box, library: Lib.Prguse, index: 2447, location: [190 + creditX, 2], notControl: true });
-      new MirLabel({ parent: this.box, location: [210 + creditX, 0], size: [75, 20], text: String(info.RewardCredit) });
+      new MirLabel({ parent: this.box, location: [210 + creditX, 0], size: [75, 20], text: String(credit) });
     }
     new MirImage({ parent: this.box, library: Lib.Title, index: 17, location: [20, 66], notControl: true });
 
-    info.RewardsFixedItem.slice(0, 5).forEach((r, i) => this.cell(r, [i * 45 + 15, 24], true, false));
-    this.owner.filterRewards(info.RewardsSelectItem).slice(0, 5).forEach(({ reward, index }, i) => {
-      const cell = this.cell(reward, [i * 45 + 15, 89], false, index === this.selectedItemIndex);
-      cell.onClick(() => { this.selectedItemIndex = index; this.render(); });
+    const items = list.filter((r) => r.reward.Kind === QuestRewardKind.Item);
+    items.filter((r) => r.reward.ChoiceGroup === 0).slice(0, 5).forEach((r, i) => this.cell(r.reward.TargetId, Number(r.reward.Amount), [i * 45 + 15, 24], true, false));
+    items.filter((r) => r.reward.ChoiceGroup > 0).slice(0, 5).forEach(({ reward, position }, i) => {
+      const cell = this.cell(reward.TargetId, Number(reward.Amount), [i * 45 + 15, 89], false, q.pickOf(def.Quest, reward.ChoiceGroup) === position);
+      cell.onClick(() => { q.pick(def.Quest, reward.ChoiceGroup, position); this.render(); });
     });
   }
 
   /** QuestCell (32 x 32): Prguse 989 under a fixed item, Prguse 979 under the selected one, the icon centred in 40 x 32. */
-  private cell(r: QuestItemReward, location: Point, fixed: boolean, selected: boolean): MirControl {
+  private cell(itemIndex: number, count: number, location: Point, fixed: boolean, selected: boolean): MirControl {
     const cell = new MirControl({ parent: this.box, location, size: [32, 32] });
     if (fixed) new MirImage({ parent: cell, library: Lib.Prguse, index: 989, location: [0, -1], notControl: true });
     else if (selected) new MirImage({ parent: cell, library: Lib.Prguse, index: 979, location: [0, -5], notControl: true });
-    drawItem(cell, r.Item.Image, r.Count, [40, 32], 40);
-    hoverItem(cell, () => this.owner.rewardText(r.Item, r.Count));
+    const info = this.owner.itemInfo(itemIndex);
+    if (info) {
+      drawItem(cell, info.Image, count, [40, 32], 40);
+      hoverItem(cell, () => this.owner.rewardText(info, count));
+    }
     return cell;
   }
 }
@@ -314,10 +312,10 @@ export class QuestWindow {
   private readonly acceptButton: MirButton;
   private readonly finishButton: MirButton;
   private readonly rowBox: MirControl;
-  /** QuestListDialog.CurrentNPCID / Quests / SelectedQuest / SelectedIndex / StartIndex. */
+  /** QuestListDialog.CurrentNPCID / Quests / SelectedQuest / SelectedIndex / StartIndex (quest ids). */
   private currentNpcId = 0;
-  private listQuests: QuestEntry[] = [];
-  private selected: QuestEntry | null = null;
+  private listQuests: number[] = [];
+  private selected = -1;
   private selectedIndex = 0;
   private startIndex = 0;
 
@@ -366,7 +364,7 @@ export class QuestWindow {
     this.finishButton = new MirButton({ parent: this.list, library: Lib.Title, index: 273, hoverIndex: 274, pressedIndex: 275, location: [40, 436], sound: SoundList.ButtonA, visible: false, onClick: () => this.finishClick() });
     new MirButton({ parent: this.list, library: Lib.Title, index: 276, hoverIndex: 277, pressedIndex: 278, location: [205, 436], sound: SoundList.ButtonA, onClick: () => this.hideList() });
     this.listMessage = new QuestMessageView(this.list, { location: [10, 135], size: [280, 160], lineCount: 10, displayProgress: false, up: [292, 136], down: [292, 282], bar: [292, 149], posMinY: 149, posMaxY: 263 }, linkName);
-    this.listRewards = new QuestRewardsView(this.list, [5, 307], [313, 130], this);
+    this.listRewards = new QuestRewardsView(this.list, [5, 307], [313, 130], this, quests);
     this.listCount = new MirLabel({ parent: this.list, autoSize: true, location: [210, 8] });
     closeButton(this.list, [289, 3], () => this.hideList());
     new MirButton({ parent: this.list, library: Lib.Prguse2, index: 257, hoverIndex: 258, pressedIndex: 259, location: [266, 3], sound: SoundList.ButtonA, onClick: () => this.onHelp?.() });
@@ -375,7 +373,7 @@ export class QuestWindow {
     this.detail = new MirWindow({ library: Lib.Prguse, index: 960, movable: true, sort: true, location: [1024 / 2 + 20, 60] });
     new MirImage({ parent: this.detail, library: Lib.Title, index: 16, location: [18, 9] });
     this.detailMessage = new QuestMessageView(this.detail, { location: [10, 35], size: [280, 320], lineCount: 16, displayProgress: true, up: [293, 33], down: [293, 280], bar: [293, 48], posMinY: 46, posMaxY: 261 }, linkName);
-    this.detailRewards = new QuestRewardsView(this.detail, [5, 307], [315, 130], this);
+    this.detailRewards = new QuestRewardsView(this.detail, [5, 307], [315, 130], this, quests);
     new MirButton({ parent: this.detail, library: Lib.Title, index: 616, hoverIndex: 617, pressedIndex: 618, location: [40, 436], sound: SoundList.ButtonA,
       onClick: () => { if (this.detailQuestId >= 0) quests.share(this.detailQuestId); } });
     // _pauseButton (Title 270, (120, 436)) is created hidden and never shown on the desktop: not ported
@@ -401,11 +399,20 @@ export class QuestWindow {
     this.itemsGrid = new MirControl({ parent: this.itemsWindow, location: [0, 0], size: [0, 0] });
 
     // NPCDialog.QuestButton -> QuestListDialog.Toggle; NPCDialog.Hide hides QuestListDialog
-    npc.questsAvailable = (id) => quests.availableQuests(id).length > 0;
+    npc.questsAvailable = (id) => quests.npcHasQuests(id);
     npc.onQuestButton = () => this.toggleList();
     const offClosed = session.closed.on(() => this.hideList());
+    // S.QuestOffer (a share, an item or an area): the PlayerShareQuestRequest box
+    const offOffer = quests.offered.on((o) => {
+      const name = quests.name(o.quest);
+      const text = o.sharedBy ? `${o.sharedBy} would like to share a quest with you. Do you accept?\n${name}` : `Do you accept the quest "${name}"?`;
+      messageBox(this.stage, text, [
+        { label: "Yes", onClick: () => this.quests.accept(o.quest, 0) },
+        { label: "No", onClick: () => this.quests.dropOffer(o.quest) },
+      ]);
+    });
 
-    quests.onChange((c) => this.changed(c));
+    const offChange = quests.onChange((c) => this.changed(c));
     gameInfo.onChange(() => this.refreshMessages()); // link names follow their info
     window.addEventListener("keydown", (e) => {
       const a = document.activeElement;
@@ -417,22 +424,16 @@ export class QuestWindow {
     }, { signal: gameSignal() });
     gameSignal().addEventListener("abort", () => {
       offClosed();
+      offOffer();
+      offChange();
       for (const w of [this.list, this.detail, this.diary, this.tracking, this.itemsWindow]) w.dispose();
       itemLabelBox?.remove();
       itemLabelBox = null;
     });
   }
 
-  /** Server packets (after Quests.handle has updated the state). GameScene.ShareQuest (PlayerShareQuestRequest). */
-  handle(p: ServerPacket): void {
-    if (p.type !== "ShareQuest") return;
-    const quest = this.quests.info(p.QuestIndex);
-    if (!quest) return;
-    messageBox(this.stage, `${p.SharerName} would like to share a quest with you. Do you accept?`, [
-      { label: "Yes", onClick: () => this.quests.accept(0, quest.Index) },
-      { label: "No" },
-    ]);
-  }
+  /** Server packets (after Quests.handle has updated the state): nothing left here (offers come from the model). */
+  handle(_p: ServerPacket): void {}
 
   /** MainDialog.QuestButton / KeybindOptions.Quests: QuestDiaryDialog.Toggle. */
   toggleDiary(show = !this.diary.visible): void {
@@ -444,29 +445,63 @@ export class QuestWindow {
     if (show) { this.renderItems(); this.itemsWindow.show(); } else this.itemsWindow.hide();
   }
 
-  // — State changes (GameScene.ChangeQuest's refresh tail, plus the windows that read the other lists) —
+  // — State changes (GameScene's refresh tail, plus the windows that read the other lists) —
 
   private changed(c: string): void {
-    // QuestTrackingDialog.DisplayQuests; if (QuestListDialog.Visible) DisplayInfo(); if (QuestLogDialog.Visible) DisplayQuests()
-    if (c === "quests" || c === "tracking" || c === "info") this.renderTracking();
-    if (c === "quests" || c === "completed" || c === "user" || c === "info") {
-      if (this.list.visible) this.displayListInfo();
-      this.npc.refreshQuestButton();
+    if (c === "items") { if (this.itemsWindow.visible) this.renderItems(); return; }
+    if (c === "offers" || c === "history") return;
+    this.renderTracking();
+    if (this.list.visible) this.displayListInfo();
+    this.npc.refreshQuestButton();
+    if (this.diary.visible) this.renderDiary();
+    if (this.detail.visible) {
+      if (this.quests.run(this.detailQuestId)) this.showDetail(this.detailQuestId);
+      else this.detail.hide();
     }
-    if ((c === "quests" || c === "tracking" || c === "info" || c === "user") && this.diary.visible) this.renderDiary();
-    if (c === "quests" && this.detail.visible) {
-      // the detail dialog holds the replaced progress object on the desktop; here it follows the update
-      const q = this.quests.current.find((x) => x.Id === this.detailQuestId);
-      const e = q && this.quests.entry(q);
-      if (e) this.showDetail(e);
-    }
-    if (c === "items" && this.itemsWindow.visible) this.renderItems();
   }
 
   private refreshMessages(): void {
-    if (this.list.visible && this.selected) this.listMessage.refresh();
+    if (this.list.visible && this.selected >= 0) this.listMessage.refresh();
     if (this.detail.visible) this.detailMessage.refresh();
     if (this.itemsWindow.visible) this.renderItems();
+  }
+
+  // — Quest V2 text (the adapter) —
+
+  /** The turn-in NPC names (Finish endpoints, Start when none). */
+  private finishName(def: QuestDefinitionInfo): string {
+    const names = this.quests.endpointNames(def, QuestEndpointRole.Finish);
+    return names.length ? names.map((n) => n.split("_")[0]).join(" or ") : "the quest giver";
+  }
+
+  /** QuestMessage lines: the name, the summary (the turn-in text when Ready), the current step's objectives (or the
+   *  first step's for an offer), the time limit / time left, and the turn-in NPC. */
+  private messageLines(quest: number): string[] {
+    const q = this.quests, def = q.def(quest), run = q.run(quest);
+    if (!def) return [q.name(quest), "Loading..."];
+    const lines: string[] = [def.Name];
+    const section = (title: string, body: string[]) => { if (body.length) lines.push(" ", title, ...body); };
+    const text = (s: string) => s ? s.split(/\r?\n/) : [];
+    if (run?.status === QuestRunStatus.Ready) {
+      const last = def.Steps[def.Steps.length - 1];
+      lines.push(...text(def.CompleteText || last?.ReadyText || def.Summary));
+      section(RETURN_TITLE, [`Return to ${this.finishName(def)}.`]);
+      return lines;
+    }
+    lines.push(...text(def.Summary));
+    if (run?.status === QuestRunStatus.Failed) { section(PROGRESS_TITLE, ["{Failed/Red}"]); return lines; }
+    const step = run ? q.currentStep(quest) : def.Steps[0];
+    if (step) {
+      if (run && step.Text) lines.push(...text(step.Text));
+      const objs = run ? q.shownObjectives(def, step.Index) : q.objectives(def, step.Index).filter((o) => !o.Hidden);
+      section(run ? PROGRESS_TITLE : TASK_TITLE, objs.map((o) => (run && q.done(o) ? `${q.objectiveText(o)} (done)` : q.objectiveText(o)) + (o.Optional ? " (optional)" : "")));
+    }
+    if (run) {
+      const left = q.timeLeft(run);
+      if (left !== null) section(TIME_LIMIT_TITLE, [printTimeSpanFromSeconds(left / 1000)]);
+    } else if (def.TimeLimitSeconds > 0) section(TIME_LIMIT_TITLE, [printTimeSpanFromSeconds(def.TimeLimitSeconds)]);
+    if (run && q.pendingBranches(quest).length) section(RETURN_TITLE, [`Speak to ${this.finishName(def)} to choose.`]);
+    return lines;
   }
 
   // — QuestListDialog —
@@ -478,8 +513,8 @@ export class QuestWindow {
 
   /** QuestListDialog.Show: CurrentNPCID = GameScene.NPCID, Reset, DisplayInfo. */
   private showList(): void {
-    this.currentNpcId = this.session.npcId;
-    this.selected = null;
+    this.currentNpcId = this.session.talkedNpcId;
+    this.selected = -1;
     this.startIndex = 0;
     this.selectedIndex = 0;
     this.list.show();
@@ -491,22 +526,30 @@ export class QuestWindow {
     this.list.hide();
   }
 
-  /** QuestListDialog.DisplayInfo: no available quest (or the NPC gone) hides the dialog. Keeps the selection by quest
-   *  index (the desktop resets to the first row on every refresh: Reset() drops SelectedQuest). */
+  /** The NPC's quests (S.QuestAvailability): finishing here first, then offered. */
+  private npcQuests(): number[] {
+    const e = this.quests.npcQuests(this.currentNpcId);
+    if (!e) return [];
+    const out = [...e.finishing];
+    for (const id of e.offered) if (!out.includes(id)) out.push(id);
+    return out;
+  }
+
+  /** QuestListDialog.DisplayInfo: no quest (or the NPC gone) hides the dialog. Keeps the selection by quest id. */
   private displayListInfo(): void {
-    this.listQuests = this.quests.availableQuests(this.currentNpcId);
+    this.listQuests = this.npcQuests();
     if (this.listQuests.length < 1) { this.hideList(); return; }
-    const at = this.listQuests.findIndex((q) => q.info.Index === this.selected?.info.Index);
+    const at = this.listQuests.indexOf(this.selected);
     if (at < 0) { this.startIndex = 0; this.selectedIndex = 0; }
     else if (at < this.startIndex || at >= this.startIndex + 5) { this.startIndex = at; this.selectedIndex = 0; }
     else this.selectedIndex = at - this.startIndex;
-    this.selected = at < 0 ? null : this.listQuests[at]!;
+    this.selected = at < 0 ? -1 : this.listQuests[at]!;
     this.refreshInterface();
   }
 
   /** upQuestButton / downQuestButton: move the selection inside the 5 rows, else scroll StartIndex. */
   private scrollRows(dir: -1 | 1): void {
-    if (this.selected) {
+    if (this.selected >= 0) {
       this.selectedIndex = this.findSelectedIndex();
       if (dir < 0) { if (this.selectedIndex > 0) this.selectedIndex--; else this.startIndex--; }
       else { if (this.selectedIndex < 4) this.selectedIndex++; else this.startIndex++; }
@@ -514,11 +557,11 @@ export class QuestWindow {
     this.refreshInterface();
   }
 
-  private rowQuests(): QuestEntry[] { return this.listQuests.slice(this.startIndex, this.startIndex + 5); }
+  private rowQuests(): number[] { return this.listQuests.slice(this.startIndex, this.startIndex + 5); }
 
   /** FindSelectedIndex. */
   private findSelectedIndex(): number {
-    const i = this.rowQuests().indexOf(this.selected!);
+    const i = this.rowQuests().indexOf(this.selected);
     return i < 0 ? 0 : i;
   }
 
@@ -530,27 +573,33 @@ export class QuestWindow {
     if (this.startIndex < 0) this.startIndex = 0;
     const rows = this.rowQuests();
     if (this.selectedIndex >= rows.length) this.selectedIndex = rows.length - 1;
-    // a selected quest follows its row (SelectedIndex); none selected = the first row
-    this.selected = rows[this.selected ? Math.max(0, this.selectedIndex) : 0] ?? null;
+    this.selected = rows[this.selected >= 0 ? Math.max(0, this.selectedIndex) : 0] ?? -1;
     this.showSelected();
     this.rowBox.el.replaceChildren();
     rows.forEach((q, i) => this.questRow(q, [9, 36 + i * 19]));
     this.reDisplayButtons();
   }
 
+  /** The QuestIcon of a quest in the list: offered (by category), Ready, or in progress (white "?"). */
+  private iconOf(quest: number): number {
+    const run = this.quests.run(quest), cat = this.quests.def(quest)?.Category ?? 1;
+    return questIconFor(cat, !run ? "offer" : run.status === QuestRunStatus.Ready ? "ready" : "active");
+  }
+
   /** QuestRow (200 x 17): selected bar Prguse 956 at (25, 0), the quest icon Prguse 961 + Icon (+ 15 above 3) at (3, 0),
    *  "Lv n" at (20, 0), the name at (60, 0). */
-  private questRow(q: QuestEntry, location: Point): void {
+  private questRow(quest: number, location: Point): void {
+    const def = this.quests.def(quest);
     const row = new MirControl({ parent: this.rowBox, location, size: [200, 17] });
-    if (q === this.selected) new MirImage({ parent: row, library: Lib.Prguse, index: 956, location: [25, 0], notControl: true });
-    const icon = entryIcon(q);
+    if (quest === this.selected) new MirImage({ parent: row, library: Lib.Prguse, index: 956, location: [25, 0], notControl: true });
+    const icon = this.iconOf(quest);
     new MirImage({ parent: row, library: Lib.Prguse, index: 961 + icon + (icon > 3 ? 15 : 0), location: [3, 0], notControl: true });
-    new MirLabel({ parent: row, location: [20, 0], size: [178, 17], vCenter: true, notControl: true, text: q.info.MinLevelNeeded > 0 ? `Lv ${q.info.MinLevelNeeded}` : "" });
-    new MirLabel({ parent: row, location: [60, 0], size: [140, 17], vCenter: true, notControl: true, text: q.info.Name });
+    new MirLabel({ parent: row, location: [20, 0], size: [178, 17], vCenter: true, notControl: true, text: def && def.LevelHint > 0 ? `Lv ${def.LevelHint}` : "" });
+    new MirLabel({ parent: row, location: [60, 0], size: [140, 17], vCenter: true, notControl: true, text: this.quests.name(quest) });
     row.onClick(() => {
       uiSound(SoundList.ButtonA);
-      if (q === this.selected) return;
-      this.selected = q;
+      if (quest === this.selected) return;
+      this.selected = quest;
       this.selectedIndex = this.findSelectedIndex();
       this.showSelected();
       this.rowBox.el.replaceChildren();
@@ -561,47 +610,45 @@ export class QuestWindow {
 
   /** Reward.UpdateRewards + Message.UpdateQuest for SelectedQuest. */
   private showSelected(): void {
-    if (!this.selected) return;
+    if (this.selected < 0) return;
+    if (!this.quests.def(this.selected)) this.quests.requestDefinition(this.selected);
     this.listRewards.update(this.selected);
-    this.listMessage.update(this.selected, this.currentNpcId);
+    this.listMessage.update(this.messageLines(this.selected));
   }
 
   /** ReDisplayButtons. */
   private reDisplayButtons(): void {
-    const q = this.selected;
-    this.acceptButton.visible = !!q && !q.progress.Taken && this.quests.current.length < MAX_CONCURRENT_QUESTS;
-    this.finishButton.visible = !!q && q.progress.Completed;
+    const run = this.selected >= 0 ? this.quests.run(this.selected) : undefined;
+    this.acceptButton.visible = this.selected >= 0 && !run && this.quests.activeCount < MAX_CONCURRENT_QUESTS;
+    this.finishButton.visible = run?.status === QuestRunStatus.Ready;
   }
 
-  /** QuestListDialog accept button. */
+  /** QuestListDialog accept button: C.QuestAccept at this NPC. */
   private acceptClick(): void {
-    const q = this.selected;
-    if (!q || q.progress.Taken) return;
-    this.quests.accept(q.info.NPCIndex, q.info.Index);
+    if (this.selected < 0 || this.quests.run(this.selected)) return;
+    this.quests.accept(this.selected, this.currentNpcId);
   }
 
-  /** QuestListDialog finish button: a quest with select rewards needs one picked (YouMustSelectRewardItem). */
+  /** QuestListDialog finish button: each choice group needs a pick (YouMustSelectRewardItem), then C.QuestTurnIn. */
   private finishClick(): void {
-    const q = this.selected;
-    if (!q || !q.progress.Completed) return;
-    if (this.listRewards.selectedItemIndex < 0 && q.info.RewardsSelectItem.length > 0) {
-      messageBox(this.stage, "You must select a reward item.");
-      return;
-    }
-    this.quests.finish(q.info.Index, this.listRewards.selectedItemIndex);
+    const def = this.selected >= 0 ? this.quests.def(this.selected) : undefined;
+    if (!def || this.quests.run(def.Quest)?.status !== QuestRunStatus.Ready) return;
+    const picks = this.quests.picksFor(def);
+    if (!picks) { messageBox(this.stage, "You must select a reward item."); return; }
+    this.quests.turnIn(def.Quest, this.currentNpcId, picks);
   }
 
   // — QuestDetailDialog —
 
   /** QuestDetailDialog.DisplayQuestDetails. */
-  private showDetail(q: QuestEntry): void {
-    this.detailQuestId = q.progress.Id;
-    this.detailRewards.update(q);
-    this.detailMessage.update(q, this.currentNpcId);
+  private showDetail(quest: number): void {
+    this.detailQuestId = quest;
+    this.detailRewards.update(quest);
+    this.detailMessage.update(this.messageLines(quest));
     this.detail.show();
   }
 
-  /** QuestDetailDialog cancel button: AskCancelQuest, then C.AbandonQuest and hide. */
+  /** QuestDetailDialog cancel button: AskCancelQuest, then C.QuestAbandon and hide. */
   private cancelClick(): void {
     const id = this.detailQuestId;
     if (id < 0) return;
@@ -633,16 +680,11 @@ export class QuestWindow {
 
   // — QuestRewards helpers —
 
-  /** QuestRewards.FilterRewards: only the user's gender; keeps each reward's index in RewardsSelectItem (FindSelectedItemIndex). */
-  filterRewards(rewards: QuestItemReward[]): { reward: QuestItemReward; index: number }[] {
-    const out: { reward: QuestItemReward; index: number }[] = [];
-    rewards.forEach((reward, index) => {
-      const g = reward.Item.RequiredGender;
-      if (this.quests.gender === MirGender.Male && !(g & RequiredGender.Male)) return;
-      if (this.quests.gender === MirGender.Female && !(g & RequiredGender.Female)) return;
-      out.push({ reward, index });
-    });
-    return out;
+  /** A reward item's info (asked once when missing; the server sends it with the definition). */
+  itemInfo(index: number): ItemInfo | undefined {
+    const info = this.items.get(index);
+    if (!info) this.gameInfo.requestItem(index);
+    return info;
   }
 
   /** QuestCell.OnMouseEnter: the item label of a UserItem made from the ItemInfo (MaxDura = CurrentDura = Durability). */
@@ -658,12 +700,18 @@ export class QuestWindow {
 
   // — QuestDiaryDialog —
 
-  /** QuestDiaryDialog.DisplayQuests: QuestGroupQuestItem per Group at (15, nextY), nextY from 40. */
+  /** QuestDiaryDialog.DisplayQuests: QuestGroupQuestItem per group (GroupName, else the category) at (15, nextY). */
   private renderDiary(): void {
-    const entries = this.quests.currentEntries();
-    this.diaryCount.text = `List: ${this.quests.current.length}/${MAX_CONCURRENT_QUESTS}`;
-    const groups = new Map<string, QuestEntry[]>();
-    for (const e of entries) { const g = groups.get(e.info.Group); if (g) g.push(e); else groups.set(e.info.Group, [e]); }
+    const q = this.quests;
+    const runs = q.runs();
+    this.diaryCount.text = `List: ${q.activeCount}/${MAX_CONCURRENT_QUESTS}`;
+    const groups = new Map<string, number[]>();
+    for (const r of runs) {
+      const def = q.def(r.quest);
+      const g = def ? def.GroupName || QUEST_CATEGORY_LABEL[def.Category] || "" : "";
+      const list = groups.get(g);
+      if (list) list.push(r.quest); else groups.set(g, [r.quest]);
+    }
     const allExpanded = this.expandedGroups.size === 0;
     this.diaryBody.el.replaceChildren();
     let nextY = 40;
@@ -675,17 +723,17 @@ export class QuestWindow {
 
   /** QuestGroupQuestItem: expand button Prguse 917 / 918, the LimeGreen group label, the quest rows 15 px apart.
    *  Returns SizeY. */
-  private groupItem(group: string, list: QuestEntry[], expanded: boolean, groups: Map<string, QuestEntry[]>, y: number): number {
+  private groupItem(group: string, list: number[], expanded: boolean, groups: Map<string, number[]>, y: number): number {
     const sizeY = 15 + (expanded ? list.length * 15 : 0);
     const item = new MirControl({ parent: this.diaryBody, location: [15, y], size: [280, sizeY] });
     new MirButton({ parent: item, library: Lib.Prguse, index: expanded ? 917 : 918, size: [16, 14], location: [0, 0], sound: SoundList.ButtonA, onClick: () => this.toggleGroup(group, groups) });
     new MirLabel({ parent: item, autoSize: true, location: [18, 0], foreColour: LIME_GREEN, text: group });
-    if (expanded) list.forEach((e, i) => this.singleQuestItem(item, e, [18, 15 * (i + 1)]));
+    if (expanded) list.forEach((quest, i) => this.singleQuestItem(item, quest, [18, 15 * (i + 1)]));
     return sizeY;
   }
 
   /** QuestGroupQuestItem.ChangeExpand + QuestDiaryDialog's ExpandedChanged (ExpandedGroups holds the expanded ones). */
-  private toggleGroup(group: string, groups: Map<string, QuestEntry[]>): void {
+  private toggleGroup(group: string, groups: Map<string, number[]>): void {
     if (this.expandedGroups.size === 0) for (const g of groups.keys()) this.expandedGroups.add(g);
     if (this.expandedGroups.has(group)) this.expandedGroups.delete(group);
     else this.expandedGroups.add(group);
@@ -694,42 +742,50 @@ export class QuestWindow {
   }
 
   /** QuestSingleQuestItem (280 x 15): selected bar Prguse 956 at (-10, 0), "{Lv,-4} name" at (0, 0), the state at
-   *  (185, 0), grey when 10+ levels below the user, yellow when new; the track mark Prguse 997 at (-15, 0). */
-  private singleQuestItem(parent: MirControl, e: QuestEntry, location: Point): void {
+   *  (185, 0), grey when 10+ levels below the user; the track mark Prguse 997 at (-15, 0). */
+  private singleQuestItem(parent: MirControl, quest: number, location: Point): void {
+    const q = this.quests, def = q.def(quest), run = q.run(quest);
     const row = new MirControl({ parent, location, size: [280, 15] });
-    if (this.diarySelected === e.progress.Id) new MirImage({ parent: row, library: Lib.Prguse, index: 956, location: [-10, 0], notControl: true });
-    const lowLevel = this.quests.level - e.info.MinLevelNeeded > 10;
-    const colour = lowLevel ? "#808080" : e.progress.New ? "#ffff00" : "#ffffff";
-    const tracked = this.quests.isTracked(e.progress.Id);
-    const name = new MirLabel({ parent: row, autoSize: true, location: [0, 0], foreColour: colour, text: `${`Lv${e.info.MinLevelNeeded}`.padEnd(4)} ${e.info.Name}` });
-    new MirLabel({ parent: row, autoSize: true, location: [185, 0], foreColour: colour, text: e.progress.Completed ? "(Complete)" : "(In Progress)" });
+    if (this.diarySelected === quest) new MirImage({ parent: row, library: Lib.Prguse, index: 956, location: [-10, 0], notControl: true });
+    const level = def?.LevelHint ?? 0;
+    const failed = run?.status === QuestRunStatus.Failed;
+    const colour = failed ? "#ff4040" : level > 0 && q.level - level > 10 ? "#808080" : "#ffffff";
+    const tracked = q.isTracked(quest);
+    const name = new MirLabel({ parent: row, autoSize: true, location: [0, 0], foreColour: colour, text: `${`Lv${level}`.padEnd(4)} ${q.name(quest)}` });
+    new MirLabel({ parent: row, autoSize: true, location: [185, 0], foreColour: colour,
+      text: failed ? "(Failed)" : run?.status === QuestRunStatus.Ready ? "(Complete)" : "(In Progress)" });
     if (tracked) new MirImage({ parent: row, library: Lib.Prguse, index: 997, location: [-15, 0], notControl: true });
     // _questLabel.Click: left = DisplayQuestDetails, right = track / untrack (QuestTrackingDialog.AddQuest / RemoveQuest)
     name.el.addEventListener("mouseup", (ev) => {
       if (ev.button !== 0 && ev.button !== 2) return;
       ev.stopPropagation();
       uiSound(SoundList.ButtonA);
-      if (ev.button === 0) this.showDetail(e);
-      else if (tracked) this.quests.untrackQuest(e.progress.Id);
-      else if (this.quests.trackedIds.length < MAX_TRACKED_QUESTS) this.quests.trackQuest(e.progress.Id);
-      this.diarySelected = e.progress.Id; // OnSelectedQuestChanged
+      if (ev.button === 0) this.showDetail(quest);
+      else if (tracked) q.untrackQuest(quest);
+      else if (q.trackedIds.length < MAX_TRACKED_QUESTS) q.trackQuest(quest);
+      this.diarySelected = quest; // OnSelectedQuestChanged
       this.renderDiary();
     });
   }
 
   // — QuestTrackingDialog —
 
-  /** QuestTrackingDialog.DisplayQuests: name LimeGreen at (5, 20 + y), tasks at (25, 20 + y), 15 px per task, 30 px
-   *  between quests; hidden when nothing is tracked. */
+  /** QuestTrackingDialog.DisplayQuests: name LimeGreen at (5, 20 + y), the current step's objective lines at (25, 20 + y),
+   *  15 px per line, 30 px between quests; hidden when nothing is tracked. */
   private renderTracking(): void {
-    const tracked = this.quests.trackedEntries();
+    const q = this.quests;
+    const tracked = q.trackedRuns();
     this.tracking.el.replaceChildren();
     if (tracked.length < 1) { this.tracking.hide(); return; }
     let y = 0;
     for (let i = 0; i < tracked.length; i++) {
-      const e = tracked[i]!;
-      new MirLabel({ parent: this.tracking, autoSize: true, location: [5, 20 + y], foreColour: LIME_GREEN, text: e.info.Name });
-      for (const task of e.progress.TaskList) {
+      const run = tracked[i]!, def = q.def(run.quest)!;
+      new MirLabel({ parent: this.tracking, autoSize: true, location: [5, 20 + y], foreColour: LIME_GREEN, text: def.Name });
+      const step = q.currentStep(run.quest);
+      const tasks = run.status === QuestRunStatus.Ready ? [`Return to ${this.finishName(def)}`]
+        : run.status === QuestRunStatus.Failed ? ["Failed"]
+        : step ? q.shownObjectives(def, step.Index).map((o) => q.objectiveText(o)) : [];
+      for (const task of tasks) {
         y += 15;
         new MirLabel({ parent: this.tracking, autoSize: true, location: [25, 20 + y], text: task });
       }
@@ -757,7 +813,7 @@ export class QuestWindow {
     }
   }
 
-  /** For game.ts: the NPC's above-head QuestIcon (NPCObject.UpdateBestQuestIcon), or null. */
+  /** For game.ts: the NPC's above-head QuestIcon (the server's, S.QuestAvailability), or null. */
   npcQuestIcon(npcObjectId: number): number | null {
     return this.quests.npcQuestIcon(npcObjectId);
   }

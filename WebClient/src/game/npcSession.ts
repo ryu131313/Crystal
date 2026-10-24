@@ -255,6 +255,7 @@ export class NpcDrop {
 
 export class NpcSession {
   private _npcId = 0;
+  private _talkedId = 0;
   private _npcName = "";
   private npcTime = 0; // GameScene.NPCTime
   private _rate = 1;   // GameScene.NPCRate
@@ -288,6 +289,9 @@ export class NpcSession {
 
   /** GameScene.NPCID (the NPC the dialog talks to; S.NPCUpdate can change it). */
   get npcId(): number { return this._npcId; }
+  /** The NPC object the player clicked (talk): unlike npcId, S.NPCUpdate does not move it to the default NPC (the server
+   *  sends one for every OnAcceptQuest / OnFinishQuest call), so quest accept / turn-in keep the giver's ObjectID. */
+  get talkedNpcId(): number { return this._talkedId; }
   /** The clicked NPC's name (NPCDialog.NameLabel shows the part before "_"). */
   get npcName(): string { return this._npcName; }
   /** GameScene.NPCRate (the last rate any NPC packet sent: NPCGoods, NPCPearlGoods, NPCRepair, NPCSRepair, NPCRefine,
@@ -322,6 +326,7 @@ export class NpcSession {
     if (id === this._npcId && (t <= this.npcTime || this._open)) return;
     this.npcTime = t + 5000;
     this._npcId = id;
+    this._talkedId = id;
     this._npcName = name;
     this.callNpc(id, "@Main");
   }

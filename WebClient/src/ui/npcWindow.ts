@@ -709,7 +709,7 @@ export class NpcWindow {
     this.bigButtonDialog = new BigButtonDialog(this.win);
     // QuestButton: MirAnimatedButton Title 530 (10 frames, 130 ms, looped), hover 284, pressed 286
     this.questButton = new MirButton({ parent: this.win, library: Lib.Title, index: 530, hoverIndex: 284, pressedIndex: 286, size: [96, 25], sound: SoundList.ButtonA, visible: false,
-      onClick: () => this.onQuestButton(this.npc.npcId) });
+      onClick: () => this.onQuestButton(this.npc.talkedNpcId) });
     const questTimer = window.setInterval(() => {
       if (!this.questButton.visible || !this.win.visible) return;
       this.questFrame = (this.questFrame + 1) % 10;
@@ -774,7 +774,7 @@ export class NpcWindow {
   /** NPCDialog.CheckQuestButtonDisplay: the name (before "_") and the quest button. */
   refreshQuestButton(): void {
     this.nameLabel.text = this.npc.npcName.split("_")[0] ?? "";
-    this.questButton.visible = this.questsAvailable(this.npc.npcId);
+    this.questButton.visible = this.questsAvailable(this.npc.talkedNpcId);
   }
 
   /** NPCDialog.Hide (close button, @Exit, Escape): the session closes and every NPC panel follows `closed`. */

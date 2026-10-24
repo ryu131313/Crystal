@@ -18,10 +18,11 @@
 //    of the same page (Log, tabs, gold) neither replays nor logs it again (the page sequence lives in NpcDialogState);
 //  - the conversation log keeps what the NPC said (each page's first lines) and the option the player chose, logged
 //    when the server answered it (a refused call logs nothing);
-//  - Quests tab: Quests.availableQuests(npcId) only (QuestListDialog for this NPC: accept with C.AcceptQuest,
-//    hand in with C.FinishQuest and the chosen reward, abandon with C.AbandonQuest after a question). Buttons lock
-//    until the server's S.ChangeQuest; nothing changes locally. The server needs the NPC in range, which holds while
-//    the dialogue is open;
+//  - Quests tab: the NPC's S.QuestAvailability entry (quest V2: the server decides what it offers / finishes; no
+//    client CanAccept): accept with C.QuestAccept, hand in with C.QuestTurnIn and one reward pick per choice group
+//    (picks kept in the Quests model), a pending branch with C.QuestChoose, abandon with C.QuestAbandon after a
+//    question; objectives with bars (windows/questParts.ts). Buttons lock until the server's S.QuestStates; nothing
+//    changes locally. The server needs the NPC in range, which holds while the dialogue is open;
 //  - keys only through the window key() hook while the dialogue is the front window: Space finishes the typing, 1-9
 //    pick an option only while the pointer is over the window (so the belt keys keep working); Esc / Shift+Esc are the
 //    window manager's (close = NPCDialog.Hide).
@@ -31,8 +32,8 @@
 // "Main" button calls @Main, which it always accepts), the teleport warp and mock prices (teleports are page links;
 // the script's MOVE / TAKEGOLD run on the server).
 
-import type { ClientQuestInfo, ItemInfo, UserItem } from "../../../protocol/server.ts";
-import { MirAction, MirGender, QuestTypeName, RequiredGender, Stat } from "../../../protocol/enums.generated.ts";
+import type { ItemInfo, UserItem } from "../../../protocol/server.ts";
+import { MirAction, QuestRewardScope, QuestRunStatus, Stat } from "../../../protocol/enums.generated.ts";
 import { Emitter } from "../../../game/emitter.ts";
 import { isTextTarget } from "../../../game/input.ts";
 import { npcLibPath, monsterLibPath, LibPath } from "../../../game/libraries.ts";
@@ -40,8 +41,9 @@ import { frameOffset, type Frame } from "../../../game/frames.ts";
 import { itemFriendlyName } from "../../../game/gameInfo.ts";
 import { parseLine, type NpcLinkKind, type NpcPage, type NpcSegment } from "../../../game/npcMarkup.ts";
 import {
-  MAX_CONCURRENT_QUESTS, entryIcon, printTimeSpanFromSeconds, questMiniMapMarker, sameFinishNPC, type QuestEntry,
+  MAX_CONCURRENT_QUESTS, QUEST_CATEGORY_LABEL, printTimeSpanFromSeconds, questMiniMapMarker,
 } from "../../../game/quests.ts";
+import { objectiveRow, questMarker, rewardsBlock } from "./questParts.ts";
 import { Lib, libPicture, type LibPicture } from "../../mir/controls.ts";
 import { registerWindow, type ModernUiHost } from "../windowRegistry.ts";
 import {
@@ -271,7 +273,6 @@ class NpcWindow extends UiWindow {
   private choices: Choice[] = [];
   private links: InfoLink[] = [];
   private readonly pendingQuests = new Set<number>();
-  private readonly rewardPick = new Map<number, number>();
 
   // typewriter
   private typing: { texts: [Text, string][]; hidden: HTMLElement[]; total: number; shown: number; start: number } | null = null;
@@ -405,12 +406,12 @@ class NpcWindow extends UiWindow {
     this.renderPortrait();
 
     // Quests tab only when this NPC has quests (QuestButton visibility); badge = acceptable + ready to hand in.
-    const quests = this.m.quests.availableQuests(s.npcId);
+    const quests = this.npcQuestIds(s.talkedNpcId);
     const qTab = this.tabsW.el.children[1] as HTMLElement | undefined;
     if (qTab) qTab.hidden = quests.length === 0;
     if (quests.length === 0 && this.tab === 1) { this.tab = 0; this.tabsW.select(0); }
-    this.tabsW.badge(1, quests.filter((q) => !q.progress.Taken || q.progress.Completed).length);
-    const marker = questMiniMapMarker(this.m.quests.npcQuestIcon(s.npcId));
+    this.tabsW.badge(1, quests.filter((id) => { const r = this.m.quests.run(id); return !r || r.status === QuestRunStatus.Ready; }).length);
+    const marker = questMiniMapMarker(this.m.quests.npcQuestIcon(s.talkedNpcId));
     this.mark.hidden = !marker;
     if (marker) { setText(this.mark, marker.text); setStyle(this.mark, "color", marker.colour); }
 
@@ -608,58 +609,86 @@ class NpcWindow extends UiWindow {
     this.logEl.scrollTop = this.logEl.scrollHeight;
   }
 
-  // — Quests (QuestListDialog for this NPC) —
+  // — Quests (the NPC's S.QuestAvailability entry: turn-ins / in progress first, then offers) —
 
-  private renderQuests(list: QuestEntry[]): void {
-    this.questsDirty = false;
-    if (!list.length) { this.ql.replaceChildren(h("div", "qempty", "No quests here.")); return; }
-    const q = this.m.quests;
-    this.ql.replaceChildren(...list.map((e) => this.questCard(e, q.current.length)));
+  /** The quests to list for the NPC: finishing here (in progress or Ready), then offered. */
+  private npcQuestIds(npcId: number): number[] {
+    const e = this.m.quests.npcQuests(npcId);
+    if (!e) return [];
+    const out = [...e.finishing];
+    for (const q of e.offered) if (!out.includes(q)) out.push(q);
+    return out;
   }
 
-  private questCard(e: QuestEntry, currentCount: number): HTMLElement {
-    const { info, progress } = e;
-    const npcId = this.npc.npcId;
-    const marker = questMiniMapMarker(entryIcon(e));
-    const qm = h("div", "qm", marker?.text ?? "…");
-    if (marker) qm.style.color = marker.colour; else qm.style.color = "var(--dim)";
+  private renderQuests(list: number[]): void {
+    this.questsDirty = false;
+    if (!list.length) { this.ql.replaceChildren(h("div", "qempty", "No quests here.")); return; }
+    this.ql.replaceChildren(...list.map((quest) => this.questCard(quest)));
+  }
 
-    const kind = QuestTypeName[info.Type] ?? "";
-    const lv = info.MaxLevelNeeded > 0 && info.MaxLevelNeeded < 65535 && info.MaxLevelNeeded !== info.MinLevelNeeded
-      ? `Lv ${info.MinLevelNeeded}-${info.MaxLevelNeeded}` : `Lv ${info.MinLevelNeeded}`;
-    const t = h("div", "qt", h("b", "", info.Name), h("small", "", [lv, kind, info.Group].filter(Boolean).join(" · ")));
-    // QuestMessage.UpdateQuest: the completion text at the finish NPC, else description / task / return / time / progress.
-    const text = (lines: readonly string[]) => {
+  private questCard(quest: number): HTMLElement {
+    const q = this.m.quests, def = q.def(quest), run = q.run(quest), npcId = this.npc.talkedNpcId;
+    const marker = questMarker(q, quest);
+    const qm = h("div", "qm", marker?.text ?? "…");
+    qm.style.color = marker?.colour ?? "var(--dim)";
+    if (!def) { // the server sends the definition with the availability; this only fills a gap
+      q.requestDefinition(quest);
+      return h("div", "qc", qm, h("div", "qt", h("b", "", q.name(quest)), h("p", "", "Loading…")));
+    }
+    const ready = run?.status === QuestRunStatus.Ready;
+    const lv = def.LevelHint > 0 ? `Lv ${def.LevelHint}` : "";
+    const t = h("div", "qt qparts", h("b", "", def.Name), h("small", "", [lv, QUEST_CATEGORY_LABEL[def.Category] ?? "", def.GroupName].filter(Boolean).join(" · ")));
+    const text = (body: string) => {
       const p = h("p");
-      lines.forEach((ln, i) => { if (i) p.append("\n"); p.append(...this.questRow(ln)); });
+      body.split(/\r?\n/).forEach((ln, i) => { if (i) p.append("\n"); p.append(...this.questRow(ln)); });
       return p;
     };
-    if (progress.Taken && !sameFinishNPC(info) && info.CompletionDescription.length > 0 && npcId === info.FinishNPCIndex) {
-      t.append(text(info.CompletionDescription));
+    const step = q.currentStep(quest);
+    if (ready) {
+      // the turn-in text: the quest's CompleteText, else the step's ReadyText
+      const body = def.CompleteText || (step?.ReadyText ?? def.Steps[def.Steps.length - 1]?.ReadyText ?? "");
+      if (body) t.append(text(body));
+    } else if (run && step) {
+      if (step.Text) t.append(text(step.Text));
+      const objs = q.shownObjectives(def, step.Index);
+      if (objs.length) { t.append(h("div", "sec", step.Title || "Objectives")); for (const o of objs) t.append(objectiveRow(q, o)); }
     } else {
-      if (info.Description.length) t.append(text(info.Description));
-      if (info.TaskDescription.length) t.append(h("div", "sec", "Tasks"), text(info.TaskDescription));
-      if (info.ReturnDescription.length) t.append(h("div", "sec", "Return"), text(info.ReturnDescription));
-      if (info.TimeLimitInSeconds > 0) t.append(h("div", "sec", "Time limit"), h("p", "", printTimeSpanFromSeconds(info.TimeLimitInSeconds)));
-      if (progress.Taken && progress.TaskList.length) t.append(h("div", "sec", "Progress"), text(progress.TaskList));
+      if (def.Summary) t.append(text(def.Summary));
+      const first = def.Steps[0];
+      const objs = first ? q.objectives(def, first.Index).filter((o) => !o.Hidden) : [];
+      if (objs.length) { t.append(h("div", "sec", "Tasks")); for (const o of objs) t.append(objectiveRow(q, o, false)); }
+      if (def.TimeLimitSeconds > 0) t.append(h("div", "sec", "Time limit"), h("p", "", printTimeSpanFromSeconds(def.TimeLimitSeconds)));
+      const carried = rewardsBlock(this.ui, q, def, { scope: QuestRewardScope.Accept, title: "You will carry" });
+      if (carried) t.append(carried);
     }
-    t.append(this.rewards(info, progress.Completed));
+    const rewards = rewardsBlock(this.ui, q, def, { pick: ready });
+    if (rewards) t.append(rewards);
 
     const btns = h("div", "btns");
-    const pending = this.pendingQuests.has(info.Index);
-    if (!progress.Taken) {
-      const full = currentCount >= MAX_CONCURRENT_QUESTS;
-      const b = button(pending ? "Accepting…" : "Accept", () => this.accept(info), { cls: "main" });
+    const pending = this.pendingQuests.has(quest);
+    const branches = q.pendingBranches(quest);
+    if (!run) {
+      const full = q.activeCount >= MAX_CONCURRENT_QUESTS;
+      const b = button(pending ? "Accepting…" : "Accept", () => this.accept(quest, npcId), { cls: "main" });
       if (pending || full) b.setDisabled(true, full ? `You can carry at most ${MAX_CONCURRENT_QUESTS} quests.` : "Waiting for the server");
       btns.append(b.el);
-    } else if (progress.Completed) {
-      const b = button(pending ? "Handing in…" : "Hand in", () => this.finish(info), { cls: "main" });
+    } else if (ready) {
+      const picks = q.picksFor(def);
+      const b = button(pending ? "Handing in…" : "Hand in", () => this.turnIn(quest, npcId), { cls: "main" });
       if (pending) b.setDisabled(true, "Waiting for the server");
+      else if (!picks) b.setDisabled(true, T.YouMustSelectRewardItem);
       btns.append(b.el);
+    } else if (branches.length) {
+      for (const br of branches) {
+        const b = button(br.Text || br.ChoiceKey, () => this.chooseBranch(quest, npcId, br.ChoiceKey), { cls: "main" });
+        if (pending) b.setDisabled(true, "Waiting for the server");
+        btns.append(b.el);
+      }
     } else {
-      btns.append(h("small", "", "In progress"));
-      const b = button("Abandon", () => void this.abandon(info), { title: "Abandon this quest" });
+      btns.append(h("small", "", run.status === QuestRunStatus.Failed ? "Failed" : "In progress"));
+      const b = button(run.status === QuestRunStatus.Failed ? "Remove" : "Abandon", () => void this.abandon(quest), { title: "Abandon this quest" });
       if (pending) b.setDisabled(true, "Waiting for the server");
+      else if (!def.AbandonAllowed && run.status !== QuestRunStatus.Failed) b.setDisabled(true, "This quest cannot be abandoned");
       btns.append(b.el);
     }
     return h("div", "qc", qm, t, btns);
@@ -670,77 +699,45 @@ class NpcWindow extends UiWindow {
     return this.renderRow(parseLine(line), false);
   }
 
-  /** QuestRewards: exp / gold / credit, the fixed items, the select items (the user's gender only; one to pick when the
-   *  quest is ready to hand in). */
-  private rewards(info: ClientQuestInfo, ready: boolean): HTMLElement {
-    const rw = h("div", "rw");
-    const parts: string[] = [];
-    if (info.RewardExp > 0) parts.push(`${fmt(info.RewardExp)} EXP`);
-    if (info.RewardGold > 0) parts.push(`${fmt(info.RewardGold)} gold`);
-    if (info.RewardCredit > 0) parts.push(`${fmt(info.RewardCredit)} credit`);
-    if (parts.length) rw.append(h("span", "", parts.join(" · ")));
-    for (const r of info.RewardsFixedItem.slice(0, 5)) rw.append(this.rewardCell(r.Item, r.Count, null));
-    const gender = this.m.quests.gender;
-    const select = info.RewardsSelectItem
-      .map((reward, index) => ({ reward, index }))
-      .filter(({ reward }) => {
-        const g = reward.Item.RequiredGender;
-        return !(gender === MirGender.Male && !(g & RequiredGender.Male)) && !(gender === MirGender.Female && !(g & RequiredGender.Female));
-      })
-      .slice(0, 5);
-    if (select.length) {
-      rw.append(h("span", "", ready ? "Choose one:" : "One of:"));
-      for (const { reward, index } of select) rw.append(this.rewardCell(reward.Item, reward.Count, ready ? { quest: info.Index, index } : null));
-    }
-    if (!rw.childNodes.length) rw.append(h("span", "", "No reward listed."));
-    return h("div", "", h("div", "sec", "Reward"), rw);
-  }
-
-  private rewardCell(info: ItemInfo, count: number, pick: { quest: number; index: number } | null): HTMLElement {
-    const cell = h("div", "rcell" + (pick ? " pick" : ""), count > 1 ? h("em", "", String(count)) : null);
-    void libPicture(Lib.Items, info.Image).then((p) => { if (p) cell.style.backgroundImage = `url(${p.url})`; });
-    const name = itemFriendlyName(info) || info.Name;
-    cell.setAttribute("aria-label", name);
-    if (pick) cell.classList.toggle("on", this.rewardPick.get(pick.quest) === pick.index);
-    cell.addEventListener("pointerenter", () => this.ui.tooltip.show(cell, displayItem(info, info.Index, count), this.ui.labelContext(), { info }));
-    cell.addEventListener("pointerleave", () => this.ui.tooltip.hide());
-    if (pick) cell.addEventListener("click", () => {
-      this.rewardPick.set(pick.quest, pick.index);
-      for (const c of Array.from(cell.parentElement?.querySelectorAll<HTMLElement>(".rcell.pick") ?? [])) c.classList.toggle("on", c === cell);
-    });
-    return cell;
-  }
-
-  /** Locks a quest's buttons until S.ChangeQuest; a refusal sends nothing back, so the lock lifts after 5 s. */
-  private lockQuest(index: number): void {
-    this.pendingQuests.add(index);
-    later(() => { if (this.pendingQuests.delete(index)) { this.questsDirty = true; this.invalidate(); } }, 5000, this.signal);
+  /** Locks a quest's buttons until S.QuestStates; a refusal sends nothing back (or a chat line), so the lock lifts after 5 s. */
+  private lockQuest(quest: number): void {
+    this.pendingQuests.add(quest);
+    later(() => { if (this.pendingQuests.delete(quest)) { this.questsDirty = true; this.invalidate(); } }, 5000, this.signal);
     this.questsDirty = true;
     this.invalidate();
   }
 
-  /** QuestListDialog accept: C.AcceptQuest (NPCIndex = the quest's NPC). Locked until S.ChangeQuest. */
-  private accept(info: ClientQuestInfo): void {
-    if (this.pendingQuests.has(info.Index)) return;
-    this.lockQuest(info.Index);
-    this.m.quests.accept(info.NPCIndex, info.Index);
+  /** C.QuestAccept with this NPC's ObjectID (the server checks it is a Start endpoint in reach). */
+  private accept(quest: number, npcId: number): void {
+    if (this.pendingQuests.has(quest)) return;
+    this.lockQuest(quest);
+    this.m.quests.accept(quest, npcId);
   }
 
-  /** QuestListDialog finish: a quest with select rewards needs one picked (YouMustSelectRewardItem). */
-  private finish(info: ClientQuestInfo): void {
-    if (this.pendingQuests.has(info.Index)) return;
-    const sel = this.rewardPick.get(info.Index) ?? -1;
-    if (sel < 0 && info.RewardsSelectItem.length > 0) { void this.ui.rt.popups.ask(T.YouMustSelectRewardItem, { title: info.Name }); return; }
-    this.lockQuest(info.Index);
-    this.m.quests.finish(info.Index, sel);
+  /** C.QuestTurnIn with this NPC and one reward pick per choice group (YouMustSelectRewardItem otherwise). */
+  private turnIn(quest: number, npcId: number): void {
+    const def = this.m.quests.def(quest);
+    if (!def || this.pendingQuests.has(quest)) return;
+    const picks = this.m.quests.picksFor(def);
+    if (!picks) { void this.ui.rt.popups.ask(T.YouMustSelectRewardItem, { title: def.Name }); return; }
+    this.lockQuest(quest);
+    this.m.quests.turnIn(quest, npcId, picks);
   }
 
-  /** QuestDetailDialog cancel: the question, then C.AbandonQuest. */
-  private async abandon(info: ClientQuestInfo): Promise<void> {
-    const ok = await this.ui.rt.popups.ask(T.AskCancelQuest(info.Name), { title: "Abandon quest", kind: "warning", okCancel: true });
-    if (!ok || this.pendingQuests.has(info.Index)) return;
-    this.lockQuest(info.Index);
-    this.m.quests.abandon(info.Index);
+  /** C.QuestChoose: a branch of the current step at this NPC. */
+  private chooseBranch(quest: number, npcId: number, key: string): void {
+    if (this.pendingQuests.has(quest)) return;
+    this.lockQuest(quest);
+    this.m.quests.choose(quest, npcId, key);
+  }
+
+  /** The question (not for a failed run), then C.QuestAbandon. */
+  private async abandon(quest: number): Promise<void> {
+    const failed = this.m.quests.run(quest)?.status === QuestRunStatus.Failed;
+    const ok = failed || await this.ui.rt.popups.ask(T.AskCancelQuest(this.m.quests.name(quest)), { title: "Abandon quest", kind: "warning", okCancel: true });
+    if (!ok || this.pendingQuests.has(quest)) return;
+    this.lockQuest(quest);
+    this.m.quests.abandon(quest);
   }
 
   // — Info links (NPCDialog.GetDisplayNameForLink / ShowTooltip) —
@@ -837,11 +834,11 @@ class NpcWindow extends UiWindow {
   // — Portrait (the NPC's library: Standing in its direction, Harvest as the page gesture) —
 
   private renderPortrait(): void {
-    const ob = this.ui.ctx.world.objects.get(this.npc.npcId);
+    const ob = this.ui.ctx.world.objects.get(this.npc.talkedNpcId);
     const path = ob ? npcLibPath(ob.image) : null;
     if (!ob || path === null) {
       // Keep this NPC's portrait if it left the view; another NPC (or none loaded) shows no portrait.
-      if (this.portraitNpc !== this.npc.npcId || !this.portrait) { this.portraitLoads++; this.portrait = null; this.portraitKey = ""; this.stage.hidden = true; }
+      if (this.portraitNpc !== this.npc.talkedNpcId || !this.portrait) { this.portraitLoads++; this.portrait = null; this.portraitKey = ""; this.stage.hidden = true; }
       return;
     }
     const stand = ob.frames.get(MirAction.Standing);

@@ -1,72 +1,63 @@
 // Ported from play/hudQuests.ts (QuestsMock, its window part; the on-screen tracker is hud/tracker.ts): the new UI's
-// quest log over the real Quests model (src/game/quests.ts). Desktop counterparts: QuestDiaryDialog + QuestDetailDialog
-// + the InventoryDialog quest grid + GameScene.ShareQuest (Client/MirScenes/Dialogs/QuestDialogs.cs); the classic port is
-// src/ui/questWindow.ts (its rules are kept). Changes from the mock:
-//  - Active = Quests.currentEntries() (User.CurrentQuests), Available = the quests the user could take now
-//    (Quests.canAccept, not completed, not taken) from NPCs the user has met this session (the NPC came into view:
-//    S.ObjectNPC, or is on the current map's NPC list), Completed = User.CompletedQuests looked up in QuestInfoList;
-//    each grouped by ClientQuestInfo.Type (Story / General / Daily / Repeatable) in folding groups, with a debounced
-//    search (name, group, NPC, description);
-//  - the detail is the QuestMessage text (Description, Tasks = TaskDescription, Return, Time limit, Progress =
-//    ClientQuestProgress.TaskList) as TEXT lines with the quest markup ({text/Colour}, [ITEM|MONSTER|NPC:n(|name)] info
-//    links by src/game/npcMarkup.ts parseLine): no parsed per-objective bars (TaskList is localised text). Rewards: EXP /
-//    gold / credit chips, the fixed items and the choose-one items (the user's gender only, QuestRewards.FilterRewards):
-//    the pick itself happens at the NPC;
-//  - actions: Track / Untrack (Quests.trackQuest, at most MAX_TRACKED_QUESTS, saved per character by the model; the HUD
-//    tracker follows), Share (C.ShareQuest: group members nearby; off without a group), Abandon (C.AbandonQuest after a
-//    question; the row stays locked until S.ChangeQuest, 5 s fallback), Find on map (the giver / turn-in NPC's map and
-//    cell: opens the big map, plus a note of where the NPC is when it is on another map);
-//  - Accept and Turn in are NOT here: the server needs the quest NPC in range (AcceptQuest / FinishQuest), so the window
-//    says "Speak to <NPC>" and the NPC dialogue's Quests tab (windows/npc.ts) does them;
+// quest log over the quest V2 model (src/game/quests.ts; plan Part B "Clients"). Desktop counterpart: the modern
+// QuestsWindow (Client/MirScenes/Modern); the classic port is src/ui/questWindow.ts.
+//  - Active = the runs (S.QuestStates: Active, Ready, Failed), Available = the quests the givers met this game offer
+//    (S.QuestAvailability; the server decides, no client CanAccept) plus pending S.QuestOffer prompts, Completed = the
+//    history (S.QuestHistory: times, last completion, repeat timer from AvailableAt); grouped by QuestCategory in folding
+//    groups, with a debounced search (name, group, summary, NPC);
+//  - the detail: summary, the step list (done / current / future, by Order), the current step's text (ReadyText while
+//    Ready) and objectives with bars (text built by the model from type / target / count unless the objective has its
+//    own), quest and step timers (live while shown), the pending branch choices (C.QuestChoose at the NPC whose dialogue
+//    is open), the rewards (choice groups picked here or at the NPC, one pick per group, sent with C.QuestTurnIn);
+//    a history quest's definition is asked with C.QuestDefinitionRequest when it is opened;
+//  - actions: Track / Untrack (at most MAX_TRACKED_QUESTS, saved per character by the model), Share (C.QuestShare:
+//    group members nearby), Map (the giver / turn-in NPC: opens the big map, a note when it is elsewhere), Abandon
+//    (C.QuestAbandon after a question; story quests may forbid it: AbandonAllowed), Remove for a failed run (also
+//    C.QuestAbandon), Accept / Turn in only while the right NPC's dialogue is open (the server needs the NPC in reach:
+//    C.QuestAccept / C.QuestTurnIn with its ObjectID), else "Speak to <NPC>"; an S.QuestOffer is accepted with 0;
 //  - an Items tab shows User.QuestInventory (display only, item tooltips);
-//  - the incoming shared-quest invitation (S.ShareQuest) is a request toast wired at UI start (the registry's watch
-//    hook; Accept = C.AcceptQuest with NPCIndex 0, like the classic Yes); the same hook remembers the NPCs met.
-// HIDDEN (Crystal has no data for them): the completed date, objective kinds / have-need bars, the mock's kill
-// simulation, local accept / turn-in / abandon state changes and its own tracked flags.
-// Narrow layout (a layer below 1040 px): a slimmer list column.
+//  - the watch hook (at UI start) remembers the NPCs met (S.ObjectNPC) and shows each S.QuestOffer as a request toast.
+// No map markers (plan phase 5). Narrow layout (a layer below 1040 px): a slimmer list column.
 
-import type { ClientQuestInfo, ItemInfo, QuestItemReward, UserItem } from "../../../protocol/server.ts";
-import { MirGender, QuestType, QuestTypeName, RequiredGender } from "../../../protocol/enums.generated.ts";
+import type { ItemInfo, QuestDefinitionInfo, UserItem } from "../../../protocol/server.ts";
+import { QuestEndpointRole, QuestFlags, QuestRepeatPolicy, QuestRewardScope, QuestRunStatus } from "../../../protocol/enums.generated.ts";
 import {
-  MAX_TRACKED_QUESTS, QUEST_INVENTORY_SIZE, entryIcon, printTimeSpanFromSeconds, questIconFor, questMiniMapMarker, sameFinishNPC,
-  type QuestChange, type QuestEntry,
+  MAX_CONCURRENT_QUESTS, MAX_TRACKED_QUESTS, QUEST_CATEGORY_LABEL, QUEST_CATEGORY_ORDER, QUEST_INVENTORY_SIZE, printTimeSpanFromSeconds,
+  type QuestChange, type QuestOfferPrompt,
 } from "../../../game/quests.ts";
-import { itemFriendlyName } from "../../../game/gameInfo.ts";
 import { parseLine, type NpcLinkKind } from "../../../game/npcMarkup.ts";
+import { itemFriendlyName } from "../../../game/gameInfo.ts";
 import { Lib, libPicture } from "../../mir/controls.ts";
 import { registerWindow, type ModernUiHost } from "../windowRegistry.ts";
 import {
-  UiWindow, asButton, button, fmt, h, injectCss, later, npcName, searchBox, setText, svg, type Btn, type IconName,
+  UiWindow, asButton, button, fmtAgo, fmtDuration, h, injectCss, later, npcName, searchBox, setText, svg, type Btn, type IconName,
 } from "../core/index.ts";
 import type { UiRuntime } from "../core/runtime.ts";
+import { displayItem, objectiveRow, questMarker, rewardsBlock } from "./questParts.ts";
 
 /** The window's registry key (hud/gameMenu.ts WINDOW_KEYS.quests). */
 export const QUESTS_WINDOW = "quests";
 
-/** Seconds the shared-quest toast stays up (the desktop's box waits; the toast declines when it runs out). */
-const SHARE_SECONDS = 30;
-/** A refused abandon sends nothing back: the row unlocks after this. */
+/** Seconds the offer toast stays up (declines when it runs out). */
+const OFFER_SECONDS = 30;
+/** A refused request sends nothing back: the row unlocks after this. */
 const PENDING_MS = 5000;
 /** Share again after this (the server answers a failed share with a chat line only). */
 const SHARE_REST_MS = 3000;
 
 type Tab = "active" | "available" | "completed" | "items";
 const TABS: readonly [Tab, string][] = [["active", "Active"], ["available", "Available"], ["completed", "Completed"], ["items", "Items"]];
-/** Display order of the groups (the mock's). */
-const TYPES: readonly number[] = [QuestType.Story, QuestType.General, QuestType.Daily, QuestType.Repeatable];
-const TYPE_ICON: Readonly<Record<number, IconName>> = {
-  [QuestType.Story]: "star", [QuestType.General]: "scroll", [QuestType.Daily]: "sun", [QuestType.Repeatable]: "repeat",
-};
+const CAT_ICON: Readonly<Record<number, IconName>> = { 0: "star", 1: "scroll", 2: "sun", 3: "calendar", 4: "repeat", 5: "spark", 6: "guild", 7: "eye" };
 /** InventoryDialog.QuestGrid: 8 x 5. */
 const ITEM_COLS = 8;
 
 const STYLE = `
-.hudm .qwin { --winh: 476px; width: 660px; }
+.hudm .qwin { --winh: 476px; width: 680px; }
 .hudm.narrow .qwin { width: 600px; }
 .hudm .qwin .panel { height: var(--winh); display: flex; flex-direction: column; }
 .hudm .qwin .cols { flex: 1; min-height: 0; display: flex; }
-.hudm .qwin .left { width: 300px; flex: none; display: flex; flex-direction: column; padding: 10px 8px 8px 12px; min-height: 0; border-right: 1px solid color-mix(in srgb, var(--fr) 60%, transparent); }
-.hudm.narrow .qwin .left { width: 250px; }
+.hudm .qwin .left { width: 290px; flex: none; display: flex; flex-direction: column; padding: 10px 8px 8px 12px; min-height: 0; border-right: 1px solid color-mix(in srgb, var(--fr) 60%, transparent); }
+.hudm.narrow .qwin .left { width: 240px; }
 .hudm .qwin .qu-ic { width: 13px; height: 13px; flex: none; }
 .hudm .qwin .seg { display: flex; border: 1px solid var(--fr); border-radius: calc(var(--rad) * .8); overflow: hidden; }
 .hudm .qwin .seg button { flex: 1; min-width: 0; height: 26px; padding: 0 2px; display: flex; align-items: center; justify-content: center; gap: 4px; cursor: pointer; user-select: none;
@@ -89,16 +80,17 @@ const STYLE = `
 .hudm .qwin .row:hover { border-color: color-mix(in srgb, var(--ac) 50%, transparent); background: color-mix(in srgb, var(--ac) 8%, transparent); }
 .hudm .qwin .row.sel { border-color: var(--ac); background: color-mix(in srgb, var(--ac) 14%, transparent); }
 .hudm .qwin .row.sel::before, .hudm .qwin .row.ready::before { background: var(--ac); }
+.hudm .qwin .row.failed::before { background: #ff5a4a; }
 .hudm .qwin .row .mk { width: 12px; flex: none; text-align: center; font-weight: 800; font-size: 12px; }
 .hudm .qwin .row .mid { flex: 1; min-width: 0; }
 .hudm .qwin .row .nm { font-size: 12px; font-weight: 600; color: var(--tx); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hudm .qwin .row.done .nm { color: var(--dim); }
+.hudm .qwin .row.done .nm, .hudm .qwin .row.low .nm { color: var(--dim); }
 .hudm .qwin .row .sub { margin-top: 3px; font-size: 10px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hudm .qwin .row.low .nm { color: var(--dim); }
 .hudm .qwin .row.busy { opacity: .6; cursor: progress; }
 .hudm .qwin .pill { font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 1px 6px; border-radius: 7px; white-space: nowrap;
   color: var(--acd); border: 1px solid color-mix(in srgb, var(--ac) 40%, transparent); }
 .hudm .qwin .pill.hot { color: #fff; border-color: var(--ac); background: color-mix(in srgb, var(--ac) 35%, transparent); }
+.hudm .qwin .pill.bad { color: #fff; border-color: #ff5a4a; background: color-mix(in srgb, #ff5a4a 35%, transparent); }
 .hudm .qwin .pin { width: 22px; height: 22px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: calc(var(--rad) * .7);
   color: color-mix(in srgb, var(--dim) 70%, transparent); border: 1px solid transparent; }
 .hudm .qwin .pin:hover { color: var(--tx); border-color: var(--fr); }
@@ -116,17 +108,18 @@ const STYLE = `
 .hudm .qwin .giver { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 11px; color: var(--dim); }
 .hudm .qwin .giver b { color: var(--tx); font-weight: 600; }
 .hudm .qwin .lbl { font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; }
-.hudm .qwin .txt { font-size: 12px; line-height: 1.55; color: color-mix(in srgb, var(--tx) 85%, var(--dim)); }
-.hudm .qwin .txt > div { min-height: 1.55em; overflow-wrap: anywhere; }
+.hudm .qwin .txt { font-size: 12px; line-height: 1.55; color: color-mix(in srgb, var(--tx) 85%, var(--dim)); white-space: pre-wrap; overflow-wrap: anywhere; }
 .hudm .qwin .txt.desc { font-style: italic; }
 .hudm .qwin .txt .it { color: #4fd8e8; cursor: help; }
 .hudm .qwin .txt .it:hover { color: #ffa500; }
-.hudm .qwin .obj { padding: 5px 8px; margin-bottom: 4px; border-radius: calc(var(--rad) * .7); background: color-mix(in srgb, var(--frl) 6%, transparent); font-size: 12px; overflow-wrap: anywhere; }
-.hudm .qwin .rew { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.hudm .qwin .chip { height: 24px; padding: 0 10px; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; border-radius: 12px;
-  background: color-mix(in srgb, var(--frl) 8%, transparent); border: 1px solid color-mix(in srgb, var(--fr) 70%, transparent); }
-.hudm .qwin .chip span { color: var(--dim); font-size: 10px; font-weight: 700; letter-spacing: .08em; }
-.hudm .qwin .chip b { color: var(--tx); font-variant-numeric: tabular-nums; }
+.hudm .qwin .steps { display: flex; flex-direction: column; gap: 2px; }
+.hudm .qwin .step { display: flex; align-items: baseline; gap: 6px; font-size: 12px; color: var(--dim); }
+.hudm .qwin .step b { width: 14px; flex: none; text-align: center; font-weight: 700; }
+.hudm .qwin .step.done { color: color-mix(in srgb, #5fe07a 75%, var(--dim)); }
+.hudm .qwin .step.cur { color: #fff; font-weight: 600; }
+.hudm .qwin .timer { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--tx); }
+.hudm .qwin .timer.low { color: #ff5a4a; }
+.hudm .qwin .branches { display: flex; flex-wrap: wrap; gap: 6px; }
 .hudm .qwin .note { font-size: 11px; color: var(--dim); }
 .hudm .qwin .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 10px 16px 12px; border-top: 1px solid color-mix(in srgb, var(--fr) 60%, transparent); }
 .hudm .qwin .actions .btn { height: 26px; padding: 0 9px; white-space: nowrap; }
@@ -141,45 +134,37 @@ const STYLE = `
 interface MetNpc { readonly name: string; readonly map: number; readonly x: number; readonly y: number }
 const metNpcs = (rt: UiRuntime): Map<number, MetNpc> => rt.service("quests.metNpcs", () => new Map<number, MetNpc>());
 
-/** A UserItem standing for an ItemInfo (QuestCell.OnMouseEnter: MaxDura = CurrentDura = Durability). */
-function displayItem(info: ItemInfo, count: number): UserItem {
-  return {
-    UniqueID: 0n, ItemIndex: info.Index, CurrentDura: info.Durability, MaxDura: info.Durability, Count: Math.max(1, count), SoulBoundId: -1,
-    Identified: false, Cursed: false, Slots: [], GemCount: 0, AddedStats: {}, AwakeType: 0, AwakeLevels: [], RefinedValue: 0, RefineAdded: 0,
-    RefineSuccessChance: 0, WeddingRing: -1, ExpiryDate: null, Rental: null, IsShopItem: false, Sealed: null, GMMade: false,
-  };
-}
+/** A list row: a quest id and what it is on this tab. */
+interface Entry { readonly quest: number; readonly npc: number; readonly offer: QuestOfferPrompt | null }
 
-/** A display-only item cell (core item cell styling) for the quest items and rewards. */
+/** A display-only item cell (core item cell styling) for the quest items. */
 interface ShowCell { el: HTMLElement; icon: HTMLElement; count: HTMLElement; img: number; item: UserItem | null; info: ItemInfo | null }
-
 
 class QuestsWindow extends UiWindow {
   private readonly m: ModernUiHost["ctx"]["models"];
   private tab: Tab = "active";
-  /** The selected quest per tab (QuestInfo.Index; -1 = the first). */
+  /** The selected quest per tab (-1 = the first). */
   private readonly picked: Record<Exclude<Tab, "items">, number> = { active: -1, available: -1, completed: -1 };
-  /** Folded groups ("tab:type"). */
+  /** Folded groups ("tab:category"). */
   private readonly shut = new Set<string>();
   private query = "";
-  /** Quests with an abandon on its way (until S.ChangeQuest or PENDING_MS). */
+  /** Quests with a request on its way (until the server's state answer or PENDING_MS). */
   private readonly pending = new Set<number>();
-  /** Quests just shared (the button rests SHARE_REST_MS). */
   private readonly shared = new Set<number>();
   /** Info links the detail waits for ("ITEM:12"): an arrival redraws it. */
   private readonly waiting = new Set<string>();
-  // Regions redrawn on their own (Review-Feature-Windows "Improvements": no whole-window rebuild per change).
   private listDirty = true;
   private detailDirty = true;
   private itemsDirty = true;
+  /** Timer labels of the shown detail, updated every second while shown: [element, ends at (ms), prefix]. */
+  private timers: [HTMLElement, number, string][] = [];
 
-  // — DOM, built once —
   private readonly segBtns = new Map<Tab, { b: HTMLButtonElement; n: HTMLElement }>();
   private readonly search: ReturnType<typeof searchBox>;
   private readonly list = h("div", "list");
   private readonly foot = h("div", "foot");
   private readonly left: HTMLElement;
-  private readonly detail = h("div", "detail");
+  private readonly detail = h("div", "detail qparts");
   private readonly itemsPane = h("div", "detail");
   private readonly igrid = h("div", "igrid");
   private readonly inote = h("div", "note");
@@ -207,37 +192,40 @@ class QuestsWindow extends UiWindow {
     this.itemsPane.hidden = true;
     this.el.append(h("div", "panel", this.titleBar("QUESTS", "Close (Q)"), h("div", "cols", this.left, this.detail, this.itemsPane)));
 
-    // Model events: mark the regions stale; render once a frame while shown, else on the next open.
     const on = (off: () => void) => this.signal.addEventListener("abort", off, { once: true });
     on(this.m.quests.onChange((c: QuestChange) => this.changed(c)));
     on(this.m.gameInfo.onChange((kind, index) => {
       const want = kind === "item" ? "ITEM" : kind === "monster" ? "MONSTER" : kind === "npc" ? "NPC" : null;
       if (kind === "item") this.itemsDirty = true;
-      if ((want && this.waiting.has(`${want}:${index}`)) || kind === "map" || kind === "item") { this.detailDirty = true; this.invalidate(); }
+      if ((want && this.waiting.has(`${want}:${index}`)) || kind === "map" || kind === "item" || kind === "npc") { this.detailDirty = true; this.invalidate(); }
     }));
     on(this.m.group.changed.on(() => { this.detailDirty = true; this.invalidate(); }));
+    on(this.m.npcSession.opened.on(() => { this.detailDirty = true; this.invalidate(); }));
+    on(this.m.npcSession.closed.on(() => { this.detailDirty = true; this.invalidate(); }));
     on(this.m.currentMap.changed.on((k) => { if (k === "map") { this.listDirty = this.detailDirty = true; this.invalidate(); } }));
+    this.everyShown(1000, () => this.tickTimers());
   }
 
   private changed(c: QuestChange): void {
     if (c === "quests") this.pending.clear();
-    if (c === "items") { this.itemsDirty = true; if (this.open) this.renderSeg(null); }
-    else this.listDirty = this.detailDirty = true;
+    if (c === "items") { this.itemsDirty = true; if (this.open) this.renderSeg(); }
+    else if (c === "progress" || c === "names") this.detailDirty = this.listDirty = true;
+    else if (c !== "user") this.listDirty = this.detailDirty = true;
     this.invalidate();
   }
 
-  /** A new NPC was met (the watch hook): the Available tab and the NPC lines may change. */
+  /** A new NPC was met (the watch hook): NPC lines may change. */
   npcsChanged(): void {
-    this.listDirty = this.detailDirty = true;
+    this.detailDirty = true;
     this.invalidate();
   }
 
-  /** The HUD quest tracker's click (hud/tracker.ts): the Active tab with this quest (QuestInfo.Index) selected. */
-  focusQuest(questIndex: number): void {
-    this.setTab("active");
-    if (this.query) { this.search.set(""); this.query = ""; } // a search would hide it
-    else if (this.picked.active === questIndex) return;
-    this.picked.active = questIndex;
+  /** The HUD tracker's click / a toast: the Active tab with this quest selected. */
+  focusQuest(quest: number): void {
+    this.setTab(this.m.quests.run(quest) ? "active" : this.m.quests.history(quest) ? "completed" : "available");
+    if (this.query) { this.search.set(""); this.query = ""; }
+    const t = this.tab === "items" ? "active" : this.tab;
+    this.picked[t] = quest;
     this.listDirty = this.detailDirty = true;
     this.invalidate();
   }
@@ -256,6 +244,7 @@ class QuestsWindow extends UiWindow {
 
   /** The NPC with this ObjectID: met this game (S.ObjectNPC), on the current map's NPC list, or in view. */
   private npc(id: number): MetNpc | null {
+    if (!id) return null;
     const met = metNpcs(this.ui.rt).get(id);
     if (met) return met;
     const cm = this.m.currentMap;
@@ -264,9 +253,11 @@ class QuestsWindow extends UiWindow {
     const ob = this.ui.ctx.world.objects.get(id);
     return ob ? { name: ob.name, map: cm.index, x: ob.location.X, y: ob.location.Y } : null;
   }
-  private npcLabel(id: number): string {
-    const n = this.npc(id);
-    return n ? npcName(n.name)[0] : "the quest giver";
+  /** An endpoint NPC (NPCInfo index): its info (asked once when missing). */
+  private endpointNpc(index: number): MetNpc | null {
+    const gi = this.m.gameInfo, n = gi.npc(index);
+    if (!n) { gi.requestNPC(index); return null; }
+    return { name: n.Name, map: n.MapIndex, x: n.Location.X, y: n.Location.Y };
   }
   private mapTitle(index: number): string {
     const cm = this.m.currentMap;
@@ -275,64 +266,52 @@ class QuestsWindow extends UiWindow {
     if (!rec && index > 0) this.m.gameInfo.requestMap(index);
     return rec?.Title ?? "";
   }
+  /** "Speak to" names: the Finish endpoints (Start when none) for a run, the Start endpoints for an offer. */
+  private who(def: QuestDefinitionInfo | undefined, role: number): string {
+    const names = def ? this.m.quests.endpointNames(def, role) : [];
+    return names.length ? names.map((n) => npcName(n)[0]).join(" or ") : role === QuestEndpointRole.Finish ? "the quest giver" : "the quest giver";
+  }
 
-  /** The tab's quests (unbound ones skipped), before the search. */
-  private entries(t: Exclude<Tab, "items">): QuestEntry[] {
+  /** The tab's rows before the search. */
+  private entries(t: Exclude<Tab, "items">): Entry[] {
     const q = this.m.quests;
-    if (t === "active") return q.currentEntries();
-    if (t === "completed") {
-      const out: QuestEntry[] = [];
-      for (const id of q.completed) {
-        const info = q.info(id);
-        if (info) out.push({ info, progress: { Id: id, TaskList: [], Taken: true, Completed: true, New: false } });
+    if (t === "active") {
+      const out: Entry[] = [];
+      for (const r of q.runs()) {
+        const def = q.def(r.quest);
+        if (def && (def.Flags & QuestFlags.HiddenInLog) !== 0) continue;
+        out.push({ quest: r.quest, npc: 0, offer: null });
       }
       return out;
     }
-    // Available: NPCObject.GetAvailableQuests' accept rule (CanAccept, not completed, not taken) for NPCs met.
-    const out: QuestEntry[] = [];
-    const taken = new Set(q.current.map((p) => p.Id)), done = new Set(q.completed);
-    for (const info of this.allInfos()) {
-      if (taken.has(info.Index) || done.has(info.Index) || !q.canAccept(info) || !this.npc(info.NPCIndex)) continue;
-      out.push({ info, progress: { Id: info.Index, TaskList: [], Taken: false, Completed: false, New: false } });
-    }
+    if (t === "completed") return q.historyRows().map((r) => ({ quest: r.quest, npc: 0, offer: null }));
+    const out: Entry[] = q.offers.map((o) => ({ quest: o.quest, npc: 0, offer: o }));
+    for (const o of q.availableOffers()) if (!out.some((e) => e.quest === o.quest)) out.push({ quest: o.quest, npc: o.npc, offer: null });
     return out;
   }
 
-  /** The quests the NPCs met offer (NPCObject.GetAvailableQuests per NPC: QuestInfoList where NPCIndex == ObjectID). */
-  private allInfos(): ClientQuestInfo[] {
-    const q = this.m.quests, seen = new Set<number>(), out: ClientQuestInfo[] = [];
-    const ids = new Set<number>(metNpcs(this.ui.rt).keys());
-    for (const n of this.m.gameInfo.map(this.m.currentMap.index)?.NPCs ?? []) ids.add(n.ObjectID);
-    for (const id of ids) {
-      for (const e of q.availableQuests(id)) {
-        if (seen.has(e.info.Index)) continue;
-        seen.add(e.info.Index);
-        out.push(e.info);
-      }
-    }
-    return out;
-  }
-
-  private matches(e: QuestEntry): boolean {
+  private matches(e: Entry): boolean {
     const s = this.query;
     if (!s) return true;
-    const i = e.info;
-    if (i.Name.toLowerCase().includes(s) || i.Group.toLowerCase().includes(s)) return true;
-    if (this.npcLabel(i.NPCIndex).toLowerCase().includes(s) || this.npcLabel(i.FinishNPCIndex).toLowerCase().includes(s)) return true;
-    for (const l of i.Description) if (l.toLowerCase().includes(s)) return true;
-    for (const l of i.TaskDescription) if (l.toLowerCase().includes(s)) return true;
-    return false;
+    const q = this.m.quests, def = q.def(e.quest);
+    if (q.name(e.quest).toLowerCase().includes(s)) return true;
+    if (!def) return false;
+    if (def.GroupName.toLowerCase().includes(s) || def.Summary.toLowerCase().includes(s)) return true;
+    return def.Endpoints.some((p) => p.Name.toLowerCase().includes(s));
   }
 
-  private selected(t: Exclude<Tab, "items">, list: QuestEntry[]): QuestEntry | null {
-    return list.find((e) => e.info.Index === this.picked[t]) ?? list[0] ?? null;
+  private category(quest: number): number {
+    return this.m.quests.def(quest)?.Category ?? 1;
+  }
+
+  private selected(t: Exclude<Tab, "items">, list: Entry[]): Entry | null {
+    return list.find((e) => e.quest === this.picked[t]) ?? list[0] ?? null;
   }
 
   // — Render (once a frame at most, only while open; regions separately) —
 
   protected override render(): void {
-    const available = this.entries("available");
-    this.renderSeg(available.length);
+    this.renderSeg();
     const tab = this.tab;
     this.detail.hidden = tab === "items";
     this.itemsPane.hidden = tab !== "items";
@@ -341,43 +320,42 @@ class QuestsWindow extends UiWindow {
       if (this.itemsDirty) { this.itemsDirty = false; this.renderItems(); }
       return;
     }
-    const list = (tab === "available" ? available : this.entries(tab)).filter((e) => this.matches(e));
+    const list = this.entries(tab).filter((e) => this.matches(e));
     if (this.listDirty) { this.listDirty = false; this.renderList(tab, list); }
     if (this.detailDirty) { this.detailDirty = false; this.renderDetail(tab, this.selected(tab, list)); }
   }
 
-  /** The tab strip and its counts (`available` null = keep the shown count: it costs a walk of the NPCs met). */
-  private renderSeg(available: number | null): void {
+  private renderSeg(): void {
     const q = this.m.quests;
-    const counts: Record<Tab, number | null> = {
-      active: q.current.length, available, completed: q.completed.length,
+    const counts: Record<Tab, number> = {
+      active: this.entries("active").length, available: this.entries("available").length, completed: q.historyRows().length,
       items: q.questInventory.reduce((n, it) => n + (it ? 1 : 0), 0),
     };
     for (const [t, { b, n }] of this.segBtns) {
       b.classList.toggle("on", t === this.tab);
       b.setAttribute("aria-selected", String(t === this.tab));
-      const c = counts[t];
-      if (c !== null) setText(n, String(c));
+      setText(n, String(counts[t]));
     }
     this.search.el.hidden = this.tab === "items";
   }
 
-  private renderList(t: Exclude<Tab, "items">, list: QuestEntry[]): void {
+  private renderList(t: Exclude<Tab, "items">, list: Entry[]): void {
     const q = this.m.quests;
     const sel = this.selected(t, list);
     const out: HTMLElement[] = [];
     if (!list.length) {
       out.push(h("div", "empty", this.query ? "No quests match."
         : t === "active" ? "No quests taken. NPCs with a ! over their head have quests for you."
-        : t === "available" ? "Nothing you can take from the NPCs you have met. Explore and look for a ! over an NPC's head."
+        : t === "available" ? "No quests offered by the NPCs you have met. Look for a ! over an NPC's head."
         : "No quests completed yet."));
     }
-    for (const type of TYPES) {
-      const group = list.filter((e) => e.info.Type === type);
+    for (const cat of QUEST_CATEGORY_ORDER) {
+      const group = list.filter((e) => this.category(e.quest) === cat);
       if (!group.length) continue;
-      const key = `${t}:${type}`, isShut = this.shut.has(key);
-      const head = asButton(h("div", "grp" + (isShut ? " shut" : ""), h("span", "chev", "▾"), svg(TYPE_ICON[type] ?? "scroll", "qu-ic"),
-        QuestTypeName[type] ?? "", h("span", "", String(group.length))), `${isShut ? "Show" : "Fold"} ${QuestTypeName[type] ?? ""} quests`);
+      const label = QUEST_CATEGORY_LABEL[cat] ?? "";
+      const key = `${t}:${cat}`, isShut = this.shut.has(key);
+      const head = asButton(h("div", "grp" + (isShut ? " shut" : ""), h("span", "chev", "▾"), svg(CAT_ICON[cat] ?? "scroll", "qu-ic"),
+        label, h("span", "", String(group.length))), `${isShut ? "Show" : "Fold"} ${label} quests`);
       head.addEventListener("click", () => {
         if (this.shut.has(key)) this.shut.delete(key); else this.shut.add(key);
         this.listDirty = true; this.invalidate();
@@ -388,40 +366,48 @@ class QuestsWindow extends UiWindow {
     this.list.replaceChildren(...out);
 
     if (t === "active") {
-      const ready = list.filter((e) => e.progress.Completed).length;
-      this.foot.replaceChildren(h("span", "", h("b", "", String(ready)), " ready to turn in"),
+      const ready = q.runs().filter((r) => r.status === QuestRunStatus.Ready).length;
+      this.foot.replaceChildren(h("span", "", h("b", "", String(ready)), " ready · ", h("b", "", `${q.activeCount}/${MAX_CONCURRENT_QUESTS}`)),
         h("span", "", "Tracked ", h("b", "", `${q.trackedIds.length} / ${MAX_TRACKED_QUESTS}`)));
     } else if (t === "available") {
       this.foot.replaceChildren(h("span", "", "Take these from their NPC"));
-    } else this.foot.replaceChildren(h("span", "", h("b", "", String(q.completed.length)), " completed"));
+    } else this.foot.replaceChildren(h("span", "", h("b", "", String(q.historyRows().length)), " completed"));
   }
 
-  private row(t: Exclude<Tab, "items">, e: QuestEntry, isSel: boolean): HTMLElement {
-    const { info, progress } = e;
-    const q = this.m.quests;
-    const ready = t === "active" && progress.Completed;
-    const marker = questMiniMapMarker(t === "completed" ? null : t === "available" ? questIconFor(info) : entryIcon(e));
+  private row(t: Exclude<Tab, "items">, e: Entry, isSel: boolean): HTMLElement {
+    const q = this.m.quests, quest = e.quest, def = q.def(quest), run = q.run(quest), hist = q.history(quest);
+    const ready = run?.status === QuestRunStatus.Ready, failed = run?.status === QuestRunStatus.Failed;
+    const marker = t === "completed" ? null : questMarker(q, quest);
     const mk = h("span", "mk", marker?.text ?? "");
     if (marker) mk.style.color = marker.colour;
-    const lv = `Lv ${info.MinLevelNeeded}`;
-    const where = t === "active" ? (ready ? `Return to ${this.npcLabel(info.FinishNPCIndex)}` : progress.TaskList[0] ?? info.Group)
-      : t === "available" ? this.npcLabel(info.NPCIndex) : info.Group;
-    const parts: HTMLElement[] = [mk, h("div", "mid", h("div", "nm", info.Name), h("div", "sub", [lv, where].filter(Boolean).join(" · ")))];
-    if (ready) parts.push(h("span", "pill hot", "Ready"));
-    else if (t === "active" && progress.New) parts.push(h("span", "pill", "New"));
+    let sub = "";
     if (t === "active") {
-      const on = q.isTracked(info.Index), full = !on && q.trackedIds.length >= MAX_TRACKED_QUESTS;
+      if (failed) sub = "Failed";
+      else if (ready) sub = `Return to ${this.who(def, QuestEndpointRole.Finish)}`;
+      else {
+        const step = q.currentStep(quest), objs = def && step ? q.shownObjectives(def, step.Index) : [];
+        const open = objs.find((o) => !o.Optional && !q.done(o)) ?? objs[0];
+        sub = step?.Title || (open ? q.objectiveText(open) : def?.GroupName ?? "");
+      }
+    } else if (t === "available") sub = e.offer ? (e.offer.sharedBy ? `Shared by ${e.offer.sharedBy}` : "Offered to you") : npcName(this.npc(e.npc)?.name ?? "")[0];
+    else if (hist) sub = hist.availableAt > Date.now() ? `Again in ${fmtDuration((hist.availableAt - Date.now()) / 1000)}` : hist.times > 1 ? `Completed ${hist.times} times` : `Completed ${fmtAgo(hist.lastAt)}`;
+    const lv = def && def.LevelHint > 0 ? `Lv ${def.LevelHint}` : "";
+    const parts: HTMLElement[] = [mk, h("div", "mid", h("div", "nm", q.name(quest)), h("div", "sub", [lv, sub].filter(Boolean).join(" · ")))];
+    if (ready) parts.push(h("span", "pill hot", "Ready"));
+    else if (failed) parts.push(h("span", "pill bad", "Failed"));
+    if (t === "active" && !failed) {
+      const on = q.isTracked(quest), full = !on && q.trackedIds.length >= MAX_TRACKED_QUESTS;
       const pin = asButton(h("div", "pin" + (on ? " on" : "") + (full ? " full" : ""), svg("pin", "qu-ic")),
         on ? "Untrack" : full ? `You can track at most ${MAX_TRACKED_QUESTS} quests` : "Track on screen");
-      pin.addEventListener("click", (ev) => { ev.stopPropagation(); this.toggleTrack(info.Index); });
+      pin.addEventListener("click", (ev) => { ev.stopPropagation(); this.toggleTrack(quest); });
       parts.push(pin);
     }
-    const low = t !== "completed" && q.level - info.MinLevelNeeded > 10; // QuestSingleQuestItem: grey 10+ levels below
-    const r = h("div", "row" + (isSel ? " sel" : "") + (ready ? " ready" : "") + (t === "completed" ? " done" : "") + (low ? " low" : "")
-      + (this.pending.has(info.Index) ? " busy" : ""), ...parts);
+    const low = t !== "completed" && !!def && def.LevelHint > 0 && q.level - def.LevelHint > 10;
+    const r = h("div", "row" + (isSel ? " sel" : "") + (ready ? " ready" : "") + (failed ? " failed" : "") + (t === "completed" ? " done" : "")
+      + (low ? " low" : "") + (this.pending.has(quest) ? " busy" : ""), ...parts);
     r.addEventListener("click", () => {
-      if (this.picked[t] === info.Index) return;
-      this.picked[t] = info.Index;
+      if (this.picked[t] === quest) return;
+      this.picked[t] = quest;
       for (const x of Array.from(this.list.querySelectorAll(".row.sel"))) x.classList.remove("sel");
       r.classList.add("sel");
       this.detailDirty = true; this.invalidate();
@@ -429,61 +415,142 @@ class QuestsWindow extends UiWindow {
     return r;
   }
 
-  private renderDetail(t: Exclude<Tab, "items">, e: QuestEntry | null): void {
+  private renderDetail(t: Exclude<Tab, "items">, e: Entry | null): void {
     this.ui.tooltip.hide();
     this.waiting.clear();
+    this.timers = [];
     if (!e) { this.detail.replaceChildren(h("div", "empty", "Pick a quest.")); return; }
-    const { info, progress } = e;
-    const q = this.m.quests;
-    const ready = t === "active" && progress.Completed;
+    const q = this.m.quests, quest = e.quest, def = q.def(quest), run = q.run(quest), hist = q.history(quest);
+    if (!def) {
+      q.requestDefinition(quest); // a history quest: C.QuestDefinitionRequest (answered for runs, history and offers)
+      this.detail.replaceChildren(h("div", "dscroll", h("div", "dhead", h("h3", "", q.name(quest))),
+        hist ? this.historyLine(hist.times, hist.lastAt, hist.availableAt) : h("div", "note", "Loading the quest…")), h("div", "actions"));
+      return;
+    }
+    const ready = run?.status === QuestRunStatus.Ready, failed = run?.status === QuestRunStatus.Failed;
 
-    const kind = QuestTypeName[info.Type] ?? "";
-    const lv = info.MaxLevelNeeded > 0 && info.MaxLevelNeeded < 65535 && info.MaxLevelNeeded !== info.MinLevelNeeded
-      ? `Level ${info.MinLevelNeeded}-${info.MaxLevelNeeded}` : `Level ${info.MinLevelNeeded}`;
-    const tags = h("div", "tags", h("span", "pill", kind), h("span", "pill", lv));
-    if (info.Group) tags.append(h("span", "pill", info.Group));
+    const tags = h("div", "tags", h("span", "pill", QUEST_CATEGORY_LABEL[def.Category] ?? ""));
+    if (def.LevelHint > 0) tags.append(h("span", "pill", `Level ${def.LevelHint}`));
+    if (def.GroupName) tags.append(h("span", "pill", def.GroupName));
+    if (def.RepeatPolicy !== QuestRepeatPolicy.Once) tags.append(h("span", "pill", ["", "Daily", "Weekly", "Cooldown", "Repeatable"][def.RepeatPolicy] ?? ""));
     if (ready) tags.append(h("span", "pill hot", "Ready to turn in"));
-    else if (t === "active") tags.append(h("span", "pill", "In progress"));
+    else if (failed) tags.append(h("span", "pill bad", "Failed"));
+    else if (run) tags.append(h("span", "pill", "In progress"));
     if (t === "completed") tags.append(h("span", "pill", "Completed"));
-    if (t === "active" && q.isTracked(info.Index)) tags.append(h("span", "pill", "Tracked"));
+    if (run && q.isTracked(quest)) tags.append(h("span", "pill", "Tracked"));
 
-    const giver = h("div", "giver", this.npcLine("From", info.NPCIndex));
-    if (!sameFinishNPC(info)) giver.append(this.npcLine("Turn in to", info.FinishNPCIndex));
-    const parts: HTMLElement[] = [h("div", "dhead", h("h3", "", svg(TYPE_ICON[info.Type] ?? "scroll", "qu-ic"), info.Name), tags, giver)];
+    const giver = h("div", "giver", this.npcLine("From", def, QuestEndpointRole.Start));
+    const finish = q.endpointNpcs(def, QuestEndpointRole.Finish), start = q.endpointNpcs(def, QuestEndpointRole.Start);
+    if (finish.join() !== start.join()) giver.append(this.npcLine("Turn in to", def, QuestEndpointRole.Finish));
+    const parts: HTMLElement[] = [h("div", "dhead", h("h3", "", svg(CAT_ICON[def.Category] ?? "scroll", "qu-ic"), def.Name), tags, giver)];
 
-    // QuestMessage.UpdateQuest's sections, as text.
-    if (info.Description.length) parts.push(this.text(info.Description, "desc"));
-    if (info.TaskDescription.length) parts.push(this.section("Tasks", info.TaskDescription, true));
-    if (t === "active" && progress.TaskList.length) parts.push(this.section("Progress", progress.TaskList, true));
-    if (info.ReturnDescription.length && t !== "completed") parts.push(this.section("Return", info.ReturnDescription, false));
-    if (info.TimeLimitInSeconds > 0) parts.push(h("div", "", h("div", "lbl", "Time limit"), h("div", "txt", printTimeSpanFromSeconds(info.TimeLimitInSeconds))));
-    parts.push(this.rewards(info));
-
-    this.detail.replaceChildren(h("div", "dscroll", ...parts), this.actions(t, e));
+    if (def.Summary) parts.push(this.text(def.Summary, "desc"));
+    if (t === "completed") {
+      if (def.CompleteText) parts.push(this.text(def.CompleteText));
+      if (hist) parts.push(this.historyLine(hist.times, hist.lastAt, hist.availableAt));
+    } else if (run) parts.push(...this.runParts(def, run.step, ready, failed));
+    else {
+      const first = def.Steps[0];
+      if (first) parts.push(this.stepBlock(def, first.Index, false));
+      if (def.TimeLimitSeconds > 0) parts.push(h("div", "", h("div", "lbl", "Time limit"), h("div", "timer", printTimeSpanFromSeconds(def.TimeLimitSeconds))));
+    }
+    const carried = rewardsBlock(this.ui, q, def, { scope: QuestRewardScope.Accept, title: "You will carry" });
+    if (carried && !run && t !== "completed") parts.push(carried);
+    const rewards = rewardsBlock(this.ui, q, def, { pick: !!run && !failed && t === "active" });
+    parts.push(rewards ?? h("div", "", h("div", "lbl", "Rewards"), h("div", "note", "No reward listed.")));
+    this.detail.replaceChildren(h("div", "dscroll", ...parts), this.actions(t, e, def));
+    this.tickTimers();
   }
 
-  private npcLine(label: string, id: number): HTMLElement {
-    const n = this.npc(id);
+  /** The run's step list, current step (text, objectives, timers, branches). */
+  private runParts(def: QuestDefinitionInfo, stepId: number, ready: boolean, failed: boolean): HTMLElement[] {
+    const q = this.m.quests, run = q.run(def.Quest)!;
+    const out: HTMLElement[] = [];
+    const cur = stepId >= 0 ? q.step(def, stepId) : undefined;
+    if (def.Steps.length > 1) {
+      const list = h("div", "steps");
+      for (const s of def.Steps) {
+        const done = stepId < 0 || (cur ? s.Order < cur.Order : false), isCur = s === cur;
+        list.append(h("div", "step" + (done ? " done" : "") + (isCur ? " cur" : ""), h("b", "", done ? "✓" : isCur ? "▸" : "·"), s.Title || `Step ${s.Order}`));
+      }
+      out.push(h("div", "", h("div", "lbl", "Steps"), list));
+    }
+    if (failed) out.push(h("div", "note", "This quest failed. Remove it to take it again (if it can be repeated)."));
+    if (cur) {
+      const text = ready && cur.ReadyText ? cur.ReadyText : cur.Text;
+      if (text) out.push(this.text(text));
+      out.push(this.stepBlock(def, cur.Index, true));
+    } else if (ready) {
+      const last = def.Steps[def.Steps.length - 1];
+      if (last?.ReadyText) out.push(this.text(last.ReadyText));
+    }
+    if (run.expiresAt || run.stepExpiresAt) {
+      const box = h("div", "", h("div", "lbl", "Time left"));
+      if (run.expiresAt) { const el = h("div", "timer"); this.timers.push([el, run.expiresAt, run.stepExpiresAt ? "Quest: " : ""]); box.append(el); }
+      if (run.stepExpiresAt) { const el = h("div", "timer"); this.timers.push([el, run.stepExpiresAt, run.expiresAt ? "Step: " : ""]); box.append(el); }
+      out.push(box);
+    }
+    const branches = q.pendingBranches(def.Quest);
+    if (branches.length) {
+      const s = this.m.npcSession;
+      const atNpc = s.open && (q.npcQuests(s.talkedNpcId)?.finishing.includes(def.Quest) ?? false);
+      const row = h("div", "branches");
+      for (const b of branches) {
+        const btn = button(b.Text || b.ChoiceKey, () => this.choose(def.Quest, b.ChoiceKey), { cls: "main" });
+        if (!atNpc) btn.setDisabled(true, `Speak to ${this.who(def, QuestEndpointRole.Finish)} to choose`);
+        else if (this.pending.has(def.Quest)) btn.setDisabled(true, "Waiting for the server");
+        row.append(btn.el);
+      }
+      out.push(h("div", "", h("div", "lbl", "Choose"), row));
+    }
+    return out;
+  }
+
+  /** A step's objectives (live values for the current step). */
+  private stepBlock(def: QuestDefinitionInfo, stepId: number, live: boolean): HTMLElement {
+    const q = this.m.quests;
+    const box = h("div", "", h("div", "lbl", live ? "Objectives" : "Tasks"));
+    const objs = live ? q.shownObjectives(def, stepId) : q.objectives(def, stepId).filter((o) => !o.Hidden);
+    for (const o of objs) box.append(objectiveRow(q, o, live));
+    if (!objs.length) box.append(h("div", "note", live ? "Nothing more to do on this step." : "Speak to the quest giver to learn more."));
+    const step = q.step(def, stepId);
+    if (step && step.TimeLimitSeconds > 0 && !live) box.append(h("div", "note", `Step time limit: ${printTimeSpanFromSeconds(step.TimeLimitSeconds)}`));
+    return box;
+  }
+
+  private historyLine(times: number, lastAt: number, availableAt: number): HTMLElement {
+    const box = h("div", "", h("div", "lbl", "History"), h("div", "txt", `Completed ${times === 1 ? "once" : `${times} times`}, last ${fmtAgo(lastAt)}.`));
+    if (availableAt > 0) { const el = h("div", "timer"); this.timers.push([el, availableAt, "Available again in "]); box.append(el); }
+    return box;
+  }
+
+  /** Every second while shown: the timer labels of the detail (no rebuild). */
+  private tickTimers(): void {
+    const now = Date.now();
+    for (const [el, end, prefix] of this.timers) {
+      const left = Math.max(0, (end - now) / 1000);
+      setText(el, left > 0 ? prefix + printTimeSpanFromSeconds(left) : prefix ? prefix + "0s" : "0s");
+      el.classList.toggle("low", left > 0 && left < 60);
+    }
+  }
+
+  private npcLine(label: string, def: QuestDefinitionInfo, role: number): HTMLElement {
+    const ids = this.m.quests.endpointNpcs(def, role);
+    const names = this.m.quests.endpointNames(def, role);
+    const n = ids.length ? this.endpointNpc(ids[0]!) : null;
     const where = n ? this.mapTitle(n.map) : "";
-    return h("span", "", `${label} `, h("b", "", n ? npcName(n.name)[0] : "an NPC you have not met"),
+    return h("span", "", `${label} `, h("b", "", names.length ? names.map((x) => npcName(x)[0]).join(" or ") : "—"),
       n && where ? ` · ${where} (${n.x}, ${n.y})` : "");
   }
 
-  private section(title: string, lines: readonly string[], boxed: boolean): HTMLElement {
-    if (!boxed) return h("div", "", h("div", "lbl", title), this.text(lines));
-    const box = h("div", "");
-    for (const l of lines) box.append(h("div", "obj txt", ...this.markup(l)));
-    return h("div", "", h("div", "lbl", title), box);
-  }
-
-  private text(lines: readonly string[], cls = ""): HTMLElement {
+  private text(body: string, cls = ""): HTMLElement {
     const t = h("div", "txt" + (cls ? " " + cls : ""));
-    for (const l of lines) t.append(h("div", "", ...this.markup(l)));
+    const lines = body.split(/\r?\n/);
+    lines.forEach((l, i) => { if (i) t.append("\n"); t.append(...this.markup(l)); });
     return t;
   }
 
-  /** A quest text row: {text/Colour} colours and info links (named, item tooltip on hover); page links / web links as
-   *  plain text (the classic QuestMessage only colours and links). */
+  /** A quest text row: {text/Colour} colours and info links (item tooltip on hover); page / web links as plain text. */
   private markup(line: string): Node[] {
     const out: Node[] = [];
     for (const seg of parseLine(line)) {
@@ -525,75 +592,103 @@ class QuestsWindow extends UiWindow {
     }
   }
 
-  /** QuestRewards: exp / gold / credit, the fixed items, the select items (the user's gender only; picked at the NPC). */
-  private rewards(info: ClientQuestInfo): HTMLElement {
-    const box = h("div", "", h("div", "lbl", "Rewards"));
-    const chips = h("div", "rew");
-    const chip = (k: string, v: number) => h("div", "chip", h("span", "", k), h("b", "", fmt(v)));
-    if (info.RewardExp > 0) chips.append(chip("EXP", info.RewardExp));
-    if (info.RewardGold > 0) chips.append(chip("GOLD", info.RewardGold));
-    if (info.RewardCredit > 0) chips.append(chip("CREDIT", info.RewardCredit));
-    for (const r of info.RewardsFixedItem.slice(0, 5)) chips.append(this.rewardCell(r));
-    if (!chips.childNodes.length) chips.append(h("span", "note", "No reward listed."));
-    box.append(chips);
-    const gender = this.m.quests.gender;
-    const select = info.RewardsSelectItem.filter((r) => {
-      const g = r.Item.RequiredGender;
-      return !(gender === MirGender.Male && !(g & RequiredGender.Male)) && !(gender === MirGender.Female && !(g & RequiredGender.Female));
-    }).slice(0, 5);
-    if (select.length) {
-      const pick = h("div", "rew");
-      for (const r of select) pick.append(this.rewardCell(r));
-      box.append(h("div", "lbl", "Choose one (at turn-in)"), pick);
-    }
-    return box;
-  }
-
-  private rewardCell(r: QuestItemReward): HTMLElement {
-    const c = this.showCell(36);
-    this.setCell(c, displayItem(r.Item, r.Count), r.Item, r.Count > 1);
-    return c.el;
-  }
-
-  private actions(t: Exclude<Tab, "items">, e: QuestEntry): HTMLElement {
-    const { info, progress } = e;
-    const q = this.m.quests;
+  private actions(t: Exclude<Tab, "items">, e: Entry, def: QuestDefinitionInfo): HTMLElement {
+    const q = this.m.quests, quest = e.quest, run = q.run(quest);
     const bar = h("div", "actions");
-    const target = t === "available" ? info.NPCIndex : info.FinishNPCIndex;
-    const find = button("Map", () => this.findOnMap(target), { icon: "map", title: `Find ${this.npcLabel(target)} on the map` });
-    if (!this.npc(target)) find.setDisabled(true, "You have not met this NPC yet");
-    if (t === "available") {
-      bar.append(find.el, h("span", "speak", `Speak to ${this.npcLabel(info.NPCIndex)} to accept`));
-      return bar;
-    }
+    const s = this.m.npcSession;
+    const pending = this.pending.has(quest);
+    const role = run ? QuestEndpointRole.Finish : QuestEndpointRole.Start;
+    const find = button("Map", () => this.findOnMap(def, role, e.npc), { icon: "map", title: `Find ${this.who(def, role)} on the map` });
+
     if (t === "completed") {
-      bar.append(h("span", "note", "Completed"));
+      bar.append(find.el, h("span", "note", "Completed"));
       return bar;
     }
-    const pending = this.pending.has(info.Index);
-    const tracked = q.isTracked(info.Index);
-    const track = button(tracked ? "Untrack" : "Track", () => this.toggleTrack(info.Index), { icon: "pin", title: tracked ? "Remove from the on-screen tracker" : "Show on the on-screen tracker" });
+    if (t === "available") {
+      if (e.offer) {
+        const offer = e.offer;
+        const acc = button(pending ? "Accepting…" : "Accept", () => this.accept(quest, 0), { cls: "main", icon: "check" });
+        if (pending) acc.setDisabled(true, "Waiting for the server");
+        else if (q.activeCount >= MAX_CONCURRENT_QUESTS) acc.setDisabled(true, `You can carry at most ${MAX_CONCURRENT_QUESTS} quests`);
+        const dec = button("Decline", () => q.dropOffer(offer.quest), { icon: "cross" });
+        bar.append(acc.el, dec.el);
+        return bar;
+      }
+      const here = s.open && s.talkedNpcId === e.npc && (q.npcQuests(e.npc)?.offered.includes(quest) ?? false);
+      if (here) {
+        const acc = button(pending ? "Accepting…" : "Accept", () => this.accept(quest, e.npc), { cls: "main", icon: "check" });
+        if (pending) acc.setDisabled(true, "Waiting for the server");
+        else if (q.activeCount >= MAX_CONCURRENT_QUESTS) acc.setDisabled(true, `You can carry at most ${MAX_CONCURRENT_QUESTS} quests`);
+        bar.append(acc.el, find.el);
+      } else bar.append(find.el, h("span", "speak", `Speak to ${npcName(this.npc(e.npc)?.name ?? this.who(def, QuestEndpointRole.Start))[0]} to accept`));
+      return bar;
+    }
+    if (!run) return bar;
+    const ready = run.status === QuestRunStatus.Ready, failed = run.status === QuestRunStatus.Failed;
+    if (failed) {
+      const rm: Btn = button(pending ? "Removing…" : "Remove", () => void this.abandon(quest, true), { cls: "warn", icon: "cross", title: "Remove the failed quest from your log" });
+      if (pending) rm.setDisabled(true, "Waiting for the server");
+      bar.append(rm.el);
+      return bar;
+    }
+    const tracked = q.isTracked(quest);
+    const track = button(tracked ? "Untrack" : "Track", () => this.toggleTrack(quest), { icon: "pin", title: tracked ? "Remove from the on-screen tracker" : "Show on the on-screen tracker" });
     if (!tracked && q.trackedIds.length >= MAX_TRACKED_QUESTS) track.setDisabled(true, `You can track at most ${MAX_TRACKED_QUESTS} quests`);
-    const share = button(this.shared.has(info.Index) ? "Shared" : "Share", () => this.share(info.Index), { icon: "group", title: "Offer this quest to your group members nearby" });
+    const share = button(this.shared.has(quest) ? "Shared" : "Share", () => this.share(quest), { icon: "group", title: "Offer this quest to your group members nearby" });
     if (this.m.group.list.length < 2) share.setDisabled(true, "Share with your group: you are not in a group");
-    else if (this.shared.has(info.Index)) share.setDisabled(true, "Shared: wait a moment to share again");
-    const abandon: Btn = button(pending ? "Abandoning…" : "Abandon", () => void this.abandon(info), { cls: "warn", icon: "cross", title: "Abandon this quest" });
+    else if (this.shared.has(quest)) share.setDisabled(true, "Shared: wait a moment to share again");
+    const abandon: Btn = button(pending ? "Abandoning…" : "Abandon", () => void this.abandon(quest, false), { cls: "warn", icon: "cross", title: "Abandon this quest" });
     if (pending) abandon.setDisabled(true, "Waiting for the server");
-    bar.append(track.el, share.el, find.el, abandon.el,
-      h("span", "speak", progress.Completed ? `Speak to ${this.npcLabel(info.FinishNPCIndex)} to turn in` : ""));
+    else if (!def.AbandonAllowed) abandon.setDisabled(true, "This quest cannot be abandoned");
+    bar.append(track.el, share.el, find.el, abandon.el);
+    if (ready) {
+      const npc = s.open && (q.npcQuests(s.talkedNpcId)?.finishing.includes(quest) ?? false) ? s.talkedNpcId : 0;
+      if (npc) {
+        const picks = q.picksFor(def);
+        const turn = button(pending ? "Turning in…" : "Turn in", () => this.turnIn(def, npc), { cls: "main", icon: "check" });
+        if (pending) turn.setDisabled(true, "Waiting for the server");
+        else if (!picks) turn.setDisabled(true, "Choose a reward first");
+        bar.append(turn.el);
+      } else bar.append(h("span", "speak", `Speak to ${this.who(def, QuestEndpointRole.Finish)} to turn in`));
+    }
     return bar;
   }
 
-  // — Actions —
+  // — Actions (the server answers with S.QuestStates; nothing changes here first) —
 
-  /** QuestDiaryDialog right-click: QuestTrackingDialog.AddQuest / RemoveQuest (the model saves it per character). */
+  private lock(quest: number): void {
+    this.pending.add(quest);
+    later(() => { if (this.pending.delete(quest)) { this.listDirty = this.detailDirty = true; this.invalidate(); } }, PENDING_MS, this.signal);
+    this.listDirty = this.detailDirty = true;
+    this.invalidate();
+  }
+
+  private accept(quest: number, npc: number): void {
+    if (this.pending.has(quest)) return;
+    this.lock(quest);
+    this.m.quests.accept(quest, npc);
+  }
+
+  private turnIn(def: QuestDefinitionInfo, npc: number): void {
+    const picks = this.m.quests.picksFor(def);
+    if (!picks || this.pending.has(def.Quest)) return;
+    this.lock(def.Quest);
+    this.m.quests.turnIn(def.Quest, npc, picks);
+  }
+
+  private choose(quest: number, key: string): void {
+    const s = this.m.npcSession;
+    if (!s.open || this.pending.has(quest)) return;
+    this.lock(quest);
+    this.m.quests.choose(quest, s.talkedNpcId, key);
+  }
+
   private toggleTrack(id: number): void {
     const q = this.m.quests;
     if (q.isTracked(id)) q.untrackQuest(id);
     else if (q.trackedIds.length < MAX_TRACKED_QUESTS) q.trackQuest(id);
   }
 
-  /** QuestDetailDialog share button: C.ShareQuest (the server offers it to group members nearby). */
   private share(id: number): void {
     if (this.shared.has(id)) return;
     this.m.quests.share(id);
@@ -602,23 +697,21 @@ class QuestsWindow extends UiWindow {
     this.detailDirty = true; this.invalidate();
   }
 
-  /** QuestDetailDialog cancel: AskCancelQuest, then C.AbandonQuest; locked until S.ChangeQuest (Remove). */
-  private async abandon(info: ClientQuestInfo): Promise<void> {
-    if (this.pending.has(info.Index)) return;
-    const ok = await this.ui.rt.popups.ask(`Are you sure you want to cancel the quest "${info.Name}"?`, { title: "Abandon quest", kind: "warning", okCancel: true });
-    if (!ok || this.pending.has(info.Index) || !this.m.quests.current.some((p) => p.Id === info.Index)) return;
-    this.pending.add(info.Index);
-    this.m.quests.abandon(info.Index);
-    later(() => { if (this.pending.delete(info.Index)) { this.listDirty = this.detailDirty = true; this.invalidate(); } }, PENDING_MS, this.signal);
-    this.listDirty = this.detailDirty = true;
-    this.invalidate();
+  private async abandon(quest: number, failed: boolean): Promise<void> {
+    if (this.pending.has(quest)) return;
+    const name = this.m.quests.name(quest);
+    const ok = failed || await this.ui.rt.popups.ask(`Are you sure you want to cancel the quest "${name}"?`, { title: "Abandon quest", kind: "warning", okCancel: true });
+    if (!ok || this.pending.has(quest) || !this.m.quests.run(quest)) return;
+    this.lock(quest);
+    this.m.quests.abandon(quest);
   }
 
-  /** Opens the big map; when the NPC is on another map, a note says where it is. */
-  private findOnMap(id: number): void {
-    const n = this.npc(id);
-    if (!n) return;
+  /** Opens the big map; when the NPC is on another map (or unknown), a note says where it is. */
+  private findOnMap(def: QuestDefinitionInfo, role: number, objectId: number): void {
+    const ids = this.m.quests.endpointNpcs(def, role);
+    const n = (objectId ? this.npc(objectId) : null) ?? (ids.length ? this.endpointNpc(ids[0]!) : null);
     this.ui.openWindow("bigMap", true);
+    if (!n) return;
     if (n.map !== this.m.currentMap.index) {
       const where = this.mapTitle(n.map) || "another map";
       void this.ui.rt.popups.confirm({ title: "Find on map", text: `${npcName(n.name)[0]} is in ${where} at (${n.x}, ${n.y}).`, buttons: "ok", kind: "info" });
@@ -648,7 +741,6 @@ class QuestsWindow extends UiWindow {
     setText(this.inote, filled ? `${filled} item${filled === 1 ? "" : "s"}` : "No quest items.");
   }
 
-  /** A display-only cell (core item cell look) with the item tooltip on hover. */
   private showCell(size: number): ShowCell {
     const icon = h("i"), count = h("b");
     count.hidden = true;
@@ -676,22 +768,26 @@ class QuestsWindow extends UiWindow {
 }
 
 registerWindow(QUESTS_WINDOW, (host) => new QuestsWindow(host), {
-  // At UI start: remember the NPCs that come into view (the Available tab and Find on map use them), and
-  // GameScene.ShareQuest as a request toast (Accept = C.AcceptQuest with NPCIndex 0; declines when it runs out).
+  // At UI start: remember the NPCs that come into view (NPC lines and Find on map use them), and each S.QuestOffer as a
+  // request toast (Accept = C.QuestAccept with NpcObjectID 0; Decline / timeout forgets it).
   watch: (host) => {
     const sig = host.rt.signal, met = metNpcs(host.rt), quests = host.ctx.models.quests;
-    return host.packets.on((p) => {
-      if (p.type === "ObjectNPC") {
-        const map = host.ctx.models.currentMap.index, was = met.get(p.ObjectID);
-        met.set(p.ObjectID, { name: p.Name, map, x: p.Location.X, y: p.Location.Y });
-        if (!was || was.map !== map || was.name !== p.Name) host.rt.peekWindow<QuestsWindow>(QUESTS_WINDOW)?.npcsChanged();
-        return;
-      }
-      if (p.type !== "ShareQuest") return;
-      const info = quests.info(p.QuestIndex);
-      if (!info) return;
-      void host.rt.popups.request({ from: p.SharerName, tag: "Quest", text: `would like to share the quest "${info.Name}" with you.`, seconds: SHARE_SECONDS })
-        .then((yes) => { if (yes && !sig.aborted) quests.accept(0, info.Index); });
+    const offOffer = quests.offered.on((o) => {
+      const name = quests.name(o.quest);
+      const from = o.sharedBy || "Quest";
+      const text = o.sharedBy ? `would like to share the quest "${name}" with you.` : `New quest: "${name}". Accept it?`;
+      void host.rt.popups.request({ from, tag: "Quest", text, seconds: OFFER_SECONDS })
+        .then((yes) => {
+          if (sig.aborted || !quests.offers.some((x) => x.quest === o.quest)) return;
+          if (yes) quests.accept(o.quest, 0); else quests.dropOffer(o.quest);
+        });
     });
+    const offPackets = host.packets.on((p) => {
+      if (p.type !== "ObjectNPC") return;
+      const map = host.ctx.models.currentMap.index, was = met.get(p.ObjectID);
+      met.set(p.ObjectID, { name: p.Name, map, x: p.Location.X, y: p.Location.Y });
+      if (!was || was.map !== map || was.name !== p.Name) host.rt.peekWindow<QuestsWindow>(QUESTS_WINDOW)?.npcsChanged();
+    });
+    return () => { offOffer(); offPackets(); };
   },
 });
