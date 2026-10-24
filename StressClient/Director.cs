@@ -26,6 +26,8 @@ internal sealed class IdleRequest
     public int MapIndex;
     public string MapFileName = string.Empty;
     public Point Location;
+    /// <summary>Monster info indexes the bot needs for quest kills (an immutable snapshot); respawns of them are preferred.</summary>
+    public int[] QuestMonsters = Array.Empty<int>();
     public long At;
 }
 
@@ -43,6 +45,9 @@ internal sealed class Director
     private readonly Metrics _m;
     private readonly Random _rng;
     private readonly ConcurrentQueue<IdleRequest> _queue = new();
+
+    /// <summary>How far a quest-monster respawn may be for the Director to prefer it over the nearest ones.</summary>
+    private const int QuestRespawnRange = 60;
 
     private Thread _thread;
     private volatile bool _running;
@@ -127,10 +132,21 @@ internal sealed class Director
             if (directive == null && respawns.Length > 0)
             {
                 // Prefer a respawn near the bot: a directive on the far side of the map turns a town run into a
-                // minutes-long walk and starves the hunt loop.
-                var candidates = respawns
+                // minutes-long walk and starves the hunt loop. A bot hunting for a quest gets a respawn of its quest
+                // monsters when one is within reach.
+                var pool = respawns;
+                if (request.QuestMonsters.Length > 0)
+                {
+                    var quest = respawns
+                        .Where(r => Array.IndexOf(request.QuestMonsters, r.MonsterIndex) >= 0 &&
+                                    Functions.MaxDistance(r.Location, request.Location) <= QuestRespawnRange)
+                        .ToArray();
+                    if (quest.Length > 0) pool = quest;
+                }
+
+                var candidates = pool
                     .OrderBy(r => Functions.MaxDistance(r.Location, request.Location))
-                    .Take(Math.Min(3, respawns.Length))
+                    .Take(Math.Min(3, pool.Length))
                     .ToArray();
 
                 var respawn = candidates[_rng.Next(candidates.Length)];

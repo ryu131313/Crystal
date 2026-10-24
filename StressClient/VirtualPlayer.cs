@@ -88,6 +88,9 @@ internal sealed class VirtualPlayer
 
     private volatile Directive _directive;
 
+    // S.QuestStates outcomes, reused per packet
+    private readonly List<int> _questAccepted = new(), _questTurnedIn = new(), _questAbandoned = new();
+
     /// <summary>Set by the ramp: an unreleased bot stays idle and never opens a socket.</summary>
     internal volatile bool Released;
 
@@ -654,25 +657,35 @@ internal sealed class VirtualPlayer
                 Metrics.Inc(ref _m.NpcPages);
                 break;
 
-            case S.NewQuestInfo questInfo:
-                if (questInfo.Info != null)
-                {
-                    World.QuestInfos[questInfo.Info.Index] = questInfo.Info;
-                    World.OfferedQuests.Add(questInfo.Info.Index);
-                }
+            // Quest system V2: offers come from S.QuestAvailability (per NPC in view) + S.QuestDefinition (on demand).
+            case S.QuestDefinition qd:
+                World.Quests.ApplyDefinition(qd);
                 break;
 
-            case S.ChangeQuest quest:
-                World.ApplyQuest(quest.Quest, quest.QuestState);
+            case S.QuestAvailability qa:
+                World.Quests.ApplyAvailability(qa, World);
                 break;
 
-            case S.CompleteQuest completed:
-                foreach (var id in completed.CompletedQuests)
-                {
-                    World.Quests.Remove(id);
-                    World.CompletedQuestIds.Add(id);
-                    Metrics.Inc(ref _m.QuestsFinished);
-                }
+            case S.QuestStates qs:
+                _questAccepted.Clear();
+                _questTurnedIn.Clear();
+                _questAbandoned.Clear();
+                World.Quests.ApplyStates(qs, now, _questAccepted, _questTurnedIn, _questAbandoned);
+                for (int i = 0; i < _questAccepted.Count; i++) Metrics.Inc(ref _m.QuestsAccepted);
+                for (int i = 0; i < _questTurnedIn.Count; i++) Metrics.Inc(ref _m.QuestsFinished);
+                for (int i = 0; i < _questAbandoned.Count; i++) Metrics.Inc(ref _m.QuestsAbandoned);
+                break;
+
+            case S.QuestProgress qp:
+                World.Quests.ApplyProgress(qp, now);
+                break;
+
+            case S.QuestHistory qh:
+                World.Quests.ApplyHistory(qh);
+                break;
+
+            case S.QuestOffer qo:
+                World.Quests.Offers.Add(qo.Quest);
                 break;
 
             case S.GroupInvite:
@@ -694,6 +707,7 @@ internal sealed class VirtualPlayer
 
             case S.NewMonsterInfo nmi:
                 World.MonsterInfo[nmi.Info.Name ?? "?"] = nmi.Info;
+                World.Quests.NoteMonsterInfo(nmi.Info);
                 _directory.MonsterInfo(nmi.Info);
                 foreach (var mon in World.Monsters.Values)
                     if (string.Equals(mon.Name, nmi.Info.Name, StringComparison.OrdinalIgnoreCase)) mon.Level = nmi.Info.Level;
@@ -1206,18 +1220,32 @@ internal sealed class VirtualPlayer
         return true;
     }
 
-    internal void AcceptQuest(int index, long now)
+    /// <summary>C.QuestAccept at <paramref name="npcObjectId"/> (0 = a pending S.QuestOffer). Counted when S.QuestStates confirms it.</summary>
+    internal void AcceptQuest(int quest, uint npcObjectId, long now)
     {
-        Send(new C.AcceptQuest { QuestIndex = index });
-        Metrics.Inc(ref _m.QuestsAccepted);
+        World.Quests.PendingAccepts[quest] = now;
+        World.Quests.Offers.Remove(quest);
+        Send(new C.QuestAccept { Quest = quest, NpcObjectID = npcObjectId });
+        Metrics.Inc(ref _m.QuestAcceptSent);
         _nextActionAt = now + 600;
     }
 
-    internal void FinishQuest(int index, long now)
+    /// <summary>C.QuestTurnIn with one reward pick per choice group. Counted as done when S.QuestStates removes the run.</summary>
+    internal void TurnInQuest(int quest, uint npcObjectId, long now)
     {
-        Send(new C.FinishQuest { QuestIndex = index, SelectedItemIndex = 0 });
+        World.Quests.Definitions.TryGetValue(quest, out var def);
+        World.Quests.PendingTurnIns[quest] = now;
+        Send(new C.QuestTurnIn { Quest = quest, NpcObjectID = npcObjectId, RewardPicks = QuestLogic.RewardPicks(def) });
         Metrics.Inc(ref _m.QuestFinishSent);
         _nextActionAt = now + 600;
+    }
+
+    internal void AbandonQuest(int quest, long now)
+    {
+        if (World.Quests.Runs.TryGetValue(quest, out var run)) run.AbandonSent = true;
+        World.Quests.PendingAbandons[quest] = now;
+        Send(new C.QuestAbandon { Quest = quest });
+        _nextActionAt = now + 400;
     }
 
     internal void SendChat(string text, long now)
@@ -1281,6 +1309,7 @@ internal sealed class VirtualPlayer
             MapIndex = World.MapIndex,
             MapFileName = World.MapFileName,
             Location = World.Location,
+            QuestMonsters = _o.Quests ? World.Quests.TargetMonsterIndexes : Array.Empty<int>(),
             At = Now,
         });
     }
