@@ -13,6 +13,9 @@ namespace Server.WebAdmin.Tools
         public const string TargetScratch = "scratch";
         public const string TargetSelf = "self";
         public const string DefaultPassword = "StressPw1";
+        /// <summary>StressClient reads the password from this environment variable (StressClient Options.PasswordEnv), so it
+        /// never shows on the command line in the process list. Not part of <see cref="BuildArgs"/>.</summary>
+        public const string PasswordEnv = "STRESSCLIENT_PASSWORD";
         public const int MaxBots = 10000;
 
         private static readonly Regex PrefixRegex = new Regex("^[A-Za-z0-9]{1,9}$");
@@ -104,7 +107,8 @@ namespace Server.WebAdmin.Tools
             return v;
         }
 
-        /// <summary>StressClient arguments for this run. Always stdin-controlled and with the JSON status line.</summary>
+        /// <summary>StressClient arguments for this run. Always stdin-controlled and with the JSON status line. The password goes
+        /// through <see cref="PasswordEnv"/>, never the arguments.</summary>
         public List<string> BuildArgs(string host, int port, int serverMaxPacket, IEnumerable<string> mapFolders)
         {
             var a = new List<string>
@@ -116,7 +120,6 @@ namespace Server.WebAdmin.Tools
                 "--duration", (DurationMinutes * 60).ToString(CultureInfo.InvariantCulture),
                 "--prefix", Prefix,
                 "--first-index", FirstIndex.ToString(CultureInfo.InvariantCulture),
-                "--password", Password,
                 "--class", Class,
                 "--max-packet", Math.Max(5, serverMaxPacket).ToString(CultureInfo.InvariantCulture),
                 "--connect-budget", ConnectBudget.ToString(CultureInfo.InvariantCulture),

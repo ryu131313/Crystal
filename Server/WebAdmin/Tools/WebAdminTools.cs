@@ -40,7 +40,7 @@ namespace Server.WebAdmin.Tools
 
             WebAdminHooks.WorldStopped += () =>
             {
-                // Game thread: only a stdin write and a scheduled kill.
+                // Game thread: StopBots only schedules the stdin write and the kill on the pool.
                 if (_botConfig?.Target == StressBotConfig.TargetSelf) StopBots("world stopped");
             };
             AppDomain.CurrentDomain.ProcessExit += (_, _) => _bots?.CloseInput();
@@ -226,6 +226,7 @@ namespace Server.WebAdmin.Tools
             Directory.CreateDirectory(BotsFolder);
             var psi = new ProcessStartInfo(exe.FullName) { WorkingDirectory = BotsFolder, RedirectStandardInput = true };
             foreach (var arg in config.BuildArgs(host, port, maxPacket, new[] { mapFolder })) psi.ArgumentList.Add(arg);
+            psi.Environment[StressBotConfig.PasswordEnv] = config.Password;
 
             lock (Gate)
             {
@@ -334,7 +335,9 @@ namespace Server.WebAdmin.Tools
             if (bots == null || !bots.Running) return false;
 
             bots.Note("stop requested (" + reason + ")");
-            if (!bots.WriteLine("stop")) bots.CloseInput();
+            // The stdin write blocks while the pipe is full (a hung fleet stops reading), so it runs on the pool, never on the
+            // caller's thread; the kill below ends the process and with it a stuck write.
+            _ = Task.Run(() => { if (!bots.WriteLine("stop")) bots.CloseInput(); });
             _ = Task.Run(async () =>
             {
                 await Task.Delay(TimeSpan.FromSeconds(StopGraceSeconds)).ConfigureAwait(false);

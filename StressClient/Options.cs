@@ -73,10 +73,16 @@ internal sealed class Options
 
     public static readonly Regex PrefixReg = new("^[A-Za-z0-9]{1,9}$");
 
+    /// <summary>Environment variable with the bot password, read before the arguments (--password still wins): a parent
+    /// process (the web admin Tools page) passes it this way so it never shows in the process list.</summary>
+    public const string PasswordEnv = "STRESSCLIENT_PASSWORD";
+
     public static Options Parse(string[] args, out string error)
     {
         var o = new Options();
         error = null;
+        var envPassword = Environment.GetEnvironmentVariable(PasswordEnv);
+        if (!string.IsNullOrEmpty(envPassword)) o.Password = envPassword;
         try
         {
             for (int i = 0; i < args.Length; i++)
@@ -184,7 +190,7 @@ internal sealed class Options
                                     stopped, needs --control-stdin)
           --prefix <name>         account/character prefix, 1-9 alnum (default sb): accounts sb00000.., chars sbc00000..
           --first-index <n>       first bot index (default 0), to run several fleets with one prefix
-          --password <pw>         password for all bot accounts (default StressPw1)
+          --password <pw>         password for all bot accounts (default: env STRESSCLIENT_PASSWORD, else StressPw1)
           --connect-budget <n>    bots allowed in connect/login at once (default 25)
           --max-packet <n>        the server's MaxPacket / [LoadTest] LoopbackMaxPacket (receives per 5 s;
                                     default 50); each bot sends at most 60 % of it

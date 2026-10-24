@@ -70,6 +70,12 @@ namespace Server.WebAdmin.Tests
             Assert.DoesNotContain("Secret123", json);
             Assert.Contains("ab00007..ab00009", json);
             Assert.Contains("\"customPassword\":true", json);
+
+            // The password reaches StressClient through STRESSCLIENT_PASSWORD, never the (process-list visible) arguments.
+            var args = c.BuildArgs("127.0.0.1", 7000, 50, null);
+            Assert.DoesNotContain("--password", args);
+            Assert.DoesNotContain("Secret123", args);
+            Assert.Equal("STRESSCLIENT_PASSWORD", StressBotConfig.PasswordEnv);
         }
 
         [Fact]
