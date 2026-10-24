@@ -814,7 +814,9 @@
     "DungeonLeaderOnly": "只有队长才能带领队伍进入地下城。",
     "StoragePasswordLocked": "仓库密码错误次数过多，请在{0}分钟后再试。",
     "QuestFailed": "任务失败：{0}。",
-    "QuestNotChanged": "任务 {0} 未更改（未知任务或无可更改内容）。"
+    "QuestNotChanged": "任务 {0} 未更改（未知任务或无可更改内容）。",
+    "RankingsHidden": "你已在公开排行榜中隐藏。输入 @showrank 可重新显示。",
+    "RankingsShown": "你已在公开排行榜中显示。输入 @hiderank 可隐藏。"
   },
   "Enum": {}
 }

@@ -217,6 +217,8 @@ namespace Server.MirObjects
         public bool ItemRentalFeeLocked = false;
         public bool ItemRentalItemLocked = false;
 
+        public int KillStreak; // runtime-only current PvP kill streak (PlayerStat.BestKillStreak is the saved best), reset on death
+
         private long LastRankUpdate = Envir.Time;
 
         private Map LastValidMap;
@@ -1559,6 +1561,7 @@ namespace Server.MirObjects
 
                     Envir.MarkAccountDirty(hitter.Info.AccountInfo); // P9-12: LastHitter may have logged out long ago (stale reference)
                     hitter.PKPoints = Math.Min(int.MaxValue, LastHitter.PKPoints + 100);
+                    PlayerStatHooks.Murder(hitter);
                     hitter.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.MurderPlayer), Name), ChatType.System);
                     ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.MurderedByPlayer), LastHitter.Name), ChatType.System);
 
@@ -1570,6 +1573,8 @@ namespace Server.MirObjects
                     }
                 }
             }
+
+            PlayerStatHooks.PlayerDied(this, PlayerStatHooks.CreditedPlayer(LastHitter));
 
             UnSummonIntelligentCreature(SummonedCreatureType);
 
@@ -4638,6 +4643,7 @@ namespace Server.MirObjects
                             if (Account.Gold >= openGold)
                             {
                                 Account.Gold -= openGold;
+                                Info.Statistics.Add(PlayerStat.GoldSpent, openGold);
                                 Enqueue(new S.LoseGold { Gold = openGold });
                                 Enqueue(new S.ResizeInventory { Size = Info.ResizeInventory() });
                                 ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.InventoryIncreased), ChatType.System);
@@ -4660,6 +4666,7 @@ namespace Server.MirObjects
                                 var sz = Account.ExpandStorage();
 
                                 Account.Gold -= cost;
+                                Info.Statistics.Add(PlayerStat.GoldSpent, cost);
                                 Account.HasExpandedStorage = true;
 
                                 if (Account.ExpandedStorageExpiryDate > Envir.Now)
@@ -4773,11 +4780,14 @@ namespace Server.MirObjects
                         break;
 
                     case "HIDERANK":
-                        // lane G: Info.HideFromRankings = true (website export opt-out; any player, no packet)
+                        // Website export opt-out (any player, server-only, no packet); saved with the character.
+                        Info.HideFromRankings = true;
+                        ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.RankingsHidden), ChatType.System);
                         break;
 
                     case "SHOWRANK":
-                        // lane G: Info.HideFromRankings = false
+                        Info.HideFromRankings = false;
+                        ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.RankingsShown), ChatType.System);
                         break;
 
                     case "SETQUEST":
@@ -8479,6 +8489,7 @@ namespace Server.MirObjects
 
             if (!ob.Drop(5)) return;
             Account.Gold -= gold;
+            Info.Statistics.Add(PlayerStat.GoldSpent, gold);
             Enqueue(new S.LoseGold { Gold = gold });
         }
         public void PickUp()
@@ -8596,6 +8607,7 @@ namespace Server.MirObjects
                 if (CurrentMap.ValidPoint(p))
                 {
                     Account.Gold -= cost;
+                    Info.Statistics.Add(PlayerStat.GoldSpent, cost);
                     Enqueue(new S.LoseGold { Gold = cost });
                     Teleport(CurrentMap, p);
                 }
@@ -8671,7 +8683,8 @@ namespace Server.MirObjects
                     player.GainGold(gold);
             }
         }
-        public void GainGold(uint gold)
+        /// <param name="earned">False for gold coming back to the player (a cancelled trade or rental fee): not counted as GoldEarned.</param>
+        public void GainGold(uint gold, bool earned = true)
         {
             if (gold == 0) return;
 
@@ -8679,6 +8692,7 @@ namespace Server.MirObjects
                 gold = uint.MaxValue - Account.Gold;
 
             Account.Gold += gold;
+            if (earned) Info.Statistics.Add(PlayerStat.GoldEarned, gold);
 
             Enqueue(new S.GainedGold { Gold = gold });
         }
@@ -9157,6 +9171,7 @@ namespace Server.MirObjects
                 if (cost > Account.Gold) return null;
 
                 Account.Gold -= cost;
+                Info.Statistics.Add(PlayerStat.GoldSpent, cost);
                 Enqueue(new S.LoseGold { Gold = cost });
                 if (ob.Conq != null) ob.Conq.GuildInfo.GoldStorage += (cost - baseCost);
 
@@ -9600,6 +9615,7 @@ namespace Server.MirObjects
                 Info.Inventory[index] = null;
 
                 Account.Gold -= cost;
+                Info.Statistics.Add(PlayerStat.GoldSpent, cost);
 
                 Enqueue(new S.LoseGold { Gold = cost });
                 RefreshBagWeight();
@@ -9842,6 +9858,7 @@ namespace Server.MirObjects
                             Envir.RecordMarketSale(auction.Item.ItemIndex, auction.Price);
 
                             Account.Gold -= auction.Price;
+                            Info.Statistics.Add(PlayerStat.GoldSpent, auction.Price);
 
                             Enqueue(new S.LoseGold { Gold = auction.Price });
                             GainItem(auction.Item);
@@ -10148,6 +10165,7 @@ namespace Server.MirObjects
                 if (HasAwakeningNeedMaterials(item, type))
                 {
                     Info.AccountInfo.Gold -= item.AwakeningPrice();
+                    Info.Statistics.Add(PlayerStat.GoldSpent, item.AwakeningPrice());
                     Enqueue(new S.LoseGold { Gold = item.AwakeningPrice() });
 
                     bool[] isHit;
@@ -10195,6 +10213,7 @@ namespace Server.MirObjects
                         if (Info.AccountInfo.Gold >= item.DowngradePrice())
                         {
                             Info.AccountInfo.Gold -= item.DowngradePrice();
+                            Info.Statistics.Add(PlayerStat.GoldSpent, item.DowngradePrice());
                             Enqueue(new S.LoseGold { Gold = item.DowngradePrice() });
 
                             Awake awake = item.Awake;
@@ -10285,6 +10304,7 @@ namespace Server.MirObjects
 
                     Enqueue(new S.LoseGold { Gold = item.DisassemblePrice() });
                     Info.AccountInfo.Gold -= item.DisassemblePrice();
+                    Info.Statistics.Add(PlayerStat.GoldSpent, item.DisassemblePrice());
 
                     Enqueue(new S.DeleteItem { UniqueID = item.UniqueID, Count = item.Count });
                     Info.Inventory[i] = null;
@@ -10313,6 +10333,7 @@ namespace Server.MirObjects
                         if (Info.AccountInfo.Gold >= item.ResetPrice())
                         {
                             Info.AccountInfo.Gold -= item.ResetPrice();
+                            Info.Statistics.Add(PlayerStat.GoldSpent, item.ResetPrice());
                             Enqueue(new S.LoseGold { Gold = item.ResetPrice() });
 
                             UserItem newItem = new UserItem(item.Info);
@@ -11195,6 +11216,7 @@ namespace Server.MirObjects
                         if (Info.AccountInfo.Gold >= Required.Amount)
                         {
                             Info.AccountInfo.Gold -= Required.Amount;
+                            Info.Statistics.Add(PlayerStat.GoldSpent, Required.Amount);
                             Enqueue(new S.LoseGold { Gold = Required.Amount });
                         }
                     }
@@ -11537,7 +11559,7 @@ namespace Server.MirObjects
                 }
 
                 MyGuild.Gold -= amount;
-                GainGold(amount);
+                GainGold(amount, earned: false); // guild storage: a transfer, not earned
                 MyGuild.SendServerPacket(new S.GuildStorageGoldChange() { Type = 1, Name = Info.Name, Amount = amount });
                 MyGuild.NeedSave = true;
                 if (amount > 0) MyGuild.Info.AddLog(GuildLogKind.Gold, GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.GuildLogGoldWithdrawn, Info.Name, amount));
@@ -12328,6 +12350,7 @@ namespace Server.MirObjects
                     {
                         Report.GoldChanged(TradePair[p].TradeGoldAmount, true, GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.TradeFromTo), TradePair[p].Name, TradePair[o].Name));
 
+                        TradePair[p].Info.Statistics.Add(PlayerStat.GoldSpent, TradePair[p].TradeGoldAmount);
                         TradePair[o].GainGold(TradePair[p].TradeGoldAmount);
                         TradePair[p].TradeGoldAmount = 0;
                     }
@@ -12408,7 +12431,7 @@ namespace Server.MirObjects
                     {
                         Report.GoldChanged(TradePair[p].TradeGoldAmount, false);
 
-                        TradePair[p].GainGold(TradePair[p].TradeGoldAmount);
+                        TradePair[p].GainGold(TradePair[p].TradeGoldAmount, earned: false);
                         TradePair[p].TradeGoldAmount = 0;
                     }
 
@@ -12966,6 +12989,7 @@ namespace Server.MirObjects
             if (totalGold > 0)
             {
                 Account.Gold -= totalGold;
+                Info.Statistics.Add(PlayerStat.GoldSpent, totalGold);
                 Enqueue(new S.LoseGold { Gold = totalGold });
             }
 
@@ -14361,6 +14385,7 @@ namespace Server.MirObjects
             }
 
             Account.Gold -= cost;
+            Info.Statistics.Add(PlayerStat.GoldSpent, cost);
             Enqueue(new S.LoseGold { Gold = cost });
 
             //START OF FORMULA
@@ -14777,6 +14802,7 @@ namespace Server.MirObjects
             }
 
             Account.Gold -= cost;
+            Info.Statistics.Add(PlayerStat.GoldSpent, cost);
             Enqueue(new S.LoseGold { Gold = cost });
 
 
@@ -15562,6 +15588,7 @@ namespace Server.MirObjects
                 if (PType == 1)
                 {
                     Account.Gold -= GoldCost;
+                    Info.Statistics.Add(PlayerStat.GoldSpent, GoldCost);
                     Report.GoldChanged(GoldCost, true, Product.Info.FriendlyName);
                     if (GoldCost != 0) Enqueue(new S.LoseGold { Gold = GoldCost });
                 }
@@ -16028,7 +16055,7 @@ namespace Server.MirObjects
 
                 if (rentalPair[i].ItemRentalFeeAmount > 0)
                 {
-                    rentalPair[i].GainGold(rentalPair[i].ItemRentalFeeAmount);
+                    rentalPair[i].GainGold(rentalPair[i].ItemRentalFeeAmount, earned: false);
                     rentalPair[i].ItemRentalFeeAmount = 0;
 
                     Report.GoldChanged(rentalPair[i].ItemRentalFeeAmount, false);
@@ -16197,6 +16224,7 @@ namespace Server.MirObjects
             ItemRentalPartner.Info.HasRentedItem = true;
             ItemRentalPartner.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.YouHaveRentedFromUntil), item.FriendlyName, Name, item.RentalInformation.ExpiryDate), ChatType.System);
 
+            ItemRentalPartner.Info.Statistics.Add(PlayerStat.GoldSpent, ItemRentalPartner.ItemRentalFeeAmount);
             GainGold(ItemRentalPartner.ItemRentalFeeAmount);
             ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.ReceivedGoldForItemRental), ItemRentalPartner.ItemRentalFeeAmount), ChatType.System);
             ItemRentalPartner.ItemRentalFeeAmount = 0;

@@ -1015,6 +1015,8 @@ namespace Server.MirObjects
 
                 if (unowned && expOwner != null)
                     Drop();
+
+                if (unowned) PlayerStatHooks.MonsterKilled(expOwner); // lane G: kill stat, game thread (inside this lambda)
             });
 
             if (Respawn != null)
@@ -2779,6 +2781,8 @@ namespace Server.MirObjects
             }
 
             BroadcastDamageIndicator(DamageType.Hit, armour - damage);
+
+            if (attacker.Race == ObjectType.Player) PlayerStatHooks.Hit((PlayerObject)attacker, damage - armour);
 
             ChangeHP(armour - damage);
             return damage - armour;

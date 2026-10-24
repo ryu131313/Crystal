@@ -1211,6 +1211,7 @@ namespace Server.MirObjects
             else
             {
                 player.Account.Gold -= cost;
+                player.Info.Statistics.Add(PlayerStat.GoldSpent, cost);
                 player.Enqueue(new S.LoseGold { Gold = cost });
 
                 if (callingNPC != null && callingNPC.Conq != null)
@@ -1445,6 +1446,7 @@ namespace Server.MirObjects
 
             //Take Gold
             player.Account.Gold -= (uint)cost; // cost <= Gold, checked above
+            player.Info.Statistics.Add(PlayerStat.GoldSpent, (uint)cost);
             player.Enqueue(new S.LoseGold { Gold = (uint)cost });
 
             if (Envir.Random.Next(100) >= recipe.Chance + player.Stats[Stat.CraftRatePercent])
@@ -1454,6 +1456,7 @@ namespace Server.MirObjects
             else
             {
                 //Give Item
+                player.Info.Statistics.Add(PlayerStat.ItemsCrafted, craftedItem.Count);
                 player.GainItem(craftedItem);
             }
 

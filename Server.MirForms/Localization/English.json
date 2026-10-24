@@ -814,7 +814,9 @@
     "DungeonLeaderOnly": "Only your group leader can take the group into a dungeon.",
     "StoragePasswordLocked": "Too many wrong storage passwords. Try again in {0} minute(s).",
     "QuestFailed": "Quest failed: {0}.",
-    "QuestNotChanged": "Quest {0} was not changed (unknown quest, or nothing to change)."
+    "QuestNotChanged": "Quest {0} was not changed (unknown quest, or nothing to change).",
+    "RankingsHidden": "You are now hidden from the public rankings. Type @showrank to show yourself again.",
+    "RankingsShown": "You are now shown in the public rankings. Type @hiderank to hide yourself."
   },
   "Enum": {}
 }

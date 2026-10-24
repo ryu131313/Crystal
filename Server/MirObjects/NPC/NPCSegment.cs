@@ -3139,6 +3139,7 @@ namespace Server.MirObjects
                             if (gold >= player.Account.Gold) gold = player.Account.Gold;
 
                             player.Account.Gold -= gold;
+                            player.Info.Statistics.Add(PlayerStat.GoldSpent, gold);
                             player.Enqueue(new S.LoseGold { Gold = gold });
                         }
                         break;
