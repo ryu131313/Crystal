@@ -82,10 +82,8 @@ internal sealed class WorldModel
     public readonly Dictionary<Spell, ClientMagic> Magics = new();
     public readonly HashSet<BuffType> Buffs = new();
 
-    public readonly Dictionary<int, ClientQuestProgress> Quests = new();
-    public readonly Dictionary<int, ClientQuestInfo> QuestInfos = new();
-    public readonly HashSet<int> OfferedQuests = new();
-    public readonly HashSet<int> CompletedQuestIds = new();
+    /// <summary>Quest system V2 mirror (definitions, runs, history, NPC availability).</summary>
+    public readonly QuestBook Quests = new();
 
     /// <summary>The last monster/player that hit us (S.Struck / S.ObjectStruck on our object).</summary>
     public uint LastAttackerId;
@@ -124,9 +122,6 @@ internal sealed class WorldModel
         Magics.Clear();
         Buffs.Clear();
         Quests.Clear();
-        QuestInfos.Clear();
-        OfferedQuests.Clear();
-        CompletedQuestIds.Clear();
         LastAttackerId = 0;
         LastAttackerAt = 0;
         InGroup = false;
@@ -150,6 +145,7 @@ internal sealed class WorldModel
         Items.Clear();
         GoldPiles.Clear();
         OpenDoors.Clear();
+        Quests.ForgetAllNpcs();
     }
 
     public MonsterState AddMonster(ServerPackets.ObjectMonster om, long now)
@@ -209,7 +205,7 @@ internal sealed class WorldModel
         _occupancyDirty = true;
         Monsters.Remove(id);
         Players.Remove(id);
-        Npcs.Remove(id);
+        if (Npcs.Remove(id)) Quests.ForgetNpc(id);
         Items.Remove(id);
         GoldPiles.Remove(id);
     }
@@ -254,7 +250,7 @@ internal sealed class WorldModel
         _occupied[key] = _occupied.TryGetValue(key, out int n) ? n + 1 : 1;
     }
 
-    // ------------------------------------------------------------------ vitals, inventory, magic, quests
+    // ------------------------------------------------------------------ vitals, inventory, magic
 
     public void ApplyBaseStats(BaseStats stats)
     {
@@ -447,13 +443,6 @@ internal sealed class WorldModel
     }
 
     public ClientMagic MagicFor(Spell spell) => Magics.TryGetValue(spell, out var magic) ? magic : null;
-
-    public void ApplyQuest(ClientQuestProgress progress, QuestState state)
-    {
-        if (progress == null) return;
-        if (state == QuestState.Remove) Quests.Remove(progress.Id);
-        else Quests[progress.Id] = progress;
-    }
 }
 
 /// <summary>What the fleet knows about one map index: portal exits, respawn regions and safe zones.</summary>

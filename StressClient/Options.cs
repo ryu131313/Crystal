@@ -60,6 +60,9 @@ internal sealed class Options
 
     public bool Hunt = true, Loot = true, Town = true, Quests = true, Potions = true, Equip = true, Chat = true, Party = true;
 
+    /// <summary>An active quest with no progress for this long is abandoned (C.QuestAbandon), freeing the slot.</summary>
+    public int QuestStuckSeconds = 300;
+
     /// <summary>Class for new characters; <c>null</c> = mixed (bot index cycles through the five classes).
     /// Existing characters keep their class.</summary>
     public MirClass? Class = MirClass.Warrior;
@@ -129,6 +132,7 @@ internal sealed class Options
                     case "--no-equip": o.Equip = false; break;
                     case "--no-chat": o.Chat = false; break;
                     case "--no-party": o.Party = false; break;
+                    case "--quest-stuck": o.QuestStuckSeconds = int.Parse(Next()); break;
                     case "--class": o.Class = ParseClass(Next()); break;
                     case "--control-stdin": o.ControlStdin = true; break;
                     case "--status-json": o.StatusJson = true; break;
@@ -164,6 +168,7 @@ internal sealed class Options
         else if (o.PathNodes < 100 || o.PathNodes > 200_000) error = "--path-nodes must be 100..200000";
         else if (o.RunPercent < 0 || o.RunPercent > 100) error = "--run-percent must be 0..100";
         else if (o.RoamRadius < 1 || o.RoamRadius > 100) error = "--roam-radius must be 1..100";
+        else if (o.QuestStuckSeconds < 10 || o.QuestStuckSeconds > 86_400) error = "--quest-stuck must be 10..86400 s";
 
         if (error == null && o.MapFolders.Count == 0) o.MapFolders.Add("Maps");
         return error == null ? o : null;
@@ -217,6 +222,7 @@ internal sealed class Options
           --no-hunt --no-loot --no-town --no-quests --no-potions --no-equip --no-chat --no-party
                                   turn one behaviour off (all on by default; --no-party also declines invites;
                                     --no-town keeps quest-only trips to the merchant unless --no-quests)
+          --quest-stuck <s>       abandon an active quest after this long without progress (default 300)
           --class <name>          class of new characters: warrior (default), wizard, taoist, assassin, archer,
                                     or mixed (cycles by bot index); existing characters keep theirs
           --control-stdin         stop gracefully on a "stop" line or end of input on stdin

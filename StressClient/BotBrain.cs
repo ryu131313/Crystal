@@ -4,7 +4,8 @@ namespace StressClient;
 
 /// <summary>
 /// "What would a player do" priority FSM. Every branch is early-returning and paced by the bot's action timers:
-///   potion → town run (quests / buy / sell / repair) → equip an upgrade → loot → hunt → social → Director → roam.
+///   potion → quest housekeeping (abandon stuck runs, take non-NPC offers) → town run (quests / buy / sell / repair) →
+///   equip an upgrade → loot → hunt (quest targets first) → social → Director → roam.
 /// Movement and packet ownership stay in <see cref="VirtualPlayer"/>.
 /// </summary>
 internal sealed class BotBrain
@@ -31,9 +32,16 @@ internal sealed class BotBrain
     private uint _townNpc, _townPathNpc;
     private Point? _townGoal;
     private long _townUntil, _townStepAt, _nextTownAt;
-    private int _townStage, _buyPotions, _finishTries;
-    private int _questId;
-    private long _questAcceptedAt;
+    private int _townStage, _buyPotions, _questActions;
+
+    // quests (V2: the state lives in WorldModel.Quests)
+    private long _nextQuestCheckAt;
+
+    /// <summary>Quest requests (turn in / accept) at one NPC per visit, so a refused request cannot loop.</summary>
+    private const int MaxQuestActionsPerVisit = 6;
+
+    /// <summary>A quest target counts as this many cells closer when picking what to hunt.</summary>
+    private const int QuestTargetBias = 6;
 
     // loot / social
     private uint _lootId;
@@ -66,9 +74,8 @@ internal sealed class BotBrain
         _townNpc = _townPathNpc = 0;
         _townGoal = null;
         _townUntil = _townStepAt = 0;
-        _townStage = _buyPotions = _finishTries = 0;
-        _questId = 0;
-        _questAcceptedAt = 0;
+        _townStage = _buyPotions = _questActions = 0;
+        _nextQuestCheckAt = 0;
         _nextTownAt = 20000 + _rng.Next(20000);
 
         _lootId = 0;
@@ -99,6 +106,7 @@ internal sealed class BotBrain
         if (o.Potions && _v.TryDrinkPotion(now)) return;
         if (_town != TownState.None) { TownTick(now); return; }
 
+        if (o.Quests && TryQuestHousekeeping(now)) return;
         if ((o.Town || o.Quests) && TryStartTown(now)) return;
         if (o.Equip && _v.TryEquipBetter(now)) return;
         if (o.Loot && TryLoot(now)) return;
@@ -120,9 +128,8 @@ internal sealed class BotBrain
             if (_v.World.PotionCount() < 3) return true;
         }
 
-        // An accepted quest needs a return trip to the giver, after time to finish its tasks.
-        if (o.Quests && _questId != 0 && _finishTries < 2 && now - _questAcceptedAt > 60_000 &&
-            _v.World.Quests.ContainsKey(_questId)) return true;
+        // A Ready quest needs a trip to its finish NPC; an NPC in view offering a quest the bot would take is worth a visit.
+        if (o.Quests && (_v.World.Quests.AnyReady || _v.World.Quests.AnyOfferInView(_v.World.Level))) return true;
 
         return now - _nextTownAt > 180_000;
     }
@@ -137,8 +144,9 @@ internal sealed class BotBrain
             return false;
         }
 
-        NpcState npc = NearestNpc();
-        if (npc == null && _home == null)
+        NpcState npc = PreferredNpc();
+        Point? goal = npc?.Location ?? ReadyQuestSpot() ?? _home;
+        if (goal == null)
         {
             _nextTownAt = now + 20_000;
             return false;
@@ -146,11 +154,11 @@ internal sealed class BotBrain
 
         _town = TownState.ToNpc;
         _townNpc = npc?.Id ?? 0;
-        _townGoal = npc?.Location ?? _home;
+        _townGoal = goal;
         _townPathNpc = 0;
         _townUntil = now + 90_000; // the walk home can be long after a Director excursion
         _townStepAt = now;
-        _townStage = _buyPotions = _finishTries = 0;
+        _townStage = _buyPotions = _questActions = 0;
         _v.Nav.Clear();
         return true;
     }
@@ -163,7 +171,7 @@ internal sealed class BotBrain
 
         if (_townNpc == 0)
         {
-            var found = NearestNpc();
+            var found = PreferredNpc();
             if (found != null)
             {
                 _townNpc = found.Id;
@@ -228,7 +236,12 @@ internal sealed class BotBrain
 
             case TownState.Greet:
                 if (now < _townStepAt) return;
-                if (_v.Options.Quests) TryAcceptQuest(now);
+                // Turn in, then accept, one request per step: the NPC's S.QuestAvailability entry is refreshed in between.
+                if (_v.Options.Quests && TryQuestAtNpc(npc.Id, now))
+                {
+                    _townStepAt = now + 700;
+                    return;
+                }
                 // Quest-only trips (--no-town) skip the shop and the smith.
                 _town = _v.Options.Town ? TownState.BuySell : TownState.Finish;
                 _townStage = 0;
@@ -286,16 +299,6 @@ internal sealed class BotBrain
 
             case TownState.Finish:
                 if (now < _townStepAt) return;
-
-                if (_v.Options.Quests && _questId != 0 && world.Quests.ContainsKey(_questId) && _finishTries < 2 &&
-                    now - _questAcceptedAt > 12_000)
-                {
-                    _v.FinishQuest(_questId, now);
-                    _finishTries++;
-                    _townStepAt = now + 1500;
-                    return;
-                }
-
                 EndTown(now);
                 return;
         }
@@ -303,17 +306,88 @@ internal sealed class BotBrain
         EndTown(now);
     }
 
-    private void TryAcceptQuest(long now)
+    // ------------------------------------------------------------------ quests
+
+    /// <summary>One quest request at <paramref name="npcId"/>: turn in a Ready run it finishes, else accept an offer. False = nothing to do.</summary>
+    private bool TryQuestAtNpc(uint npcId, long now)
     {
-        var world = _v.World;
-        foreach (var id in world.OfferedQuests)
+        if (_questActions >= MaxQuestActionsPerVisit) return false;
+        var quests = _v.World.Quests;
+
+        int quest = quests.ReadyAt(npcId);
+        if (quest != 0)
         {
-            if (world.Quests.ContainsKey(id) || world.CompletedQuestIds.Contains(id)) continue;
-            _v.AcceptQuest(id, now);
-            _questId = id;
-            _questAcceptedAt = now;
-            return;
+            _v.TurnInQuest(quest, npcId, now);
+            _questActions++;
+            return true;
         }
+
+        quest = quests.ChooseOfferAt(npcId, _v.World.Level);
+        if (quest != 0)
+        {
+            _v.AcceptQuest(quest, npcId, now);
+            _questActions++;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Every few seconds: drop unanswered requests, abandon a failed or stuck run, take an offer that came without an NPC.</summary>
+    private bool TryQuestHousekeeping(long now)
+    {
+        if (now < _nextQuestCheckAt) return false;
+        _nextQuestCheckAt = now + 5000;
+
+        var quests = _v.World.Quests;
+        quests.ExpirePending(now, 15_000);
+
+        int stuck = QuestLogic.StuckRun(quests.Definitions, quests.Runs.Values, now, _v.Options.QuestStuckSeconds * 1000L);
+        if (stuck != 0)
+        {
+            _v.AbandonQuest(stuck, now);
+            return true;
+        }
+
+        int offer = quests.ChooseNonNpcOffer(_v.World.Level);
+        if (offer != 0)
+        {
+            _v.AcceptQuest(offer, 0, now);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>The NPC in view to visit: one that finishes a Ready run, then one offering a quest the bot would take, else the nearest.</summary>
+    private NpcState PreferredNpc()
+    {
+        if (_v.Options.Quests)
+        {
+            var quests = _v.World.Quests;
+            NpcState offering = null;
+            foreach (var npc in _v.World.Npcs.Values)
+            {
+                if (quests.ReadyAt(npc.Id) != 0) return npc;
+                if (offering == null && quests.ChooseOfferAt(npc.Id, _v.World.Level) != 0) offering = npc;
+            }
+            if (offering != null) return offering;
+        }
+
+        return NearestNpc();
+    }
+
+    /// <summary>Where a Ready run's finish NPC stood when last seen on this map (it may be out of view now), or null.</summary>
+    private Point? ReadyQuestSpot()
+    {
+        if (!_v.Options.Quests) return null;
+        var quests = _v.World.Quests;
+        foreach (var run in quests.Runs.Values)
+        {
+            if (run.Status != QuestRunStatus.Ready) continue;
+            if (quests.FinishSpots.TryGetValue(run.Quest, out var spot) && spot.MapIndex == _v.World.MapIndex) return spot.Location;
+        }
+        return null;
     }
 
     private bool TryBuyPotion(long now)
@@ -330,7 +404,7 @@ internal sealed class BotBrain
         _town = TownState.None;
         _townNpc = _townPathNpc = 0;
         _townGoal = null;
-        _townStage = _buyPotions = _finishTries = 0;
+        _townStage = _buyPotions = _questActions = 0;
         _nextTownAt = now + 45_000 + _rng.Next(30_000);
         _v.Nav.Clear();
     }
@@ -561,6 +635,7 @@ internal sealed class BotBrain
         MonsterState best = null;
         int bestDistance = int.MaxValue;
         int levelBand = world.Level + 5;
+        bool questTargets = _v.Options.Quests && world.Quests.HasTargets;
 
         foreach (var mon in world.Monsters.Values)
         {
@@ -568,7 +643,9 @@ internal sealed class BotBrain
             if (mon.Level > levelBand) continue;               // do not grind monsters far above our level
 
             int distance = Functions.MaxDistance(world.Location, mon.Location);
-            if (distance > _v.Options.SeekRange || distance >= bestDistance) continue;
+            if (distance > _v.Options.SeekRange) continue;
+            if (questTargets && world.Quests.IsTarget(mon.Name)) distance -= QuestTargetBias; // quest kills first
+            if (distance >= bestDistance) continue;
             bestDistance = distance;
             bestId = mon.Id;
             best = mon;
