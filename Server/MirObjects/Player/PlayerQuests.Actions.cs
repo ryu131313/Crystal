@@ -453,6 +453,41 @@ namespace Server.MirObjects
             return false;
         }
 
+        /// <summary>What a turn-in of <paramref name="q"/> would give (Scope = Quest), without giving it: item totals, rated exp / gold, credit.</summary>
+        public sealed class RewardPreview
+        {
+            public readonly List<(int Item, long Count)> Items = new List<(int, long)>();
+            public long Exp, Gold, Credit;
+        }
+
+        /// <summary>
+        /// The pure reward selection of <see cref="TurnIn"/> (the differential test compares it with the legacy selection): the same
+        /// filters (conditions, FirstTimeOnly, one pick per choice group) and rates as the real turn-in.
+        /// </summary>
+        public RewardPreview PreviewRewards(QuestRuntime q, List<int> picks)
+        {
+            var preview = new RewardPreview();
+            var filtered = FilteredRewards(q);
+            var first = !_history.ContainsKey(q.Index);
+            for (var i = 0; i < filtered.Count; i++)
+            {
+                var r = filtered[i];
+                if (r.Scope != QuestRewardScope.Quest || r.ScopeId != 0) continue;
+                if (r.FirstTimeOnly && !first) continue;
+                if (r.ChoiceGroup != 0 && !Picked(filtered, picks, i)) continue;
+                var amount = RatedAmount(r);
+                switch (r.Kind)
+                {
+                    case QuestRewardKind.Item: preview.Items.Add((r.TargetId, r.Amount)); break;
+                    case QuestRewardKind.Exp: if (r.ChoiceGroup == 0) preview.Exp += amount; break;
+                    case QuestRewardKind.Gold: if (r.ChoiceGroup == 0) preview.Gold += amount; break;
+                    case QuestRewardKind.Credit: if (r.ChoiceGroup == 0) preview.Credit += amount; break;
+                }
+            }
+
+            return preview;
+        }
+
         /// <summary>Exp, gold and credit rewards of one scope (rates applied); kinds without a model yet are skipped.</summary>
         private void GiveCurrencyRewards(List<QuestRewardInfo> filtered, QuestRewardScope scope, int scopeId, bool first)
         {

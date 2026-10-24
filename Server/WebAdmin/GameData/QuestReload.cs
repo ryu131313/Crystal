@@ -8,10 +8,9 @@ namespace Server.WebAdmin.GameData
     /// LiveDb live step (a changed <c>QuestInfo.FileName</c>). Game thread only (inside an admin action).
     /// <para>
     /// Refusals (the quest is left exactly as it was): the file cannot be read, or the kill / item / flag tasks no longer line up
-    /// one-to-one. Every QuestProgressInfo (online or not) was sized from the old task lists and UpdateKillTasks / UpdateItemTasks /
-    /// UpdateFlagTasks index Info.*Tasks[i] by the progress counts, so a changed task shape would throw on the game thread; that
-    /// needs a reboot. A successful reload points every character's progress at the new task objects and re-sends the task list to
-    /// online owners; <see cref="Outcome.Undo"/> puts the previous lists back and rebinds the progress again.
+    /// one-to-one (kept from the legacy runtime, whose progress was sized from the task lists). Since quest V2 (lane F) no character
+    /// holds legacy progress, so a reload re-points nothing; <see cref="Outcome.Undo"/> puts the previous lists back. The
+    /// <c>characters</c> argument is unused and goes with this class in phase 4.
     /// </para>
     /// </summary>
     internal static class QuestReload
@@ -68,17 +67,12 @@ namespace Server.WebAdmin.GameData
                 return new Outcome { Refusal = mismatch };
             }
 
-            var list = characters ?? new List<CharacterInfo>();
-            before.RebindProgress(quest, list);
-            var after = Snapshot.Take(quest);
+            // Quest V2 (lane F): no character holds legacy progress any more (V2 runs key on objective ids and are migrated by the
+            // wave 3 quest-replace hook), so nothing is re-pointed here; the legacy body only feeds the importer until the ship.
             return new Outcome
             {
                 Reloaded = true,
-                Undo = () =>
-                {
-                    before.Restore(quest);
-                    after.RebindProgress(quest, list);
-                },
+                Undo = () => before.Restore(quest),
             };
         }
 
@@ -139,48 +133,6 @@ namespace Server.WebAdmin.GameData
                 for (var i = 0; i < _flagTasks.Count; i++)
                     if (q.FlagTasks[i].Number != _flagTasks[i].Number) return "flag task " + (i + 1) + " number changed";
                 return null;
-            }
-
-            /// <summary>
-            /// Points every character's progress entries that reference this snapshot's task objects at the quest's CURRENT task
-            /// objects (same slot), then re-sends the task list to online owners. Only called when the shapes line up.
-            /// </summary>
-            public void RebindProgress(QuestInfo q, List<CharacterInfo> characters)
-            {
-                for (var c = 0; c < characters.Count; c++)
-                {
-                    var character = characters[c];
-                    if (character?.CurrentQuests == null) continue;
-
-                    for (var p = 0; p < character.CurrentQuests.Count; p++)
-                    {
-                        var progress = character.CurrentQuests[p];
-                        if (progress == null || progress.Info != q) continue;
-
-                        for (var i = 0; i < progress.KillTaskCount.Count; i++)
-                        {
-                            var k = progress.KillTaskCount[i];
-                            var slot = k.Info == null ? -1 : _killTasks.IndexOf(k.Info);
-                            if (slot >= 0) k.Info = q.KillTasks[slot];
-                        }
-
-                        for (var i = 0; i < progress.ItemTaskCount.Count; i++)
-                        {
-                            var it = progress.ItemTaskCount[i];
-                            var slot = it.Info == null ? -1 : _itemTasks.IndexOf(it.Info);
-                            if (slot >= 0) it.Info = q.ItemTasks[slot];
-                        }
-
-                        for (var i = 0; i < progress.FlagTaskSet.Count; i++)
-                        {
-                            var f = progress.FlagTaskSet[i];
-                            var slot = f.Info == null ? -1 : _flagTasks.IndexOf(f.Info);
-                            if (slot >= 0) f.Info = q.FlagTasks[slot];
-                        }
-
-                        // Quest V2 (lane F): legacy progress is never sent any more; the wave 3 quest-replace hook migrates V2 runs.
-                    }
-                }
             }
         }
     }

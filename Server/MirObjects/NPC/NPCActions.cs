@@ -117,5 +117,11 @@
         HeroGiveSkill,
         HeroRemoveSkill,
         EnterDungeon,
+
+        // Quest V2 (lane F)
+        QuestCounter,
+        SetQuestVar,
+        QuestStep,
+        OfferQuest,
     }
 }

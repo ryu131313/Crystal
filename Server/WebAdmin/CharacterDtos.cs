@@ -128,6 +128,20 @@ namespace Server.WebAdmin
         public string Group { get; set; }
         public string Status { get; set; }
         public DateTime? Started { get; set; }
+        // Quest V2 (lane F): the run's current step (-1 = turn-in pending), its time limits, completion count / last time, and the
+        // stored objective values of the run.
+        public int? Step { get; set; }
+        public DateTime? Expires { get; set; }
+        public DateTime? StepExpires { get; set; }
+        public int Times { get; set; }
+        public DateTime? LastCompleted { get; set; }
+        public List<CharacterQuestObjectiveDto> Objectives { get; set; } = new List<CharacterQuestObjectiveDto>();
+    }
+
+    public sealed class CharacterQuestObjectiveDto
+    {
+        public int Objective { get; set; }
+        public int Value { get; set; }
     }
 
     public sealed class CharacterPetDto
@@ -309,6 +323,9 @@ namespace Server.WebAdmin
     /// <summary>Projections from live Crystal objects into DTOs. Call on the game thread (or inline while the world is stopped).</summary>
     internal static class CharacterProjection
     {
+        /// <summary>A saved DateTime.ToBinary() value (quest V2 records), null for 0.</summary>
+        public static DateTime? FromBinary(long value) => value == 0 ? null : DateTime.FromBinary(value);
+
         public static string MapTitle(Envir envir, int mapIndex)
         {
             var list = envir.MapInfoList;
@@ -621,37 +638,40 @@ namespace Server.WebAdmin
                 foreach (var pair in flagNames)
                     dto.FlagNames[pair.Key.ToString(System.Globalization.CultureInfo.InvariantCulture)] = pair.Value;
 
-            // Quests
-            foreach (var q in ci.CompletedQuests)
+            // Quests (V2 records: completion history and runs; the status of an online run comes from its live PlayerQuests,
+            // since Ready is derived)
+            foreach (var h in ci.QuestHistory)
             {
-                var qi = envir.GetQuestInfo(q);
-                dto.CompletedQuests.Add(new CharacterQuestDto { Index = q, Name = qi?.Name, Group = qi?.Group, Status = "Completed" });
-            }
-
-            foreach (var q in ci.CurrentQuests)
-            {
-                if (q == null) continue;
-                var qi = q.Info ?? envir.GetQuestInfo(q.Index);
-                bool done;
-                try
+                if (h == null) continue;
+                var qi = envir.GetQuestInfo(h.Quest);
+                dto.CompletedQuests.Add(new CharacterQuestDto
                 {
-                    done = q.Completed;
-                }
-                catch (Exception)
-                {
-                    done = false;
-                }
-
-                dto.CurrentQuests.Add(new CharacterQuestDto
-                {
-                    Index = q.Index,
-                    Name = qi?.Name,
-                    Group = qi?.Group,
-                    Status = done ? "Ready to turn in" : "In progress",
-                    Started = CharacterLogic.NullIfMin(q.StartDateTime),
+                    Index = h.Quest, Name = qi?.Name, Group = qi?.Group, Status = "Completed", Times = h.Times,
+                    Started = FromBinary(h.FirstAt), LastCompleted = FromBinary(h.LastAt),
                 });
             }
 
+            foreach (var run in ci.QuestRuns)
+            {
+                if (run == null) continue;
+                var qi = envir.GetQuestInfo(run.Quest);
+                var status = run.Status == QuestRunStatus.Failed ? QuestRunStatus.Failed
+                    : ci.Player != null && ci.Player.Info == ci ? ci.Player.Quests.StatusOf(run) : QuestRunStatus.Active;
+                var quest = new CharacterQuestDto
+                {
+                    Index = run.Quest,
+                    Name = qi?.Name,
+                    Group = qi?.Group,
+                    Status = status == QuestRunStatus.Ready ? "Ready to turn in" : status == QuestRunStatus.Failed ? "Failed" : "In progress",
+                    Started = FromBinary(run.AcceptedAt),
+                    Step = run.Step,
+                    Expires = FromBinary(run.ExpiresAt),
+                    StepExpires = FromBinary(run.StepExpiresAt),
+                };
+                foreach (var o in ci.QuestObjectives)
+                    if (o != null && o.Quest == run.Quest) quest.Objectives.Add(new CharacterQuestObjectiveDto { Objective = o.Objective, Value = o.Value });
+                dto.CurrentQuests.Add(quest);
+            }
             // Magics
             foreach (var m in ci.Magics)
             {

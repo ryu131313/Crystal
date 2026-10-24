@@ -166,21 +166,26 @@ namespace Server
         {
             QuestInfoListViewNF.Items.Clear();
 
-            foreach (int completedQuestID in Character.CompletedQuests)
+            // Quest V2 records (lane F): completion history, then runs. Read-only view (Known debt: this form reads Main's live data).
+            foreach (var history in Character.QuestHistory.ToArray())
             {
-                QuestInfo completedQuest = SMain.Envir.GetQuestInfo(completedQuestID);
+                if (history == null) continue;
+                QuestInfo completedQuest = SMain.Envir.GetQuestInfo(history.Quest);
 
-                ListViewItem item = new ListViewItem(completedQuestID.ToString());
-                item.SubItems.Add("Completed");
-                item.SubItems.Add(completedQuest.Name.ToString());
+                ListViewItem item = new ListViewItem(history.Quest.ToString());
+                item.SubItems.Add(history.Times > 1 ? "Completed x" + history.Times : "Completed");
+                item.SubItems.Add(completedQuest?.Name ?? "#" + history.Quest);
                 QuestInfoListViewNF.Items.Add(item);
             }
 
-            foreach (QuestProgressInfo currentQuest in Character.CurrentQuests)
+            foreach (var run in Character.QuestRuns.ToArray())
             {
-                ListViewItem item = new ListViewItem(currentQuest.Index.ToString());
-                item.SubItems.Add("In Progress");
-                item.SubItems.Add(currentQuest.Info.Name.ToString());
+                if (run == null) continue;
+                QuestInfo runQuest = SMain.Envir.GetQuestInfo(run.Quest);
+
+                ListViewItem item = new ListViewItem(run.Quest.ToString());
+                item.SubItems.Add(run.Status == QuestRunStatus.Failed ? "Failed" : "In Progress (step " + run.Step + ")");
+                item.SubItems.Add(runQuest?.Name ?? "#" + run.Quest);
                 QuestInfoListViewNF.Items.Add(item);
             }
         }

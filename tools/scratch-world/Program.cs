@@ -152,6 +152,13 @@ internal static class Program
             <<Buy and sell/@BUYSELL>>
             <<Repair/@REPAIR>>
             <<Storage/@STORAGE>>
+            <<Raise the signal/@SIGNAL>>
+
+            [@SIGNAL]
+            #ACT
+            SET [100] 1
+            #SAY
+            The signal fire is lit.
 
             [@BUYSELL]
             What do you need?
@@ -169,6 +176,20 @@ internal static class Program
             [QUESTS]
             1
             -1
+            2
+            -2
+            """);
+
+        // A flag quest (quest V2: Flag objectives are met while the flag is set): the merchant's "Raise the signal" button sets flag 100.
+        File.WriteAllText(Path.Combine(questDir, "scratchsignal.txt"), """
+            [@DESCRIPTION]
+            Light the signal fire, then come back.
+            [@TASKDESCRIPTION]
+            Ask the trader to raise the signal.
+            [@FLAGTASKS]
+            100 "Signal raised"
+            [@GOLDREWARD]
+            100
             """);
 
         File.WriteAllText(Path.Combine(questDir, "scratchhunt.txt"), """
@@ -330,7 +351,7 @@ internal static class Program
         e.ItemIndex = 6;
         e.MonsterIndex = 2;
         e.NPCIndex = 1;
-        e.QuestIndex = 1;
+        e.QuestIndex = 2;
         e.GameshopIndex = 0;
         e.RespawnIndex = 2 * specs.Length;
 
@@ -384,6 +405,19 @@ internal static class Program
             Name = "Scratch Hunt",
             Group = "Scratch",
             FileName = "scratchhunt",
+            RequiredMinLevel = 1,
+            RequiredMaxLevel = 0,
+            RequiredClass = RequiredClass.None,
+            Type = QuestType.General,
+        });
+
+        // Flag quest defined in Envir\Quests\scratchsignal.txt (the merchant's @SIGNAL page sets the flag).
+        e.QuestInfoList.Add(new QuestInfo
+        {
+            Index = 2,
+            Name = "Scratch Signal",
+            Group = "Scratch",
+            FileName = "scratchsignal",
             RequiredMinLevel = 1,
             RequiredMaxLevel = 0,
             RequiredClass = RequiredClass.None,

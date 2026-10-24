@@ -8,7 +8,9 @@
   2. Assembles <Scratch>\run: the build output, a generated Server.MirDB + Maps\scratch0.map
      (only when missing, or with -Reset), and Configs\Setup.ini with the load-test profile.
   3. Starts Server.exe minimized with the working directory = <Scratch>\run, writes the PID to
-     <Scratch>\server.pid, and waits for "Network Started." in Logs\Server\*.log.
+     <Scratch>\server.pid, and waits for "Network Started." in Logs\Server\*.log. A fresh
+     SystemData.db (first start, or -Reset) is started twice: the first start imports the quest V2
+     tables into Envir.Edit only, which the running world loads at its next start.
 
   SAFETY: scratch only. The profile turns on [LoadTest] ExemptLoopback (no IP blocks, MaxIP or
   per-IP account/character limits for 127.x), turns CheckVersion and EnforceDBChecks off, and
@@ -155,23 +157,48 @@ Set-Content -Path (Join-Path $configs 'Setup.ini') -Value $ini -Encoding ASCII
 
 # ---- start ----
 $exe = Join-Path $runDir 'Server.exe'
-$proc = Start-Process -FilePath $exe -WorkingDirectory $runDir -WindowStyle Minimized -PassThru
-Set-Content -Path $pidFile -Value @($proc.Id, $exe) -Encoding ASCII
-Write-Host "Started scratch Server.exe PID $($proc.Id) on 127.0.0.1:$Port (folder $runDir)"
-
 $logDir = Join-Path $runDir 'Logs\Server'
-$deadline = (Get-Date).AddSeconds($StartTimeoutSeconds)
-while ((Get-Date) -lt $deadline) {
-    Start-Sleep -Milliseconds 500
-    if ($proc.HasExited) { Write-Error "Server.exe exited early (code $($proc.ExitCode)). See $logDir"; exit 1 }
-    $log = Get-ChildItem $logDir -Filter *.log -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
-    if (-not $log) { continue }
-    $text = Get-Content $log.FullName -Raw -ErrorAction SilentlyContinue
-    if ($text -match 'Cannot start server') { Write-Error "World refused to start: see $($log.FullName)"; exit 1 }
-    if ($text -match 'Network Started\.') {
-        Write-Host "World and network started ($($log.FullName))." -ForegroundColor Green
-        exit 0
+# A first start imports Server.MirDB into SystemData.db, and the quest V2 importer then fills the V2 tables on Envir.Edit only;
+# the running world (Envir.Main) sees them from its next start (UserData-and-Quests-Plan.md, lane F). So a fresh store is started,
+# waited for the import, stopped politely and started again.
+$freshStore = -not (Test-Path (Join-Path $runDir 'SystemData.db'))
+
+function Start-AndWait {
+    # Only log text written after this start counts (the daily log file keeps earlier starts).
+    $before = @{}
+    Get-ChildItem $logDir -Filter *.log -ErrorAction SilentlyContinue | ForEach-Object { $t = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue; $before[$_.FullName] = if ($t) { $t.Length } else { 0 } }
+    $script:proc = Start-Process -FilePath $exe -WorkingDirectory $runDir -WindowStyle Minimized -PassThru
+    Set-Content -Path $pidFile -Value @($script:proc.Id, $exe) -Encoding ASCII
+    Write-Host "Started scratch Server.exe PID $($script:proc.Id) on 127.0.0.1:$Port (folder $runDir)"
+    $deadline = (Get-Date).AddSeconds($StartTimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 500
+        if ($script:proc.HasExited) { Write-Error "Server.exe exited early (code $($script:proc.ExitCode)). See $logDir"; exit 1 }
+        $log = Get-ChildItem $logDir -Filter *.log -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
+        if (-not $log) { continue }
+        $text = Get-Content $log.FullName -Raw -ErrorAction SilentlyContinue
+        if (-not $text) { continue }
+        $skip = if ($before.ContainsKey($log.FullName)) { [Math]::Min($before[$log.FullName], $text.Length) } else { 0 }
+        $tail = $text.Substring($skip)
+        if ($tail -match 'Cannot start server') { Write-Error "World refused to start: see $($log.FullName)"; exit 1 }
+        if ($tail -match 'Network Started\.') { return $log.FullName }
     }
+    Write-Error "Timed out waiting for 'Network Started.' in $logDir (server still running, PID $($script:proc.Id))."
+    exit 1
 }
-Write-Error "Timed out waiting for 'Network Started.' in $logDir (server still running, PID $($proc.Id))."
-exit 1
+
+$logPath = Start-AndWait
+if ($freshStore) {
+    $deadline = (Get-Date).AddSeconds(30)
+    while ((Get-Date) -lt $deadline) {
+        $text = Get-Content $logPath -Raw -ErrorAction SilentlyContinue
+        if ($text -match '\[Quests\] (Imported|Automatic import)') { break }
+        Start-Sleep -Milliseconds 500
+    }
+    Write-Host 'Fresh SystemData.db: restarting once so the running world loads the imported quest V2 tables.'
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'stop-scratch-server.ps1') -Scratch $scratchFull
+    if ($LASTEXITCODE -ne 0) { Write-Error 'Stopping the scratch server for the quest restart failed.'; exit 1 }
+    $logPath = Start-AndWait
+}
+Write-Host "World and network started ($logPath)." -ForegroundColor Green
+exit 0

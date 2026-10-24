@@ -1066,6 +1066,8 @@ namespace Server.MirObjects
                     {
                         GainItem(item);
                         Report.ItemChanged(item, item.Count, 2);
+                        if (Race == ObjectType.Player) // quest V2: mining
+                            ((PlayerObject)this).Quests.Raise(new Server.MirEnvir.Quests.QuestEvent(QuestObjectiveType.Gather, QuestTargetKind.Item, item.Info.Index, item.Count));
                     }
                     return;
                 }
@@ -1787,11 +1789,11 @@ namespace Server.MirObjects
         }
         public void CheckItemInfo(ItemInfo info, bool dontLoop = false)
         {
-            Connection.CheckItemInfo(info, dontLoop);
+            Connection?.CheckItemInfo(info, dontLoop); // null-safe: quest engine tests run players without a connection
         }
         public void CheckItem(UserItem item)
         {
-            Connection.CheckItem(item);         
+            Connection?.CheckItem(item); // null-safe: quest engine tests run players without a connection
         }
         public void SetLevelEffects()
         {
@@ -3599,6 +3601,8 @@ namespace Server.MirObjects
 
             RegenTime = Envir.Time + RegenDelay;
             ChangeMP(-cost);
+            if (Race == ObjectType.Player) // quest V2: the spell is committed once its MP is paid
+                ((PlayerObject)this).Quests.Raise(new Server.MirEnvir.Quests.QuestEvent(QuestObjectiveType.UseSkill, QuestTargetKind.Spell, (int)spell));
 
             if (spell == Spell.ShoulderDash && Race == ObjectType.Hero)
                 dir = Direction;

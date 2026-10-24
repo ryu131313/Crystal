@@ -609,6 +609,8 @@ namespace Server.WebAdmin
                     }
                 }
 
+                CheckQuestKeyword(raw, mode, lineNo, diags);
+
                 if (mode == "IF") continue;
 
                 // buttons <Text/@Page>
@@ -644,6 +646,33 @@ namespace Server.WebAdmin
             }
 
             return diags;
+        }
+
+        // Quest V2 script keywords (lane F): keyword â†’ (minimum words incl. the keyword, usage, is a check). The NPC parser drops a
+        // line with too few words silently, and a non-numeric quest / step / objective id never matches.
+        private static readonly Dictionary<string, (int Words, string Usage, bool Check)> QuestKeywords = new Dictionary<string, (int, string, bool)>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["CHECKQUESTSTEP"] = (3, "CHECKQUESTSTEP quest step", true),
+            ["CHECKQUESTVAR"] = (5, "CHECKQUESTVAR quest var op value", true),
+            ["CHECKQUESTOUTCOME"] = (3, "CHECKQUESTOUTCOME quest outcome", true),
+            ["CHECKCONDITION"] = (2, "CHECKCONDITION condition", true),
+            ["QUESTCOUNTER"] = (3, "QUESTCOUNTER quest objective [n]", false),
+            ["SETQUESTVAR"] = (4, "SETQUESTVAR quest var value", false),
+            ["QUESTSTEP"] = (3, "QUESTSTEP quest step", false),
+            ["OFFERQUEST"] = (2, "OFFERQUEST quest", false),
+        };
+
+        private static void CheckQuestKeyword(string raw, string mode, int lineNo, List<ScriptDiagnostic> diags)
+        {
+            var parts = raw.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0 || !QuestKeywords.TryGetValue(parts[0], out var k)) return;
+            var checkMode = mode == "IF";
+            var actMode = mode == "ACT" || mode == "ELSEACT";
+            if (k.Check && !checkMode) { diags.Add(Diag(lineNo, ScriptDiagnostic.Warning, parts[0].ToUpperInvariant() + " is a check: put it under #IF.")); return; }
+            if (!k.Check && !actMode) { diags.Add(Diag(lineNo, ScriptDiagnostic.Warning, parts[0].ToUpperInvariant() + " is an action: put it under #ACT or #ELSEACT.")); return; }
+            if (parts.Length < k.Words) { diags.Add(Diag(lineNo, ScriptDiagnostic.Warning, "Too few arguments (use " + k.Usage + "); the line is ignored.")); return; }
+            if (!int.TryParse(parts[1], out _))
+                diags.Add(Diag(lineNo, ScriptDiagnostic.Warning, parts[0].ToUpperInvariant() + " needs a quest (or condition) number, not '" + parts[1] + "'."));
         }
 
         private static void CheckNpcTarget(string target, int lineNo, Dictionary<string, int> pages, List<ScriptDiagnostic> diags)

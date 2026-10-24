@@ -65,6 +65,12 @@
         CheckHeroItem,
         HasGT,
         CheckBuff,
-        CheckMapLight
+        CheckMapLight,
+
+        // Quest V2 (lane F)
+        CheckQuestStep,
+        CheckQuestVar,
+        CheckQuestOutcome,
+        CheckCondition
     }
 }

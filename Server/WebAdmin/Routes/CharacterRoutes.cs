@@ -172,6 +172,7 @@ namespace Server.WebAdmin.Routes
             router.Post("/api/admin/characters/{index:int}/restore", Restore);
             router.Post("/api/admin/characters/{index:int}/flags", SetFlag);
             router.Post("/api/admin/characters/{index:int}/quests/reset", ResetQuests);
+            router.Post("/api/admin/characters/{index:int}/quests/edit", EditQuest);
             router.Post("/api/admin/characters/{index:int}/magics/remove", RemoveMagic);
             router.Post("/api/admin/characters/{index:int}/magics/set", SetMagic);
         }
@@ -618,6 +619,7 @@ namespace Server.WebAdmin.Routes
                 }
                 else
                 {
+                    Envir.MarkAccountDirty(ci.AccountInfo);
                     ci.QuestRuns.RemoveAll(q => q == null || match(q.Quest));
                     ci.QuestObjectives.RemoveAll(q => q == null || match(q.Quest));
                     ci.QuestVars.RemoveAll(q => q == null || match(q.Quest));
@@ -647,6 +649,82 @@ namespace Server.WebAdmin.Routes
 
             WebAdminAudit.Record(req, "character.quests-reset", result.Target, result.Details, reason);
             await req.Ok(result.Data, result.Message);
+        }
+
+        /// <summary>
+        /// Quest V2 edit of one character (lane F): <c>action</c> = start | complete | step | objective, with <c>questIndex</c> and
+        /// <c>step</c> / <c>objective</c> + <c>value</c>. Online: the same PlayerQuests methods as GM SETQUEST (game thread), so the
+        /// index and the client stay in step. Offline or world stopped: validated against Envir.Edit's definition (copied under
+        /// EditLock on this thread), the run first migrated with <c>PlayerQuests.MigrateRecords</c>, then the records edited.
+        /// </summary>
+        private static async Task EditQuest(WebAdminRequest req)
+        {
+            var index = req.RouteInt("index");
+            var body = CharacterRouteUtil.RequireObject(await req.ReadJsonAsync());
+            var reason = CharacterRouteUtil.Reason(body);
+            var questIndex = (int)(CharacterRouteUtil.OptionalLong(body, "questIndex", 1, int.MaxValue) ?? throw new WebAdminException(400, "questIndex is required"));
+            var action = (CharacterRouteUtil.OptionalString(body, "action") ?? string.Empty).Trim().ToLowerInvariant();
+            var step = (int)(CharacterRouteUtil.OptionalLong(body, "step", -1, int.MaxValue) ?? 0);
+            var objective = (int)(CharacterRouteUtil.OptionalLong(body, "objective", 1, int.MaxValue) ?? 0);
+            var value = (int)(CharacterRouteUtil.OptionalLong(body, "value", 0, int.MaxValue) ?? 0);
+            if (action != "start" && action != "complete" && action != "step" && action != "objective")
+                throw new WebAdminException(400, "action must be start, complete, step or objective");
+
+            // Envir.Edit's definition, copied here (never on the game thread: EditLock).
+            Server.MirEnvir.Quests.QuestDefinition def = null;
+            lock (WebAdminGame.EditLock)
+            {
+                var edit = Envir.Edit;
+                for (var i = 0; i < edit.QuestInfoList.Count; i++)
+                    if (edit.QuestInfoList[i]?.Index == questIndex && edit.QuestInfoList[i].HasDefinition) { def = CopyDefinition(edit.QuestInfoList[i].Definition); break; }
+            }
+
+            var result = await WebAdminGame.RunOrInlineAsync(() =>
+            {
+                var ci = CharacterRouteUtil.Find(index);
+                var player = ci.Player != null && ci.Player.Info == ci && WebAdminGame.IsRunning ? ci.Player : null;
+                bool done;
+                if (player != null)
+                {
+                    switch (action)
+                    {
+                        case "start": done = player.Quests.AdminStart(questIndex); break;
+                        case "complete": done = player.Quests.AdminComplete(questIndex); break;
+                        case "step": done = player.Quests.AdminSetStep(questIndex, step); break;
+                        default: done = player.Quests.AdminSetObjective(questIndex, objective, value); break;
+                    }
+                }
+                else
+                {
+                    if (def == null && action != "complete") throw new WebAdminException(404, "Quest " + questIndex + " has no V2 definition.");
+                    Envir.MarkAccountDirty(ci.AccountInfo);
+                    done = PlayerQuests.EditOfflineRecords(ci, def, questIndex, action, step, objective, value, Envir.Main.Now);
+                }
+
+                if (!done) throw new WebAdminException(409, "Quest " + questIndex + " was not changed on " + ci.Name + " (unknown run, step or objective, or nothing to change).");
+                CharacterRouteUtil.PersistIfStopped();
+                return new CharacterMutation
+                {
+                    Target = CharacterRouteUtil.Label(ci),
+                    Message = "Quest " + questIndex + ": " + action + " on " + ci.Name + ".",
+                    Details = new { questIndex, action, step, objective, value, online = player != null },
+                    Data = new { questIndex, action },
+                };
+            });
+
+            WebAdminAudit.Record(req, "character.quest-edit", result.Target, result.Details, reason);
+            await req.Ok(result.Data, result.Message);
+        }
+
+        /// <summary>A copy of the steps / objectives / revision / limits of a definition (the parts an offline edit reads).</summary>
+        private static Server.MirEnvir.Quests.QuestDefinition CopyDefinition(Server.MirEnvir.Quests.QuestDefinition d)
+        {
+            var copy = new Server.MirEnvir.Quests.QuestDefinition { Revision = d.Revision, TimeLimitSeconds = d.TimeLimitSeconds };
+            foreach (var s in d.Steps)
+                if (s != null) copy.Steps.Add(new Server.MirEnvir.Quests.QuestStepInfo { Index = s.Index, Order = s.Order, TimeLimitSeconds = s.TimeLimitSeconds, NextStep = s.NextStep });
+            foreach (var o in d.Objectives)
+                if (o != null) copy.Objectives.Add(new Server.MirEnvir.Quests.QuestObjectiveInfo { Index = o.Index, Step = o.Step, Type = o.Type, Count = o.Count });
+            return copy;
         }
 
         // ------------------------------------------------------------------ magics

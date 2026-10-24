@@ -1457,6 +1457,7 @@ namespace Server.MirObjects
             {
                 //Give Item
                 player.Info.Statistics.Add(PlayerStat.ItemsCrafted, craftedItem.Count);
+                player.Quests.Raise(new Server.MirEnvir.Quests.QuestEvent(QuestObjectiveType.Craft, QuestTargetKind.Item, craftedItem.Info.Index, craftedItem.Count)); // quest V2
                 player.GainItem(craftedItem);
             }
 

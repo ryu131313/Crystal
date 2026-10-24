@@ -353,7 +353,7 @@ namespace Server.MirDatabase
 
                 if (Info.TimeLimitInSeconds > 0)
                 {
-                    Owner.ExpireTimer($"Quest-{Index}");
+                    Owner?.ExpireTimer($"Quest-{Index}"); // the differential-test oracle runs with Owner = null
                 }
             }
 // updatetask again to show gototask
@@ -611,5 +611,34 @@ namespace Server.MirDatabase
         public QuestFlagTask Info { get; set; }
 
         public bool Complete { get { return Info != null && State == true; } }
+    }
+    /// <summary>
+    /// The reward selection of the legacy <c>PlayerObject.FinishQuest</c> (removed with the legacy runtime in lane F), kept as a pure
+    /// function next to the oracle for the quest V2 differential test: every fixed reward (no gender check, the legacy bug), the
+    /// selected reward by its position in SelectRewards (-1 = none), gold × DropRate, exp × ExpRate, credit as is. Deleted with
+    /// QuestProgressInfo in phase 4.
+    /// </summary>
+    public static class LegacyQuestRewards
+    {
+        public sealed class Selection
+        {
+            public readonly List<(ItemInfo Item, ushort Count)> Items = new List<(ItemInfo, ushort)>();
+            public uint Gold, Exp, Credit;
+        }
+
+        public static Selection Select(QuestInfo info, int selectedItemIndex = -1)
+        {
+            var result = new Selection();
+            foreach (var reward in info.FixedRewards)
+                result.Items.Add((reward.Item, reward.Count));
+
+            if (selectedItemIndex >= 0 && selectedItemIndex < info.SelectRewards.Count)
+                result.Items.Add((info.SelectRewards[selectedItemIndex].Item, info.SelectRewards[selectedItemIndex].Count));
+
+            result.Gold = (uint)(info.GoldReward * Settings.DropRate);
+            result.Exp = (uint)(info.ExpReward * Settings.ExpRate);
+            result.Credit = info.CreditReward;
+            return result;
+        }
     }
 }

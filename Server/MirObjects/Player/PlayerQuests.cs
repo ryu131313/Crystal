@@ -55,6 +55,14 @@ namespace Server.MirObjects
         private readonly Dictionary<int, int> _deliverCounts = new Dictionary<int, int>();
         /// <summary>Indexed Deliver objectives (recounted on Process; inventory slots change in too many places for one hook).</summary>
         private readonly List<ObjectiveRef> _deliverRefs = new List<ObjectiveRef>();
+        /// <summary>Indexed ReachArea objectives (checked on Process when the player's map or cell changed).</summary>
+        private readonly List<ObjectiveRef> _areaRefs = new List<ObjectiveRef>();
+        private Map _areaMap;
+        private System.Drawing.Point _areaLocation;
+        /// <summary>Active runs whose current step has a FailCondition (checked at most every <see cref="FailCheckMs"/>).</summary>
+        private readonly List<QuestRunState> _failRuns = new List<QuestRunState>();
+        private long _nextFailCheck;
+        private const long FailCheckMs = 1000;
 
         /// <summary>Quests the player may accept without an NPC (a share or a non-NPC offer), until accepted or logged out.</summary>
         private readonly HashSet<int> _offers = new HashSet<int>();
@@ -72,7 +80,7 @@ namespace Server.MirObjects
 
         /// <summary>True when Process has work (client updates, availability, timers, Deliver recounts).</summary>
         public bool HasPendingWork => _dirtyProgressOrder.Count > 0 || _dirtyStateOrder.Count > 0 || _dirtyHistory.Count > 0 || _availabilityDirty ||
-                                      _deliverRefs.Count > 0 || _nextDue != DateTime.MaxValue;
+                                      _deliverRefs.Count > 0 || _areaRefs.Count > 0 || _failRuns.Count > 0 || _nextDue != DateTime.MaxValue;
 
         // ------------------------------------------------------------------ records
 
@@ -550,6 +558,10 @@ namespace Server.MirObjects
                     case QuestObjectiveType.ReachLevel:
                         _targetless.Add(r);
                         break;
+                    case QuestObjectiveType.ReachArea:
+                        _areaRefs.Add(r);
+                        _areaMap = null; // check at the next Process
+                        break;
                     case QuestObjectiveType.UseSkill:
                         if (o.TargetKind == QuestTargetKind.Spell) AddKey(keys, r, QuestEvent.Key(o.Type, QuestTargetKind.Spell, o.TargetId));
                         else _targetless.Add(r);
@@ -565,6 +577,7 @@ namespace Server.MirObjects
             }
 
             _indexKeysByQuest[run.Quest] = keys;
+            if (q.StepsById.TryGetValue(run.Step, out var currentStep) && currentStep.FailCondition != 0) _failRuns.Add(run);
         }
 
         /// <summary>Single target → one key; a group → one key per member (as the event's single kind).</summary>
@@ -609,6 +622,12 @@ namespace Server.MirObjects
 
             for (var i = _deliverRefs.Count - 1; i >= 0; i--)
                 if (_deliverRefs[i].Run.Quest == quest) _deliverRefs.RemoveAt(i);
+
+            for (var i = _areaRefs.Count - 1; i >= 0; i--)
+                if (_areaRefs[i].Run.Quest == quest) _areaRefs.RemoveAt(i);
+
+            for (var i = _failRuns.Count - 1; i >= 0; i--)
+                if (_failRuns[i].Quest == quest) _failRuns.RemoveAt(i);
         }
         /// <summary>True when an active run's current step has a Collect objective on this item that the quest bag does not yet satisfy.</summary>
         public bool NeedsQuestItem(ItemInfo info)
@@ -666,6 +685,8 @@ namespace Server.MirObjects
             if (!_loggedIn) return;
 
             if (_deliverRefs.Count > 0) RecountDeliver();
+            if (_areaRefs.Count > 0 && (_player.CurrentMap != _areaMap || _player.CurrentLocation != _areaLocation)) CheckAreas();
+            if (_failRuns.Count > 0 && Envir.Time >= _nextFailCheck) CheckFailConditions();
 
             if (_nextDue != DateTime.MaxValue)
             {
@@ -680,9 +701,60 @@ namespace Server.MirObjects
         /// <summary>Milliseconds until the next quest timer (for PlayerObject.NextTimerDue), or -1 = none.</summary>
         public long MsUntilDue()
         {
-            if (_nextDue == DateTime.MaxValue) return -1;
-            var ms = (_nextDue - Envir.Now).TotalMilliseconds;
-            return ms <= 0 ? 0 : (long)Math.Min(ms, int.MaxValue);
+            long result = -1;
+            if (_nextDue != DateTime.MaxValue)
+            {
+                var ms = (_nextDue - Envir.Now).TotalMilliseconds;
+                result = ms <= 0 ? 0 : (long)Math.Min(ms, int.MaxValue);
+            }
+
+            if (_failRuns.Count > 0)
+            {
+                var fail = Math.Max(0, _nextFailCheck - Envir.Time);
+                if (result < 0 || fail < result) result = fail;
+            }
+
+            return result;
+        }
+
+        /// <summary>ReachArea: met once the player stands within Radius of (X, Y) on the objective's template map (Map, else TargetId).</summary>
+        private void CheckAreas()
+        {
+            _areaMap = _player.CurrentMap;
+            _areaLocation = _player.CurrentLocation;
+            var map = TemplateMapIndex();
+            for (var i = 0; i < _areaRefs.Count; i++)
+            {
+                var r = _areaRefs[i];
+                var o = r.Objective;
+                if (r.Run.Status != QuestRunStatus.Active) continue;
+                var target = o.Map != 0 ? o.Map : o.TargetId;
+                if (target == 0 || target != map) continue;
+                if (Math.Abs(_areaLocation.X - o.X) > o.Radius || Math.Abs(_areaLocation.Y - o.Y) > o.Radius) continue;
+                if (o.Condition != 0 && !EvaluateCondition(o.Condition)) continue;
+                if (!SetValue(r.Run.Quest, o, Math.Max(1, o.Count))) continue;
+                if (!_touched.Contains(r.Run)) _touched.Add(r.Run);
+            }
+
+            FlushTouched();
+        }
+
+        /// <summary>Step FailCondition (Part B "Runtime"): evaluated at most once a second while a current step has one.</summary>
+        private void CheckFailConditions()
+        {
+            _nextFailCheck = Envir.Time + FailCheckMs;
+            List<QuestRunState> failed = null;
+            for (var i = 0; i < _failRuns.Count; i++)
+            {
+                var run = _failRuns[i];
+                if (run.Status != QuestRunStatus.Active) continue;
+                var q = Catalog.Get(run.Quest);
+                if (q == null || !q.StepsById.TryGetValue(run.Step, out var step) || step.FailCondition == 0) continue;
+                if (EvaluateCondition(step.FailCondition)) (failed ??= new List<QuestRunState>()).Add(run);
+            }
+
+            if (failed != null)
+                for (var i = 0; i < failed.Count; i++) Fail(failed[i], "fail condition");
         }
 
         private void RecountDeliver()

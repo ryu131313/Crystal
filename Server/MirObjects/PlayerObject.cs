@@ -7326,6 +7326,7 @@ namespace Server.MirObjects
             RefreshBagWeight();
 
             Report.ItemChanged(item, 1, 1);
+            Quests.Raise(new Server.MirEnvir.Quests.QuestEvent(QuestObjectiveType.UseItem, QuestTargetKind.Item, item.Info.Index)); // quest V2
 
             p.Success = true;
             Enqueue(p);
@@ -8936,6 +8937,10 @@ namespace Server.MirObjects
                 {
                     scriptID = ob.ScriptID;
                 }
+
+                // Quest V2: opening an NPC's dialog is a Talk event for that NPC.
+                if (key == NPCScript.MainKey && ob.Info != null)
+                    Quests.Raise(new Server.MirEnvir.Quests.QuestEvent(QuestObjectiveType.Talk, QuestTargetKind.Npc, ob.Info.Index));
 
                 var script = NPCScript.Get(scriptID);
                 script.Call(this, objectID, key);
@@ -12624,6 +12629,7 @@ namespace Server.MirObjects
                         {
                             GainItem(dropItem);
                             Report.ItemChanged(dropItem, dropItem.Count, 2);
+                            Quests.Raise(new Server.MirEnvir.Quests.QuestEvent(QuestObjectiveType.Gather, QuestTargetKind.Item, dropItem.Info.Index, dropItem.Count)); // quest V2: fishing
                         }
 
                         if (Envir.Random.Next(100 - Settings.FishingMobSpawnChance) == 0)

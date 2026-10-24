@@ -354,6 +354,25 @@ namespace Server.MirObjects
 
                     CheckList.Add(new NPCChecks(CheckType.CheckQuest, parts[1], parts[2]));
                     break;
+
+                // Quest V2 (lane F): CHECKQUESTSTEP quest step / CHECKQUESTVAR quest var op value / CHECKQUESTOUTCOME quest outcome /
+                // CHECKCONDITION id
+                case "CHECKQUESTSTEP":
+                    if (parts.Length < 3) return;
+                    CheckList.Add(new NPCChecks(CheckType.CheckQuestStep, parts[1], parts[2]));
+                    break;
+                case "CHECKQUESTVAR":
+                    if (parts.Length < 5) return;
+                    CheckList.Add(new NPCChecks(CheckType.CheckQuestVar, parts[1], parts[2], parts[3], parts[4]));
+                    break;
+                case "CHECKQUESTOUTCOME":
+                    if (parts.Length < 3) return;
+                    CheckList.Add(new NPCChecks(CheckType.CheckQuestOutcome, parts[1], parts[2]));
+                    break;
+                case "CHECKCONDITION":
+                    if (parts.Length < 2) return;
+                    CheckList.Add(new NPCChecks(CheckType.CheckCondition, parts[1]));
+                    break;
                 case "CHECKRELATIONSHIP":
                     CheckList.Add(new NPCChecks(CheckType.CheckRelationship));
                     break;
@@ -802,6 +821,24 @@ namespace Server.MirObjects
                         string flagIndex = match.Groups[1].Captures[0].Value;
                         acts.Add(new NPCActions(ActionType.Set, flagIndex, parts[2]));
                     }
+                    break;
+
+                // Quest V2 (lane F): QUESTCOUNTER quest objective [n] / SETQUESTVAR quest var value / QUESTSTEP quest step / OFFERQUEST quest
+                case "QUESTCOUNTER":
+                    if (parts.Length < 3) return;
+                    acts.Add(new NPCActions(ActionType.QuestCounter, parts[1], parts[2], parts.Length > 3 ? parts[3] : "1"));
+                    break;
+                case "SETQUESTVAR":
+                    if (parts.Length < 4) return;
+                    acts.Add(new NPCActions(ActionType.SetQuestVar, parts[1], parts[2], parts[3]));
+                    break;
+                case "QUESTSTEP":
+                    if (parts.Length < 3) return;
+                    acts.Add(new NPCActions(ActionType.QuestStep, parts[1], parts[2]));
+                    break;
+                case "OFFERQUEST":
+                    if (parts.Length < 2) return;
+                    acts.Add(new NPCActions(ActionType.OfferQuest, parts[1]));
                     break;
 
                 case "PARAM1":
@@ -2539,6 +2576,35 @@ namespace Server.MirObjects
                             failed = player.Quests.TimesCompleted(tempInt) <= 0;
                         }
                         break;
+                    case CheckType.CheckQuestStep:
+                        failed = !player.Quests.ScriptCheckStep(param[0], param[1]);
+                        break;
+                    case CheckType.CheckQuestVar:
+                        {
+                            var varValue = player.Quests.ScriptVarValue(param[0], param[1]);
+                            if (varValue == null || !int.TryParse(param[3], out int varTarget))
+                            {
+                                failed = true;
+                                break;
+                            }
+
+                            try
+                            {
+                                failed = !Compare(param[2], varValue.Value, varTarget);
+                            }
+                            catch (ArgumentException)
+                            {
+                                MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.IncorrectOperatorPage), param[2], Key));
+                                return true;
+                            }
+                        }
+                        break;
+                    case CheckType.CheckQuestOutcome:
+                        failed = !player.Quests.ScriptCheckOutcome(param[0], param[1]);
+                        break;
+                    case CheckType.CheckCondition:
+                        failed = !player.Quests.ScriptCheckCondition(param[0]);
+                        break;
                     case CheckType.CheckRelationship:
                         if (player.Info.Married == 0)
                         {
@@ -3462,6 +3528,7 @@ namespace Server.MirObjects
                                     player.Info.Gender = MirGender.Male;
                                     break;
                             }
+                            player.Quests.ClassOrGenderChanged(); // quest V2: definitions carry gender-filtered rewards
                         }
                         break;
 
@@ -3505,6 +3572,7 @@ namespace Server.MirObjects
                                     player.Info.Class = MirClass.Archer;
                                     break;
                             }
+                            player.Quests.ClassOrGenderChanged(); // quest V2: definitions carry class-filtered rewards
                         }
                         break;
 
@@ -3604,6 +3672,19 @@ namespace Server.MirObjects
 
                             player.Quests.FlagChanged(flagIndex); // quest V2: Flag objectives are met while set, so both on and off
                         }
+                        break;
+
+                    case ActionType.QuestCounter:
+                        player.Quests.ScriptCounter(param[0], param[1], param[2]);
+                        break;
+                    case ActionType.SetQuestVar:
+                        player.Quests.ScriptSetVar(param[0], param[1], param[2]);
+                        break;
+                    case ActionType.QuestStep:
+                        player.Quests.ScriptForceStep(param[0], param[1]);
+                        break;
+                    case ActionType.OfferQuest:
+                        player.Quests.ScriptOffer(param[0]);
                         break;
 
                     case ActionType.Param1:

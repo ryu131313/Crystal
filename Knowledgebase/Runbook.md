@@ -111,6 +111,7 @@ powershell -ExecutionPolicy Bypass -File C:\Mir2\tools\stop-scratch-server.ps1  
 ```
 - Use ports 17000-17999. The scratch `Setup.ini` sets `[LoadTest] ExemptLoopback=True`, `CheckVersion=False`, `EnforceDBChecks=False`, `AllowStartGame=True` and `[WebAdmin] Enabled=False`: **never copy it to a real server.**
 - The scratch profile sets `[Network] StatusPortEnabled=False`, so the status port (3100 by default, now configurable) stays free for the live server.
+- A fresh store (first start or `-Reset`) is started twice by the script: the first start imports the legacy quests into the quest V2 tables on `Envir.Edit` only (UserData-and-Quests-Plan.md, lane F), and the running world loads them at its next start. A scratch folder started by hand needs that second start too.
 - After a run, check `%TEMP%\mir2-p6-server\run\Logs\Server\` for `[World] Isolated error` / `FATAL` and `run\Logs\Crash\`.
 - Baseline / regression: `powershell -ExecutionPolicy Bypass -File C:\Mir2\tools\run-baseline.ps1` (idle + 50/200/500 bots, ~10 min, writes `Knowledgebase\Future Optimisation\Baseline-<date>.md`). A/B a switch with `-Bots 500 -NoIdle -ExtraIni '[Optimisation]','EncodeOnce=False' -Out <file>`. CPU numbers are only comparable on a quiet machine (close browsers, chat apps).
 

@@ -135,6 +135,88 @@ namespace Server.MirObjects
             return true;
         }
 
+        /// <summary>
+        /// Web admin edit of an offline character's quest records (no PlayerQuests; game thread, or inline while the world is stopped).
+        /// <paramref name="def"/> is a copy of Envir.Edit's definition (null = unknown quest: only "complete" works). The run is first
+        /// migrated to the definition's revision (<see cref="MigrateRecords"/>). Ready is derived at the next login. False = nothing changed.
+        /// </summary>
+        public static bool EditOfflineRecords(CharacterInfo ci, QuestDefinition def, int quest, string action, int step, int objective, int value, DateTime now)
+        {
+            QuestRunState run = null;
+            for (var i = 0; i < ci.QuestRuns.Count; i++)
+                if (ci.QuestRuns[i]?.Quest == quest) { run = ci.QuestRuns[i]; break; }
+            if (run != null && def != null) MigrateRecords(def, run, ci.QuestObjectives, now);
+
+            switch (action)
+            {
+                case "start":
+                {
+                    if (run != null || def == null) return false;
+                    QuestStepInfo first = null;
+                    for (var i = 0; i < def.Steps.Count; i++)
+                    {
+                        var s = def.Steps[i];
+                        if (first == null || s.Order < first.Order || (s.Order == first.Order && s.Index < first.Index)) first = s;
+                    }
+
+                    if (first == null) return false;
+                    ci.QuestRuns.Add(new QuestRunState
+                    {
+                        Quest = quest, Status = QuestRunStatus.Active, Step = first.Index, Revision = def.Revision, AcceptedAt = now.ToBinary(),
+                        ExpiresAt = def.TimeLimitSeconds > 0 ? now.AddSeconds(def.TimeLimitSeconds).ToBinary() : 0,
+                        StepExpiresAt = first.TimeLimitSeconds > 0 ? now.AddSeconds(first.TimeLimitSeconds).ToBinary() : 0,
+                    });
+                    return true;
+                }
+                case "complete":
+                {
+                    QuestHistoryEntry h = null;
+                    for (var i = 0; i < ci.QuestHistory.Count; i++)
+                        if (ci.QuestHistory[i]?.Quest == quest) { h = ci.QuestHistory[i]; break; }
+                    if (h == null) ci.QuestHistory.Add(h = new QuestHistoryEntry { Quest = quest, FirstAt = now.ToBinary() });
+                    h.Times++;
+                    h.LastAt = now.ToBinary();
+                    ci.QuestRuns.RemoveAll(r => r == null || r.Quest == quest);
+                    ci.QuestObjectives.RemoveAll(o => o == null || o.Quest == quest);
+                    ci.QuestVars.RemoveAll(v => v == null || v.Quest == quest);
+                    return true;
+                }
+                case "step":
+                {
+                    if (run == null || def == null) return false;
+                    QuestStepInfo target = null;
+                    for (var i = 0; i < def.Steps.Count; i++)
+                        if (def.Steps[i].Index == step) target = def.Steps[i];
+                    if (step != -1 && target == null) return false;
+                    run.Status = QuestRunStatus.Active;
+                    run.Step = step;
+                    run.StepExpiresAt = target != null && target.TimeLimitSeconds > 0 ? now.AddSeconds(target.TimeLimitSeconds).ToBinary() : 0;
+                    return true;
+                }
+                case "objective":
+                {
+                    if (run == null || def == null) return false;
+                    QuestObjectiveInfo o = null;
+                    for (var i = 0; i < def.Objectives.Count; i++)
+                        if (def.Objectives[i].Index == objective) o = def.Objectives[i];
+                    if (o == null || o.Type == QuestObjectiveType.Collect || o.Type == QuestObjectiveType.Deliver || o.Type == QuestObjectiveType.Flag) return false;
+                    var clamped = Math.Clamp(value, 0, Math.Max(1, o.Count));
+                    for (var i = 0; i < ci.QuestObjectives.Count; i++)
+                    {
+                        var row = ci.QuestObjectives[i];
+                        if (row == null || row.Quest != quest || row.Objective != objective) continue;
+                        row.Value = clamped;
+                        return true;
+                    }
+
+                    ci.QuestObjectives.Add(new QuestObjectiveState { Quest = quest, Objective = objective, Value = clamped });
+                    return true;
+                }
+                default:
+                    return false;
+            }
+        }
+
         private void SendHistoryFull()
         {
             var packet = new ServerPackets.QuestHistory { Full = true };
