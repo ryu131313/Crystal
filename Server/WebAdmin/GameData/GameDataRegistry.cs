@@ -350,6 +350,16 @@ namespace Server.WebAdmin.GameData
             };
         }
 
+        /// <summary>
+        /// False for the tables and columns the binary Server.MirDB format does not carry (the quest V2 definition tables and the quest V2
+        /// columns of quests, SystemData.db only): the Server.MirDB exporter / verifier (tools/MirDbExport) skips them.
+        /// </summary>
+        internal static bool InBinaryFormat(string endpoint, string column = null)
+        {
+            if (Array.IndexOf(LiveDb.LiveDbClassification.QuestV2Tables, endpoint) >= 0) return false;
+            return column == null || endpoint != "quests" || !QuestV2Columns.Contains(column);
+        }
+
         /// <summary>The quest V2 columns of the quests table (QuestDefinition's scalar fields; read-only in the grid, RestartOnly in LiveDb).</summary>
         internal static IReadOnlyList<string> QuestV2Columns => LazyQuestV2Columns.Value;
 

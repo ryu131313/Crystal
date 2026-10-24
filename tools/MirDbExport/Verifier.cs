@@ -134,7 +134,7 @@ namespace MirDbExport
 
             // --- table sets: verifier specs vs registry endpoints vs file
             var specNames = new HashSet<string>(Specs.Select(s => s.Endpoint), StringComparer.Ordinal);
-            var registryNames = new HashSet<string>(GameDataRegistry.Tables.Select(t => t.Endpoint), StringComparer.Ordinal);
+            var registryNames = new HashSet<string>(GameDataRegistry.Tables.Where(t => GameDataRegistry.InBinaryFormat(t.Endpoint)).Select(t => t.Endpoint), StringComparer.Ordinal);
             foreach (var n in registryNames.Except(specNames)) result.Mismatches.Add("registry table '" + n + "' is unknown to the verifier (teach Verifier.Specs)");
             foreach (var n in specNames.Except(registryNames)) result.Mismatches.Add("verifier table '" + n + "' is no longer in GameDataRegistry");
             var expectedTables = new HashSet<string>(specNames, StringComparer.Ordinal) { Schema.MetaTable, Schema.CountersTable };
@@ -195,7 +195,7 @@ namespace MirDbExport
             var dataColumns = dbColumns.Where(c => !reserved.Contains(c)).ToList();
 
             // Column names: export == registry (names only).
-            var registryColumns = GameDataRegistry.Get(spec.Endpoint)?.Columns.Select(c => c.Name).ToList() ?? new List<string>();
+            var registryColumns = GameDataRegistry.Get(spec.Endpoint)?.Columns.Where(c => GameDataRegistry.InBinaryFormat(spec.Endpoint, c.Name)).Select(c => c.Name).ToList() ?? new List<string>();
             foreach (var c in registryColumns.Except(dataColumns)) result.Mismatches.Add(spec.Endpoint + ": registry column '" + c + "' missing from the export");
             foreach (var c in dataColumns.Except(registryColumns)) result.Mismatches.Add(spec.Endpoint + ": export column '" + c + "' is not a registry column");
 

@@ -49,7 +49,8 @@ namespace MirDbExport
                         WriteMeta(conn, tx, source);
                         WriteCounters(conn, tx);
                         foreach (var table in GameDataRegistry.Tables)
-                            WriteTable(conn, tx, ctx, table, result);
+                            if (GameDataRegistry.InBinaryFormat(table.Endpoint)) // quest V2 tables live in SystemData.db only
+                                WriteTable(conn, tx, ctx, table, result);
 
                         if (result.Errors.Count > 0)
                         {
@@ -150,6 +151,7 @@ namespace MirDbExport
             var columns = new List<(GameDataColumn Column, string SqlType)>();
             foreach (var c in table.Columns)
             {
+                if (!GameDataRegistry.InBinaryFormat(table.Endpoint, c.Name)) continue; // quest V2 columns: SystemData.db only
                 if (reserved.Contains(c.Name) || !seen.Add(c.Name))
                 {
                     result.Errors.Add(table.Endpoint + "." + c.Name + ": column name collides with another column (case-insensitive) or a reserved name");
@@ -244,7 +246,7 @@ namespace MirDbExport
         private static List<Func<object, string>> LossChecks(GameDataTable table)
         {
             var checks = new List<Func<object, string>>();
-            var names = new HashSet<string>(table.Columns.Select(c => c.Name), StringComparer.Ordinal);
+            var names = new HashSet<string>(table.Columns.Where(c => GameDataRegistry.InBinaryFormat(table.Endpoint, c.Name)).Select(c => c.Name), StringComparer.Ordinal);
             var exportedStats = new HashSet<Stat>(GameDataColumns.StatMembers);
             foreach (var f in table.EntityType.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
             {
