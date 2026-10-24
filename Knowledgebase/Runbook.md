@@ -252,3 +252,23 @@ Accounts and characters, the world counters and hero list (`world.head`), auctio
 4. Put back the previous build (§3) and start. Everything written since the import is carried over by the export.
 
 **Back to UserData.db after such a rollback:** the old build wrote `Server.MirADB` after every SQLite backup, so moving `UserData.db` away (step 3 above) and starting the new build imports `Server.MirADB` again. If a SQLite backup is newer than `Server.MirADB`, the import is refused (above).
+
+## 13. D1: UserData.db + quest definition tables (UserData-and-Quests-Plan.md, wave 1, 2026-10-24)
+
+D1 changes nothing players see. It moves user data into `UserData.db` (§12) and adds the quest V2 definition tables to `SystemData.db` (Part B phase 1: imported from the legacy quests at the first start, read-only, legacy quests stay the runtime). `Shared/` changed (new enums), so the server, the desktop client and the web client must come from **one commit**.
+
+**Before:** optional dry runs on copies: the user-data import (§12 "Dry run") and the quest import (`Server.Persistence.Tests`, `--filter Quest`, with the live `SystemData.db` copied by `VACUUM INTO` or taken from the newest `Back Up\Database\*.bak`; 2026-10-24: 154 quests, 1 data error on quest 74, listed in the plan's dry-run report). Keep an off-box copy of `Server.MirADB`, `Guilds\`, `Conquests\`, `Envir\Goods\` and `SystemData.db`.
+
+**Deploy (one stop window):**
+1. Stop the world and `Server.exe` (§2 step 1). Stop the public WebRelay too: desktop players connect through it (`[Network] Relay`, §9), so no old client can be online against the new server.
+2. Deploy the server as §2 (the script protects `UserData.db*` and the `*.imported` names).
+3. Desktop client: the Release build from the same commit into the patch root (§9; on the simple path the Release build writes `Build\Client\Release` itself).
+4. Web client: rebuild WebRelay and run `tools\publish-webclient.ps1` (§8): the enum module changed.
+5. Start the server. Expect (the `[Quests]` line comes from a background thread, so it can come before or after the `[UserData]` lines): `[Store] Copied the store to ...Pre-migrate <time>.bak before adding N table(s)/column(s)`, then `[Store] Added table ...`, `Added column quests....` and `Added index counter Quest...` lines, `[Quests] Imported 154 legacy quest(s) ...` with the error and warning counts (WinForms editors refuse to open until it is done; `[Quests] Automatic import skipped: ...` means it did not run: use web admin `POST /api/admin/quests/reimport`), and `[UserData] Imported Server.MirADB into .\UserData.db: 13142 accounts, 2 guilds, 53 goods, 1 conquests.` with four `Renamed ...` lines. A count-check failure stops the start with nothing renamed (§12).
+6. Start the WebRelay. Log in with a desktop and a web client, sell to an NPC, check a guild, then watch as §2 step 5 (3 autosaves: each one writes a `Back Up\Accounts\Accounts <time>.bak`; one full restart).
+
+**Rollback (D1 → previous build):**
+1. Stop `Server.exe` and the WebRelay.
+2. User data: §12 "Roll back to a build before UserData.db" (run the **D1 build's** `MirDbExport export-userdata` first, then move `UserData.db` and the `*.imported` names aside).
+3. System data: put the `Back Up\Database\Pre-migrate <time>.bak` taken at the D1 start in place as `SystemData.db` and set its `LastWriteTime` to now (§10). The previous build refuses the migrated store (`unknown column(s)` / unknown tables). Design edits made since D1 are lost.
+4. Put back the previous server build (§3), the previous client build in the patch root, and the previous WebRelay + web client publish. Start.

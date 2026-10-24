@@ -65,6 +65,14 @@ namespace Server.MirEnvir
         /// </summary>
         private volatile bool _forceNextSave;
 
+        /// <summary>
+        /// The Envir.Version every guild, goods and conquest row is known to be written at: the loaded version after a load, Version
+        /// once a full save (all rows) succeeded. An offline save rewrites only accounts + world, so it is refused while this differs
+        /// from Version: the head would be newer than the conquest rows, which read with the head's version (wave 1 review).
+        /// </summary>
+        private volatile int _userDataRowsVersion;
+        private volatile bool _jobRewritesAllRows;
+
         /// <summary>The last job committed (the writer sets it before it clears Saving).</summary>
         private volatile bool _lastUserDataJobSucceeded = true;
 
@@ -93,6 +101,17 @@ namespace Server.MirEnvir
         {
             _userDataLoaded = false;
             _userDataSource = UserDataSource.None;
+        }
+
+        /// <summary>
+        /// A load brought back a row that is still marked for deletion (the save that would have deleted it failed or timed out, then a
+        /// Reboot reloaded it): the loaded data wins, so the row is never written and deleted in one transaction (wave 1 review).
+        /// Posted deletes are dropped by the caller: a delete that did succeed and stays pending only repeats a harmless DELETE.
+        /// </summary>
+        private static void DropStaleDelete(ConcurrentDictionary<int, byte> pending, int index, string kind)
+        {
+            if (pending.TryRemove(index, out _))
+                MessageQueue.Enqueue($"[UserData] The pending delete of {kind} {index} was dropped: the load brought the {kind} back.");
         }
 
         /// <summary>
@@ -188,6 +207,7 @@ namespace Server.MirEnvir
         {
             var job = _userDataJob;
             job.Clear();
+            _jobRewritesAllRows = full && sides;
 
             var writer = _accountSaveWriter ??= new BufferBinaryWriter(AccountSaveEncoding, InitialAccountSaveCapacity());
             writer.Reset();
@@ -294,6 +314,7 @@ namespace Server.MirEnvir
                 Interlocked.Increment(ref _accountSaveFailures);
             }
 
+            if (ok && _jobRewritesAllRows) _userDataRowsVersion = Version;
             _lastUserDataJobSucceeded = ok;
             Saving = false;
         }
@@ -391,6 +412,10 @@ namespace Server.MirEnvir
                 }
             }
 
+            // Mentor/marriage links of deleted characters and over-capacity mail: account changes, so before the final save (moved out of StopEnvir).
+            try { CleanUp(); }
+            catch (Exception ex) { WorldErrors.Record("CleanUp at shutdown", ex); }
+
             var started = Stopwatch.ElapsedMilliseconds;
             while (Saving && Stopwatch.ElapsedMilliseconds - started < ShutdownSaveWaitMs)
                 Thread.Sleep(1);
@@ -474,6 +499,12 @@ namespace Server.MirEnvir
                 if (_userDataSource != UserDataSource.Store || !UserStore.Exists)
                 {
                     MessageQueue.Enqueue("[UserData] Accounts not saved: " + UserDataPath + " does not exist yet (start the world once to import Server.MirADB).");
+                    return false;
+                }
+
+                if (_userDataRowsVersion != Version)
+                {
+                    MessageQueue.Enqueue($"[UserData] Accounts not saved: the store's rows are at version {_userDataRowsVersion} and no full save at {Version} has run yet; start the world once so it rewrites every row.");
                     return false;
                 }
 
@@ -702,12 +733,15 @@ namespace Server.MirEnvir
                 }
 
                 BuildSentMailIndex(); // phase 2.6: Sent folder index from the loaded mailboxes
+                _userDataRowsVersion = LoadVersion; // the version the head (and so every row) was read with; under LoadLock like the read
             }
 
             // P9-12: every list was replaced; the cache is rebuilt from a fresh save, never from the loaded bytes (the load drops archived
             // characters, unbindable items and orphan quests, so those bytes differ).
             AccountSaveCache.InvalidateAll();
             _forceNextSave = true; // rows carry no version: the first save after any load rewrites every row
+            for (var i = 0; i < AccountList.Count; i++) DropStaleDelete(_pendingAccountDeletes, AccountList[i].Index, "account");
+            _postedAccountDeletes = null;
             _userDataLoaded = true;
         }
 
@@ -877,7 +911,9 @@ namespace Server.MirEnvir
                             guildInfo = new GuildInfo(reader);
                         GuildList.Add(guildInfo);
                         new GuildObject(guildInfo);
+                        DropStaleDelete(_pendingGuildDeletes, guildInfo.GuildIndex, "guild");
                     }
+                    _postedGuildDeletes = null;
                     GuildCount = GuildList.Count;
                     return;
                 }

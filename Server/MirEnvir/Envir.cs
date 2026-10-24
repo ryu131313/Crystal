@@ -4270,7 +4270,7 @@ namespace Server.MirEnvir
             Heroes.Clear();
             GTMapList.Clear();
 
-            CleanUp();
+            // CleanUp() runs in SaveUserDataAtShutdown, before the final save, so its account changes are written (wave 1 review).
 
             GC.Collect();
 
@@ -4337,7 +4337,7 @@ namespace Server.MirEnvir
             MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.NetworkStopped));
         }
 
-        private void CleanUp()
+        internal void CleanUp()
         {
             for (var i = 0; i < CharacterList.Count; i++)
             {

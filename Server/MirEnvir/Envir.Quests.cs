@@ -23,6 +23,9 @@ namespace Server.MirEnvir
         /// background thread (Envir.Edit under EditLock, then SaveEdit; never on the game thread, server.md §3.2). Main keeps running on
         /// what it loaded; the imported rows are RestartOnly and unused at runtime in this phase.
         /// </summary>
+        /// <summary>The world-start quest import is running (it saves Envir.Edit): WinForms editors must not open meanwhile.</summary>
+        public static bool QuestImportRunning => QuestImportRunner.BackgroundRunning;
+
         private void StartQuestDefinitionImport()
         {
             if (this != Main || !(Store is Storage.SqliteWorldStore)) return;

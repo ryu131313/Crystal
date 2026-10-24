@@ -21,6 +21,9 @@ namespace Server.MirEnvir.Quests
     {
         private static int _backgroundRunning;
 
+        /// <summary>The world-start import is running: SMain refuses to open a WinForms editor meanwhile (wave 1 review).</summary>
+        public static bool BackgroundRunning => Volatile.Read(ref _backgroundRunning) != 0;
+
         private static MessageQueue MessageQueue => MessageQueue.Instance;
 
         /// <summary>World start: one background import thread (a second start while one runs is ignored).</summary>
@@ -69,6 +72,11 @@ namespace Server.MirEnvir.Quests
                 var edit = Envir.Edit;
                 if (!GameDataSave.EditLooksLoaded() || (edit.ItemInfoList.Count == 0 && edit.MonsterInfoList.Count == 0 && edit.MapInfoList.Count == 0 && edit.QuestInfoList.Count == 0))
                 {
+                    // World start: loading Edit here would race Main's own start (static LoadVersion, guild creation items, QuestInfo
+                    // name lookups against half-filled Main lists; wave 1 review). SMain and the web Start route load Edit first anyway.
+                    if (onlyWhenEmpty)
+                        return new QuestImportOutcome { Message = "the editor copy (Envir.Edit) is not loaded; it runs at the next start or from the web admin re-import" };
+
                     MessageQueue.Enqueue("[Quests] The editor copy (Envir.Edit) is not loaded; loading it before the quest import.");
                     edit.MagicInfoList.Clear(); // LoadDB only adds missing spells
                     if (!GameDataSave.RunFileIo(() => edit.LoadDB()))

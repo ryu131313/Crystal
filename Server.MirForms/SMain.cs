@@ -223,6 +223,14 @@ namespace Server
         private static void ShowEditor(Form form)
         {
             Server.MirEnvir.Envir.EditorFormOpened();
+            // Counted first, then checked: either this sees the world-start quest import, or the import sees the open editor.
+            if (Server.MirEnvir.Envir.QuestImportRunning)
+            {
+                Server.MirEnvir.Envir.EditorFormClosed();
+                form.Dispose();
+                MessageBox.Show("The legacy quest import is running (it saves the game data). Try again when the [Quests] line appears in the log.", "Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
             try
             {
                 form.ShowDialog();
