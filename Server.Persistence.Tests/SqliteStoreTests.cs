@@ -87,6 +87,39 @@ public class SqliteStoreTests
         AssertBinarySqliteBinary(dir);
     }
 
+    /// <summary>
+    /// The synthetic world's quest V2 tables (wave 1 end: lane A adds lane B's tables to SyntheticWorld) round-trip through SystemData.db:
+    /// the rows read back equal the rows written, and a decode into a fresh Envir encodes to the same rows again.
+    /// </summary>
+    [Fact]
+    public void Synthetic_world_quest_tables_round_trip_through_sqlite()
+    {
+        var dir = NewTempFolder("p7-sqlite-quests");
+        InFolder(dir, () =>
+        {
+            EnsureBuffInfo();
+            ResetMain();
+            SyntheticWorld.Populate(Envir.Main);
+            var rows = SqliteWorldCodec.Encode(Envir.Main, 0);
+            var db = Path.Combine(dir, "quests.db");
+            SqliteWorldStore.Create(db, rows, new Dictionary<string, object> { ["source"] = "test" });
+
+            WorldRows back;
+            using (var conn = SqliteWorldFile.Open(db, create: false)) back = SqliteWorldFile.ReadAll(conn);
+            Assert.Null(SqliteWorldStore.FirstDifference(rows, back));
+            foreach (var table in Server.MirEnvir.Quests.QuestDefinitionJson.Tables)
+                Assert.True(back.Tables[table].Rows.Count > 0, "no rows in " + table);
+
+            var loaded = new Envir();
+            lock (Envir.LoadLock) SqliteWorldCodec.Decode(back, loaded);
+            Assert.Equal(2, loaded.QuestInfoList[0].Definition.Steps.Count);
+            Assert.Equal(2, loaded.QuestGroupList[0].Members.Count);
+            Assert.Null(SqliteWorldStore.FirstDifference(rows, SqliteWorldCodec.Encode(loaded, 0)));
+            return 0;
+        });
+        Directory.Delete(dir, true);
+    }
+
     [Fact]
     public void A_bad_cell_fails_the_load_with_table_and_column()
     {
