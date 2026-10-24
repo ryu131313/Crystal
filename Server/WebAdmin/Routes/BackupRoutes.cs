@@ -445,7 +445,9 @@ namespace Server.WebAdmin.Routes
                 }
                 catch (Exception ex) when (ex is InvalidDataException || ex is IOException || ex is Microsoft.Data.Sqlite.SqliteException)
                 {
-                    throw new WebAdminException(422, "The backup is not a usable SystemData database: " + ex.Message);
+                    // The exception text can carry server paths: it goes to the log, the client gets a generic reason.
+                    WebAdminLog.Error(ex, "Backup " + Path.GetFileName(path) + " failed the SystemData integrity/schema check");
+                    throw new WebAdminException(422, "The backup is not a usable SystemData database (integrity or schema check failed; see the server log)");
                 }
 
                 return;
