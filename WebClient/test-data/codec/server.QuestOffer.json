@@ -1,0 +1,11 @@
+{
+  "name": "QuestOffer",
+  "dir": "server",
+  "id": 308,
+  "hex": "0D0034012A0000000303416E6E",
+  "fields": {
+    "Quest": 42,
+    "Kind": 3,
+    "SharedBy": "Ann"
+  }
+}

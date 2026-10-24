@@ -1561,6 +1561,24 @@ namespace Server.MirNetwork
                 case (short)ClientPacketIds.SetAllowToggle:
                     SetAllowToggle((C.SetAllowToggle)p);
                     break;
+                case (short)ClientPacketIds.QuestAccept:
+                    QuestAccept((C.QuestAccept)p);
+                    break;
+                case (short)ClientPacketIds.QuestTurnIn:
+                    QuestTurnIn((C.QuestTurnIn)p);
+                    break;
+                case (short)ClientPacketIds.QuestAbandon:
+                    QuestAbandon((C.QuestAbandon)p);
+                    break;
+                case (short)ClientPacketIds.QuestShare:
+                    QuestShare((C.QuestShare)p);
+                    break;
+                case (short)ClientPacketIds.QuestChoose:
+                    QuestChoose((C.QuestChoose)p);
+                    break;
+                case (short)ClientPacketIds.QuestDefinitionRequest:
+                    QuestDefinitionRequest((C.QuestDefinitionRequest)p);
+                    break;
                 default:
                     MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.InvalidPacketReceived), p.Index));
                     break;
@@ -3401,6 +3419,43 @@ namespace Server.MirNetwork
             if (!Enum.IsDefined(typeof(AllowToggle), p.Toggle)) return;
 
             Player.SetAllowToggle(p.Toggle, p.Value);
+        }
+
+        // Quest V2 (wave 2 kick-off): game-stage gate only; the bodies are PlayerObject's (Player/PlayerQuestsV2.cs, lane F).
+        private void QuestAccept(C.QuestAccept p)
+        {
+            if (Stage != GameStage.Game) return;
+            Player.QuestAccept(p.Quest, p.NpcObjectID);
+        }
+
+        private void QuestTurnIn(C.QuestTurnIn p)
+        {
+            if (Stage != GameStage.Game) return;
+            Player.QuestTurnIn(p.Quest, p.NpcObjectID, p.RewardPicks);
+        }
+
+        private void QuestAbandon(C.QuestAbandon p)
+        {
+            if (Stage != GameStage.Game) return;
+            Player.QuestAbandon(p.Quest);
+        }
+
+        private void QuestShare(C.QuestShare p)
+        {
+            if (Stage != GameStage.Game) return;
+            Player.QuestShare(p.Quest);
+        }
+
+        private void QuestChoose(C.QuestChoose p)
+        {
+            if (Stage != GameStage.Game) return;
+            Player.QuestChoose(p.Quest, p.NpcObjectID, p.ChoiceKey);
+        }
+
+        private void QuestDefinitionRequest(C.QuestDefinitionRequest p)
+        {
+            if (Stage != GameStage.Game) return;
+            Player.QuestDefinitionRequest(p.Quest);
         }
     }
 

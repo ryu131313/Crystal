@@ -1,0 +1,27 @@
+{
+  "name": "QuestAvailability",
+  "dir": "server",
+  "id": 307,
+  "hex": "2E003301020000005800000002020000000100000002000000010000002C01000000286BEE000000000000000000",
+  "fields": {
+    "Npcs": [
+      {
+        "ObjectID": 88,
+        "Icon": 2,
+        "Offered": [
+          1,
+          2
+        ],
+        "Finishing": [
+          300
+        ]
+      },
+      {
+        "ObjectID": 4000000000,
+        "Icon": 0,
+        "Offered": [],
+        "Finishing": []
+      }
+    ]
+  }
+}

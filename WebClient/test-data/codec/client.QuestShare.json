@@ -1,0 +1,9 @@
+{
+  "name": "QuestShare",
+  "dir": "client",
+  "id": 176,
+  "hex": "0800B0002A000000",
+  "fields": {
+    "Quest": 42
+  }
+}

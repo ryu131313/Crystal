@@ -55,7 +55,7 @@ internal static class Fixtures
             Light = 3, Dead = false, Skeleton = true, Poison = PoisonType.Red, Hidden = false, ShockTime = 99, BindingShotCenter = true, Extra = true,
             ExtraByte = 4, MasterObjectId = 55, Rarity = MonsterType.Elite, Buffs = { BuffType.Hiding },
         };
-        yield return new S.ObjectNPC { ObjectID = 88, Name = "Shopkeeper", NameColour = Color.Lime, Image = 14, Colour = red, Location = p, Direction = MirDirection.Down, QuestIDs = { 1, 2, 300 } };
+        yield return new S.ObjectNPC { ObjectID = 88, Name = "Shopkeeper", NameColour = Color.Lime, Image = 14, Colour = red, Location = p, Direction = MirDirection.Down };
         yield return new S.ObjectRemove { ObjectID = 77 };
         yield return new S.NPCResponse { Page = new List<string> { "Hello <Buy/@BUY>, {friend/Yellow}.", "<<Big/@BIG/Red>>", "" } };
         var goodsInfo = new ItemInfo { Index = 40, Name = "(HP)DrugSmall", Type = ItemType.Potion, StackSize = 50, Price = 10 };
@@ -455,7 +455,6 @@ internal static class Fixtures
             Items = { torchInfo, armourInfo },
             Monsters = { new ClientMonsterInfo { Index = 13, Name = "Hen", GameName = "Hen", Image = Monster.Hen, AI = 1, Effect = 0, Level = 1, ViewRange = 7, CoolEye = 0, Light = 0, AttackSpeed = 2500, MoveSpeed = 1800, Experience = 5, CanPush = true, CanTame = true, AutoRev = false, Undead = false, CanRecall = false, Stats = gdcStats } },
             Npcs = { new ClientNPCInfo { Index = 6, FileName = "Bichon/Inn", Name = "InnKeeper", MapIndex = 1, Location = p, Image = 9, Rate = 100, ShowOnBigMap = false, BigMapIcon = 2, ObjectID = 0, Icon = 4, CanTeleportTo = false } },
-            Quests = { new ClientQuestInfo { Index = 13, NPCIndex = 5, Name = "Errand", Group = "", Description = { "Go" }, TaskDescription = { }, ReturnDescription = { }, CompletionDescription = { }, MinLevelNeeded = 1, MaxLevelNeeded = 99, QuestNeeded = 0, ClassNeeded = RequiredClass.Taoist, Type = QuestType.General, TimeLimitInSeconds = 0, RewardGold = 10, RewardExp = 20, RewardCredit = 0, FinishNPCIndex = 5 } },
             Magics = { fireBall },
             HeroMagics = { new ClientMagic { Name = "Healing", Spell = Spell.Healing, Key = 17, Delay = 900, CastTime = 0 } },
             GameShop = { new S.GameDataChanged.ShopEntry { Item = new GameShopItem { ItemIndex = 77, GIndex = 8, Info = torchInfo, GoldPrice = 50, CreditPrice = 5, Count = 1, Class = "All", Category = "Misc", Stock = 0, iStock = false, Deal = false, TopItem = true, Date = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc), CanBuyCredit = true, CanBuyGold = true, DealGoldPrice = 0, DealCreditPrice = 7 }, StockLevel = 12 } },
@@ -578,6 +577,52 @@ internal static class Fixtures
         allowToggles.Set(AllowToggle.Trade, true);
         allowToggles.Set(AllowToggle.FriendRequests, true);
         yield return allowToggles;
+
+        // Quest V2 (wave 2 kick-off)
+        long questAt = new DateTime(2026, 10, 24, 12, 0, 0, DateTimeKind.Utc).ToBinary();
+        yield return new S.QuestDefinition
+        {
+            Quest = 42, Name = "Hen Trouble 母鸡", Summary = "Thin the hens.", CompleteText = "Thanks!", Category = QuestCategory.Side, StorylineIndex = 3, LevelHint = 7,
+            RepeatPolicy = QuestRepeatPolicy.Daily, CooldownSeconds = 60, TimeLimitSeconds = 3600, FailPolicy = QuestFailPolicy.Fail, AbandonAllowed = true,
+            Flags = QuestFlags.AutoComplete | QuestFlags.HiddenInLog, GroupName = "Bichon",
+            Steps = { new S.QuestDefinition.Step { Index = 1, Order = 1, Title = "Hunt", Text = "Kill hens", ReadyText = "Done", CompletionMode = QuestStepCompletion.NOf, NRequired = 2, NextStep = -1, TimeLimitSeconds = 600 } },
+            Objectives =
+            {
+                new S.QuestDefinition.Objective { Index = 5, Step = 1, Order = 1, Type = QuestObjectiveType.Kill, TargetKind = QuestTargetKind.MonsterGroup, TargetId = 9, TargetName = "Hens", Count = 10, Map = 1, X = 300, Y = 400, Radius = 12, Optional = true, Hidden = false, Text = "" },
+                new S.QuestDefinition.Objective { Index = 6, Step = 1, Order = 2, Type = QuestObjectiveType.Flag, TargetKind = QuestTargetKind.Flag, TargetId = 521, TargetName = "Seal", Count = 1, Hidden = true, Text = "Break the seal" },
+            },
+            Rewards =
+            {
+                new S.QuestDefinition.Reward { Scope = QuestRewardScope.Quest, Kind = QuestRewardKind.Exp, Amount = 9_007_199_254_740_993L, FirstTimeOnly = true },
+                new S.QuestDefinition.Reward { Scope = QuestRewardScope.Step, ScopeId = 1, Kind = QuestRewardKind.Item, TargetId = 77, Amount = 2, ChoiceGroup = 1 },
+            },
+            Endpoints =
+            {
+                new S.QuestDefinition.Endpoint { Role = QuestEndpointRole.Start, Kind = QuestEndpointKind.Npc, TargetId = 33, Name = "Guard", Map = 1 },
+                new S.QuestDefinition.Endpoint { Role = QuestEndpointRole.Finish, Kind = QuestEndpointKind.ItemUse, TargetId = 12, Name = "", Map = 0 },
+            },
+            Branches = { new S.QuestDefinition.Branch { Step = 1, ChoiceKey = "spare", Text = "Spare them", Outcome = 2 } },
+        };
+        yield return new S.QuestStates
+        {
+            Full = true,
+            States =
+            {
+                new S.QuestStates.Entry { Quest = 42, Status = QuestRunStatus.Ready, Step = -1, ExpiresAt = questAt, StepExpiresAt = 0, TrackHint = true },
+                new S.QuestStates.Entry { Quest = 43, Status = QuestRunStatus.None, Step = 0 },
+            },
+        };
+        yield return new S.QuestProgress { Progress = { new S.QuestProgress.Entry { Quest = 42, Objective = 5, Value = 7 }, new S.QuestProgress.Entry { Quest = 42, Objective = 6, Value = -1 } } };
+        yield return new S.QuestHistory { Full = true, History = { new S.QuestHistory.Entry { Quest = 3, Name = "Old 旧", Times = 4, LastAt = questAt, AvailableAt = 0 } } };
+        yield return new S.QuestAvailability
+        {
+            Npcs =
+            {
+                new S.QuestAvailability.Entry { ObjectID = 88, Icon = QuestIcon.ExclamationYellow, Offered = { 1, 2 }, Finishing = { 300 } },
+                new S.QuestAvailability.Entry { ObjectID = 4_000_000_000, Icon = QuestIcon.None },
+            },
+        };
+        yield return new S.QuestOffer { Quest = 42, Kind = QuestEndpointKind.Auto, SharedBy = "Ann" };
     }
 
     private static IEnumerable<Packet> ClientSamples()
@@ -767,6 +812,12 @@ internal static class Fixtures
         yield return new C.FriendRequestReply { Name = "Ally 盟友", Accept = true };
         yield return new C.ChangeTrade { AllowTrade = true };
         yield return new C.SetAllowToggle { Toggle = AllowToggle.FriendRequests, Value = true };
+        yield return new C.QuestAccept { Quest = 42, NpcObjectID = 4_000_000_000 };
+        yield return new C.QuestTurnIn { Quest = 42, NpcObjectID = 88, RewardPicks = { 1, 3 } };
+        yield return new C.QuestAbandon { Quest = 42 };
+        yield return new C.QuestShare { Quest = 42 };
+        yield return new C.QuestChoose { Quest = 42, NpcObjectID = 88, ChoiceKey = "spare 饶恕" };
+        yield return new C.QuestDefinitionRequest { Quest = 42 };
     }
 
     public static int Emit(string dir)

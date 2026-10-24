@@ -1,0 +1,9 @@
+{
+  "name": "QuestDefinitionRequest",
+  "dir": "client",
+  "id": 178,
+  "hex": "0800B2002A000000",
+  "fields": {
+    "Quest": 42
+  }
+}

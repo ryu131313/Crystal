@@ -1,0 +1,11 @@
+{
+  "name": "QuestChoose",
+  "dir": "client",
+  "id": 177,
+  "hex": "1900B1002A000000580000000C737061726520E9A5B6E68195",
+  "fields": {
+    "Quest": 42,
+    "NpcObjectID": 88,
+    "ChoiceKey": "spare 饶恕"
+  }
+}

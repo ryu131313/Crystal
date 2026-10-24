@@ -355,6 +355,24 @@ export const ClientPackets = {
    *  The server echoes S.AllowToggles. */
   SetAllowToggle: (p: { Toggle: number; Value: boolean }) =>
     frame(C.SetAllowToggle, (w) => { w.writeU8(p.Toggle); w.writeBool(p.Value); }),
+  // — Quest V2 (wave 2 kick-off) —
+  /** Accept a quest; NpcObjectID = the giver's ObjectID, 0 = not at an NPC (an S.QuestOffer prompt). */
+  QuestAccept: (p: { Quest: number; NpcObjectID: number }) =>
+    frame(C.QuestAccept, (w) => { w.writeI32(p.Quest); w.writeU32(p.NpcObjectID); }),
+  /** Turn a Ready quest in; RewardPicks = positions in the definition's Rewards list, one per choice group. */
+  QuestTurnIn: (p: { Quest: number; NpcObjectID: number; RewardPicks: number[] }) =>
+    frame(C.QuestTurnIn, (w) => {
+      w.writeI32(p.Quest); w.writeU32(p.NpcObjectID);
+      w.writeI32(p.RewardPicks.length);
+      for (const pick of p.RewardPicks) w.writeI32(pick);
+    }),
+  QuestAbandon: (p: { Quest: number }) => frame(C.QuestAbandon, (w) => w.writeI32(p.Quest)),
+  QuestShare: (p: { Quest: number }) => frame(C.QuestShare, (w) => w.writeI32(p.Quest)),
+  /** Choose a branch (a ChoiceKey of S.QuestDefinition.Branches) at an NPC. */
+  QuestChoose: (p: { Quest: number; NpcObjectID: number; ChoiceKey: string }) =>
+    frame(C.QuestChoose, (w) => { w.writeI32(p.Quest); w.writeU32(p.NpcObjectID); w.writeString(p.ChoiceKey); }),
+  /** Answered with S.QuestDefinition only for a quest in the player's runs or history (e.g. the Completed tab). */
+  QuestDefinitionRequest: (p: { Quest: number }) => frame(C.QuestDefinitionRequest, (w) => w.writeI32(p.Quest)),
 } as const;
 
 /** GuildTerritoryActionKind (Shared/Enums.cs, byte). Hand-copied: WebRelay/TsEmitter.cs does not emit that enum yet. */

@@ -1,0 +1,18 @@
+{
+  "name": "QuestHistory",
+  "dir": "server",
+  "id": 306,
+  "hex": "29003201010100000003000000074F6C6420E697A70400000000E07254C631DF480000000000000000",
+  "fields": {
+    "Full": true,
+    "History": [
+      {
+        "Quest": 3,
+        "Name": "Old 旧",
+        "Times": 4,
+        "LastAt": "5250970418427387904",
+        "AvailableAt": 0
+      }
+    ]
+  }
+}

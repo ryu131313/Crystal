@@ -1,0 +1,27 @@
+{
+  "name": "QuestStates",
+  "dir": "server",
+  "id": 304,
+  "hex": "3D00300101020000002A00000002FFFFFFFF00E07254C631DF480000000000000000012B00000000000000000000000000000000000000000000000000",
+  "fields": {
+    "Full": true,
+    "States": [
+      {
+        "Quest": 42,
+        "Status": 2,
+        "Step": -1,
+        "ExpiresAt": "5250970418427387904",
+        "StepExpiresAt": 0,
+        "TrackHint": true
+      },
+      {
+        "Quest": 43,
+        "Status": 0,
+        "Step": 0,
+        "ExpiresAt": 0,
+        "StepExpiresAt": 0,
+        "TrackHint": false
+      }
+    ]
+  }
+}

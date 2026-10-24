@@ -1,0 +1,14 @@
+{
+  "name": "QuestTurnIn",
+  "dir": "client",
+  "id": 174,
+  "hex": "1800AE002A00000058000000020000000100000003000000",
+  "fields": {
+    "Quest": 42,
+    "NpcObjectID": 88,
+    "RewardPicks": [
+      1,
+      3
+    ]
+  }
+}

@@ -8,7 +8,7 @@ using Timer = Server.MirEnvir.Timer;
 
 namespace Server.MirObjects
 {
-    public class PlayerObject : HumanObject
+    public partial class PlayerObject : HumanObject
     {
         private long NextTradeTime;
         private long NextGroupInviteTime;

@@ -1,0 +1,20 @@
+{
+  "name": "QuestProgress",
+  "dir": "server",
+  "id": 305,
+  "hex": "20003101020000002A00000005000000070000002A00000006000000FFFFFFFF",
+  "fields": {
+    "Progress": [
+      {
+        "Quest": 42,
+        "Objective": 5,
+        "Value": 7
+      },
+      {
+        "Quest": 42,
+        "Objective": 6,
+        "Value": -1
+      }
+    ]
+  }
+}

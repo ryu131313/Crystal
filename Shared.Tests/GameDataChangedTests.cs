@@ -27,15 +27,12 @@ public class GameDataChangedTests
     {
         var monster = new ClientMonsterInfo { Index = 3, Name = "Hen", GameName = "Hen", Image = Monster.Hen, Level = 2, AttackSpeed = 2500 };
         monster.Stats[Stat.HP] = 15;
-        var quest = new ClientQuestInfo { Index = 4, Name = "Q", Group = "G", Description = { "d" }, TaskDescription = { "t" } };
-        quest.RewardsFixedItem.Add(new QuestItemReward { Item = Item(9), Count = 1 });
 
         return new ServerPackets.GameDataChanged
         {
             Items = { Item(1), Item(2) },
             Monsters = { monster },
             Npcs = { new ClientNPCInfo { Index = 5, Name = "Npc", FileName = "f", MapIndex = 1, Location = new Point(3, 4), Image = 7, CanTeleportTo = true } },
-            Quests = { quest },
             Magics = { new ClientMagic { Name = "Fencing", Spell = Spell.Fencing, Level1 = 7, Need1 = 100, Range = 1, Delay = 500 } },
             HeroMagics = { new ClientMagic { Name = "Slaying", Spell = Spell.Slaying, Level1 = 9 } },
             GameShop = { new ServerPackets.GameDataChanged.ShopEntry { Item = new GameShopItem { GIndex = 6, ItemIndex = 1, Info = Item(1), GoldPrice = 5, Class = "All", Category = "Weapon", Date = new DateTime(2026, 10, 10) }, StockLevel = 3 } },
@@ -58,7 +55,6 @@ public class GameDataChangedTests
         Assert.Equal(7, p2.Items[0].Stats[Stat.MaxDC]);
         Assert.Equal(Monster.Hen, p2.Monsters.Single().Image);
         Assert.Equal(new Point(3, 4), p2.Npcs.Single().Location);
-        Assert.Equal("Q", p2.Quests.Single().Name);
         Assert.Equal(Spell.Fencing, p2.Magics.Single().Spell);
         Assert.Equal(Spell.Slaying, p2.HeroMagics.Single().Spell);
         Assert.Equal(3, p2.GameShop.Single().StockLevel);

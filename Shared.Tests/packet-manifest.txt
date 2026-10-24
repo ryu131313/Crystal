@@ -91,7 +91,7 @@ S	88	HeroLevelChanged	HeroLevelChanged	1	A60A224B
 S	89	ObjectLeveled	ObjectLeveled	1	814082C3
 S	90	ObjectHarvest	ObjectHarvest	1	F7567EB5
 S	91	ObjectHarvested	ObjectHarvested	1	F7567EB5
-S	92	ObjectNpc	ObjectNPC	1	2DE59F5C
+S	92	ObjectNpc	ObjectNPC	1	BAAE4F1A
 S	93	NPCResponse	NPCResponse	1	66A96ABA
 S	94	ObjectHide	ObjectHide	1	814082C3
 S	95	ObjectShow	ObjectShow	1	814082C3
@@ -278,7 +278,7 @@ S	275	SendMemberLocation	SendMemberLocation	1	2EAAEE9C
 S	276	GuildTerritoryPage	GuildTerritoryPage	1	319BB764
 S	277	StorageUnlockResult	StorageUnlockResult	0	3217D722
 S	278	StoragePasswordResult	StoragePasswordResult	0	C5838BD9
-S	279	GameDataChanged	GameDataChanged	0	B16EF489
+S	279	GameDataChanged	GameDataChanged	0	CAA008FC
 S	280	MapAtmosphere	MapAtmosphere	1	9F640EDF
 S	281	ServerRules	ServerRules	1	442C5222
 S	282	PoisonStatus	PoisonStatus	1	9C63DC88
@@ -302,6 +302,12 @@ S	299	FriendRequestResult	FriendRequestResult	0	85399F49
 S	300	AllowToggles	AllowToggles	0	E747B3D2
 S	301	ObjectMoveBatch	ObjectMoveBatch	1	4E408ADF
 S	302	DungeonMap	DungeonMap	1	0828774A
+S	303	QuestDefinition	QuestDefinition	0	B980FE76
+S	304	QuestStates	QuestStates	0	67C317E2
+S	305	QuestProgress	QuestProgress	0	9FC0ED60
+S	306	QuestHistory	QuestHistory	0	91A33B19
+S	307	QuestAvailability	QuestAvailability	0	EA9E289B
+S	308	QuestOffer	QuestOffer	0	3B432E79
 C	0	ClientVersion	ClientVersion	1	BA76D321
 C	1	Disconnect	Disconnect	1	E3B0C442
 C	2	KeepAlive	KeepAlive	1	1AC00927
@@ -475,3 +481,9 @@ C	169	RequestSentMail	RequestSentMail	1	E3B0C442
 C	170	HideSentMail	HideSentMail	1	F1E2ECCB
 C	171	FriendRequestReply	FriendRequestReply	1	C4B5AD13
 C	172	SetAllowToggle	SetAllowToggle	1	07E45C09
+C	173	QuestAccept	QuestAccept	1	E6C71904
+C	174	QuestTurnIn	QuestTurnIn	1	D4711E8E
+C	175	QuestAbandon	QuestAbandon	1	7D7E1C8B
+C	176	QuestShare	QuestShare	1	7D7E1C8B
+C	177	QuestChoose	QuestChoose	1	78F6D982
+C	178	QuestDefinitionRequest	QuestDefinitionRequest	1	7D7E1C8B

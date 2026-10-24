@@ -42,7 +42,6 @@ namespace Server.WebAdmin.LiveDb
         public IList<ItemInfo> SentItems;
         public IList<MonsterInfo> SentMonsters;
         public IList<NPCInfo> SentNpcs;
-        public IList<QuestInfo> SentQuests;
         public IList<MapInfo> SentMaps;
 
         /// <summary>ClientMagic copies of the changed spells this connection's player knows (empty when none).</summary>
@@ -53,12 +52,6 @@ namespace Server.WebAdmin.LiveDb
 
         /// <summary>The connection receives game-shop rows (a player in the game).</summary>
         public bool ReceivesGameShop;
-
-        /// <summary>
-        /// This connection's own copies of changed quests (production: <c>CreateClientQuestInfo(player)</c>, which also sends the
-        /// item / monster / NPC infos its links mention first). Missing entries use the shared snapshot of <see cref="LiveDbPushChanges.Quests"/>.
-        /// </summary>
-        public Dictionary<QuestInfo, ClientQuestInfo> QuestSnapshots;
 
         /// <summary>
         /// This connection's stock level per game-shop GIndex (individual stock counts the player's own purchases, as GetGameShop
@@ -103,7 +96,7 @@ namespace Server.WebAdmin.LiveDb
         /// <summary>Hard limit: the packet length field is a ushort.</summary>
         public const int MaxPacketBytes = ushort.MaxValue;
 
-        private enum Section { Items, Monsters, Npcs, Quests, Magics, HeroMagics, GameShop, GameShopRemoved, MapInfoInvalidated }
+        private enum Section { Items, Monsters, Npcs, Magics, HeroMagics, GameShop, GameShopRemoved, MapInfoInvalidated }
 
         /// <summary>Measures elements by writing them to one reused buffer.</summary>
         private sealed class Meter
@@ -162,7 +155,6 @@ namespace Server.WebAdmin.LiveDb
                     case Section.Items: _current.Items.Add((ItemInfo)element); break;
                     case Section.Monsters: _current.Monsters.Add((ClientMonsterInfo)element); break;
                     case Section.Npcs: _current.Npcs.Add((ClientNPCInfo)element); break;
-                    case Section.Quests: _current.Quests.Add((ClientQuestInfo)element); break;
                     case Section.Magics: _current.Magics.Add((ClientMagic)element); break;
                     case Section.HeroMagics: _current.HeroMagics.Add((ClientMagic)element); break;
                     case Section.GameShop: _current.GameShop.Add((S.GameDataChanged.ShopEntry)element); break;
@@ -224,14 +216,8 @@ namespace Server.WebAdmin.LiveDb
                         if (key != null && changes.Npcs.TryGetValue(key, out var snap)) b.Add(Section.Npcs, snap, w => snap.Save(w));
                     }
 
-                if (changes.Quests.Count > 0 && conn.SentQuests != null)
-                    for (var i = 0; i < conn.SentQuests.Count; i++)
-                    {
-                        var key = conn.SentQuests[i];
-                        if (key == null || !changes.Quests.TryGetValue(key, out var snap)) continue;
-                        if (conn.QuestSnapshots != null && conn.QuestSnapshots.TryGetValue(key, out var own) && own != null) snap = own;
-                        b.Add(Section.Quests, snap, w => snap.Save(w));
-                    }
+                // Quests: S.GameDataChanged has no quest section since quest V2 (wave 2 kick-off); changes.Quests is still collected
+                // (it counts against MaxPushRows) but quest edits reach clients through the V2 quest-replace hook (wave 3).
 
                 if (conn.Magics != null)
                     for (var i = 0; i < conn.Magics.Count; i++)

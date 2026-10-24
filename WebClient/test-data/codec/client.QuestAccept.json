@@ -1,0 +1,10 @@
+{
+  "name": "QuestAccept",
+  "dir": "client",
+  "id": 173,
+  "hex": "0C00AD002A00000000286BEE",
+  "fields": {
+    "Quest": 42,
+    "NpcObjectID": 4000000000
+  }
+}

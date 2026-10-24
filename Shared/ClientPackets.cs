@@ -3121,4 +3121,124 @@ namespace ClientPackets
             writer.Write(Value);
         }
     }
+
+    // ---- Quest V2 (Knowledgebase/Future Ideas/UserData-and-Quests-Plan.md, Part B "Wire protocol"; wave 2 kick-off) ----
+
+    /// <summary>Accept a quest. NpcObjectID = the giver (a quest can have several), 0 = not at an NPC (an S.QuestOffer prompt).</summary>
+    public sealed class QuestAccept : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.QuestAccept; } }
+
+        public int Quest;
+        public uint NpcObjectID;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Quest = reader.ReadInt32();
+            NpcObjectID = reader.ReadUInt32();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Quest);
+            writer.Write(NpcObjectID);
+        }
+    }
+
+    /// <summary>Turn a Ready quest in. RewardPicks = positions in the definition's Rewards list, one per choice group.</summary>
+    public sealed class QuestTurnIn : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.QuestTurnIn; } }
+
+        public int Quest;
+        public uint NpcObjectID;
+        public List<int> RewardPicks = new List<int>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Quest = reader.ReadInt32();
+            NpcObjectID = reader.ReadUInt32();
+            int count = ReadCount(reader, sizeof(int));
+            RewardPicks = new List<int>(count);
+            for (int i = 0; i < count; i++) RewardPicks.Add(reader.ReadInt32());
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Quest);
+            writer.Write(NpcObjectID);
+            writer.Write(RewardPicks.Count);
+            for (int i = 0; i < RewardPicks.Count; i++) writer.Write(RewardPicks[i]);
+        }
+    }
+
+    public sealed class QuestAbandon : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.QuestAbandon; } }
+
+        public int Quest;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Quest = reader.ReadInt32();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Quest);
+        }
+    }
+
+    public sealed class QuestShare : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.QuestShare; } }
+
+        public int Quest;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Quest = reader.ReadInt32();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Quest);
+        }
+    }
+
+    /// <summary>Choose a branch (a ChoiceKey of the definition's Branches) at an NPC.</summary>
+    public sealed class QuestChoose : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.QuestChoose; } }
+
+        public int Quest;
+        public uint NpcObjectID;
+        public string ChoiceKey = string.Empty;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Quest = reader.ReadInt32();
+            NpcObjectID = reader.ReadUInt32();
+            ChoiceKey = reader.ReadString();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Quest);
+            writer.Write(NpcObjectID);
+            writer.Write(ChoiceKey ?? string.Empty);
+        }
+    }
+
+    /// <summary>Ask for one quest's definition (e.g. the Completed tab); answered only for a quest in the player's runs or history.</summary>
+    public sealed class QuestDefinitionRequest : Packet
+    {
+        public override short Index { get { return (short)ClientPacketIds.QuestDefinitionRequest; } }
+
+        public int Quest;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Quest = reader.ReadInt32();
+        }
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Quest);
+        }
+    }
 }

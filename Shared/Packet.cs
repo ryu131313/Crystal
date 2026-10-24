@@ -529,6 +529,18 @@ public abstract class Packet
                 return new C.FriendRequestReply();
             case (short)ClientPacketIds.SetAllowToggle:
                 return new C.SetAllowToggle();
+            case (short)ClientPacketIds.QuestAccept:
+                return new C.QuestAccept();
+            case (short)ClientPacketIds.QuestTurnIn:
+                return new C.QuestTurnIn();
+            case (short)ClientPacketIds.QuestAbandon:
+                return new C.QuestAbandon();
+            case (short)ClientPacketIds.QuestShare:
+                return new C.QuestShare();
+            case (short)ClientPacketIds.QuestChoose:
+                return new C.QuestChoose();
+            case (short)ClientPacketIds.QuestDefinitionRequest:
+                return new C.QuestDefinitionRequest();
             default:
                 return null;
         }
@@ -604,6 +616,18 @@ public abstract class Packet
                 return new S.ObjectMoveBatch();
             case (short)ServerPacketIds.DungeonMap:
                 return new S.DungeonMap();
+            case (short)ServerPacketIds.QuestDefinition:
+                return new S.QuestDefinition();
+            case (short)ServerPacketIds.QuestStates:
+                return new S.QuestStates();
+            case (short)ServerPacketIds.QuestProgress:
+                return new S.QuestProgress();
+            case (short)ServerPacketIds.QuestHistory:
+                return new S.QuestHistory();
+            case (short)ServerPacketIds.QuestAvailability:
+                return new S.QuestAvailability();
+            case (short)ServerPacketIds.QuestOffer:
+                return new S.QuestOffer();
             case (short)ServerPacketIds.Login:
                 return new S.Login();
             case (short)ServerPacketIds.LoginBanned:

@@ -405,8 +405,6 @@ namespace Server.MirObjects
                 Colour = Info.Colour,
                 Location = CurrentLocation,
                 Direction = Direction,
-                QuestIDs = (from q in Quests
-                            select q.Index).ToList()
             };
         }
 

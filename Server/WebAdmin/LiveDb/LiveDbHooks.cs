@@ -633,12 +633,10 @@ namespace Server.WebAdmin.LiveDb
                         SentItems = c.SentItemInfo,
                         SentMonsters = c.SentMonsterInfo,
                         SentNpcs = c.SentNPCInfo,
-                        SentQuests = c.SentQuestInfo,
                         SentMaps = c.SentMapInfo,
                         Magics = MagicsOf(player.Info, changes.Spells),
                         HeroMagics = player.Hero != null ? MagicsOf(player.Hero.Info, changes.Spells) : null,
                         ReceivesGameShop = c.Stage == GameStage.Game,
-                        QuestSnapshots = QuestsFor(c, player, changes),
                         ShopStock = c.Stage == GameStage.Game ? ShopStockFor(player, changes) : null,
                     };
 
@@ -657,24 +655,6 @@ namespace Server.WebAdmin.LiveDb
             if (total.Oversized > 0)
                 WebAdminLog.Info("[LiveDb] push: " + total.Oversized + " row(s) larger than one packet were not sent; clients get them after a relog");
             return total;
-        }
-
-        /// <summary>
-        /// The connection's own copies of the changed quests it holds: CreateClientQuestInfo(player) sends the item / monster / NPC
-        /// infos the descriptions link to before the push packet is queued (as S.NewQuestInfo does). Null when none.
-        /// </summary>
-        private static Dictionary<QuestInfo, ClientQuestInfo> QuestsFor(MirConnection c, PlayerObject player, LiveDbPushChanges changes)
-        {
-            if (changes.Quests.Count == 0 || c.SentQuestInfo == null) return null;
-            Dictionary<QuestInfo, ClientQuestInfo> own = null;
-            for (var i = 0; i < c.SentQuestInfo.Count; i++)
-            {
-                var quest = c.SentQuestInfo[i];
-                if (quest == null || !changes.Quests.ContainsKey(quest)) continue;
-                (own ??= new Dictionary<QuestInfo, ClientQuestInfo>())[quest] = LiveDbMainApplier.CopyQuest(quest.CreateClientQuestInfo(player));
-            }
-
-            return own;
         }
 
         /// <summary>The player's stock level per changed game-shop row, exactly as PlayerObject.GetGameShop computes it (−1 = hidden).</summary>

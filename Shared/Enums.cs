@@ -393,6 +393,17 @@ public enum QuestCompare : byte
     Ge = 5
 }
 
+/// <summary>A quest run's status (S.QuestStates, the saved QuestRunState, the QuestStatus condition leaf). Saved state uses only
+/// Active and Failed; Ready is derived and never saved; None = removed / not started; Completed is for the QuestStatus leaf.</summary>
+public enum QuestRunStatus : byte
+{
+    None = 0,
+    Active = 1,
+    Ready = 2,
+    Failed = 3,
+    Completed = 4
+}
+
 public enum DefaultNPCType : byte
 {
     Login,
@@ -1942,6 +1953,12 @@ public enum ServerPacketIds : short
     AllowToggles, // the player's social allow toggles as AllowToggle bit flags, at login and after every change (phase 2.8); append-only
     ObjectMoveBatch, // consecutive ObjectTurn/ObjectWalk/ObjectRun for one client in one compact packet, built at flush ([Optimisation] MoveBatch, P9-08); append-only
     DungeonMap, // one part of a generated dungeon map (gzipped .map bytes), sent before the S.MapChanged that enters it; append-only
+    QuestDefinition, // quest V2: one quest's definition, on demand once per connection (wave 2 kick-off); append-only
+    QuestStates, // quest V2: run states (full set at login, then changes); append-only
+    QuestProgress, // quest V2: objective values, coalesced per tick; append-only
+    QuestHistory, // quest V2: completed quests for the log's Completed tab and repeat timers; append-only
+    QuestAvailability, // quest V2: per NPC in view, the server-chosen QuestIcon and the quests offered / finished; append-only
+    QuestOffer, // quest V2: accept prompt from a non-NPC endpoint (item, area, auto, share); append-only
 }
 
 public enum ClientPacketIds : short
@@ -2126,6 +2143,12 @@ public enum ClientPacketIds : short
     HideSentMail, // phase 2.6; append-only
     FriendRequestReply, // phase 2.7; append-only
     SetAllowToggle, // phase 2.8; append-only
+    QuestAccept, // quest V2 (wave 2 kick-off); append-only
+    QuestTurnIn, // quest V2; append-only
+    QuestAbandon, // quest V2; append-only
+    QuestShare, // quest V2; append-only
+    QuestChoose, // quest V2; append-only
+    QuestDefinitionRequest, // quest V2; answered with S.QuestDefinition for a quest in the player's runs or history; append-only
 }
 
 /// <summary>C.GuildTerritoryAction kinds (phase 2.5). Sent by byte value: explicit values, append only, never renumber.</summary>

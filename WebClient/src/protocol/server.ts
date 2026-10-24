@@ -533,7 +533,6 @@ const decoders = {
       Items: list(1, () => readItemInfo(r)),
       Monsters: list(1, () => readClientMonsterInfo(r)),
       Npcs: list(1, () => readClientNPCInfo(r)),
-      Quests: list(1, () => readClientQuestInfo(r)),
       Magics: list(1, () => readClientMagic(r)),
       HeroMagics: list(1, () => readClientMagic(r)),
       GameShop: list(1, () => ({ Item: readGameShopItem(r), StockLevel: r.readI32() })),
@@ -683,11 +682,7 @@ const decoders = {
   ObjectNPC: (r: Reader) => {
     const ObjectID = r.readU32(), Name = r.readString(), NameColour = r.readI32(), Image = r.readU16(), Colour = r.readI32();
     const Location = readPoint(r), Direction = r.readU8();
-    const n = r.readI32();
-    if (n < 0 || n * 4 > r.remaining) throw new Error("quest count");
-    const QuestIDs: number[] = [];
-    for (let i = 0; i < n; i++) QuestIDs.push(r.readI32());
-    return { ObjectID, Name, NameColour, Image, Colour, Location, Direction, QuestIDs };
+    return { ObjectID, Name, NameColour, Image, Colour, Location, Direction }; // quest V2: no QuestIDs (S.QuestAvailability)
   },
   ObjectRemove: (r: Reader) => ({ ObjectID: r.readU32() }),
   // — Section 4: social (GameScene handlers of the same names) —
@@ -1180,7 +1175,121 @@ const decoders = {
     const FileName = r.readString(), Part = r.readU16(), Parts = r.readU16();
     return { FileName, Part, Parts, Data: r.readFixedBytes(r.readU16()) };
   },
+  // — Quest V2 (wave 2 kick-off; Knowledgebase/Future Ideas/UserData-and-Quests-Plan.md Part B "Wire protocol"). All private.
+  //   Enum fields are numbers (enums.generated.ts); times are DateTime.ToBinary() (UTC) as bigint, 0n = none. —
+  /** S.QuestDefinition: one quest's definition, sent once per connection. Rewards are already filtered by class/gender. */
+  QuestDefinition: (r: Reader) => readQuestDefinition(r),
+  /** S.QuestStates: Full = the complete set (replace the list); Status = QuestRunStatus, None = remove the run. */
+  QuestStates: (r: Reader) => {
+    const Full = r.readBool();
+    const n = readCount(r, 26);
+    const States: QuestStateEntry[] = [];
+    for (let i = 0; i < n; i++) {
+      States.push({ Quest: r.readI32(), Status: r.readU8(), Step: r.readI32(), ExpiresAt: r.readI64(), StepExpiresAt: r.readI64(), TrackHint: r.readBool() });
+    }
+    return { Full, States };
+  },
+  /** S.QuestProgress: objective values (Objective = objective id, not a monster/item id). */
+  QuestProgress: (r: Reader) => {
+    const n = readCount(r, 12);
+    const Progress: { Quest: number; Objective: number; Value: number }[] = [];
+    for (let i = 0; i < n; i++) Progress.push({ Quest: r.readI32(), Objective: r.readI32(), Value: r.readI32() });
+    return { Progress };
+  },
+  /** S.QuestHistory: Full = the complete list. AvailableAt 0n = no timer (not repeatable, or available now). */
+  QuestHistory: (r: Reader) => {
+    const Full = r.readBool();
+    const n = readCount(r, 25);
+    const History: QuestHistoryEntry[] = [];
+    for (let i = 0; i < n; i++) {
+      History.push({ Quest: r.readI32(), Name: r.readString(), Times: r.readI32(), LastAt: r.readI64(), AvailableAt: r.readI64() });
+    }
+    return { Full, History };
+  },
+  /** S.QuestAvailability: per NPC in view, the server-chosen QuestIcon and the quests offered / finished for this player. */
+  QuestAvailability: (r: Reader) => {
+    const n = readCount(r, 13);
+    const Npcs: QuestAvailabilityEntry[] = [];
+    for (let i = 0; i < n; i++) {
+      const ObjectID = r.readU32(), Icon = r.readU8();
+      const Offered = readIntList(r), Finishing = readIntList(r);
+      Npcs.push({ ObjectID, Icon, Offered, Finishing });
+    }
+    return { Npcs };
+  },
+  /** S.QuestOffer: accept prompt from a non-NPC endpoint; Kind = QuestEndpointKind; SharedBy "" = not a share. */
+  QuestOffer: (r: Reader) => ({ Quest: r.readI32(), Kind: r.readU8(), SharedBy: r.readString() }),
 } satisfies Record<string, (r: Reader) => object>;
+
+// — Quest V2 records (field names and order as the C# nested classes of S.QuestDefinition / S.QuestStates / ...) —
+export interface QuestDefStep {
+  Index: number; Order: number; Title: string; Text: string; ReadyText: string; CompletionMode: number; NRequired: number;
+  NextStep: number; TimeLimitSeconds: number;
+}
+export interface QuestDefObjective {
+  Index: number; Step: number; Order: number; Type: number; TargetKind: number; TargetId: number; TargetName: string; Count: number;
+  Map: number; X: number; Y: number; Radius: number; Optional: boolean; Hidden: boolean; Text: string;
+}
+export interface QuestDefReward { Scope: number; ScopeId: number; Kind: number; TargetId: number; Amount: bigint; ChoiceGroup: number; FirstTimeOnly: boolean }
+export interface QuestDefEndpoint { Role: number; Kind: number; TargetId: number; Name: string; Map: number }
+export interface QuestDefBranch { Step: number; ChoiceKey: string; Text: string; Outcome: number }
+export interface QuestDefinitionInfo {
+  Quest: number; Name: string; Summary: string; CompleteText: string; Category: number; StorylineIndex: number; LevelHint: number;
+  RepeatPolicy: number; CooldownSeconds: number; TimeLimitSeconds: number; FailPolicy: number; AbandonAllowed: boolean; Flags: number;
+  GroupName: string; Steps: QuestDefStep[]; Objectives: QuestDefObjective[]; Rewards: QuestDefReward[]; Endpoints: QuestDefEndpoint[];
+  Branches: QuestDefBranch[];
+}
+export interface QuestStateEntry { Quest: number; Status: number; Step: number; ExpiresAt: bigint; StepExpiresAt: bigint; TrackHint: boolean }
+export interface QuestHistoryEntry { Quest: number; Name: string; Times: number; LastAt: bigint; AvailableAt: bigint }
+export interface QuestAvailabilityEntry { ObjectID: number; Icon: number; Offered: number[]; Finishing: number[] }
+
+function readIntList(r: Reader): number[] {
+  const n = readCount(r, 4);
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) out.push(r.readI32());
+  return out;
+}
+
+function readQuestDefinition(r: Reader): QuestDefinitionInfo {
+  const Quest = r.readI32(), Name = r.readString(), Summary = r.readString(), CompleteText = r.readString();
+  const Category = r.readU8(), StorylineIndex = r.readI32(), LevelHint = r.readI32(), RepeatPolicy = r.readU8();
+  const CooldownSeconds = r.readI32(), TimeLimitSeconds = r.readI32(), FailPolicy = r.readU8(), AbandonAllowed = r.readBool();
+  const Flags = r.readI32(), GroupName = r.readString();
+  const Steps: QuestDefStep[] = [];
+  for (let i = 0, n = readCount(r, 24); i < n; i++) {
+    Steps.push({
+      Index: r.readI32(), Order: r.readI32(), Title: r.readString(), Text: r.readString(), ReadyText: r.readString(),
+      CompletionMode: r.readU8(), NRequired: r.readI32(), NextStep: r.readI32(), TimeLimitSeconds: r.readI32(),
+    });
+  }
+  const Objectives: QuestDefObjective[] = [];
+  for (let i = 0, n = readCount(r, 40); i < n; i++) {
+    Objectives.push({
+      Index: r.readI32(), Step: r.readI32(), Order: r.readI32(), Type: r.readU8(), TargetKind: r.readU8(), TargetId: r.readI32(),
+      TargetName: r.readString(), Count: r.readI32(), Map: r.readI32(), X: r.readI32(), Y: r.readI32(), Radius: r.readI32(),
+      Optional: r.readBool(), Hidden: r.readBool(), Text: r.readString(),
+    });
+  }
+  const Rewards: QuestDefReward[] = [];
+  for (let i = 0, n = readCount(r, 23); i < n; i++) {
+    Rewards.push({
+      Scope: r.readU8(), ScopeId: r.readI32(), Kind: r.readU8(), TargetId: r.readI32(), Amount: r.readI64(), ChoiceGroup: r.readI32(),
+      FirstTimeOnly: r.readBool(),
+    });
+  }
+  const Endpoints: QuestDefEndpoint[] = [];
+  for (let i = 0, n = readCount(r, 11); i < n; i++) {
+    Endpoints.push({ Role: r.readU8(), Kind: r.readU8(), TargetId: r.readI32(), Name: r.readString(), Map: r.readI32() });
+  }
+  const Branches: QuestDefBranch[] = [];
+  for (let i = 0, n = readCount(r, 10); i < n; i++) {
+    Branches.push({ Step: r.readI32(), ChoiceKey: r.readString(), Text: r.readString(), Outcome: r.readI32() });
+  }
+  return {
+    Quest, Name, Summary, CompleteText, Category, StorylineIndex, LevelHint, RepeatPolicy, CooldownSeconds, TimeLimitSeconds, FailPolicy,
+    AbandonAllowed, Flags, GroupName, Steps, Objectives, Rewards, Endpoints, Branches,
+  };
+}
 
 /** S.FriendRequestResult.Result codes (byte constants on the C# class, not an enum). */
 export const FriendRequestResults = { Accepted: 0, Declined: 1, Expired: 2, Offline: 3, ListFull: 4, NotAccepting: 5 } as const;

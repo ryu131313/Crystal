@@ -1470,7 +1470,7 @@ namespace Server.WebAdmin.Tests
         }
 
         [Fact]
-        public void Push_UsesTheConnectionsOwnQuestCopy_AndShopStock()
+        public void Push_UsesTheConnectionsShopStock_AndSendsNoQuests()
         {
             var quest = new QuestInfo { Index = 1, Name = "Q" };
             var changes = new LiveDbPushChanges();
@@ -1480,21 +1480,18 @@ namespace Server.WebAdmin.Tests
 
             var conn = new LiveDbPushConnection
             {
-                SentQuests = new List<QuestInfo> { quest },
                 ReceivesGameShop = true,
-                QuestSnapshots = new Dictionary<QuestInfo, ClientQuestInfo> { [quest] = new ClientQuestInfo { Index = 1, Name = "own", Group = string.Empty } },
                 ShopStock = new Dictionary<int, int> { [4] = 2, [5] = -1 },
             };
 
             var p = Assert.Single(LiveDbPush.Build(changes, conn, out _));
-            Assert.Equal("own", p.Quests.Single().Name);
             var entry = Assert.Single(p.GameShop);
             Assert.Equal(4, entry.Item.GIndex);
             Assert.Equal(2, entry.StockLevel);
             Assert.Equal(new[] { 5 }, p.GameShopRemoved);         // sold out for this player: hidden, as at login
 
-            var other = Assert.Single(LiveDbPush.Build(changes, new LiveDbPushConnection { SentQuests = new List<QuestInfo> { quest } }, out _));
-            Assert.Equal("shared", other.Quests.Single().Name);
+            // Quest V2 (wave 2 kick-off): S.GameDataChanged has no quest section; a connection with only quest changes gets nothing.
+            Assert.Empty(LiveDbPush.Build(changes, new LiveDbPushConnection(), out _));
         }
 
         [Fact]

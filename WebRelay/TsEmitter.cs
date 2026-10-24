@@ -22,7 +22,7 @@ internal static class TsEmitter
         typeof(QuestCategory), typeof(QuestRepeatPolicy), typeof(QuestShareMode), typeof(QuestCreditMode), typeof(QuestFailPolicy), typeof(QuestFlags),
         typeof(QuestStepCompletion), typeof(QuestObjectiveType), typeof(QuestPartyCredit), typeof(QuestTargetKind), typeof(QuestGroupKind), typeof(QuestRotatePolicy),
         typeof(QuestEndpointRole), typeof(QuestEndpointKind), typeof(QuestRewardScope), typeof(QuestRewardKind), typeof(QuestRewardScaling),
-        typeof(QuestConditionOp), typeof(QuestConditionLeaf), typeof(QuestCompare),
+        typeof(QuestConditionOp), typeof(QuestConditionLeaf), typeof(QuestCompare), typeof(QuestRunStatus),
     };
 
     public static int Emit(string outFile)

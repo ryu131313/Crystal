@@ -1253,6 +1253,25 @@ namespace Client.MirScenes
                 case (short)ServerPacketIds.AllowToggles:
                     Models.AllowToggles.Set(((S.AllowToggles)p).Flags);
                     break;
+                // Quest V2 (wave 2 kick-off): handlers in GameScene.QuestsV2.cs, filled by lanes C / D
+                case (short)ServerPacketIds.QuestDefinition:
+                    QuestDefinition((S.QuestDefinition)p);
+                    break;
+                case (short)ServerPacketIds.QuestStates:
+                    QuestStates((S.QuestStates)p);
+                    break;
+                case (short)ServerPacketIds.QuestProgress:
+                    QuestProgress((S.QuestProgress)p);
+                    break;
+                case (short)ServerPacketIds.QuestHistory:
+                    QuestHistory((S.QuestHistory)p);
+                    break;
+                case (short)ServerPacketIds.QuestAvailability:
+                    QuestAvailability((S.QuestAvailability)p);
+                    break;
+                case (short)ServerPacketIds.QuestOffer:
+                    QuestOffer((S.QuestOffer)p);
+                    break;
                 case (short)ServerPacketIds.PlayerProfile:
                     {
                         var profile = (S.PlayerProfile)p; // the modern inspect window's profile (phase 2)
@@ -1737,7 +1756,7 @@ namespace Client.MirScenes
 
         /// <summary>
         /// LiveDb push: the server changed system data this client holds. Items are updated in place (UserItem.Info references stay
-        /// valid), monsters / NPCs / quests are upserted, spells are updated by Spell on the user and the hero (only the server's
+        /// valid), monsters / NPCs are upserted (quests: no section since quest V2), spells are updated by Spell on the user and the hero (only the server's
         /// values: name, costs, icon, levels, needs, range, delay; the player's own level / key / cooldown stay), game-shop rows are
         /// removed by GIndex and re-added, and an invalidated map drops its cached big-map record so it is requested again. Stats,
         /// skill bars and the hovered item's label are refreshed once, on the last chunk. Runs once per packet (no per-frame work).
@@ -1755,7 +1774,6 @@ namespace Client.MirScenes
 
                 for (int i = 0; i < p.Monsters.Count; i++) UpsertMonsterInfo(p.Monsters[i]);
                 for (int i = 0; i < p.Npcs.Count; i++) UpsertNPCInfo(p.Npcs[i]);
-                for (int i = 0; i < p.Quests.Count; i++) UpsertQuestInfo(p.Quests[i]);
 
                 if (User != null)
                     for (int i = 0; i < p.Magics.Count; i++)

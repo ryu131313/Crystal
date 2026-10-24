@@ -305,6 +305,12 @@ export const ServerPacketIds = {
   AllowToggles: 300,
   ObjectMoveBatch: 301,
   DungeonMap: 302,
+  QuestDefinition: 303,
+  QuestStates: 304,
+  QuestProgress: 305,
+  QuestHistory: 306,
+  QuestAvailability: 307,
+  QuestOffer: 308,
 } as const;
 export type ServerPacketIds = (typeof ServerPacketIds)[keyof typeof ServerPacketIds];
 export const ServerPacketIdsName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(ServerPacketIds).map(([k, v]) => [v, k]));
@@ -483,6 +489,12 @@ export const ClientPacketIds = {
   HideSentMail: 170,
   FriendRequestReply: 171,
   SetAllowToggle: 172,
+  QuestAccept: 173,
+  QuestTurnIn: 174,
+  QuestAbandon: 175,
+  QuestShare: 176,
+  QuestChoose: 177,
+  QuestDefinitionRequest: 178,
 } as const;
 export type ClientPacketIds = (typeof ClientPacketIds)[keyof typeof ClientPacketIds];
 export const ClientPacketIdsName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(ClientPacketIds).map(([k, v]) => [v, k]));
@@ -2115,4 +2127,14 @@ export const QuestCompare = {
 } as const;
 export type QuestCompare = (typeof QuestCompare)[keyof typeof QuestCompare];
 export const QuestCompareName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestCompare).map(([k, v]) => [v, k]));
+
+export const QuestRunStatus = {
+  None: 0,
+  Active: 1,
+  Ready: 2,
+  Failed: 3,
+  Completed: 4,
+} as const;
+export type QuestRunStatus = (typeof QuestRunStatus)[keyof typeof QuestRunStatus];
+export const QuestRunStatusName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestRunStatus).map(([k, v]) => [v, k]));
 

@@ -1,0 +1,115 @@
+{
+  "name": "QuestDefinition",
+  "dir": "server",
+  "id": 303,
+  "hex": "5A012F012A0000001248656E2054726F75626C6520E6AF8DE9B8A10E5468696E207468652068656E732E075468616E6B7321010300000007000000013C000000100E000001010600000006426963686F6E0100000001000000010000000448756E74094B696C6C2068656E7304446F6E650202000000FFFFFFFF58020000020000000500000001000000010000000002090000000448656E730A000000010000002C010000900100000C0000000100000600000001000000020000000B0909020000045365616C010000000000000000000000000000000000000000010E427265616B20746865207365616C0200000000000000000000000000010000000000200000000000010101000000034D00000002000000000000000100000000020000000000210000000547756172640100000001010C000000000000000001000000010000000573706172650A5370617265207468656D02000000",
+  "fields": {
+    "Quest": 42,
+    "Name": "Hen Trouble 母鸡",
+    "Summary": "Thin the hens.",
+    "CompleteText": "Thanks!",
+    "Category": 1,
+    "StorylineIndex": 3,
+    "LevelHint": 7,
+    "RepeatPolicy": 1,
+    "CooldownSeconds": 60,
+    "TimeLimitSeconds": 3600,
+    "FailPolicy": 1,
+    "AbandonAllowed": true,
+    "Flags": 6,
+    "GroupName": "Bichon",
+    "Steps": [
+      {
+        "Index": 1,
+        "Order": 1,
+        "Title": "Hunt",
+        "Text": "Kill hens",
+        "ReadyText": "Done",
+        "CompletionMode": 2,
+        "NRequired": 2,
+        "NextStep": -1,
+        "TimeLimitSeconds": 600
+      }
+    ],
+    "Objectives": [
+      {
+        "Index": 5,
+        "Step": 1,
+        "Order": 1,
+        "Type": 0,
+        "TargetKind": 2,
+        "TargetId": 9,
+        "TargetName": "Hens",
+        "Count": 10,
+        "Map": 1,
+        "X": 300,
+        "Y": 400,
+        "Radius": 12,
+        "Optional": true,
+        "Hidden": false,
+        "Text": ""
+      },
+      {
+        "Index": 6,
+        "Step": 1,
+        "Order": 2,
+        "Type": 11,
+        "TargetKind": 9,
+        "TargetId": 521,
+        "TargetName": "Seal",
+        "Count": 1,
+        "Map": 0,
+        "X": 0,
+        "Y": 0,
+        "Radius": 0,
+        "Optional": false,
+        "Hidden": true,
+        "Text": "Break the seal"
+      }
+    ],
+    "Rewards": [
+      {
+        "Scope": 0,
+        "ScopeId": 0,
+        "Kind": 0,
+        "TargetId": 0,
+        "Amount": "9007199254740993",
+        "ChoiceGroup": 0,
+        "FirstTimeOnly": true
+      },
+      {
+        "Scope": 1,
+        "ScopeId": 1,
+        "Kind": 3,
+        "TargetId": 77,
+        "Amount": 2,
+        "ChoiceGroup": 1,
+        "FirstTimeOnly": false
+      }
+    ],
+    "Endpoints": [
+      {
+        "Role": 0,
+        "Kind": 0,
+        "TargetId": 33,
+        "Name": "Guard",
+        "Map": 1
+      },
+      {
+        "Role": 1,
+        "Kind": 1,
+        "TargetId": 12,
+        "Name": "",
+        "Map": 0
+      }
+    ],
+    "Branches": [
+      {
+        "Step": 1,
+        "ChoiceKey": "spare",
+        "Text": "Spare them",
+        "Outcome": 2
+      }
+    ]
+  }
+}

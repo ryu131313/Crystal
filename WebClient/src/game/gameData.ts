@@ -43,7 +43,6 @@ export function applyGameDataChanged(p: PacketOf<"GameDataChanged">, host: GameD
   for (const Info of p.Items) host.dispatch({ type: "NewItemInfo", Info });
   for (const Info of p.Monsters) host.dispatch({ type: "NewMonsterInfo", Info });
   for (const Info of p.Npcs) host.dispatch({ type: "NewNPCInfo", Info });
-  for (const Info of p.Quests) host.dispatch({ type: "NewQuestInfo", Info });
   for (const m of p.Magics) if (copyMagicInfo(host.userMagics(), m)) changes.magics = true;
   for (const m of p.HeroMagics) if (copyMagicInfo(host.heroMagics(), m)) changes.magics = true;
   const shop = host.shopItems();

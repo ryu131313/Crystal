@@ -2858,7 +2858,6 @@ namespace ServerPackets
         public Color Colour;
         public Point Location;
         public MirDirection Direction;
-        public List<int> QuestIDs = new List<int>();
 
         protected override void ReadPacket(BinaryReader reader)
         {
@@ -2869,11 +2868,6 @@ namespace ServerPackets
             Colour = Color.FromArgb(reader.ReadInt32());
             Location = new Point(reader.ReadInt32(), reader.ReadInt32());
             Direction = (MirDirection)reader.ReadByte();
-
-            int count = reader.ReadInt32();
-
-            for (var i = 0; i < count; i++)
-                QuestIDs.Add(reader.ReadInt32());
         }
         protected override void WritePacket(BinaryWriter writer)
         {
@@ -2885,11 +2879,6 @@ namespace ServerPackets
             writer.Write(Location.X);
             writer.Write(Location.Y);
             writer.Write((byte)Direction);
-
-            writer.Write(QuestIDs.Count);
-
-            for (int i = 0; i < QuestIDs.Count; i++)
-                writer.Write(QuestIDs[i]);
         }
     }
     public sealed class NPCResponse : Packet
@@ -6918,7 +6907,6 @@ namespace ServerPackets
         public List<ItemInfo> Items = new List<ItemInfo>();
         public List<ClientMonsterInfo> Monsters = new List<ClientMonsterInfo>();
         public List<ClientNPCInfo> Npcs = new List<ClientNPCInfo>();
-        public List<ClientQuestInfo> Quests = new List<ClientQuestInfo>();
         public List<ClientMagic> Magics = new List<ClientMagic>();
         public List<ClientMagic> HeroMagics = new List<ClientMagic>();
         public List<ShopEntry> GameShop = new List<ShopEntry>();
@@ -6939,10 +6927,6 @@ namespace ServerPackets
             count = ReadCount(reader, 1);
             Npcs = new List<ClientNPCInfo>(count);
             for (var i = 0; i < count; i++) Npcs.Add(new ClientNPCInfo(reader));
-
-            count = ReadCount(reader, 1);
-            Quests = new List<ClientQuestInfo>(count);
-            for (var i = 0; i < count; i++) Quests.Add(new ClientQuestInfo(reader));
 
             count = ReadCount(reader, 1);
             Magics = new List<ClientMagic>(count);
@@ -6982,9 +6966,6 @@ namespace ServerPackets
             writer.Write(Npcs.Count);
             for (var i = 0; i < Npcs.Count; i++) Npcs[i].Save(writer);
 
-            writer.Write(Quests.Count);
-            for (var i = 0; i < Quests.Count; i++) Quests[i].Save(writer);
-
             writer.Write(Magics.Count);
             for (var i = 0; i < Magics.Count; i++) Magics[i].Save(writer);
 
@@ -7008,7 +6989,7 @@ namespace ServerPackets
         }
 
         /// <summary>Bytes the section counts and <see cref="Last"/> add to a packet (plus the 4-byte packet header).</summary>
-        public const int FixedOverhead = 4 + 9 * sizeof(int) + 1;
+        public const int FixedOverhead = 4 + 8 * sizeof(int) + 1;
     }
 
     /// <summary>
@@ -7909,6 +7890,486 @@ namespace ServerPackets
             writer.Write(Parts);
             writer.Write((ushort)Data.Length);
             writer.Write(Data);
+        }
+    }
+
+    // ---- Quest V2 (Knowledgebase/Future Ideas/UserData-and-Quests-Plan.md, Part B "Wire protocol"; wave 2 kick-off) ----
+    // All private (Observable => false), none hero-forwarded. Lists are an int count then the items; times are long
+    // DateTime.ToBinary() (UTC), 0 = none. Decoded on the socket thread: plain fields only, no game state.
+
+    /// <summary>
+    /// One quest's definition in the server's language, sent on demand once per connection (the connection's sent set, keyed
+    /// by quest Index): for quests the player has active or failed, for quests offered by givers in view, and in reply to
+    /// C.QuestDefinitionRequest. Rewards are already filtered by the player's class and gender and include rate multipliers.
+    /// </summary>
+    public sealed class QuestDefinition : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.QuestDefinition; } }
+        public override bool Observable => false;
+
+        public sealed class Step
+        {
+            public int Index, Order;
+            public string Title = string.Empty, Text = string.Empty, ReadyText = string.Empty;
+            public QuestStepCompletion CompletionMode;
+            public int NRequired, NextStep, TimeLimitSeconds;
+        }
+
+        public sealed class Objective
+        {
+            public int Index, Step, Order;
+            public QuestObjectiveType Type;
+            public QuestTargetKind TargetKind;
+            public int TargetId;
+            /// <summary>Server-filled label for group / flag / map targets; "" when the client resolves the name itself.</summary>
+            public string TargetName = string.Empty;
+            public int Count, Map, X, Y, Radius;
+            public bool Optional, Hidden;
+            /// <summary>"" = the client builds the objective text.</summary>
+            public string Text = string.Empty;
+        }
+
+        public sealed class Reward
+        {
+            public QuestRewardScope Scope;
+            public int ScopeId;
+            public QuestRewardKind Kind;
+            public int TargetId;
+            public long Amount;
+            public int ChoiceGroup;
+            public bool FirstTimeOnly;
+        }
+
+        public sealed class Endpoint
+        {
+            public QuestEndpointRole Role;
+            public QuestEndpointKind Kind;
+            public int TargetId;
+            /// <summary>Server-filled, e.g. the NPC's name.</summary>
+            public string Name = string.Empty;
+            public int Map;
+        }
+
+        public sealed class Branch
+        {
+            public int Step;
+            public string ChoiceKey = string.Empty, Text = string.Empty;
+            public int Outcome;
+        }
+
+        public int Quest;
+        public string Name = string.Empty, Summary = string.Empty, CompleteText = string.Empty;
+        public QuestCategory Category;
+        public int StorylineIndex, LevelHint;
+        public QuestRepeatPolicy RepeatPolicy;
+        public int CooldownSeconds, TimeLimitSeconds;
+        public QuestFailPolicy FailPolicy;
+        public bool AbandonAllowed;
+        public QuestFlags Flags;
+        public string GroupName = string.Empty;
+
+        public List<Step> Steps = new List<Step>();
+        public List<Objective> Objectives = new List<Objective>();
+        public List<Reward> Rewards = new List<Reward>();
+        public List<Endpoint> Endpoints = new List<Endpoint>();
+        public List<Branch> Branches = new List<Branch>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Quest = reader.ReadInt32();
+            Name = reader.ReadString();
+            Summary = reader.ReadString();
+            CompleteText = reader.ReadString();
+            Category = (QuestCategory)reader.ReadByte();
+            StorylineIndex = reader.ReadInt32();
+            LevelHint = reader.ReadInt32();
+            RepeatPolicy = (QuestRepeatPolicy)reader.ReadByte();
+            CooldownSeconds = reader.ReadInt32();
+            TimeLimitSeconds = reader.ReadInt32();
+            FailPolicy = (QuestFailPolicy)reader.ReadByte();
+            AbandonAllowed = reader.ReadBoolean();
+            Flags = (QuestFlags)reader.ReadInt32();
+            GroupName = reader.ReadString();
+
+            int count = ReadCount(reader, 24);
+            Steps = new List<Step>(count);
+            for (int i = 0; i < count; i++)
+                Steps.Add(new Step
+                {
+                    Index = reader.ReadInt32(),
+                    Order = reader.ReadInt32(),
+                    Title = reader.ReadString(),
+                    Text = reader.ReadString(),
+                    ReadyText = reader.ReadString(),
+                    CompletionMode = (QuestStepCompletion)reader.ReadByte(),
+                    NRequired = reader.ReadInt32(),
+                    NextStep = reader.ReadInt32(),
+                    TimeLimitSeconds = reader.ReadInt32(),
+                });
+
+            count = ReadCount(reader, 40);
+            Objectives = new List<Objective>(count);
+            for (int i = 0; i < count; i++)
+                Objectives.Add(new Objective
+                {
+                    Index = reader.ReadInt32(),
+                    Step = reader.ReadInt32(),
+                    Order = reader.ReadInt32(),
+                    Type = (QuestObjectiveType)reader.ReadByte(),
+                    TargetKind = (QuestTargetKind)reader.ReadByte(),
+                    TargetId = reader.ReadInt32(),
+                    TargetName = reader.ReadString(),
+                    Count = reader.ReadInt32(),
+                    Map = reader.ReadInt32(),
+                    X = reader.ReadInt32(),
+                    Y = reader.ReadInt32(),
+                    Radius = reader.ReadInt32(),
+                    Optional = reader.ReadBoolean(),
+                    Hidden = reader.ReadBoolean(),
+                    Text = reader.ReadString(),
+                });
+
+            count = ReadCount(reader, 23);
+            Rewards = new List<Reward>(count);
+            for (int i = 0; i < count; i++)
+                Rewards.Add(new Reward
+                {
+                    Scope = (QuestRewardScope)reader.ReadByte(),
+                    ScopeId = reader.ReadInt32(),
+                    Kind = (QuestRewardKind)reader.ReadByte(),
+                    TargetId = reader.ReadInt32(),
+                    Amount = reader.ReadInt64(),
+                    ChoiceGroup = reader.ReadInt32(),
+                    FirstTimeOnly = reader.ReadBoolean(),
+                });
+
+            count = ReadCount(reader, 11);
+            Endpoints = new List<Endpoint>(count);
+            for (int i = 0; i < count; i++)
+                Endpoints.Add(new Endpoint
+                {
+                    Role = (QuestEndpointRole)reader.ReadByte(),
+                    Kind = (QuestEndpointKind)reader.ReadByte(),
+                    TargetId = reader.ReadInt32(),
+                    Name = reader.ReadString(),
+                    Map = reader.ReadInt32(),
+                });
+
+            count = ReadCount(reader, 10);
+            Branches = new List<Branch>(count);
+            for (int i = 0; i < count; i++)
+                Branches.Add(new Branch
+                {
+                    Step = reader.ReadInt32(),
+                    ChoiceKey = reader.ReadString(),
+                    Text = reader.ReadString(),
+                    Outcome = reader.ReadInt32(),
+                });
+        }
+
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Quest);
+            writer.Write(Name ?? string.Empty);
+            writer.Write(Summary ?? string.Empty);
+            writer.Write(CompleteText ?? string.Empty);
+            writer.Write((byte)Category);
+            writer.Write(StorylineIndex);
+            writer.Write(LevelHint);
+            writer.Write((byte)RepeatPolicy);
+            writer.Write(CooldownSeconds);
+            writer.Write(TimeLimitSeconds);
+            writer.Write((byte)FailPolicy);
+            writer.Write(AbandonAllowed);
+            writer.Write((int)Flags);
+            writer.Write(GroupName ?? string.Empty);
+
+            writer.Write(Steps.Count);
+            for (int i = 0; i < Steps.Count; i++)
+            {
+                var s = Steps[i];
+                writer.Write(s.Index);
+                writer.Write(s.Order);
+                writer.Write(s.Title ?? string.Empty);
+                writer.Write(s.Text ?? string.Empty);
+                writer.Write(s.ReadyText ?? string.Empty);
+                writer.Write((byte)s.CompletionMode);
+                writer.Write(s.NRequired);
+                writer.Write(s.NextStep);
+                writer.Write(s.TimeLimitSeconds);
+            }
+
+            writer.Write(Objectives.Count);
+            for (int i = 0; i < Objectives.Count; i++)
+            {
+                var o = Objectives[i];
+                writer.Write(o.Index);
+                writer.Write(o.Step);
+                writer.Write(o.Order);
+                writer.Write((byte)o.Type);
+                writer.Write((byte)o.TargetKind);
+                writer.Write(o.TargetId);
+                writer.Write(o.TargetName ?? string.Empty);
+                writer.Write(o.Count);
+                writer.Write(o.Map);
+                writer.Write(o.X);
+                writer.Write(o.Y);
+                writer.Write(o.Radius);
+                writer.Write(o.Optional);
+                writer.Write(o.Hidden);
+                writer.Write(o.Text ?? string.Empty);
+            }
+
+            writer.Write(Rewards.Count);
+            for (int i = 0; i < Rewards.Count; i++)
+            {
+                var r = Rewards[i];
+                writer.Write((byte)r.Scope);
+                writer.Write(r.ScopeId);
+                writer.Write((byte)r.Kind);
+                writer.Write(r.TargetId);
+                writer.Write(r.Amount);
+                writer.Write(r.ChoiceGroup);
+                writer.Write(r.FirstTimeOnly);
+            }
+
+            writer.Write(Endpoints.Count);
+            for (int i = 0; i < Endpoints.Count; i++)
+            {
+                var e = Endpoints[i];
+                writer.Write((byte)e.Role);
+                writer.Write((byte)e.Kind);
+                writer.Write(e.TargetId);
+                writer.Write(e.Name ?? string.Empty);
+                writer.Write(e.Map);
+            }
+
+            writer.Write(Branches.Count);
+            for (int i = 0; i < Branches.Count; i++)
+            {
+                var b = Branches[i];
+                writer.Write(b.Step);
+                writer.Write(b.ChoiceKey ?? string.Empty);
+                writer.Write(b.Text ?? string.Empty);
+                writer.Write(b.Outcome);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Quest run states. <see cref="Full"/> = the complete set (at login; the client replaces its list); otherwise only changed
+    /// runs. Status None = remove the run. TrackHint is set only on accept (the client decides whether to track).
+    /// </summary>
+    public sealed class QuestStates : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.QuestStates; } }
+        public override bool Observable => false;
+
+        public sealed class Entry
+        {
+            public int Quest;
+            public QuestRunStatus Status;
+            public int Step;
+            public long ExpiresAt, StepExpiresAt;
+            public bool TrackHint;
+        }
+
+        public bool Full;
+        public List<Entry> States = new List<Entry>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Full = reader.ReadBoolean();
+            int count = ReadCount(reader, 26);
+            States = new List<Entry>(count);
+            for (int i = 0; i < count; i++)
+                States.Add(new Entry
+                {
+                    Quest = reader.ReadInt32(),
+                    Status = (QuestRunStatus)reader.ReadByte(),
+                    Step = reader.ReadInt32(),
+                    ExpiresAt = reader.ReadInt64(),
+                    StepExpiresAt = reader.ReadInt64(),
+                    TrackHint = reader.ReadBoolean(),
+                });
+        }
+
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Full);
+            writer.Write(States.Count);
+            for (int i = 0; i < States.Count; i++)
+            {
+                var e = States[i];
+                writer.Write(e.Quest);
+                writer.Write((byte)e.Status);
+                writer.Write(e.Step);
+                writer.Write(e.ExpiresAt);
+                writer.Write(e.StepExpiresAt);
+                writer.Write(e.TrackHint);
+            }
+        }
+    }
+
+    /// <summary>Objective values (count, or a bitmask for multi-spot objectives); coalesced per tick per player.</summary>
+    public sealed class QuestProgress : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.QuestProgress; } }
+        public override bool Observable => false;
+
+        public sealed class Entry
+        {
+            public int Quest, Objective, Value;
+        }
+
+        public List<Entry> Progress = new List<Entry>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            int count = ReadCount(reader, 12);
+            Progress = new List<Entry>(count);
+            for (int i = 0; i < count; i++)
+                Progress.Add(new Entry { Quest = reader.ReadInt32(), Objective = reader.ReadInt32(), Value = reader.ReadInt32() });
+        }
+
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Progress.Count);
+            for (int i = 0; i < Progress.Count; i++)
+            {
+                writer.Write(Progress[i].Quest);
+                writer.Write(Progress[i].Objective);
+                writer.Write(Progress[i].Value);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Completed quests for the log's Completed tab and repeat timers. <see cref="Full"/> = the complete list (at login).
+    /// AvailableAt: when a repeatable quest can be taken again; 0 = no timer (not repeatable, or available now).
+    /// </summary>
+    public sealed class QuestHistory : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.QuestHistory; } }
+        public override bool Observable => false;
+
+        public sealed class Entry
+        {
+            public int Quest;
+            public string Name = string.Empty;
+            public int Times;
+            public long LastAt, AvailableAt;
+        }
+
+        public bool Full;
+        public List<Entry> History = new List<Entry>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Full = reader.ReadBoolean();
+            int count = ReadCount(reader, 25);
+            History = new List<Entry>(count);
+            for (int i = 0; i < count; i++)
+                History.Add(new Entry
+                {
+                    Quest = reader.ReadInt32(),
+                    Name = reader.ReadString(),
+                    Times = reader.ReadInt32(),
+                    LastAt = reader.ReadInt64(),
+                    AvailableAt = reader.ReadInt64(),
+                });
+        }
+
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Full);
+            writer.Write(History.Count);
+            for (int i = 0; i < History.Count; i++)
+            {
+                var e = History[i];
+                writer.Write(e.Quest);
+                writer.Write(e.Name ?? string.Empty);
+                writer.Write(e.Times);
+                writer.Write(e.LastAt);
+                writer.Write(e.AvailableAt);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Per NPC in view: the QuestIcon the server picked and the quests it offers / finishes for this player. Icon None with
+    /// empty lists = nothing for this player. Replaces the old S.ObjectNPC.QuestIDs list.
+    /// </summary>
+    public sealed class QuestAvailability : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.QuestAvailability; } }
+        public override bool Observable => false;
+
+        public sealed class Entry
+        {
+            public uint ObjectID;
+            public QuestIcon Icon;
+            public List<int> Offered = new List<int>();
+            public List<int> Finishing = new List<int>();
+        }
+
+        public List<Entry> Npcs = new List<Entry>();
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            int count = ReadCount(reader, 13);
+            Npcs = new List<Entry>(count);
+            for (int i = 0; i < count; i++)
+            {
+                var e = new Entry { ObjectID = reader.ReadUInt32(), Icon = (QuestIcon)reader.ReadByte() };
+                int n = ReadCount(reader, sizeof(int));
+                e.Offered = new List<int>(n);
+                for (int j = 0; j < n; j++) e.Offered.Add(reader.ReadInt32());
+                n = ReadCount(reader, sizeof(int));
+                e.Finishing = new List<int>(n);
+                for (int j = 0; j < n; j++) e.Finishing.Add(reader.ReadInt32());
+                Npcs.Add(e);
+            }
+        }
+
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Npcs.Count);
+            for (int i = 0; i < Npcs.Count; i++)
+            {
+                var e = Npcs[i];
+                writer.Write(e.ObjectID);
+                writer.Write((byte)e.Icon);
+                writer.Write(e.Offered.Count);
+                for (int j = 0; j < e.Offered.Count; j++) writer.Write(e.Offered[j]);
+                writer.Write(e.Finishing.Count);
+                for (int j = 0; j < e.Finishing.Count; j++) writer.Write(e.Finishing[j]);
+            }
+        }
+    }
+
+    /// <summary>Accept prompt from a non-NPC endpoint (item use, area, auto) or a share. SharedBy "" = not a share.</summary>
+    public sealed class QuestOffer : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.QuestOffer; } }
+        public override bool Observable => false;
+
+        public int Quest;
+        public QuestEndpointKind Kind;
+        public string SharedBy = string.Empty;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Quest = reader.ReadInt32();
+            Kind = (QuestEndpointKind)reader.ReadByte();
+            SharedBy = reader.ReadString();
+        }
+
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Quest);
+            writer.Write((byte)Kind);
+            writer.Write(SharedBy ?? string.Empty);
         }
     }
 }
