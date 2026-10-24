@@ -51,6 +51,12 @@ namespace Server.WebAdmin.GameData
         /// <summary>Null for read-only columns.</summary>
         public Action<GameDataRow, object> Set;
 
+        /// <summary>
+        /// Read-only columns whose value is not a same-named field of the entity (quest V2 columns live on QuestInfo.Definition): how the
+        /// SQLite store restores the value on load. The grid never uses it (the column stays read-only there).
+        /// </summary>
+        public Action<GameDataRow, object> StoreSet;
+
         public bool ReadOnly;
 
         /// <summary>Lookup name for the schema (items, monsters, maps, npcs, quests, magics, conquests, minesets).</summary>

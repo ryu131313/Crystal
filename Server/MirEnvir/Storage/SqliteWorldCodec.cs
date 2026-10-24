@@ -1,3 +1,4 @@
+using Server.MirEnvir.Quests;
 using System.Collections;
 using System.Globalization;
 using System.Reflection;
@@ -51,7 +52,24 @@ namespace Server.MirEnvir.Storage
         public const string ZeroStatsSuffix = "__zero";
 
         public static readonly string[] CounterNames =
-            { "MapIndex", "ItemIndex", "MonsterIndex", "NPCIndex", "QuestIndex", "GameshopIndex", "ConquestIndex", "RespawnIndex" };
+        {
+            "MapIndex", "ItemIndex", "MonsterIndex", "NPCIndex", "QuestIndex", "GameshopIndex", "ConquestIndex", "RespawnIndex",
+            // Quest system V2 (UserData-and-Quests-Plan.md, Part B phase 1): added to older stores by the written migration in
+            // SqliteWorldFile.Migrate (MigratedCounters), not by the additive column migration.
+            "QuestStepIndex", "QuestObjectiveIndex", "QuestConditionIndex", "QuestGroupIndex", "QuestTextIndex", "QuestVarIndex", "StorylineIndex",
+            "QuestPoolIndex",
+        };
+
+        /// <summary>
+        /// Counters a store written before they existed lacks, with the table whose keys they number: <see cref="SqliteWorldFile.Migrate"/>
+        /// inserts each missing one at the highest key of its table (0 for a table it has just created), after its pre-migration copy.
+        /// </summary>
+        public static readonly (string Counter, string Table)[] MigratedCounters =
+        {
+            ("QuestStepIndex", "queststeps"), ("QuestObjectiveIndex", "questobjectives"), ("QuestConditionIndex", "conditions"),
+            ("QuestGroupIndex", "questgroups"), ("QuestTextIndex", "texts"), ("QuestVarIndex", "questvars"), ("StorylineIndex", "storylines"),
+            ("QuestPoolIndex", "questpools"),
+        };
 
         internal sealed class Column
         {
@@ -66,7 +84,7 @@ namespace Server.MirEnvir.Storage
         {
             public string Name;
             public Type EntityType;
-            public string Parent; // "maps" / "conquests" / null
+            public string Parent; // "maps" / "conquests" / "quests" / "questgroups" / "questpools" / null
             public Func<Envir, IList> TopList; // top-level tables
             public Func<object, IList> ChildList; // child tables: the parent's list
             public Func<object, int> Key;
@@ -96,6 +114,12 @@ namespace Server.MirEnvir.Storage
                 Top("magic", e => e.MagicInfoList, o => (int)((MagicInfo)o).Spell, null),
                 Top("gameshop", e => e.GameShopList, o => ((GameShopItem)o).GIndex, (o, k) => ((GameShopItem)o).GIndex = k),
                 Top("conquests", e => e.ConquestInfoList, o => ((ConquestInfo)o).Index, (o, k) => ((ConquestInfo)o).Index = k),
+                // Quest system V2 (UserData-and-Quests-Plan.md, Part B): shared top-level tables.
+                Top("conditions", e => e.QuestConditionList, o => ((QuestConditionInfo)o).Index, (o, k) => ((QuestConditionInfo)o).Index = k),
+                Top("texts", e => e.QuestTextList, o => ((QuestTextInfo)o).Index, (o, k) => ((QuestTextInfo)o).Index = k),
+                Top("storylines", e => e.StorylineList, o => ((StorylineInfo)o).Index, (o, k) => ((StorylineInfo)o).Index = k),
+                Top("questgroups", e => e.QuestGroupList, o => ((QuestGroupInfo)o).Index, (o, k) => ((QuestGroupInfo)o).Index = k),
+                Top("questpools", e => e.QuestPoolList, o => ((QuestPoolInfo)o).Index, (o, k) => ((QuestPoolInfo)o).Index = k),
                 Child("mapsafezones", "maps", p => ((MapInfo)p).SafeZones, null, null),
                 Child("maprespawns", "maps", p => ((MapInfo)p).Respawns, o => ((RespawnInfo)o).RespawnIndex, (o, k) => ((RespawnInfo)o).RespawnIndex = k),
                 Child("mapmovements", "maps", p => ((MapInfo)p).Movements, null, null),
@@ -106,6 +130,15 @@ namespace Server.MirEnvir.Storage
                 Child("conquestsieges", "conquests", p => ((ConquestInfo)p).ConquestSieges, o => ((ConquestSiegeInfo)o).Index, null),
                 Child("conquestflags", "conquests", p => ((ConquestInfo)p).ConquestFlags, o => ((ConquestFlagInfo)o).Index, null),
                 Child("conquestcontrolpoints", "conquests", p => ((ConquestInfo)p).ControlPoints, o => ((ConquestFlagInfo)o).Index, null),
+                // Quest V2 children: one level under their top-level parent, keyed (parent_position, position).
+                Child("queststeps", "quests", p => ((QuestInfo)p).Definition.Steps, o => ((QuestStepInfo)o).Index, (o, k) => ((QuestStepInfo)o).Index = k),
+                Child("questobjectives", "quests", p => ((QuestInfo)p).Definition.Objectives, o => ((QuestObjectiveInfo)o).Index, (o, k) => ((QuestObjectiveInfo)o).Index = k),
+                Child("questbranches", "quests", p => ((QuestInfo)p).Definition.Branches, null, null),
+                Child("questendpoints", "quests", p => ((QuestInfo)p).Definition.Endpoints, null, null),
+                Child("questrewards", "quests", p => ((QuestInfo)p).Definition.Rewards, null, null),
+                Child("questvars", "quests", p => ((QuestInfo)p).Definition.Vars, o => ((QuestVarInfo)o).Index, (o, k) => ((QuestVarInfo)o).Index = k),
+                Child("questgroupmembers", "questgroups", p => ((QuestGroupInfo)p).Members, null, null),
+                Child("questpoolmembers", "questpools", p => ((QuestPoolInfo)p).Members, null, null),
                 new TableSpec { Name = "dragon", Single = true, Key = _ => 1 },
             };
 
@@ -122,7 +155,7 @@ namespace Server.MirEnvir.Storage
                 {
                     if (c.IsParentField) continue; // parent_position replaces it
                     var sql = SqlTypeOf(c.ValueType) ?? throw new InvalidOperationException("[Store] " + spec.Name + "." + c.Name + ": no SQLite encoding for " + c.ValueType);
-                    spec.Columns.Add(new Column { Name = c.Name, ValueType = c.ValueType, SqlType = sql, Get = c.Get, Set = c.Set ?? ReadOnlySetter(spec, c) });
+                    spec.Columns.Add(new Column { Name = c.Name, ValueType = c.ValueType, SqlType = sql, Get = c.Get, Set = c.Set ?? c.StoreSet ?? ReadOnlySetter(spec, c) });
                 }
 
                 spec.StatsField = spec.Columns.Any(c => c.Name.StartsWith(GameDataColumns.StatPrefix, StringComparison.Ordinal))
@@ -223,6 +256,9 @@ namespace Server.MirEnvir.Storage
         /// </summary>
         public static WorldRows Encode(Envir e, long respawnTickCounter)
         {
+            // Quest V2 pre-save step (ShapeHash / Revision, report-only validation): every design save encodes here, so no path skips it.
+            global::Server.MirEnvir.Quests.QuestDefinitions.PrepareForSave(e);
+
             var rows = new WorldRows
             {
                 EnvirVersion = Envir.Version,
@@ -234,6 +270,10 @@ namespace Server.MirEnvir.Storage
             rows.Counters["MapIndex"] = e.MapIndex; rows.Counters["ItemIndex"] = e.ItemIndex; rows.Counters["MonsterIndex"] = e.MonsterIndex;
             rows.Counters["NPCIndex"] = e.NPCIndex; rows.Counters["QuestIndex"] = e.QuestIndex; rows.Counters["GameshopIndex"] = e.GameshopIndex;
             rows.Counters["ConquestIndex"] = e.ConquestIndex; rows.Counters["RespawnIndex"] = e.RespawnIndex;
+            rows.Counters["QuestStepIndex"] = e.QuestStepIndex; rows.Counters["QuestObjectiveIndex"] = e.QuestObjectiveIndex;
+            rows.Counters["QuestConditionIndex"] = e.QuestConditionIndex; rows.Counters["QuestGroupIndex"] = e.QuestGroupIndex;
+            rows.Counters["QuestTextIndex"] = e.QuestTextIndex; rows.Counters["QuestVarIndex"] = e.QuestVarIndex;
+            rows.Counters["StorylineIndex"] = e.StorylineIndex; rows.Counters["QuestPoolIndex"] = e.QuestPoolIndex;
             foreach (var o in e.RespawnTick.Respawn) rows.RespawnOptions.Add((o.UserCount, o.DelayLoss));
 
             var errors = new List<string>();
@@ -380,6 +420,10 @@ namespace Server.MirEnvir.Storage
             e.MapIndex = (int)rows.Counters["MapIndex"]; e.ItemIndex = (int)rows.Counters["ItemIndex"]; e.MonsterIndex = (int)rows.Counters["MonsterIndex"];
             e.NPCIndex = (int)rows.Counters["NPCIndex"]; e.QuestIndex = (int)rows.Counters["QuestIndex"]; e.GameshopIndex = (int)rows.Counters["GameshopIndex"];
             e.ConquestIndex = (int)rows.Counters["ConquestIndex"]; e.RespawnIndex = (int)rows.Counters["RespawnIndex"];
+            e.QuestStepIndex = checked((int)rows.Counters["QuestStepIndex"]); e.QuestObjectiveIndex = checked((int)rows.Counters["QuestObjectiveIndex"]);
+            e.QuestConditionIndex = checked((int)rows.Counters["QuestConditionIndex"]); e.QuestGroupIndex = checked((int)rows.Counters["QuestGroupIndex"]);
+            e.QuestTextIndex = checked((int)rows.Counters["QuestTextIndex"]); e.QuestVarIndex = checked((int)rows.Counters["QuestVarIndex"]);
+            e.StorylineIndex = checked((int)rows.Counters["StorylineIndex"]); e.QuestPoolIndex = checked((int)rows.Counters["QuestPoolIndex"]);
 
             Replace(e.MapInfoList, built["maps"]);
             e.MapDetailsCache.Clear();
@@ -392,6 +436,11 @@ namespace Server.MirEnvir.Storage
                 if (!e.MagicExists(m.Spell)) e.MagicInfoList.Add(m);
             Replace(e.GameShopList, built["gameshop"]);
             Replace(e.ConquestInfoList, built["conquests"]);
+            Replace(e.QuestConditionList, built["conditions"]);
+            Replace(e.QuestTextList, built["texts"]);
+            Replace(e.StorylineList, built["storylines"]);
+            Replace(e.QuestGroupList, built["questgroups"]);
+            Replace(e.QuestPoolList, built["questpools"]);
             e.DragonInfo = built["dragon"].Count == 1 ? (DragonInfo)built["dragon"][0] : throw new InvalidDataException("[Store] dragon must have exactly one row");
 
             var tick = new RespawnTimer { BaseSpawnRate = checked((byte)rows.BaseSpawnRate), CurrentTickcounter = checked((ulong)rows.RespawnTickCounter), LastTick = Envir.Main.Time };

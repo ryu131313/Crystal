@@ -119,7 +119,7 @@ namespace Server.MirEnvir
             RandomWrapper.Value.Next(minValue, maxValue);
     }
 
-    public class Envir
+    public partial class Envir
     {
         public static Envir Main { get; } = new Envir();
 
@@ -5099,6 +5099,8 @@ namespace Server.MirEnvir
             // Fail closed (roadmap P2): never run the world on empty or half-loaded system data.
             if (!LoadDB())
                 throw new InvalidOperationException("[Load] Server.MirDB could not be loaded (see the message above); the world will not start.");
+
+            StartQuestDefinitionImport(); // quest system V2 phase 1: imports legacy quests on a background thread when the V2 tables are empty (Envir.Quests.cs)
 
             BuffInfoList.Clear();
             foreach (var buff in BuffInfo.Load())

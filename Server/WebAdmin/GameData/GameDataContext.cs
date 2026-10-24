@@ -1,3 +1,4 @@
+using Server.MirEnvir.Quests;
 using Server.MirDatabase;
 using Server.MirEnvir;
 
@@ -17,6 +18,12 @@ namespace Server.WebAdmin.GameData
         public List<MapInfo> Maps = new List<MapInfo>();
         public List<GameShopItem> GameShop = new List<GameShopItem>();
         public List<ConquestInfo> Conquests = new List<ConquestInfo>();
+        // Quest system V2 shared tables (read-only grids until the phase 3 Quests editor).
+        public List<QuestConditionInfo> QuestConditions = new List<QuestConditionInfo>();
+        public List<QuestTextInfo> QuestTexts = new List<QuestTextInfo>();
+        public List<StorylineInfo> Storylines = new List<StorylineInfo>();
+        public List<QuestGroupInfo> QuestGroups = new List<QuestGroupInfo>();
+        public List<QuestPoolInfo> QuestPools = new List<QuestPoolInfo>();
 
         public Func<DragonInfo> Dragon = () => null;
 
@@ -84,6 +91,11 @@ namespace Server.WebAdmin.GameData
                 Maps = envir.MapInfoList,
                 GameShop = envir.GameShopList,
                 Conquests = envir.ConquestInfoList,
+                QuestConditions = envir.QuestConditionList,
+                QuestTexts = envir.QuestTextList,
+                Storylines = envir.StorylineList,
+                QuestGroups = envir.QuestGroupList,
+                QuestPools = envir.QuestPoolList,
                 Dragon = () => envir.DragonInfo,
                 NextItemIndex = () => ++envir.ItemIndex,
                 NextMonsterIndex = () => ++envir.MonsterIndex,

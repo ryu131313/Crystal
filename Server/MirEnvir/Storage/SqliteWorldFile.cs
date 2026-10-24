@@ -180,7 +180,9 @@ namespace Server.MirEnvir.Storage
         /// expects and the file lacks is added, the column defaulting to the value a freshly constructed model holds (so existing rows
         /// read as if the field had always been at its default). Logged per column. A column the file has and the code doesn't know
         /// (a renamed or removed field) is not touched: <see cref="ReadAll"/> then fails loudly, because that needs a written migration.
-        /// Returns the number of tables and columns added.
+        /// Also the written migration for index counters added after the store was created (<see cref="SqliteWorldCodec.MigratedCounters"/>,
+        /// quest system V2): each missing counter is inserted at the highest key of its table, in the same transaction.
+        /// Returns the number of tables, columns and counters added.
         /// </summary>
         /// <param name="backupPath">When set and something is missing, the store is first copied there with VACUUM INTO (an older build
         /// refuses the migrated file, so this copy is what it can run on). Offline tools work on copies and pass null.</param>
@@ -198,7 +200,13 @@ namespace Server.MirEnvir.Storage
                     if (!actual.Contains(name)) missingColumns.Add((spec, name, sqlType));
             }
 
-            var added = missingTables.Count + missingColumns.Count + missingDesign.Count;
+            var counters = new HashSet<string>(StringComparer.Ordinal);
+            using (var cmd = Command(conn, "SELECT name FROM index_counters"))
+            using (var r = cmd.ExecuteReader())
+                while (r.Read()) counters.Add(r.GetString(0));
+            var missingCounters = SqliteWorldCodec.MigratedCounters.Where(c => !counters.Contains(c.Counter)).ToList();
+
+            var added = missingTables.Count + missingColumns.Count + missingDesign.Count + missingCounters.Count;
             if (added == 0) return 0;
 
             if (backupPath != null)
@@ -236,7 +244,15 @@ namespace Server.MirEnvir.Storage
                 log("[Store] Added column " + spec.Name + "." + name + " (default " + literal + ")");
             }
 
-            // A new index counter is not added here: Decode refuses a store without it (a counter needs a written migration).
+            // Only the counters listed in MigratedCounters are added here (their written migration); Decode refuses a store without any
+            // other counter.
+            foreach (var (counter, table) in missingCounters)
+            {
+                var max = Scalar(conn, tx, "SELECT max(" + SqliteWorldCodec.KeyColumn + ") FROM " + SqliteWorldCodec.Quote(table)) is long m ? Math.Max(m, 0) : 0;
+                Upsert(conn, tx, "index_counters", counter, max);
+                log("[Store] Added index counter " + counter + " = " + max.ToString(CultureInfo.InvariantCulture));
+            }
+
             Upsert(conn, tx, "meta", "migrated_utc", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
             tx.Commit();
             return added;
