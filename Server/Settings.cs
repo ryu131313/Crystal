@@ -102,8 +102,7 @@ namespace Server
         public static bool MonsterDormant = true;      // [Optimisation] MonsterDormant: alone monsters with nothing pending check for players every 5-15 s (30-90 s on empty maps) and are woken when one comes near (needs SectorGrid) (P9-07)
         public static bool EmptyMapSleep = true;       // [Optimisation] EmptyMapSleep: maps with no players check respawns once a minute and catch up when someone arrives (P9-07)
         public static bool AloneCeiling = true;        // [Optimisation] AloneCeiling: monsters alone with nobody near sleep until their next alone check instead of waking every 2 s (P9-06)
-        public static bool AccountSaveOffThread = true; // [Optimisation] AccountSaveOffThread: the periodic account save serialises into a reused buffer and does every file step on a pool thread (P9-10)
-        public static OfflineAccountCacheMode OfflineAccountCache = OfflineAccountCacheMode.Off; // [Optimisation] OfflineAccountCache: Off|On|Verify; the periodic save reuses the bytes of unchanged offline accounts (needs AccountSaveOffThread) (P9-12)
+        public static OfflineAccountCacheMode OfflineAccountCache = OfflineAccountCacheMode.Off; // [Optimisation] OfflineAccountCache: Off|On|Verify; the periodic save writes rows only for accounts serialised fresh, reusing the bytes of unchanged offline accounts (P9-12)
         public static int OfflineAccountCacheFullEvery = 12;     // [Optimisation] OfflineAccountCacheFullEvery: each cached save compares 1/N of the cached accounts (rolling), every one once per N saves (P9-12)
         public static int OfflineAccountCacheVerifyPerSave = 200; // [Optimisation] OfflineAccountCacheVerifyPerSave: in Verify mode, accounts checked per save, round-robin (P9-12)
         public static bool LogLoopProfile = false;     // [Diag] LogLoopProfile: one "[Diag] Loop" line per second (Debug log)
@@ -153,6 +152,7 @@ namespace Server
 
         //Database
         public static int SaveDelay = 5;
+        public static int AccountBackupMinutes = -1; // [Database] AccountBackupMinutes: VACUUM INTO backup of UserData.db after a periodic save this often (default = SaveDelay; 0 = none)
         public static short CredxGold = 30;
 
         //Game
@@ -490,7 +490,6 @@ namespace Server
             ConnSweepMs = Math.Max(0, Reader.ReadInt32("Optimisation", "ConnSweepMs", ConnSweepMs));
             if (ConnSweepMs > 1000) ConnSweepMs = 1000;
             AloneCeiling = Reader.ReadBoolean("Optimisation", "AloneCeiling", AloneCeiling);
-            AccountSaveOffThread = Reader.ReadBoolean("Optimisation", "AccountSaveOffThread", AccountSaveOffThread);
             OfflineAccountCache = Reader.ReadEnum("Optimisation", "OfflineAccountCache", OfflineAccountCache);
             OfflineAccountCacheFullEvery = Math.Max(1, Reader.ReadInt32("Optimisation", "OfflineAccountCacheFullEvery", OfflineAccountCacheFullEvery));
             OfflineAccountCacheVerifyPerSave = Math.Max(1, Reader.ReadInt32("Optimisation", "OfflineAccountCacheVerifyPerSave", OfflineAccountCacheVerifyPerSave));
@@ -546,6 +545,7 @@ namespace Server
 
             //Database
             SaveDelay = Reader.ReadInt32("Database", "SaveDelay", SaveDelay);
+            AccountBackupMinutes = Reader.ReadInt32("Database", "AccountBackupMinutes", AccountBackupMinutes < 0 ? SaveDelay : AccountBackupMinutes);
             CredxGold = Reader.ReadInt16("Database", "CredxGold", CredxGold);
 
             //Game
@@ -686,8 +686,6 @@ namespace Server
                 Directory.CreateDirectory(MapPath);
             if (!Directory.Exists(NPCPath))
                 Directory.CreateDirectory(NPCPath);
-            if (!Directory.Exists(GoodsPath))
-                Directory.CreateDirectory(GoodsPath);
             if (!Directory.Exists(QuestPath))
                 Directory.CreateDirectory(QuestPath);
             if (!Directory.Exists(DropPath))
@@ -841,7 +839,6 @@ namespace Server
             Reader.Write("Optimisation", "DirectSend", DirectSend);
             Reader.Write("Optimisation", "ConnSweepMs", ConnSweepMs);
             Reader.Write("Optimisation", "AloneCeiling", AloneCeiling);
-            Reader.Write("Optimisation", "AccountSaveOffThread", AccountSaveOffThread);
             Reader.Write("Optimisation", "OfflineAccountCache", OfflineAccountCache.ToString());
             Reader.Write("Optimisation", "OfflineAccountCacheFullEvery", OfflineAccountCacheFullEvery);
             Reader.Write("Optimisation", "OfflineAccountCacheVerifyPerSave", OfflineAccountCacheVerifyPerSave);
@@ -894,6 +891,7 @@ namespace Server
 
             //Database
             Reader.Write("Database", "SaveDelay", SaveDelay);
+            Reader.Write("Database", "AccountBackupMinutes", AccountBackupMinutes);
             Reader.Write("Database", "CredxGold", CredxGold);
 
             //Game

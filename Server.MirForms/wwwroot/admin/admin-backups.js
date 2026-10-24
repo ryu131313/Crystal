@@ -3,7 +3,7 @@
  *
  * Tabs:
  *   Database / Accounts — Back Up\Database\*.bak, Back Up\Accounts\*.bak: list (origin, date, size, file version), Create backup
- *     (copies the live Server.MirDB / Server.MirADB), Download, Restore (world STOPPED only; typed confirmation; the server backs up the
+ *     (VACUUM INTO copies of the live SystemData.db / UserData.db), Download, Restore (world STOPPED only; typed confirmation; the server backs up the
  *     current file first) and Prune (dry run first, then one confirmation).
  *   Scripts — Back Up\WebAdmin\Scripts\** (written by the Scripts & Files editor): list, filter, Download, open the file in Scripts, Prune.
  *   History — game-data edits from the audit log (GET /api/admin/db/history): per-field before -> after with Revert (GET the current row,
@@ -283,7 +283,7 @@
   async function restoreBackup(file) {
     var kind = current;
     var d = kindData[kind] || {};
-    var liveName = (d.live && d.live.name) || (kind === 'database' ? 'Server.MirDB' : 'Server.MirADB');
+    var liveName = (d.live && d.live.name) || (kind === 'database' ? 'SystemData.db' : 'UserData.db');
     var sv = d.supportedVersions;
     if (file.version != null && sv && (file.version < sv.min || file.version > sv.max)) {
       portalToast('This backup has file version ' + file.version + '; the server only loads ' + sv.min + '–' + sv.max + '.', 'error');

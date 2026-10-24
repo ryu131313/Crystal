@@ -4,8 +4,8 @@ using static Server.Persistence.Tests.PersistenceHarness;
 namespace Server.Persistence.Tests;
 
 /// <summary>
-/// Roadmap P2 gate: fault injection on the save/load paths. Each test builds the synthetic world in a temp folder,
-/// breaks one step, and checks that no live file is lost, truncated or replaced by an empty database.
+/// Roadmap P2 gate, on UserData.db since Part A of UserData-and-Quests-Plan.md: fault injection on the save/load paths. Each test builds
+/// the synthetic world in a temp folder, breaks one step, and checks that no live data is lost, truncated or replaced by an empty database.
 /// </summary>
 [Collection(PersistenceCollection.Name)]
 public class CrashSafeSaveTests
@@ -19,46 +19,37 @@ public class CrashSafeSaveTests
             ResetMain();
             SyntheticWorld.Populate(Envir.Main);
             SaveAll();
-            Assert.True(LoadAll());
-            SaveAll(); // second save creates Back Up\Database (accounts backups come from the periodic save)
+            Assert.True(LoadAll()); // imports Server.MirADB into UserData.db
+            SaveAll();              // second save creates Back Up\Database
             return 0;
         });
         return dir;
     }
 
-    private static void WaitForAccountSave()
-    {
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        while (Envir.Main.Saving && sw.ElapsedMilliseconds < 10000) Thread.Sleep(5);
-        Assert.False(Envir.Main.Saving, "account save did not complete");
-    }
-
     [Fact]
-    public void Serialisation_failure_leaves_live_accounts_file_and_clears_Saving()
+    public void Serialisation_failure_leaves_the_store_and_clears_Saving()
     {
         var dir = NewWorld("p2-serialise");
         InFolder(dir, () =>
         {
-            var before = File.ReadAllBytes(Envir.AccountPath);
+            Assert.True(LoadAll());
+            SaveUserData();
+            var before = AccountsImage();
             var failuresBefore = Envir.AccountSaveFailures;
             var victim = Envir.Main.CharacterList[0];
             var name = victim.Name;
             victim.Name = null; // BinaryWriter.Write(null string) throws mid-serialisation
 
-            Envir.Main.BeginSaveAccounts();
+            Assert.Equal(Envir.UserDataSaveOutcome.Failed, Envir.Main.SaveUserData(false, allowBackup: false));
 
             Assert.False(Envir.Main.Saving);
             Assert.Equal(failuresBefore + 1, Envir.AccountSaveFailures);
-            Assert.True(before.AsSpan().SequenceEqual(File.ReadAllBytes(Envir.AccountPath)), "live Server.MirADB changed");
-            Assert.False(File.Exists(Envir.AccountPath + "n"), "no temp file should be written when serialisation fails");
+            Assert.True(before.AsSpan().SequenceEqual(AccountsImage()), "UserData.db changed");
 
-            // the next periodic save works and backs up the previous file
+            // the next save works
             victim.Name = name;
-            Envir.Main.BeginSaveAccounts();
-            WaitForAccountSave();
+            SaveUserData(full: false);
             Assert.Equal(failuresBefore + 1, Envir.AccountSaveFailures);
-            Assert.True(Directory.GetFiles(Envir.AccountsBackUpPath, "*.bak").Length >= 1, "previous accounts file not backed up");
-            Assert.False(File.Exists(Envir.AccountPath + "n"));
             Envir.Main.LoadAccounts(); // still loadable
             Assert.Equal(2, Envir.Main.CharacterList.Count);
             return 0;
@@ -67,18 +58,19 @@ public class CrashSafeSaveTests
     }
 
     [Fact]
-    public void Missing_accounts_file_with_backups_is_refused_not_recreated_empty()
+    public void Missing_store_with_backups_is_refused_not_recreated_empty()
     {
         var dir = NewWorld("p2-missing-adb");
         InFolder(dir, () =>
         {
-            Envir.Main.BeginSaveAccounts();
-            WaitForAccountSave();               // creates Back Up\Accounts\*.bak
-            File.Delete(Envir.AccountPath);     // simulate the old crash window / an operator mistake
+            Assert.True(LoadAll());
+            Envir.UserStore.BackupTo(Path.Combine(Envir.AccountsBackUpPath, "Accounts 2099-01-01 00-00-00.bak"));
+            Envir.UserStore.Writer.Run(w => { w.CloseConnection(); return 0; });
+            File.Delete(Envir.UserDataPath); // an operator mistake or a lost disk
 
             var ex = Assert.Throws<InvalidOperationException>(() => Envir.Main.LoadAccounts());
-            Assert.Contains("Refusing to create an empty accounts database", ex.Message);
-            Assert.False(File.Exists(Envir.AccountPath), "an empty Server.MirADB was created");
+            Assert.Contains("Refusing to create an empty user database", ex.Message);
+            Assert.False(File.Exists(Envir.UserDataPath), "an empty UserData.db was created");
             return 0;
         });
         Directory.Delete(dir, true);
@@ -109,22 +101,31 @@ public class CrashSafeSaveTests
             ResetMain();
             Assert.True(Envir.Edit.LoadDB());
             Assert.True(File.Exists(Envir.DatabasePath));
-            Envir.Main.LoadAccounts();
-            Assert.True(File.Exists(Envir.AccountPath));
+            Assert.True(Envir.Main.LoadDB());
+            LoadUserData();
+            Assert.True(File.Exists(Envir.UserDataPath));
+            Assert.False(File.Exists(Envir.AccountPath));
             return 0;
         });
         Directory.Delete(dir, true);
     }
 
     [Fact]
-    public void Newer_accounts_version_is_refused()
+    public void Newer_user_data_version_is_refused()
     {
         var dir = NewWorld("p2-newer");
         InFolder(dir, () =>
         {
-            var bytes = File.ReadAllBytes(Envir.AccountPath);
-            BitConverter.GetBytes(Envir.Version + 1).CopyTo(bytes, 0);
-            File.WriteAllBytes(Envir.AccountPath, bytes);
+            var head = Envir.UserStore.Writer.Run(w => Server.MirEnvir.Storage.UserDataFile.ReadWorld(w.Connection)).Head;
+            BitConverter.GetBytes(Envir.Version + 1).CopyTo(head, 0);
+            Envir.UserStore.Writer.Run(w =>
+            {
+                using var cmd = w.Connection.CreateCommand();
+                cmd.CommandText = "UPDATE world SET head = $h; UPDATE meta SET value = $v WHERE key = 'envir_version'";
+                cmd.Parameters.AddWithValue("$h", head);
+                cmd.Parameters.AddWithValue("$v", (long)Envir.Version + 1);
+                return cmd.ExecuteNonQuery();
+            });
 
             var ex = Assert.Throws<InvalidOperationException>(() => Envir.Main.LoadAccounts());
             Assert.Contains("outside the supported range", ex.Message);
@@ -157,19 +158,20 @@ public class CrashSafeSaveTests
     }
 
     [Fact]
-    public void Stale_temp_file_from_a_killed_save_is_ignored_and_replaced()
+    public void A_tmp_left_by_an_interrupted_import_is_replaced_by_the_next_import()
     {
-        var dir = NewWorld("p2-stale");
+        var dir = NewTempFolder("p2-stale");
         InFolder(dir, () =>
         {
-            File.WriteAllBytes(Envir.AccountPath + "n", new byte[] { 1, 2, 3 }); // process killed mid-write
-            Envir.Main.LoadAccounts();                                          // live file wins
-            Assert.Equal(2, Envir.Main.CharacterList.Count);
+            EnsureBuffInfo();
+            ResetMain();
+            SyntheticWorld.Populate(Envir.Main);
+            SaveAll(); // Server.MirADB
+            File.WriteAllBytes(Envir.UserDataPath + ".tmp", new byte[] { 1, 2, 3 }); // process killed before the move
 
-            Envir.Main.BeginSaveAccounts();
-            WaitForAccountSave();
-            Assert.False(File.Exists(Envir.AccountPath + "n"));
-            Envir.Main.LoadAccounts();
+            Assert.True(LoadAll());
+            Assert.True(File.Exists(Envir.UserDataPath));
+            Assert.False(File.Exists(Envir.UserDataPath + ".tmp"));
             Assert.Equal(2, Envir.Main.CharacterList.Count);
             return 0;
         });

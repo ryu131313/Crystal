@@ -46,7 +46,7 @@ namespace Server.WebAdmin.Routes
         internal static DateTime GameNow() => WebAdminGame.World.QueueOpen ? Envir.Main.Now : DateTime.UtcNow;
 
         /// <summary>409 when the world is stopped and accounts were never loaded in this process (AccountList is empty until the first start).</summary>
-        /// <summary>The account list in memory no longer reflects Server.MirADB (a failed restore cleared it): block edits until a reload.</summary>
+        /// <summary>The account list in memory no longer reflects UserData.db (a failed restore cleared it): block edits until a reload.</summary>
         internal static void MarkAccountsUnloaded() => _accountsLoaded = false;
 
         internal static void EnsureAccountsLoaded()
@@ -255,15 +255,15 @@ namespace Server.WebAdmin.Routes
                 return "unsaved";
             }
 
-            // Never write an empty / not-loaded account list over Server.MirADB (e.g. after a restore that could load nothing).
-            if (Envir.Main.AccountList.Count == 0)
+            // Never write a not-loaded account list over UserData.db (e.g. after a restore that could load nothing).
+            if (!Envir.Main.UserDataLoaded || Envir.Main.AccountList.Count == 0)
             {
                 WebAdminLog.Info("Account file not saved after a web admin change: the account list is not loaded from disk.");
                 return "unsaved";
             }
 
-            Envir.Main.SaveAccounts();
-            return "saved";
+            // Accounts + world (+ pending account deletes) in one transaction; false when it did not save (logged).
+            return Envir.Main.SaveAccounts() ? "saved" : "unsaved";
         }
 
         private static bool IsSelf(WebAdminRequest req, int accountIndex) => req.Session != null && req.Session.AccountIndex == accountIndex;
@@ -1003,6 +1003,7 @@ namespace Server.WebAdmin.Routes
 
                 a.Auctions.Clear();
                 Envir.Main.AccountList.Remove(a);
+                Envir.Main.MarkAccountDeleted(a.Index); // its row is deleted by the next successful save (UserData.db)
 
                 return new { accountId = a.AccountID, admin = a.AdminAccount, characters, heroes, auctions, unlinked, refunded };
             });

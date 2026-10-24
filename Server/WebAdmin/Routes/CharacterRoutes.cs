@@ -31,15 +31,15 @@ namespace Server.WebAdmin.Routes
         public static string Label(CharacterInfo ci) => ci.Name + " (#" + ci.Index + ")";
 
         /// <summary>
-        /// While the world is stopped nothing saves accounts and the next world start reloads Server.MirADB from disk, so inline edits
-        /// are written immediately (like AccountInfoForm does on close). While running the periodic save persists them.
+        /// While the world is stopped nothing saves accounts and the next world start reloads UserData.db, so inline edits are written
+        /// immediately (accounts + world, like AccountInfoForm does on close). While running the periodic save persists them.
         /// </summary>
         public static void PersistIfStopped()
         {
             if (WebAdminGame.IsRunning) return;
 
             var envir = Envir.Main;
-            if (envir.AccountList.Count == 0 || envir.Saving) return; // never write an empty / half-saved account DB
+            if (!envir.UserDataLoaded || envir.AccountList.Count == 0 || envir.Saving) return; // never write a not-loaded / half-saved account DB
 
             envir.SaveAccounts();
         }
@@ -157,7 +157,7 @@ namespace Server.WebAdmin.Routes
     /// <summary>
     /// Characters: search, detail and edits (B2). Reads and writes go through <see cref="WebAdminGame.RunOrInlineAsync{T}"/>: on the game
     /// thread while the world runs (using PlayerObject methods for online characters so the client updates), inline under AccountLock
-    /// while it is stopped (then Server.MirADB is saved immediately).
+    /// while it is stopped (then UserData.db is saved immediately).
     /// </summary>
     public sealed class CharacterRoutes : IWebAdminRoutes
     {
@@ -280,7 +280,7 @@ namespace Server.WebAdmin.Routes
                     if (player != null) throw new WebAdminException(409, ci.Name + " is online. Kick the player before renaming.");
                     if (!string.Equals(name, ci.Name, StringComparison.OrdinalIgnoreCase) && envir.CharacterExists(name))
                         throw new WebAdminException(409, "The name " + name + " is already taken.");
-                    // Guild files (.mgd) are only written by Envir.SaveGuilds while the world runs; a stopped-world rename would leave the
+                    // Guild rows are only written by the running world's save (an offline save writes accounts only); a stopped-world rename would leave the
                     // old member name on disk, and at the next login GuildObject.FindRank(Info.Name) would fail and drop the membership.
                     if (!WebAdminGame.IsRunning && IsGuildMember(envir, ci))
                         throw new WebAdminException(409, ci.Name + " is a guild member. Start the world before renaming so the guild member list is saved too.");

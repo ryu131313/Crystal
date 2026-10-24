@@ -119,7 +119,7 @@ namespace Server.MirEnvir
             RandomWrapper.Value.Next(minValue, maxValue);
     }
 
-    public class Envir
+    public partial class Envir
     {
         public static Envir Main { get; } = new Envir();
 
@@ -163,7 +163,6 @@ namespace Server.MirEnvir
         public static readonly string DatabaseBackUpPath = Path.Combine(".", "Back Up", "Database");
         public static readonly string ArchivePath = Path.Combine(".", "Archive");
         public bool ResetGS = false;
-        public bool GuildRefreshNeeded;
 
         private static readonly Regex AccountIDReg, PasswordReg, EMailReg, CharacterReg;
 
@@ -2473,32 +2472,33 @@ namespace Server.MirEnvir
 
                         if (Time >= saveTime || _saveNowRequested)
                         {
-                            _saveNowRequested = false;
-                            saveTime = Time + Settings.SaveDelay * Settings.Minute;
-                            // Each save is isolated (roadmap P5): since P2 a failed save leaves the previous file intact.
+                            // UserData.db (Part A): one job = one transaction with the changed accounts, guilds, conquests and goods. A save
+                            // skipped because the previous job still runs keeps "Save now" and saveTime, so it is retried next tick.
                             var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
                             for (var i = 0; i < Players.Count; i++) Players[i].FoldPlayTime(); // v119: a crash loses little play time
-                            var accountSaveSkipped = Saving; // the previous write is still running: BeginSaveAccounts returns at once
-                            BeginSaveAccounts();
-                            var t1 = System.Diagnostics.Stopwatch.GetTimestamp();
-                            // Main's save only posts the respawn counter (runtime_state): Envir.Edit is the only writer of design data.
-                            try { SaveDB(); }
-                            catch (Exception ex) { WorldErrors.Record("SaveDB", ex); }
-                            var t2 = System.Diagnostics.Stopwatch.GetTimestamp();
-                            try { SaveGuilds(); } catch (Exception ex) { WorldErrors.Record("SaveGuilds", ex); }
-                            var t3 = System.Diagnostics.Stopwatch.GetTimestamp();
-                            try { SaveGoods(); } catch (Exception ex) { WorldErrors.Record("SaveGoods", ex); }
-                            var t4 = System.Diagnostics.Stopwatch.GetTimestamp();
-                            try { SaveConquests(); } catch (Exception ex) { WorldErrors.Record("SaveConquests", ex); }
-                            var t5 = System.Diagnostics.Stopwatch.GetTimestamp();
-                            if (Settings.LogLoopProfile) // once per save; P9-10
-                                MessageQueue.Instance.EnqueueDebugging(
-                                    $"[Diag] Save accounts={SaveMs(t0, t1):0.00}ms db={SaveMs(t1, t2):0.00}ms guilds={SaveMs(t2, t3):0.00}ms " +
-                                    $"goods={SaveMs(t3, t4):0.00}ms conquests={SaveMs(t4, t5):0.00}ms total={SaveMs(t0, t5):0.00}ms " +
-                                    $"bytes={LastAccountSaveBytes} accounts={AccountList.Count}{(accountSaveSkipped ? " skipped" : "")}" +
-                                    (accountSaveSkipped ? "" : AccountCacheDiag())); // P9-12 fields, appended
-                            BackupRetention.RunInBackground(); // no-op unless [Backup] RetentionEnabled
-                            try { PruneIpTables(); } catch (Exception ex) { WorldErrors.Record("PruneIpTables", ex); }
+                            UserDataSaveOutcome outcome;
+                            try { outcome = SaveUserData(_saveNowRequested, allowBackup: true); }
+                            catch (Exception ex) { WorldErrors.Record("SaveUserData", ex); outcome = UserDataSaveOutcome.Failed; }
+                            if (outcome != UserDataSaveOutcome.Skipped)
+                            {
+                                _saveNowRequested = false;
+                                saveTime = Time + Settings.SaveDelay * Settings.Minute;
+                                var t1 = System.Diagnostics.Stopwatch.GetTimestamp();
+                                // Main's save only posts the respawn counter (runtime_state): Envir.Edit is the only writer of design data.
+                                try { SaveDB(); }
+                                catch (Exception ex) { WorldErrors.Record("SaveDB", ex); }
+                                var t2 = System.Diagnostics.Stopwatch.GetTimestamp();
+                                if (Settings.LogLoopProfile) // once per save; P9-10
+                                {
+                                    var job = _userDataJob;
+                                    MessageQueue.Instance.EnqueueDebugging(
+                                        $"[Diag] Save userdata={SaveMs(t0, t1):0.00}ms db={SaveMs(t1, t2):0.00}ms total={SaveMs(t0, t2):0.00}ms " +
+                                        $"bytes={LastAccountSaveBytes} accounts={AccountList.Count} rows={job.Accounts.Count}/{job.Guilds.Count}/{job.Goods.Count}/{job.Conquests.Count}" +
+                                        (outcome == UserDataSaveOutcome.Failed ? " failed" : AccountCacheDiag())); // P9-12 fields, appended
+                                }
+                                BackupRetention.RunInBackground(); // no-op unless [Backup] RetentionEnabled
+                                try { PruneIpTables(); } catch (Exception ex) { WorldErrors.Record("PruneIpTables", ex); }
+                            }
                         }
                         LoopProfiler.Mark(LoopProfiler.Phase.Saves);
 
@@ -2578,14 +2578,10 @@ namespace Server.MirEnvir
                 _timerResolutionSet = false;
 
                 StopNetwork();
-                // A periodic side-file write still in flight would hold the "...n" file the forced saves below create.
-                WaitForSideFileSaves();
+                // UserData.db (Part A, Shutdown): buyback into goods, then the final full save with a bounded wait, after StopNetwork so no
+                // packet changes state after it and before StopEnvir clears the maps. Reboot reloads from the store right after.
+                SaveUserDataAtShutdown();
                 StopEnvir();
-                SaveAccounts();
-                SaveGuilds(true);
-                SaveConquests(true);
-                // Shutdown and Reboot (which reloads .mgd/.mcd right after) must not outrun the writes they just queued.
-                WaitForSideFileSaves();
             }
             catch (Exception ex)
             {
@@ -3507,637 +3503,21 @@ namespace Server.MirEnvir
             info.Save(writer);
         }
 
-        public void SaveAccounts()
-        {
-            // Saving is always reset by EndSaveAccounts (roadmap P2); the bound only guards against a write that never completes.
-            var waitStart = Stopwatch.ElapsedMilliseconds;
-            while (Saving && Stopwatch.ElapsedMilliseconds - waitStart < AccountSaveWaitLimitMs)
-                Thread.Sleep(1);
-            if (Saving)
-                MessageQueue.Enqueue($"[Save] The previous account save did not finish within {AccountSaveWaitLimitMs / 1000} s; saving accounts anyway.");
-
-            try
-            {
-                // A periodic save still holding Server.MirADBn after the wait: write beside it, and the generation bump below
-                // keeps that older save from being swapped in after this one.
-                var tempPath = Saving ? AccountPath + "s" : AccountPath + "n";
-                lock (_accountReplaceLock) Interlocked.Increment(ref _accountSaveGeneration);
-                using (var stream = File.Create(tempPath))
-                {
-                    SaveAccounts(stream, leaveOpen: true);
-                    stream.Flush(flushToDisk: true);
-                }
-                lock (_accountReplaceLock) ReplaceAccountsFile(tempPath, null);
-            }
-            catch (Exception ex)
-            {
-                Interlocked.Increment(ref _accountSaveFailures);
-                MessageQueue.Enqueue(ex);
-            }
-
-            // P9-12 (review H2): a full save never uses the cache, and afterwards no older blob may be written over it.
-            AccountSaveCache.InvalidateAll();
-        }
-
         private static double SaveMs(long from, long to) => (to - from) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
 
         /// <summary>Size of the last periodic account save in bytes (diagnostics; written by whichever thread serialised it).</summary>
         public static long LastAccountSaveBytes => Volatile.Read(ref _lastAccountSaveBytes);
         private static long _lastAccountSaveBytes;
 
-        private const int AccountSaveWaitLimitMs = 30000;
-
-        // Bumped by every synchronous full save: an async save started before it (captured an older value) is not swapped
-        // in afterwards. Check + swap happen under _accountReplaceLock (save paths only, never per tick).
-        private int _accountSaveGeneration;
-        private readonly object _accountReplaceLock = new object();
-
-        /// <summary>Async save completion: swaps the temp file in unless a later synchronous save superseded it.</summary>
-        private void ReplaceAccountsFileUnlessSuperseded(int generation, string tempPath, string livePath, string backupFile)
-        {
-            lock (_accountReplaceLock)
-            {
-                if (generation != Volatile.Read(ref _accountSaveGeneration))
-                {
-                    MessageQueue.Enqueue("[Save] An account save finished after a newer full save; it was not swapped in.");
-                    return;
-                }
-                ReplaceAccountsFile(tempPath, livePath, backupFile);
-            }
-        }
         private static int _accountSaveFailures;
 
         /// <summary>Account saves that failed since the process started (each is logged). Read from any thread.</summary>
         public static int AccountSaveFailures => Volatile.Read(ref _accountSaveFailures);
 
-        /// <summary>
-        /// Swaps a completely written temp file in as Server.MirADB. File.Replace is atomic on the same volume, so a
-        /// Server.MirADB exists at every instant; the previous file becomes <paramref name="backupFile"/> when given.
-        /// </summary>
-        private static void ReplaceAccountsFile(string tempPath, string backupFile) => ReplaceAccountsFile(tempPath, AccountPath, backupFile);
-
-        private static void ReplaceAccountsFile(string tempPath, string livePath, string backupFile)
-        {
-            if (File.Exists(livePath))
-            {
-                if (backupFile != null && File.Exists(backupFile)) File.Delete(backupFile);
-                File.Replace(tempPath, livePath, backupFile);
-            }
-            else
-            {
-                File.Move(tempPath, livePath);
-            }
-        }
-
-        /// <summary>
-        /// True when a missing live file is more likely lost than new: temp files from a save, or backups, exist.
-        /// Used to refuse creating an empty database over data that should be restored instead (roadmap P2).
-        /// </summary>
-        internal static bool HasPriorDataEvidence(string livePath, string backupDir)
-        {
-            if (File.Exists(livePath + "n") || File.Exists(livePath + "o")) return true;
-            return Directory.Exists(backupDir) && Directory.EnumerateFiles(backupDir, "*.bak").Any();
-        }
-
         // BinaryWriter's default encoding (UTF-8, no BOM, throws on invalid surrogates), so leaveOpen changes no byte.
         private static readonly System.Text.UTF8Encoding AccountSaveEncoding = new System.Text.UTF8Encoding(false, true);
 
-        private void SaveAccounts(Stream stream, bool leaveOpen = false)
-        {
-            using (var writer = leaveOpen ? new BinaryWriter(stream, AccountSaveEncoding, true) : new BinaryWriter(stream))
-                SaveAccounts(writer);
-
-            if (this == Main) global::Server.WebAdmin.WebAdminHooks.RaiseAccountsSaved();
-        }
-
-        /// <summary>Writes the whole accounts file to <paramref name="writer"/> (does not flush or dispose it; the caller raises AccountsSaved).</summary>
-        private void SaveAccounts(BinaryWriter writer) => SaveAccounts(writer, null);
-
-        /// <summary>
-        /// With <paramref name="segments"/> (P9-12, periodic save with the offline account cache): the file is the list of
-        /// segments in order, ranges of <paramref name="writer"/>'s buffer and cached account blobs; otherwise the whole file
-        /// is in <paramref name="writer"/>.
-        /// </summary>
-        private void SaveAccounts(BinaryWriter writer, List<AccountSaveSegment> segments)
-        {
-            writer.Write(Version);
-            writer.Write(CustomVersion);
-            writer.Write(NextAccountID);
-            writer.Write(NextCharacterID);
-            writer.Write(NextUserItemID);
-            writer.Write(NextHeroID);
-
-            writer.Write(GuildList.Count);
-            writer.Write(NextGuildID);
-            writer.Write(HeroList.Count);
-            for (var i = 0; i < HeroList.Count; i++)
-                HeroList[i].Save(writer);
-            writer.Write(AccountList.Count);
-            var runStart = 0;
-            if (segments != null)
-                runStart = SaveAccountListCached((BufferBinaryWriter)writer, segments);
-            else
-                for (var i = 0; i < AccountList.Count; i++)
-                    AccountList[i].Save(writer);
-
-            writer.Write(NextAuctionID);
-            writer.Write(Auctions.Count);
-            foreach (var auction in Auctions)
-                auction.Save(writer);
-
-            writer.Write(NextMailID);
-
-            writer.Write(GameshopLog.Count);
-            foreach (var item in GameshopLog)
-            {
-                writer.Write(item.Key);
-                writer.Write(item.Value);
-            }
-
-            writer.Write(SavedSpawns.Count);
-            foreach (var Spawn in SavedSpawns)
-            {
-                var Save = new RespawnSave { RespawnIndex = Spawn.Info.RespawnIndex, NextSpawnTick = Spawn.NextSpawnTick, Spawned = Spawn.Count >= Spawn.Info.Count * SpawnMultiplier };
-                Save.Save(writer);
-            }
-
-            writer.Write(MarketSales.Count);
-            foreach (var sales in MarketSales)
-            {
-                writer.Write(sales.Key);
-                sales.Value.Save(writer);
-            }
-
-            if (segments != null)
-            {
-                var length = ((BufferBinaryWriter)writer).Length;
-                if (length > runStart) segments.Add(new AccountSaveSegment(null, runStart, length - runStart));
-            }
-        }
-
-        private void SaveGuilds(bool forced = false)
-        {
-            if (!Directory.Exists(Settings.GuildPath)) Directory.CreateDirectory(Settings.GuildPath);
-
-            if (GuildRefreshNeeded == true) //resaves with new indexing if a guild is deleted.
-            {
-                BeginGuildReindex();
-                return;
-            }
-
-            // A re-index is moving files into place: positions are changing, so per-guild writes wait (NeedSave stays set).
-            if (Volatile.Read(ref _guildReindexRunning) == 1) return;
-
-            for (var i = 0; i < GuildList.Count; i++)
-            {
-                if (GuildList[i].NeedSave || forced)
-                {
-                    GuildList[i].NeedSave = false;
-
-                    var data = GuildFileBytes(i);
-                    var fStream = new FileStream(Path.Combine(Settings.GuildPath, i + ".mgdn"), FileMode.Create);
-                    BeginSideFileWrite(fStream, data, EndSaveGuildsAsync, fStream);
-                }
-            }
-        }
-
-        /// <summary>Game thread: the live guild's info for list position <paramref name="i"/>, serialised.</summary>
-        private byte[] GuildFileBytes(int i)
-        {
-            GuildObject liveGuild = Guilds.Find(g => g.Guildindex == GuildList[i].GuildIndex);
-            if (liveGuild != null)
-            {
-                GuildList[i] = liveGuild.Info;
-            }
-
-            var mStream = new MemoryStream();
-            var writer = new BinaryWriter(mStream);
-            GuildList[i].Save(writer);
-            return mStream.ToArray();
-        }
-
-        private void EndSaveGuildsAsync(IAsyncResult result)
-        {
-            CompleteSideFileSave(result.AsyncState as FileStream, result);
-            Interlocked.Decrement(ref _sideFileWrites);
-        }
-
-        // Guild files are named by list position, so deleting a guild renames every later one. Codebase review 2026-10-24:
-        // swapping them one by one was not crash-consistent (a crash mid-way loaded the deleted guild and dropped the last).
-        // Now every file is first staged in Guilds\Reindex\ with a "done" marker; only then are they moved into place, and a
-        // load that finds the marker finishes the moves first (roll forward). A crash before the marker leaves the old files.
-        private const string GuildReindexDir = "Reindex", GuildReindexMarker = "done";
-        private int _guildReindexRunning;
-
-        /// <summary>Game thread: snapshots every guild, then stages and swaps them on a pool thread.</summary>
-        private void BeginGuildReindex()
-        {
-            if (Interlocked.CompareExchange(ref _guildReindexRunning, 1, 0) != 0) return; // one at a time; GuildRefreshNeeded stays set
-
-            byte[][] files;
-            try
-            {
-                files = new byte[GuildList.Count][];
-                for (var i = 0; i < GuildList.Count; i++)
-                {
-                    GuildList[i].NeedSave = false;
-                    files[i] = GuildFileBytes(i);
-                }
-            }
-            catch
-            {
-                Volatile.Write(ref _guildReindexRunning, 0);
-                throw; // GuildRefreshNeeded stays set, so the next save retries the re-index
-            }
-
-            GuildRefreshNeeded = false;
-            var guildPath = Settings.GuildPath;
-            Interlocked.Increment(ref _sideFileWrites); // shutdown and reboot wait for it (WaitForSideFileSaves)
-            Task.Run(() =>
-            {
-                try
-                {
-                    // Per-guild writes started before the re-index would land on the new positions: let them finish first.
-                    var waitStart = Stopwatch.ElapsedMilliseconds;
-                    while (Volatile.Read(ref _sideFileWrites) > 1 && Stopwatch.ElapsedMilliseconds - waitStart < AccountSaveWaitLimitMs)
-                        Thread.Sleep(1);
-
-                    StageGuildReindex(guildPath, files);
-                    CompleteGuildReindex(guildPath);
-                }
-                catch (Exception ex)
-                {
-                    WorldErrors.Record("guild re-index", ex);
-                }
-                finally
-                {
-                    Volatile.Write(ref _guildReindexRunning, 0);
-                    Interlocked.Decrement(ref _sideFileWrites);
-                }
-            });
-        }
-
-        /// <summary>Writes every guild file and then the marker into &lt;guildPath&gt;\Reindex (any thread; files only).</summary>
-        internal static void StageGuildReindex(string guildPath, byte[][] files)
-        {
-            var stage = Path.Combine(guildPath, GuildReindexDir);
-            if (Directory.Exists(stage)) Directory.Delete(stage, true);
-            Directory.CreateDirectory(stage);
-
-            for (var i = 0; i < files.Length; i++)
-            {
-                using var stream = new FileStream(Path.Combine(stage, i + ".mgd"), FileMode.Create);
-                stream.Write(files[i], 0, files[i].Length);
-                stream.Flush(flushToDisk: true);
-            }
-
-            using (var marker = new FileStream(Path.Combine(stage, GuildReindexMarker), FileMode.Create))
-            {
-                var bytes = System.Text.Encoding.ASCII.GetBytes(files.Length.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                marker.Write(bytes, 0, bytes.Length);
-                marker.Flush(flushToDisk: true);
-            }
-        }
-
-        /// <summary>
-        /// Moves a staged re-index into place and prunes the surplus files (idempotent, so a crash part-way is finished by the
-        /// next call). Without a marker the staging was incomplete: it is discarded and the old files stay. Called after
-        /// staging and by LoadGuilds before it reads anything.
-        /// </summary>
-        internal static void CompleteGuildReindex(string guildPath)
-        {
-            var stage = Path.Combine(guildPath, GuildReindexDir);
-            if (!Directory.Exists(stage)) return;
-
-            var markerPath = Path.Combine(stage, GuildReindexMarker);
-            if (!File.Exists(markerPath) || !int.TryParse(File.ReadAllText(markerPath), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var count))
-            {
-                Directory.Delete(stage, true);
-                return;
-            }
-
-            for (var i = 0; i < count; i++)
-            {
-                var staged = Path.Combine(stage, i + ".mgd");
-                if (!File.Exists(staged)) continue; // already moved before a crash
-                var live = Path.Combine(guildPath, i + ".mgd");
-                if (File.Exists(live)) File.Replace(staged, live, null);
-                else File.Move(staged, live);
-            }
-
-            PruneSurplusGuildFiles(guildPath, count);
-            File.Delete(markerPath);
-            Directory.Delete(stage, true);
-        }
-
-        /// <summary>
-        /// Shared completion for the async guild (.mgd), goods (.msd) and conquest (.mcd) saves (roadmap P5). Runs on an IO
-        /// completion thread and touches only files. The temp file "&lt;name&gt;n" is swapped in with File.Replace, so the
-        /// live file always exists; failures are logged and counted instead of swallowed.
-        /// </summary>
-        internal static bool CompleteSideFileSave(FileStream fStream, IAsyncResult result)
-        {
-            if (fStream == null) return false;
-            try
-            {
-                var newfilename = fStream.Name;
-                var oldfilename = newfilename.Substring(0, newfilename.Length - 1);
-                fStream.EndWrite(result);
-                fStream.Flush(flushToDisk: true); // before the swap: a power cut must not leave a zero-filled live file
-                fStream.Dispose();
-                if (File.Exists(oldfilename)) File.Replace(newfilename, oldfilename, null);
-                else File.Move(newfilename, oldfilename);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                fStream.Dispose();
-                WorldErrors.Record("async save of " + fStream.Name, ex);
-                return false;
-            }
-        }
-
-        /// <summary>Deletes guild files whose index is outside 0..keep-1 (LoadGuilds never reads them).</summary>
-        internal static void PruneSurplusGuildFiles(int keep) => PruneSurplusGuildFiles(Settings.GuildPath, keep);
-
-        internal static void PruneSurplusGuildFiles(string guildPath, int keep)
-        {
-            try
-            {
-                foreach (var file in Directory.GetFiles(guildPath, "*.mgd"))
-                {
-                    if (int.TryParse(Path.GetFileNameWithoutExtension(file), out var index) && index >= keep)
-                        File.Delete(file);
-                }
-            }
-            catch (Exception ex)
-            {
-                WorldErrors.Record("pruning surplus guild files", ex);
-            }
-        }
-
-        private void SaveGoods(bool forced = false)
-        {
-            if (!Directory.Exists(Settings.GoodsPath)) Directory.CreateDirectory(Settings.GoodsPath);
-
-            for (var i = 0; i < MapList.Count; i++)
-            {
-                var map = MapList[i];
-
-                if (map.NPCs.Count == 0) continue;
-
-                for (var j = 0; j < map.NPCs.Count; j++)
-                {
-                    var npc = map.NPCs[j];
-
-                    if (forced)
-                    {
-                        npc.ProcessGoods(forced);
-                    }
-
-                    if (!npc.NeedSave) continue;
-
-                    var path = Path.Combine(Settings.GoodsPath, npc.Info.Index + ".msdn");
-
-                    var mStream = new MemoryStream();
-                    var writer = new BinaryWriter(mStream);
-                    var Temp = 9999;
-                    writer.Write(Temp);
-                    writer.Write(Version);
-                    writer.Write(CustomVersion);
-                    writer.Write(npc.UsedGoods.Count);
-
-                    for (var k = 0; k < npc.UsedGoods.Count; k++)
-                    {
-                        npc.UsedGoods[k].Save(writer);
-                    }
-
-                    var fStream = new FileStream(path, FileMode.Create);
-                    var data = mStream.ToArray();
-                    BeginSideFileWrite(fStream, data, EndSaveGoodsAsync, fStream);
-                }
-            }
-        }
-        private void EndSaveGoodsAsync(IAsyncResult result)
-        {
-            CompleteSideFileSave(result.AsyncState as FileStream, result);
-            Interlocked.Decrement(ref _sideFileWrites);
-        }
-
-        private void SaveConquests(bool forced = false)
-        {
-            if (!Directory.Exists(Settings.ConquestsPath)) Directory.CreateDirectory(Settings.ConquestsPath);
-            for (var i = 0; i < ConquestList.Count; i++)
-            {
-                if (!ConquestList[i].NeedSave && !forced) continue;
-                ConquestList[i].NeedSave = false;
-                var mStream = new MemoryStream();
-                var writer = new BinaryWriter(mStream);
-                ConquestList[i].Save(writer);
-                var fStream = new FileStream(Path.Combine(Settings.ConquestsPath, ConquestList[i].Info.Index + ".mcdn"), FileMode.Create);
-                var data = mStream.ToArray();
-                BeginSideFileWrite(fStream, data, EndSaveConquestsAsync, fStream);
-            }
-        }
-        private void EndSaveConquestsAsync(IAsyncResult result)
-        {
-            CompleteSideFileSave(result.AsyncState as FileStream, result);
-            Interlocked.Decrement(ref _sideFileWrites);
-        }
-
-        // Guild, goods and conquest writes started and not yet completed (codebase review 2026-10-24 #7): the forced saves at
-        // shutdown and reboot used to be queued and never awaited, so Reboot reloaded stale files or the process exited first.
-        private int _sideFileWrites;
-
-        /// <summary>Starts an async side-file write and counts it until its callback (which decrements) runs.</summary>
-        private void BeginSideFileWrite(FileStream fStream, byte[] data, AsyncCallback callback, object state)
-        {
-            Interlocked.Increment(ref _sideFileWrites);
-            try
-            {
-                fStream.BeginWrite(data, 0, data.Length, callback, state);
-            }
-            catch
-            {
-                Interlocked.Decrement(ref _sideFileWrites);
-                fStream.Dispose();
-                throw;
-            }
-        }
-
-        /// <summary>
-        /// World teardown only (the loop has ended): waits up to AccountSaveWaitLimitMs for the side-file writes in flight,
-        /// so the files are complete before the process exits or Reboot loads them again.
-        /// </summary>
-        private void WaitForSideFileSaves()
-        {
-            var waitStart = Stopwatch.ElapsedMilliseconds;
-            while (Volatile.Read(ref _sideFileWrites) > 0 && Stopwatch.ElapsedMilliseconds - waitStart < AccountSaveWaitLimitMs)
-                Thread.Sleep(1);
-            if (Volatile.Read(ref _sideFileWrites) > 0)
-                MessageQueue.Enqueue($"[Save] {Volatile.Read(ref _sideFileWrites)} guild/goods/conquest file writes did not finish within {AccountSaveWaitLimitMs / 1000} s.");
-        }
-
-        /// <summary>
-        /// Periodic account save (game thread). Crash-safe since roadmap P2: accounts are serialised to memory first, so a
-        /// serialisation exception leaves Server.MirADB untouched and Saving false; the bytes are then written to
-        /// Server.MirADBn asynchronously and swapped in by EndSaveAccounts with File.Replace, which moves the previous file
-        /// into Back Up\Accounts. Previously the live file was moved to Back Up first, leaving a window with no Server.MirADB.
-        /// </summary>
-        public void BeginSaveAccounts()
-        {
-            if (Saving) return;
-
-            // P9-12: the offline account cache works only on the off-thread path (segment-list write) and only for Main.
-            var cache = Settings.AccountSaveOffThread && Settings.OfflineAccountCache != OfflineAccountCacheMode.Off && this == Main;
-            _lastSaveUsedCache = cache;
-            if (!cache && _accountCacheUsed) DropAccountCache();
-
-            if (Settings.AccountSaveOffThread) BeginSaveAccountsOffThread(cache);
-            else BeginSaveAccountsLegacy();
-        }
-
-        /// <summary>
-        /// P9-10 ([Optimisation] AccountSaveOffThread). The game thread only serialises: into one buffer kept across saves (no
-        /// growth, no ToArray copy, no LOH allocation once it has reached the file size). Those bytes are the snapshot: they
-        /// are cheaper to produce than a deep copy of the accounts, and nothing reads a live object after this call. A pool
-        /// thread then creates Server.MirADBn, writes it and swaps it in exactly as <see cref="EndSaveAccounts"/> does. The
-        /// buffer is not touched again until that thread clears <see cref="Saving"/> (volatile), which every save waits for.
-        /// </summary>
-        private void BeginSaveAccountsOffThread(bool cache = false)
-        {
-            Saving = true;
-
-            // Sized from the live file on the first save, so it normally never grows (no LOH copies).
-            var writer = _accountSaveWriter ??= new BufferBinaryWriter(AccountSaveEncoding, InitialAccountSaveCapacity());
-            List<AccountSaveSegment> segments = null;
-            try
-            {
-                writer.Reset();
-                if (cache)
-                {
-                    segments = _accountSaveSegments;
-                    segments.Clear();
-                    _accountCacheUsed = true;
-                }
-                SaveAccounts(writer, segments);
-                if (this == Main) global::Server.WebAdmin.WebAdminHooks.RaiseAccountsSaved();
-            }
-            catch (Exception ex)
-            {
-                Saving = false;
-                _lastSaveUsedCache = false; // review L4: no stale counters of an earlier pass on the [Diag] Save line
-                Interlocked.Increment(ref _accountSaveFailures);
-                MessageQueue.Enqueue(ex);
-                return;
-            }
-
-            var length = writer.Length;
-            long fileLength = length;
-            if (segments != null)
-            {
-                fileLength = 0;
-                for (var i = 0; i < segments.Count; i++) fileLength += segments[i].Length;
-            }
-            Volatile.Write(ref _lastAccountSaveBytes, fileLength);
-            // The name uses the game clock, as before; whether a backup is taken is decided with the file checks off the thread.
-            // Full paths now, so the pool thread does not depend on the current directory.
-            var job = new AccountSaveJob(writer.Buffer, length, Path.GetFullPath(AccountPath), Path.GetFullPath(AccountsBackUpPath),
-                $"Accounts {Now.Year:0000}-{Now.Month:00}-{Now.Day:00} {Now.Hour:00}-{Now.Minute:00}-{Now.Second:00}.bak", segments)
-            { Generation = Volatile.Read(ref _accountSaveGeneration) };
-            try
-            {
-                ThreadPool.UnsafeQueueUserWorkItem(WriteAccountsFile, job, preferLocal: false);
-            }
-            catch (Exception ex)
-            {
-                Saving = false;
-                Interlocked.Increment(ref _accountSaveFailures);
-                MessageQueue.Enqueue(ex);
-            }
-        }
-
-        private BufferBinaryWriter _accountSaveWriter; // game thread while !Saving, the pool thread (reads Buffer) while Saving
-        // P9-12: the cached save's file as pieces in order; owned like _accountSaveWriter (the pool thread reads it while Saving).
-        private readonly List<AccountSaveSegment> _accountSaveSegments = new List<AccountSaveSegment>();
-
-        private static int InitialAccountSaveCapacity()
-        {
-            try
-            {
-                var info = new FileInfo(AccountPath);
-                if (info.Exists) return (int)Math.Min(info.Length + info.Length / 8 + 64 * 1024, Array.MaxLength);
-            }
-            catch (Exception) { } // only a size hint
-            return 1024 * 1024;
-        }
-
-        private sealed class AccountSaveJob
-        {
-            public readonly byte[] Data;
-            public readonly int Length;
-            public readonly string AccountPath, BackUpDir, BackupName;
-            public readonly List<AccountSaveSegment> Segments; // null = the whole file is Data[0..Length)
-            public int Generation; // _accountSaveGeneration when the save started
-            public AccountSaveJob(byte[] data, int length, string accountPath, string backUpDir, string backupName, List<AccountSaveSegment> segments = null)
-            {
-                Data = data; Length = length; AccountPath = accountPath; BackUpDir = backUpDir; BackupName = backupName; Segments = segments;
-            }
-        }
-
-        /// <summary>One piece of a cached periodic account save (P9-12): a range of the save buffer (Blob null) or an account's cached bytes.</summary>
-        private readonly struct AccountSaveSegment
-        {
-            public readonly byte[] Blob;
-            public readonly int Offset, Length;
-            public AccountSaveSegment(byte[] blob, int offset, int length) { Blob = blob; Offset = offset; Length = length; }
-        }
-
-        // Runs on a pool thread: touches only the files, the job's bytes and the Saving flag (like EndSaveAccounts).
-        private void WriteAccountsFile(AccountSaveJob job)
-        {
-            try
-            {
-                string backupFile = null;
-                if (File.Exists(job.AccountPath))
-                {
-                    if (!Directory.Exists(job.BackUpDir)) Directory.CreateDirectory(job.BackUpDir);
-                    backupFile = Path.Combine(job.BackUpDir, job.BackupName);
-                }
-
-                if (job.Segments == null)
-                {
-                    using (var fStream = new FileStream(job.AccountPath + "n", FileMode.Create))
-                    {
-                        fStream.Write(job.Data, 0, job.Length);
-                        fStream.Flush(flushToDisk: true);
-                    }
-                }
-                else
-                {
-                    // Thousands of small blobs: a large FileStream buffer turns them into few writes.
-                    using (var fStream = new FileStream(job.AccountPath + "n", FileMode.Create, FileAccess.Write, FileShare.Read, 256 * 1024))
-                    {
-                        for (var i = 0; i < job.Segments.Count; i++)
-                        {
-                            var segment = job.Segments[i];
-                            fStream.Write(segment.Blob ?? job.Data, segment.Offset, segment.Length);
-                        }
-                        fStream.Flush(flushToDisk: true);
-                    }
-                }
-                ReplaceAccountsFileUnlessSuperseded(job.Generation, job.AccountPath + "n", job.AccountPath, backupFile);
-            }
-            catch (Exception ex)
-            {
-                Interlocked.Increment(ref _accountSaveFailures);
-                MessageQueue.Enqueue(ex);
-            }
-            finally
-            {
-                Saving = false;
-            }
-        }
+        private BufferBinaryWriter _accountSaveWriter; // game thread while !Saving (or a stopped world's offline save); the UserData writer reads it while Saving
 
         // ---- P9-12 offline account cache (Future Ideas/Offline-Account-Cache-Plan.md) --------------------------------------
 
@@ -4198,9 +3578,10 @@ namespace Server.MirEnvir
         /// ceil(accounts / <see cref="Settings.OfflineAccountCacheFullEvery"/>) cached accounts (in Verify mode at least
         /// <see cref="Settings.OfflineAccountCacheVerifyPerSave"/>), so every cached account is compared at least once every
         /// FullEvery saves without a spike (review M1). Equal keeps the old array; a mismatch is counted, logged once per
-        /// account and repaired. Returns the start of the buffer run still open (the caller closes it after the tail).
+        /// account and repaired. Every account Save call of the pass adds its row to <paramref name="rows"/> (fresh accounts and the
+        /// compare window, so a repaired mismatch is written); an account emitted from its blob gets no row (its row is unchanged).
         /// </summary>
-        private int SaveAccountListCached(BufferBinaryWriter writer, List<AccountSaveSegment> segments)
+        private void SaveAccountRowsCached(BufferBinaryWriter writer, List<UserRowRef> rows)
         {
             var epoch = AccountSaveCache.Epoch;          // one snapshot per pass, read before Suspended (review H3)
             var store = !AccountSaveCache.Suspended;     // a WinForms account editor is open: nothing cached is used or stored
@@ -4219,7 +3600,6 @@ namespace Server.MirEnvir
             var compareNext = compareFrom;
 
             int cached = 0, fresh = 0, timed = 0, verified = 0, mismatch = 0;
-            var runStart = 0; // the writer was reset for this save: the first run includes the header and the hero list
             for (var i = 0; i < count; i++)
             {
                 var account = AccountList[i];
@@ -4231,15 +3611,13 @@ namespace Server.MirEnvir
                 {
                     if (i < compareFrom || compareLeft <= 0)
                     {
-                        if (writer.Length > runStart) segments.Add(new AccountSaveSegment(null, runStart, writer.Length - runStart));
-                        segments.Add(new AccountSaveSegment(blob, 0, blob.Length));
-                        runStart = writer.Length;
                         cached++;
                         continue;
                     }
 
                     var checkStart = writer.Length;
                     account.Save(writer);
+                    rows.Add(new UserRowRef(account.Index, account.AccountID, checkStart, writer.Length - checkStart));
                     verified++;
                     compareLeft--;
                     compareNext = i + 1;
@@ -4248,7 +3626,7 @@ namespace Server.MirEnvir
                     {
                         mismatch++;
                         _accountCacheMismatchTotal++;
-                        account.SaveBlob = bytes.ToArray(); // replaced, never mutated (blobs are shared with pool-thread writes); epoch unchanged
+                        account.SaveBlob = bytes.ToArray(); // replaced, never mutated; epoch unchanged
                         if (_accountCacheMismatchLogged.Add(account.Index))
                             MessageQueue.Enqueue($"[Diag] AccountCache mismatch account={account.Index} ({account.AccountID}): its cached bytes differed from a fresh save; a dirty mark is missing.");
                     }
@@ -4257,6 +3635,7 @@ namespace Server.MirEnvir
 
                 var start = writer.Length;
                 account.Save(writer);
+                rows.Add(new UserRowRef(account.Index, account.AccountID, start, writer.Length - start));
                 if (isTimed) timed++;
                 else fresh++;
 
@@ -4286,7 +3665,6 @@ namespace Server.MirEnvir
                 Cached = cached, Fresh = fresh, Timed = timed, Verified = verified, Mismatch = mismatch, Epoch = epoch,
                 LapComplete = lap, MismatchTotal = _accountCacheMismatchTotal,
             });
-            return runStart;
         }
 
         /// <summary>The cache is off again: frees every blob (game thread).</summary>
@@ -4306,83 +3684,6 @@ namespace Server.MirEnvir
             return $" cached={s.Cached} fresh={s.Fresh} timed={s.Timed} verified={s.Verified} mismatch={s.Mismatch} epoch={s.Epoch}{(s.LapComplete ? " lap" : "")}";
         }
 
-        /// <summary>The save before P9-10, kept behind [Optimisation] AccountSaveOffThread=False.</summary>
-        private void BeginSaveAccountsLegacy()
-        {
-            Saving = true;
-
-            byte[] data;
-            try
-            {
-                using (var mStream = new MemoryStream())
-                {
-                    SaveAccounts(mStream);
-                    data = mStream.ToArray();
-                }
-                Volatile.Write(ref _lastAccountSaveBytes, data.Length);
-            }
-            catch (Exception ex)
-            {
-                Saving = false;
-                Interlocked.Increment(ref _accountSaveFailures);
-                MessageQueue.Enqueue(ex);
-                return;
-            }
-
-            string backupFile = null;
-            FileStream fStream = null;
-            try
-            {
-                if (File.Exists(AccountPath))
-                {
-                    if (!Directory.Exists(AccountsBackUpPath)) Directory.CreateDirectory(AccountsBackUpPath);
-                    backupFile = Path.Combine(AccountsBackUpPath,
-                        $"Accounts {Now.Year:0000}-{Now.Month:00}-{Now.Day:00} {Now.Hour:00}-{Now.Minute:00}-{Now.Second:00}.bak");
-                }
-
-                fStream = new FileStream(AccountPath + "n", FileMode.Create);
-                fStream.BeginWrite(data, 0, data.Length, EndSaveAccounts, new AccountSaveState(fStream, backupFile, Volatile.Read(ref _accountSaveGeneration)));
-            }
-            catch (Exception ex)
-            {
-                fStream?.Dispose();
-                Saving = false;
-                Interlocked.Increment(ref _accountSaveFailures);
-                MessageQueue.Enqueue(ex);
-            }
-        }
-
-        private sealed class AccountSaveState
-        {
-            public readonly FileStream Stream;
-            public readonly string BackupFile;
-            public readonly int Generation;
-            public AccountSaveState(FileStream stream, string backupFile, int generation) { Stream = stream; BackupFile = backupFile; Generation = generation; }
-        }
-
-        // Runs on an IO completion thread: touches only the files and the Saving flag.
-        private void EndSaveAccounts(IAsyncResult result)
-        {
-            var state = (AccountSaveState)result.AsyncState;
-            try
-            {
-                state.Stream.EndWrite(result);
-                state.Stream.Flush(flushToDisk: true);
-                state.Stream.Dispose();
-                ReplaceAccountsFileUnlessSuperseded(state.Generation, AccountPath + "n", AccountPath, state.BackupFile);
-            }
-            catch (Exception ex)
-            {
-                Interlocked.Increment(ref _accountSaveFailures);
-                MessageQueue.Enqueue(ex);
-            }
-            finally
-            {
-                state.Stream.Dispose();
-                Saving = false;
-            }
-        }
-
         public bool LoadDB()
         {
             lock (LoadLock)
@@ -4392,272 +3693,6 @@ namespace Server.MirEnvir
             }
 
             return true;
-        }
-
-        public void LoadAccounts()
-        {
-            AccountSaveCache.InvalidateAll(); // P9-12: also when the load below throws half-way
-
-            //reset ranking
-            for (var i = 0; i < RankClass.Count(); i++)
-            {
-                if (RankClass[i] != null)
-                {
-                    RankClass[i].Clear();
-                }
-                else
-                {
-                    RankClass[i] = new List<RankCharacterInfo>();
-                }
-            }
-
-            RankTop.Clear();
-
-            lock (LoadLock)
-            {
-                if (!File.Exists(AccountPath))
-                {
-                    // Fail closed (roadmap P2): never create an empty accounts DB over one that should be restored.
-                    // Throwing keeps the world from starting (StartNetwork runs before the save tail) and makes a web
-                    // admin restore report failure.
-                    if (HasPriorDataEvidence(AccountPath, AccountsBackUpPath))
-                        throw new InvalidOperationException("[Load] Server.MirADB is missing but Back Up\\Accounts or Server.MirADBn/o exists. Refusing to create an empty accounts database: restore the newest backup (Knowledgebase/Runbook.md).");
-                    SaveAccounts();
-                }
-
-                using (var stream = File.OpenRead(AccountPath))
-                using (var reader = new BinaryReader(stream))
-                {
-                    LoadVersion = reader.ReadInt32();
-                    LoadCustomVersion = reader.ReadInt32();
-
-                    if (LoadVersion < MinVersion || LoadVersion > Version)
-                        throw new InvalidOperationException($"[Load] Server.MirADB version {LoadVersion} is outside the supported range {MinVersion}-{Version}. Refusing to load it (a newer file would be misread and then overwritten).");
-                    NextAccountID = reader.ReadInt32();
-                    NextCharacterID = reader.ReadInt32();
-                    NextUserItemID = reader.ReadUInt64();
-                    if (LoadVersion > 98)
-                        NextHeroID = reader.ReadInt32();
-
-                    GuildCount = reader.ReadInt32();
-                    NextGuildID = reader.ReadInt32();
-
-                    int count;
-                    if (LoadVersion > 102)
-                    {
-                        count = reader.ReadInt32();
-
-                        HeroList.Clear();
-
-                        for (var i = 0; i < count; i++)
-                            HeroList.Add(new HeroInfo(reader, LoadVersion, LoadCustomVersion));
-                    }
-
-                    count = reader.ReadInt32();
-
-                    AccountList.Clear();
-                    CharacterList.Clear();
-
-                    int TrueAccount = 0;
-                    for (var i = 0; i < count; i++)
-                    {
-                        AccountInfo NextAccount = new AccountInfo(reader);
-                        // Accounts with no characters used to be dropped silently here (all but the first), and the next
-                        // save made it permanent. They are kept now (roadmap P5, decision #14); pruning, if wanted, should
-                        // be an explicit and logged maintenance job.
-                        AccountList.Add(NextAccount);
-                        CharacterList.AddRange(AccountList[TrueAccount].Characters);
-                        if (LoadVersion > 98 && LoadVersion < 103)
-                            AccountList[TrueAccount].Characters.ForEach(character => HeroList.AddRange(character.Heroes));
-                        TrueAccount++;
-                    }
-
-                    PruneUnresolvedFriends();
-
-                    foreach (var auction in Auctions)
-                    {
-                        auction.SellerInfo.AccountInfo.Auctions.Remove(auction);
-                    }
-
-                    Auctions.Clear();
-
-                    NextAuctionID = reader.ReadUInt64();
-
-                    count = reader.ReadInt32();
-                    for (var i = 0; i < count; i++)
-                    {
-                        var auction = new AuctionInfo(reader, LoadVersion, LoadCustomVersion);
-
-                        if (!BindItem(auction.Item) || !BindCharacter(auction)) continue;
-
-                        Auctions.AddLast(auction);
-                        auction.SellerInfo.AccountInfo.Auctions.AddLast(auction);
-                    }
-
-                    NextMailID = reader.ReadUInt64();
-
-                    if (LoadVersion <= 80)
-                    {
-                        count = reader.ReadInt32();
-                        for (var i = 0; i < count; i++)
-                        {
-                            var mail = new MailInfo(reader, LoadVersion, LoadCustomVersion);
-
-                            mail.RecipientInfo = GetCharacterInfo(mail.RecipientIndex);
-
-                            if (mail.RecipientInfo != null)
-                            {
-                                mail.RecipientInfo.Mail.Add(mail); //add to players inbox
-                            }
-                        }
-                    }
-
-                    if (LoadVersion >= 63)
-                    {
-                        var logCount = reader.ReadInt32();
-                        for (var i = 0; i < logCount; i++)
-                        {
-                            GameshopLog.Add(reader.ReadInt32(), reader.ReadInt32());
-                        }
-
-                        if (ResetGS) ClearGameshopLog();
-                    }
-
-                    if (LoadVersion >= 68)
-                    {
-                        var saveCount = reader.ReadInt32();
-                        for (var i = 0; i < saveCount; i++)
-                        {
-                            var saved = new RespawnSave(reader);
-                            foreach (var respawn in SavedSpawns)
-                            {
-                                if (respawn.Info.RespawnIndex != saved.RespawnIndex) continue;
-
-                                respawn.NextSpawnTick = saved.NextSpawnTick;
-
-                                if (!saved.Spawned || respawn.Info.Count * SpawnMultiplier <= respawn.Count)
-                                {
-                                    continue;
-                                }
-
-                                var mobcount = respawn.Info.Count * SpawnMultiplier - respawn.Count;
-                                for (var j = 0; j < mobcount; j++)
-                                {
-                                    respawn.Spawn();
-                                }
-                            }
-                        }
-                    }
-
-                    MarketSales.Clear();
-                    if (LoadVersion >= 119)
-                    {
-                        var salesCount = reader.ReadInt32();
-                        for (var i = 0; i < salesCount; i++)
-                        {
-                            var itemIndex = reader.ReadInt32();
-                            MarketSales[itemIndex] = new MarketSaleHistory(reader);
-                        }
-                    }
-                }
-
-                BuildSentMailIndex(); // phase 2.6: Sent folder index from the loaded mailboxes
-            }
-
-            // P9-12: every list was replaced; the cache is rebuilt from a fresh save, never from the file's bytes (the load
-            // drops archived characters, unbindable items and orphan quests, so those bytes differ).
-            AccountSaveCache.InvalidateAll();
-        }
-
-        public void LoadGuilds()
-        {
-            lock (LoadLock)
-            {
-                var count = 0;
-
-                GuildList.Clear();
-                // In-process restarts used to keep the previous run's GuildObjects (StopEnvir never cleared them, and the
-                // GuildObject ctor skips an index that is already listed), so the next SaveGuilds wrote stale guild data over
-                // the freshly loaded files (roadmap P5 known defect).
-                Guilds.Clear();
-
-                // A re-index interrupted after its marker is finished before anything is read (see BeginGuildReindex).
-                try { CompleteGuildReindex(Settings.GuildPath); }
-                catch (Exception ex) { MessageQueue.Enqueue(ex); }
-
-                for (var i = 0; i < GuildCount; i++)
-                {
-                    GuildInfo guildInfo;
-                    if (!File.Exists(Path.Combine(Settings.GuildPath, i + ".mgd"))) continue;
-
-                    using (var stream = File.OpenRead(Path.Combine(Settings.GuildPath, i + ".mgd")))
-                    {
-                        using var reader = new BinaryReader(stream);
-                        guildInfo = new GuildInfo(reader);
-                    }
-
-                    GuildList.Add(guildInfo);
-
-                    new GuildObject(guildInfo);
-
-                    count++;
-                }
-
-                if (count != GuildCount) GuildCount = count;
-            }
-        }
-
-        public void LoadConquests()
-        {
-            lock (LoadLock)
-            {
-                Conquests.Clear();
-                ConquestList.Clear();
-
-                for (var i = 0; i < ConquestInfoList.Count; i++)
-                {
-                    ConquestObject newConquest;
-                    ConquestGuildInfo conquestGuildInfo;
-                    var tempMap = GetMap(ConquestInfoList[i].MapIndex);
-
-                    if (tempMap == null) continue;
-
-                    if (File.Exists(Path.Combine(Settings.ConquestsPath, ConquestInfoList[i].Index + ".mcd")))
-                    {
-                        using (var stream = File.OpenRead(Path.Combine(Settings.ConquestsPath, ConquestInfoList[i].Index + ".mcd")))
-                        {
-                            using var reader = new BinaryReader(stream);
-                            conquestGuildInfo = new ConquestGuildInfo(reader) { Info = ConquestInfoList[i] };
-                        }
-
-                        newConquest = new ConquestObject(conquestGuildInfo)
-                        {
-                            ConquestMap = tempMap
-                        };
-
-                        for (var k = 0; k < Guilds.Count; k++)
-                        {
-                            if (conquestGuildInfo.Owner != Guilds[k].Guildindex) continue;
-                            newConquest.Guild = Guilds[k];
-                            Guilds[k].Conquest = newConquest;
-                        }
-                    }
-                    else
-                    {
-                        conquestGuildInfo = new ConquestGuildInfo { Info = ConquestInfoList[i], NeedSave = true };
-                        newConquest = new ConquestObject(conquestGuildInfo)
-                        {
-                            ConquestMap = tempMap
-                        };
-                    }
-
-                    ConquestList.Add(conquestGuildInfo);
-                    Conquests.Add(newConquest);
-                    tempMap.Conquest.Add(newConquest);
-
-                    newConquest.Bind();
-                }
-            }
         }
 
         private void LoadGTInfo()
@@ -5096,6 +4131,9 @@ namespace Server.MirEnvir
 
             if (this == Main) _systemDataStale = false;
 
+            // NPC goods from UserData.db (or the *.msd files on the import run), before any NPC spawns and reads them (Part A).
+            if (this == Main) LoadGoodsBytes();
+
             // Fail closed (roadmap P2): never run the world on empty or half-loaded system data.
             if (!LoadDB())
                 throw new InvalidOperationException("[Load] Server.MirDB could not be loaded (see the message above); the world will not start.");
@@ -5202,6 +4240,7 @@ namespace Server.MirEnvir
             LoadGuilds();
 
             LoadConquests();
+            CompleteUserDataImport(); // first start only: Server.MirADB + side folders -> UserData.db, count checks, *.imported
             LoadGTInfo();
 
             _listener = new TcpListener(IPAddress.Parse(Settings.IPAddress), Settings.Port);
@@ -5218,10 +4257,9 @@ namespace Server.MirEnvir
             MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.NetworkStarted));
         }
 
+        /// <summary>Clears the world. The goods and the final save run before it (SaveUserDataAtShutdown), and only after a completed load.</summary>
         private void StopEnvir()
         {
-            SaveGoods(true);
-
             MapList.Clear();
             StartPoints.Clear();
             StartItems.Clear();
@@ -7654,7 +6692,9 @@ namespace Server.MirEnvir
 
         public void ReloadNPCs()
         {
-            SaveGoods(true);
+            // LoadGoods reads the goods dictionary: put every NPC's current goods there first, then save them (UserData.db).
+            CaptureGoodsForReload();
+            RequestSaveNow();
 
             Robot.Clear();
 
@@ -7791,7 +6831,7 @@ namespace Server.MirEnvir
             Guilds.Remove(guild);
             GuildList.Remove(guild.Info);
 
-            GuildRefreshNeeded = true;
+            _pendingGuildDeletes.TryAdd(guild.Info.GuildIndex, 0); // its row goes with the next successful save
             MessageQueue.Enqueue(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.GuildWillBeDeletedFromServer), guild.Info.Name));
         }
     }

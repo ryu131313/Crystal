@@ -69,7 +69,7 @@ public class RoundTripTests
 
         InFolder(dir, () =>
         {
-            var origAccounts = new FileInfo(Envir.AccountPath).Length;
+            var origAccounts = new FileInfo(Envir.AccountPath).Length; // before the import renames it
             Assert.True(LoadAll(), "first load failed (version range? see Logs)");
             _out.WriteLine($"Envir.LoadVersion={Envir.LoadVersion}  original Server.MirADB={origAccounts} bytes");
             var report = DropReport(-1);

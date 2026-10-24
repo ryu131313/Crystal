@@ -54,6 +54,28 @@ namespace MirDbExport
         /// Loads <paramref name="dbPath"/> (default: &lt;folder&gt;\SystemData.db), writes it as binary and compares the bytes with
         /// whichever of &lt;folder&gt;\Server.MirDB and &lt;folder&gt;\Back Up\Database\*.bak has meta.source_sha256.
         /// </summary>
+        /// <summary>The D1 rollback: Server.MirADB and the guild / goods / conquest files from UserData.db.</summary>
+        public static int ExportUserData(string dbPath, string outFolder, bool force)
+        {
+            Server.MirEnvir.Storage.UserDataExport.Result r;
+            try
+            {
+                r = Server.MirEnvir.Storage.UserDataExport.WriteLegacy(Path.GetFullPath(dbPath), Path.GetFullPath(outFolder), force);
+            }
+            catch (InvalidOperationException ex)
+            {
+                throw new ToolException(ex.Message);
+            }
+            catch (FileNotFoundException ex)
+            {
+                throw new ToolException(ex.Message + ": " + dbPath);
+            }
+
+            Console.WriteLine("Wrote " + Path.Combine(Path.GetFullPath(outFolder), "Server.MirADB") + " (" + r.AccountBytes + " bytes, " + r.Accounts + " accounts), " +
+                              r.Guilds + " guild, " + r.Goods + " goods and " + r.Conquests + " conquest file(s).");
+            return 0;
+        }
+
         public static int Roundtrip(string folder, string dbPath)
         {
             folder = Path.GetFullPath(folder);

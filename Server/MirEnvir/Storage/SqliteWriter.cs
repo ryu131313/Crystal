@@ -6,8 +6,10 @@ namespace Server.MirEnvir.Storage
     /// <summary>
     /// The one thread that owns a SQLite file (roadmap P7 phase 7.2). All reads, writes and backups of that file run here, in order.
     /// <para>Rules: the writer never takes EditLock, LoadLock or AccountLock and never posts to the game thread, so a caller may wait for
-    /// it while holding any of them. The game thread never waits: it only <see cref="Post"/>s. Other threads (web workers, the WinForms
-    /// UI, startup) may <see cref="Run{T}"/> and wait for the result.</para>
+    /// it while holding any of them. The game thread never waits: it only <see cref="Post"/>s (or <see cref="TryPost"/>s). Other threads
+    /// (web workers, the WinForms UI, startup) may <see cref="Run{T}"/> and wait for the result. The one exception on the game thread is
+    /// the UserData shutdown save's bounded wait (<see cref="TryRun{T}"/>, UserData-and-Quests-Plan.md Part A, Shutdown).</para>
+    /// <para>One writer per file: SystemData.db (the default open) and UserData.db (its own open callback).</para>
     /// <para>The thread is a background thread (a foreground one would keep the process alive: the runtime waits for foreground threads
     /// before it raises ProcessExit), and the ProcessExit handler drains its queue (<see cref="Shutdown"/>), so a posted save isn't lost
     /// when the server closes.</para>
@@ -26,9 +28,17 @@ namespace Server.MirEnvir.Storage
         public static long PostFailures => Interlocked.Read(ref _postFailures);
         private static long _postFailures;
 
-        public SqliteWriter(string path, string threadName)
+        /// <summary>Opens and checks the file on first use (writer thread only); SystemData.db's checks and migrations unless given.</summary>
+        private readonly Func<string, SqliteConnection> _open;
+
+        public SqliteWriter(string path, string threadName) : this(path, threadName, null) { }
+
+        /// <param name="open">Opens the existing file at the given full path and runs its checks (writer thread). Null = SystemData.db's
+        /// open: integrity, schema, migrations (UserData.db passes its own, Part A of UserData-and-Quests-Plan.md).</param>
+        public SqliteWriter(string path, string threadName, Func<string, SqliteConnection> open)
         {
             Path = System.IO.Path.GetFullPath(path); // pinned: the working directory may change later (tests, tools)
+            _open = open ?? OpenSystemData;
             _thread = new Thread(Loop) { IsBackground = true, Name = threadName };
             _thread.Start();
             AppDomain.CurrentDomain.ProcessExit += (_, _) => Shutdown();
@@ -39,23 +49,51 @@ namespace Server.MirEnvir.Storage
         /// <summary>Runs <paramref name="job"/> on the writer thread and waits for it; its exception is rethrown here.</summary>
         public T Run<T>(Func<SqliteWriter, T> job)
         {
-            if (IsWriterThread) return job(this);
+            TryRun(job, Timeout.Infinite, out var result);
+            return result;
+        }
 
-            T result = default;
-            Exception error = null;
-            using var done = new ManualResetEventSlim(false);
+        /// <summary>
+        /// <see cref="Run{T}"/> with a bounded wait: false when <paramref name="timeoutMs"/> passed first (the job stays queued and may
+        /// still run). Only for the shutdown save, the documented exception to "the game thread only posts" (UserData plan, Shutdown).
+        /// </summary>
+        public bool TryRun<T>(Func<SqliteWriter, T> job, int timeoutMs, out T result)
+        {
+            result = default;
+            if (IsWriterThread)
+            {
+                result = job(this);
+                return true;
+            }
+
+            var box = new RunBox<T>();
             if (!TryAdd(() =>
                 {
-                    try { result = job(this); }
-                    catch (Exception ex) { error = ex; }
-                    finally { done.Set(); }
+                    try { box.Result = job(this); }
+                    catch (Exception ex) { box.Error = ex; }
+                    finally { box.Done.Set(); }
                 }))
                 throw new IOException("[Store] the writer for " + Path + " has shut down");
 
-            done.Wait();
-            if (error != null) throw new IOException("[Store] " + error.Message, error);
-            return result;
+            if (!box.Done.Wait(timeoutMs)) return false; // the event is left to the GC: the job may still set it
+            box.Done.Dispose();
+            if (box.Error != null) throw new IOException("[Store] " + box.Error.Message, box.Error);
+            result = box.Result;
+            return true;
         }
+
+        private sealed class RunBox<T>
+        {
+            public readonly ManualResetEventSlim Done = new ManualResetEventSlim(false);
+            public T Result;
+            public Exception Error;
+        }
+
+        /// <summary>
+        /// Queues <paramref name="job"/> without waiting. False (nothing queued, nothing logged) when the writer has shut down; the job
+        /// handles its own failures. The UserData save uses it to set its failure flags when a post is refused.
+        /// </summary>
+        public bool TryPost(Action<SqliteWriter> job) => TryAdd(() => job(this));
 
         /// <summary>Queues <paramref name="job"/> without waiting (the game thread's only way in). Failures are logged and counted.</summary>
         public void Post(Action<SqliteWriter> job, string what)
@@ -89,26 +127,32 @@ namespace Server.MirEnvir.Storage
             {
                 if (!IsWriterThread) throw new InvalidOperationException("[Store] connection used off the writer thread");
                 if (_conn != null) return _conn;
-                _conn = SqliteWorldFile.Open(Path, create: false);
-                try
-                {
-                    SqliteWorldFile.CheckIntegrity(_conn);
-                    SqliteWorldFile.CheckSchema(_conn);
-                    SqliteWorldFile.Migrate(_conn, MessageQueue.Enqueue, System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Path), SqliteWorldStore.BackUpPath,
-                        $"Pre-migrate {DateTime.Now:yyyy-MM-dd HH-mm-ss}.bak"));
-                    SqliteWorldFile.FixDuplicateRespawnIndexes(_conn, MessageQueue.Enqueue, System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Path), SqliteWorldStore.BackUpPath,
-                        $"Pre-respawn-fix {DateTime.Now:yyyy-MM-dd HH-mm-ss}.bak"));
-                    DropTables.ConvertLines(_conn, MessageQueue.Enqueue, System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Path), SqliteWorldStore.BackUpPath,
-                        $"Pre-drops {DateTime.Now:yyyy-MM-dd HH-mm-ss}.bak"));
-                    SqliteWorldFile.UpgradeSchemaVersion(_conn);
-                }
-                catch
-                {
-                    CloseConnection();
-                    throw;
-                }
-
+                _conn = _open(Path);
                 return _conn;
+            }
+        }
+
+        /// <summary>The per-file open of SystemData.db: integrity, schema and the written migrations.</summary>
+        private static SqliteConnection OpenSystemData(string path)
+        {
+            var conn = SqliteWorldFile.Open(path, create: false);
+            try
+            {
+                SqliteWorldFile.CheckIntegrity(conn);
+                SqliteWorldFile.CheckSchema(conn);
+                SqliteWorldFile.Migrate(conn, MessageQueue.Enqueue, System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path), SqliteWorldStore.BackUpPath,
+                    $"Pre-migrate {DateTime.Now:yyyy-MM-dd HH-mm-ss}.bak"));
+                SqliteWorldFile.FixDuplicateRespawnIndexes(conn, MessageQueue.Enqueue, System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path), SqliteWorldStore.BackUpPath,
+                    $"Pre-respawn-fix {DateTime.Now:yyyy-MM-dd HH-mm-ss}.bak"));
+                DropTables.ConvertLines(conn, MessageQueue.Enqueue, System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path), SqliteWorldStore.BackUpPath,
+                    $"Pre-drops {DateTime.Now:yyyy-MM-dd HH-mm-ss}.bak"));
+                SqliteWorldFile.UpgradeSchemaVersion(conn);
+                return conn;
+            }
+            catch
+            {
+                conn.Dispose();
+                throw;
             }
         }
 

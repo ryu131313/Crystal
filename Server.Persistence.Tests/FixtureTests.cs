@@ -61,7 +61,7 @@ public class FixtureTests
             SaveAll();
             Directory.CreateDirectory(target);
             File.Copy(Envir.DatabasePath, Path.Combine(target, "Server.MirDB"), true);
-            File.Copy(Envir.AccountPath, Path.Combine(target, "Server.MirADB"), true);
+            File.WriteAllBytes(Path.Combine(target, "Server.MirADB"), AccountsImage()); // the rollback image of UserData.db = Server.MirADB bytes
             Assert.True(LoadAll());
             File.WriteAllText(Path.Combine(target, "oracle.txt"), Oracle.Dump(Envir.Main));
             return 0;
@@ -102,7 +102,7 @@ public class FixtureTests
             Assert.Equal(0, CountBuffDataBlobs(Envir.Main));
 
             SaveAll();
-            Assert.Equal(Envir.Version, BitConverter.ToInt32(File.ReadAllBytes(Envir.AccountPath), 0));
+            Assert.Equal(Envir.Version, BitConverter.ToInt32(AccountsImage(), 0));
             Assert.Equal(Envir.Version, BitConverter.ToInt32(File.ReadAllBytes(Envir.DatabasePath), 0));
             var gen1 = ReadFiles();
             Assert.True(LoadAll());
@@ -145,7 +145,7 @@ public class FixtureTests
             Assert.Contains("MarketSales.Count=0", upgraded);
 
             SaveAll();
-            Assert.Equal(Envir.Version, BitConverter.ToInt32(File.ReadAllBytes(Envir.AccountPath), 0));
+            Assert.Equal(Envir.Version, BitConverter.ToInt32(AccountsImage(), 0));
             Assert.Equal(Envir.Version, BitConverter.ToInt32(File.ReadAllBytes(Envir.DatabasePath), 0));
             var gen1 = ReadFiles();
             Assert.True(LoadAll());
@@ -183,7 +183,7 @@ public class FixtureTests
             Assert.Equal(DateTime.MinValue, c1.ChatBanExpiryDate);
 
             SaveAll();
-            Assert.Equal(Envir.Version, BitConverter.ToInt32(File.ReadAllBytes(Envir.AccountPath), 0));
+            Assert.Equal(Envir.Version, BitConverter.ToInt32(AccountsImage(), 0));
             Assert.Equal(Envir.Version, BitConverter.ToInt32(File.ReadAllBytes(Envir.DatabasePath), 0));
             var gen1 = ReadFiles();
             Assert.True(LoadAll());
@@ -227,7 +227,7 @@ public class FixtureTests
             Assert.True(mail.SenderHidden);
             SaveAll();
             Assert.True(File.ReadAllBytes(Path.Combine(src, "Server.MirDB")).AsSpan().SequenceEqual(File.ReadAllBytes(Envir.DatabasePath)), "Server.MirDB differs from the v120 fixture");
-            Assert.True(File.ReadAllBytes(Path.Combine(src, "Server.MirADB")).AsSpan().SequenceEqual(File.ReadAllBytes(Envir.AccountPath)), "Server.MirADB differs from the v120 fixture");
+            Assert.True(File.ReadAllBytes(Path.Combine(src, "Server.MirADB")).AsSpan().SequenceEqual(AccountsImage()), "the user data differs from the v120 fixture");
             return 0;
         });
         Directory.Delete(dir, true);

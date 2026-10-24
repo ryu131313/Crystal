@@ -290,7 +290,8 @@ namespace Server.WebAdmin.LiveDb
                 throw;
             }
 
-            // LoadGoods re-reads the goods file: keep the in-memory used goods (unsaved sales must not be lost).
+            // LoadGoods reloads the used goods from Envir's goods bytes, which hold the last save: keep the in-memory used goods (sales
+            // since that save must not be lost).
             npc.UsedGoods.Clear();
             npc.UsedGoods.AddRange(goods);
             return Restore;

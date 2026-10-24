@@ -391,7 +391,7 @@ namespace Server.WebAdmin.Routes
                 minDbVersion = Envir.MinVersion,
                 lastLoadedVersion = Envir.LoadVersion,
                 dbFileVersion = ReadFileVersion(Envir.DatabasePath),
-                accountsFileVersion = ReadFileVersion(Envir.AccountPath),
+                accountsFileVersion = ReadUserDataVersion(), // meta.envir_version of UserData.db, through its writer
                 settings,
                 webAdmin = options == null ? null : new { bind = options.Bind, port = options.Port, url = options.DisplayUrl, webRoot = options.WebRoot },
                 paths = new
@@ -400,7 +400,8 @@ namespace Server.WebAdmin.Routes
                     workingDirectory = Environment.CurrentDirectory,
                     database = SafeFullPath(SqliteWorldStore.DatabasePath),
                     databaseImportSource = SafeFullPath(Envir.DatabasePath), // Server.MirDB: read once at the first start, never written
-                    accounts = SafeFullPath(Envir.AccountPath),
+                    accounts = SafeFullPath(Envir.UserDataPath),
+                    accountsImportSource = SafeFullPath(Envir.AccountPath), // Server.MirADB: imported once at the first start, then renamed *.imported
                     envir = SafeFullPath(Settings.EnvirPath),
                     backups = SafeFullPath(Envir.BackUpPath),
                     logs = WebAdminLogFiles.Root,
@@ -429,7 +430,21 @@ namespace Server.WebAdmin.Routes
             });
         }
 
-        /// <summary>The version int at the start of Server.MirDB / Server.MirADB (null when missing/unreadable).</summary>
+        /// <summary>UserData.db's meta.envir_version read through its writer (null when missing or unreadable).</summary>
+        private static int? ReadUserDataVersion()
+        {
+            try
+            {
+                return Envir.UserStore.ReadEnvirVersion();
+            }
+            catch (Exception ex)
+            {
+                WebAdminLog.Error(ex, "Reading the UserData.db version failed");
+                return null;
+            }
+        }
+
+        /// <summary>The version int at the start of Server.MirDB (null when missing/unreadable).</summary>
         private static int? ReadFileVersion(string path)
         {
             try

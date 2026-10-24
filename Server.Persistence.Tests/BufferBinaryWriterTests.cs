@@ -180,13 +180,12 @@ public class BufferBinaryWriterTests
         {
             Assert.True(LoadAll(), "load failed");
             var e = Envir.Main;
-            var saveStream = typeof(Envir).GetMethod("SaveAccounts", BindingFlags.NonPublic | BindingFlags.Instance, new[] { typeof(Stream), typeof(bool) })!;
             var saveWriter = typeof(Envir).GetMethod("SaveAccounts", BindingFlags.NonPublic | BindingFlags.Instance, new[] { typeof(BinaryWriter) })!;
-            var oldSave = (Action<Stream, bool>)Delegate.CreateDelegate(typeof(Action<Stream, bool>), e, saveStream);
             var newSave = (Action<BinaryWriter>)Delegate.CreateDelegate(typeof(Action<BinaryWriter>), e, saveWriter);
+            void oldSave(Stream stream, bool leaveOpen) { using var bw = new BinaryWriter(stream, SaveEncoding, leaveOpen); newSave(bw); }
 
             var ms = new MemoryStream();
-            var w = new BufferBinaryWriter(SaveEncoding, (int)(new FileInfo(Envir.AccountPath).Length * 9 / 8));
+            var w = new BufferBinaryWriter(SaveEncoding, (int)(new FileInfo(Envir.UserDataPath).Length * 9 / 8));
             var oldMs = new List<double>(); var newMs = new List<double>();
             static double Ms(long from) => (System.Diagnostics.Stopwatch.GetTimestamp() - from) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
             for (var i = -2; i < rounds; i++) // two warm-up rounds

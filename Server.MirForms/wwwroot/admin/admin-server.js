@@ -324,7 +324,7 @@
       fact('Server DB version', String(info.serverVersion)) +
       fact('Min. supported DB', String(info.minDbVersion)) +
       fact('Server.MirDB version', info.dbFileVersion != null ? String(info.dbFileVersion) : 'missing') +
-      fact('Server.MirADB version', info.accountsFileVersion != null ? String(info.accountsFileVersion) : 'missing') +
+      fact('UserData.db version', info.accountsFileVersion != null ? String(info.accountsFileVersion) : 'missing') +
       fact('Client version check', s.checkVersion ? 'on (' + (s.versionHashes || 0) + ' hash' + (s.versionHashes === 1 ? '' : 'es') + ')' : 'off') +
       fact('Version path', s.versionPath || '') +
       fact('Game endpoint', (s.gameIp || '') + ':' + (s.gamePort || '')) +

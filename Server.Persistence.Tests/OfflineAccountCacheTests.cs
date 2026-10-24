@@ -9,7 +9,7 @@ using static Server.Persistence.Tests.PersistenceHarness;
 namespace Server.Persistence.Tests;
 
 /// <summary>
-/// P9-12 gate: with [Optimisation] OfflineAccountCache the periodic save writes the same Server.MirADB bytes as a full save,
+/// P9-12 gate: with [Optimisation] OfflineAccountCache the periodic save leaves UserData.db holding the same user data (as Server.MirADB bytes) as a full save,
 /// after mutation sequences driven through the real entry points where they need no PlayerObject (mail, rental return,
 /// auction win, login screens), and through the same writes plus the same mark where they do (friends, mentor). Also: hot,
 /// select-screen-only and timed accounts are never cached, full saves / loads / restores reset the cache, an off-thread
@@ -37,24 +37,22 @@ public class OfflineAccountCacheTests
 
     private static byte[] PeriodicSave(OfflineAccountCacheMode mode, int fullEvery = 1000, int verifyPerSave = 200)
     {
-        var old = (Settings.AccountSaveOffThread, Settings.OfflineAccountCache, Settings.OfflineAccountCacheFullEvery, Settings.OfflineAccountCacheVerifyPerSave);
-        Settings.AccountSaveOffThread = true;
+        var old = (Settings.OfflineAccountCache, Settings.OfflineAccountCacheFullEvery, Settings.OfflineAccountCacheVerifyPerSave);
         Settings.OfflineAccountCache = mode;
         Settings.OfflineAccountCacheFullEvery = fullEvery;
         Settings.OfflineAccountCacheVerifyPerSave = verifyPerSave;
         try
         {
-            Envir.Main.BeginSaveAccounts();
+            Assert.NotEqual(Envir.UserDataSaveOutcome.Skipped, Envir.Main.SaveUserData(false, allowBackup: false));
             var sw = System.Diagnostics.Stopwatch.StartNew();
             while (Envir.Main.Saving && sw.ElapsedMilliseconds < 10000) Thread.Sleep(2);
             Assert.False(Envir.Main.Saving, "account save did not complete");
         }
         finally
         {
-            (Settings.AccountSaveOffThread, Settings.OfflineAccountCache, Settings.OfflineAccountCacheFullEvery, Settings.OfflineAccountCacheVerifyPerSave) = old;
+            (Settings.OfflineAccountCache, Settings.OfflineAccountCacheFullEvery, Settings.OfflineAccountCacheVerifyPerSave) = old;
         }
-        var bytes = File.ReadAllBytes(Envir.AccountPath);
-        Assert.Equal(bytes.Length, Envir.LastAccountSaveBytes);
+        var bytes = AccountsImage();
         return bytes;
     }
 
@@ -328,10 +326,10 @@ public class OfflineAccountCacheTests
 
             Char("Bot8").AccountInfo.Gold += 1; // unmarked: a full save writes it, and no older blob may be written over it afterwards
             e.SaveAccounts();
-            var full = File.ReadAllBytes(Envir.AccountPath);
+            var full = AccountsImage();
             var s = AssertCachedSaveMatches("after a full save");
             Assert.Equal(0, s.Reused());
-            Assert.True(full.AsSpan().SequenceEqual(File.ReadAllBytes(Envir.AccountPath)));
+            Assert.True(full.AsSpan().SequenceEqual(AccountsImage()));
 
             Assert.Equal(count, AssertCachedSaveMatches("warm again").Reused());
             e.RequestSaveNow(); // operator "Save now": the next periodic save is a full one
@@ -560,7 +558,7 @@ public class OfflineAccountCacheTests
 
     /// <summary>
     /// Bench on a copy of real data (MIR2_ACCOUNT_SAVE_BENCH=&lt;folder with Server.MirDB + Server.MirADB&gt;, optional
-    /// MIR2_ACCOUNT_SAVE_BENCH_ROUNDS): game-thread ms of BeginSaveAccounts (serialisation + segment list + queueing the
+    /// MIR2_ACCOUNT_SAVE_BENCH_ROUNDS): game-thread ms of SaveUserData (serialisation + row list + queueing the
     /// write) for P9-11 (cache Off) and the cache with 0 and N online accounts (MIR2_ACCOUNT_SAVE_BENCH_HOT, default 400),
     /// plus Verify (200 per save) and one save after an invalidate-all; MIR2_ACCOUNT_SAVE_BENCH_FULLEVERY (default 12) sets the
     /// rolling compare. The last file of each scenario is checked against a full save.
@@ -595,8 +593,7 @@ public class OfflineAccountCacheTests
                     if (on) a.SaveHot = true;
                 }
 
-                var old = (Settings.AccountSaveOffThread, Settings.OfflineAccountCache, Settings.OfflineAccountCacheFullEvery, Settings.OfflineAccountCacheVerifyPerSave);
-                Settings.AccountSaveOffThread = true;
+                var old = (Settings.OfflineAccountCache, Settings.OfflineAccountCacheFullEvery, Settings.OfflineAccountCacheVerifyPerSave);
                 Settings.OfflineAccountCache = mode;
                 Settings.OfflineAccountCacheFullEvery = fullEvery;
                 Settings.OfflineAccountCacheVerifyPerSave = 200;
@@ -607,7 +604,7 @@ public class OfflineAccountCacheTests
                     for (var i = -2; i < rounds; i++)
                     {
                         var t = System.Diagnostics.Stopwatch.GetTimestamp();
-                        e.BeginSaveAccounts();
+                        e.SaveUserData(false, allowBackup: false);
                         var ms = Ms(t);
                         var sw = System.Diagnostics.Stopwatch.StartNew();
                         while (e.Saving && sw.ElapsedMilliseconds < 30000) Thread.Sleep(1);
@@ -618,10 +615,10 @@ public class OfflineAccountCacheTests
                 }
                 finally
                 {
-                    (Settings.AccountSaveOffThread, Settings.OfflineAccountCache, Settings.OfflineAccountCacheFullEvery, Settings.OfflineAccountCacheVerifyPerSave) = old;
+                    (Settings.OfflineAccountCache, Settings.OfflineAccountCacheFullEvery, Settings.OfflineAccountCacheVerifyPerSave) = old;
                 }
 
-                Assert.True(Reference().AsSpan().SequenceEqual(File.ReadAllBytes(Envir.AccountPath)), name + ": file differs from a full save");
+                Assert.True(Reference().AsSpan().SequenceEqual(AccountsImage()), name + ": file differs from a full save");
                 times.Sort();
                 var s = AccountSaveCache.Last;
                 _out.WriteLine($"{name,-28} median={times[times.Count / 2]:0.00} ms min={times[0]:0.00} max={times[^1]:0.00} first={first:0.00}" +
@@ -629,21 +626,21 @@ public class OfflineAccountCacheTests
                 return (times[times.Count / 2], times[0], times[^1], first);
             }
 
-            _out.WriteLine($"accounts={e.AccountList.Count} characters={e.CharacterList.Count} heroes={e.HeroList.Count} bytes={new FileInfo(Envir.AccountPath).Length}");
+            _out.WriteLine($"accounts={e.AccountList.Count} characters={e.CharacterList.Count} heroes={e.HeroList.Count} bytes={new FileInfo(Envir.UserDataPath).Length}");
             Scenario("P9-11 (cache Off)", OfflineAccountCacheMode.Off, 0);
             Scenario("On, 0 online", OfflineAccountCacheMode.On, 0);
             Scenario($"On, {hot} online", OfflineAccountCacheMode.On, hot);
 
             // One save right after an invalidate-all (any web admin write): every account serialised, unchanged blobs kept.
             {
-                var old = (Settings.AccountSaveOffThread, Settings.OfflineAccountCache, Settings.OfflineAccountCacheFullEvery);
-                (Settings.AccountSaveOffThread, Settings.OfflineAccountCache, Settings.OfflineAccountCacheFullEvery) = (true, OfflineAccountCacheMode.On, fullEvery);
+                var old = (Settings.OfflineAccountCache, Settings.OfflineAccountCacheFullEvery);
+                (Settings.OfflineAccountCache, Settings.OfflineAccountCacheFullEvery) = (OfflineAccountCacheMode.On, fullEvery);
                 try
                 {
                     Envir.InvalidateAccountCache();
                     var alloc = GC.GetAllocatedBytesForCurrentThread();
                     var t = System.Diagnostics.Stopwatch.GetTimestamp();
-                    e.BeginSaveAccounts();
+                    e.SaveUserData(false, allowBackup: false);
                     var ms = Ms(t);
                     alloc = GC.GetAllocatedBytesForCurrentThread() - alloc;
                     var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -652,7 +649,7 @@ public class OfflineAccountCacheTests
                 }
                 finally
                 {
-                    (Settings.AccountSaveOffThread, Settings.OfflineAccountCache, Settings.OfflineAccountCacheFullEvery) = old;
+                    (Settings.OfflineAccountCache, Settings.OfflineAccountCacheFullEvery) = old;
                 }
             }
             Scenario("P9-11 (cache Off) again", OfflineAccountCacheMode.Off, hot);

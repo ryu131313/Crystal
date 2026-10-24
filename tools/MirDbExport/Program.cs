@@ -50,6 +50,11 @@ Usage:
   MirDbExport import-files <SystemData.db> <server-folder>
       Imports the folder's design files into an existing store (the server does this on first use).
 
+  MirDbExport export-userdata <UserData.db> <out-folder> [--force]
+      The D1 rollback for user data (UserData-and-Quests-Plan.md Part A): writes <out-folder>\Server.MirADB,
+      Guilds\<n>.mgd, Envir\Goods\<npc>.msd and Conquests\<index>.mcd from UserData.db, byte for byte the files an
+      older build reads. Run it with the server stopped. Refuses existing targets unless --force.
+
   MirDbExport export-files <SystemData.db> <out-folder> [--force]
       The rollback for the design files: writes every ini and text design file the store holds under
       <out-folder> (Configs\..., Envir\...); Setup.ini's [Game]/[Items] are merged into <out-folder>\Configs\Setup.ini.
@@ -72,6 +77,8 @@ Never point it at a live server folder that is being written; copy the file firs
                 if ((args.Length == 3 || (args.Length == 4 && args[3] == "--force")) && args[0] == "export-files")
                     return DesignCommands.ExportFiles(args[1], args[2], args.Length == 4);
                 if ((args.Length == 2 || args.Length == 3) && args[0] == "roundtrip") return StoreCommands.Roundtrip(args[1], args.Length == 3 ? args[2] : null);
+                if ((args.Length == 3 || (args.Length == 4 && args[3] == "--force")) && args[0] == "export-userdata")
+                    return StoreCommands.ExportUserData(args[1], args[2], args.Length == 4);
                 Console.Error.WriteLine(Usage);
                 return 2;
             }

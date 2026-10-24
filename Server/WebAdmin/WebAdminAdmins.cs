@@ -60,7 +60,7 @@ namespace Server.WebAdmin
     /// <see cref="IsSessionStillAdminAsync"/> backs with a live AccountInfo re-check (every few seconds) while the world runs.
     /// Features that change admin/ban flags should still call <see cref="Refresh"/> (and revoke sessions) for an immediate effect.
     /// <para>
-    /// admins.dat records when it was captured; it is ignored when the account database (Server.MirADB) is missing or was written
+    /// admins.dat records when it was captured; it is ignored when the account database (UserData.db) is missing or was written
     /// noticeably later (e.g. restored or edited while the server was down), until the world loads the accounts again.
     /// Deleting WebAdmin\admins.dat revokes all offline (world stopped) web sign-ins.
     /// </para>
@@ -79,8 +79,8 @@ namespace Server.WebAdmin
 
         internal static string FilePath { get; set; } = Path.Combine(AppContext.BaseDirectory, "WebAdmin", "admins.dat");
 
-        /// <summary>Path of the account database admins.dat is checked against (Envir.AccountPath, relative to the working directory).</summary>
-        internal static Func<string> AccountDbPath { get; set; } = () => Envir.AccountPath;
+        /// <summary>Path of the account database admins.dat is checked against (Envir.UserDataPath, relative to the working directory).</summary>
+        internal static Func<string> AccountDbPath { get; set; } = () => Envir.UserDataPath;
 
         /// <summary>The account DB may be written this long after a capture without invalidating admins.dat (async/shutdown saves).</summary>
         internal static readonly TimeSpan StaleGrace = TimeSpan.FromMinutes(2);

@@ -72,12 +72,14 @@ namespace Server.WebAdmin.Routes
                     return new KindSpec
                     {
                         Kind = Accounts,
-                        Label = "Accounts (Server.MirADB)",
+                        // Since UserData-and-Quests-Plan.md Part A the live user data is UserData.db and its backups are VACUUM INTO copies
+                        // taken by its writer thread ("Accounts yyyy-MM-dd HH-mm-ss.bak"); older files in the folder may be binary Server.MirADB.
+                        Label = "Accounts (UserData.db)",
                         Root = Full(Envir.AccountsBackUpPath),
-                        LiveFile = Full(Envir.AccountPath),
+                        LiveFile = Full(Envir.UserDataPath),
                         Creatable = true,
                         Restorable = true,
-                        HasHeader = true,
+                        HasHeader = false, // SQLite: the live version is read from meta through the writer, restore checks the file
                     };
                 case Scripts:
                     return new KindSpec
@@ -161,7 +163,8 @@ namespace Server.WebAdmin.Routes
                 int? version = null;
                 if (fi.Exists)
                 {
-                    if (s.HasHeader && BackupStore.TryReadHeader(s.LiveFile, out var v, out _)) version = v; // MirADB is swapped by rename: a shared read never blocks a save
+                    if (s.HasHeader && BackupStore.TryReadHeader(s.LiveFile, out var v, out _)) version = v;
+                    else if (s.Kind == Accounts) version = LiveUserDataVersion();
                 }
 
                 live = new
@@ -229,18 +232,23 @@ namespace Server.WebAdmin.Routes
             }
             else
             {
-                // Server.MirADB is replaced by rename (BeginSaveAccounts/EndSaveAccounts): a FileShare.Delete read never blocks the save,
-                // and StableCopy retries when the file is swapped mid-copy.
-                lock (BackupGate)
+                // UserData.db: a VACUUM INTO on its writer, between saves, never a file copy (a copy of a live DELETE-journal file can be torn).
+                name = await Task.Run(() =>
                 {
-                    Directory.CreateDirectory(spec.Root);
-                    name = BackupStore.NewName(spec.Root, "Manual", DateTime.Now);
-                    size = BackupStore.StableCopy(spec.LiveFile, Path.Combine(spec.Root, name));
-                }
+                    lock (BackupGate)
+                    {
+                        Directory.CreateDirectory(spec.Root);
+                        var n = BackupStore.NewName(spec.Root, "Manual", DateTime.Now);
+                        Envir.UserStore.BackupTo(Path.Combine(spec.Root, n));
+                        return n;
+                    }
+                }).ConfigureAwait(false);
+                size = new FileInfo(Path.Combine(spec.Root, name)).Length;
             }
 
             int? version = null;
-            if (BackupStore.TryReadHeader(Path.Combine(spec.Root, name), out var v, out _)) version = v;
+            if (spec.Kind == Accounts) version = LiveUserDataVersion();
+            else if (BackupStore.TryReadHeader(Path.Combine(spec.Root, name), out var v, out _)) version = v;
 
             WebAdminAudit.Record(req, "backup.create", spec.Kind + ":" + name, new { kind = spec.Kind, name, size, version }, reason);
 
@@ -351,14 +359,16 @@ namespace Server.WebAdmin.Routes
                 else
                 {
                     // AccountLock (after LoadLock, the documented order) across the check, the swap and the reload: inline account and
-                    // character edits save Server.MirADB under AccountLock while the world is stopped, and must not write the
+                    // character edits save UserData.db under AccountLock while the world is stopped, and must not write the
                     // pre-restore list over the restored file between the swap and the reload.
                     lock (Envir.LoadLock)
                     lock (Envir.AccountLock)
                     {
                         EnsureStoppedForRestore(spec);
                         CheckBackupHeader(spec, path);
-                        preName = SwapIn(req, spec, name, path, reason);
+                        preName = SwapInUserData(req, spec, name, path, reason);
+                        // A pending delete from before the restore must never remove a row the restore brought back (Part A, Save).
+                        Envir.Main.ResetUserDataAfterRestore();
 
                         // Envir.Main.AccountList still holds the pre-restore accounts, and other features write it back with
                         // SaveAccounts() while the world is stopped: reload it from the restored file (only when it was loaded at all;
@@ -370,7 +380,8 @@ namespace Server.WebAdmin.Routes
                             {
                                 if (preName != null)
                                 {
-                                    BackupStore.ReplaceFile(Path.Combine(spec.Root, preName), spec.LiveFile);
+                                    Envir.UserStore.Restore(Path.Combine(spec.Root, preName), null);
+                                    Envir.Main.ResetUserDataAfterRestore();
                                     if (!ReloadMainAccounts()) ClearMainAccounts();
                                 }
                                 else
@@ -379,7 +390,7 @@ namespace Server.WebAdmin.Routes
                                 }
 
                                 WebAdminAudit.Record(req, "backup.restore-failed", spec.Kind + ":" + name, new { kind = spec.Kind, name, preRestore = preName, rolledBack = preName != null }, reason);
-                                throw new WebAdminException(422, "The backup could not be loaded" + (preName != null ? "; the previous accounts file was put back" : string.Empty));
+                                throw new WebAdminException(422, "The backup could not be loaded" + (preName != null ? "; the previous user data was put back" : string.Empty));
                             }
                         }
                     }
@@ -410,6 +421,42 @@ namespace Server.WebAdmin.Routes
 
             if (spec.Kind == Accounts && Envir.Main.Saving)
                 throw new WebAdminException(409, "An account save is still being written; try again in a moment");
+        }
+
+        /// <summary>meta.envir_version of the live UserData.db, read through its writer (null when missing or unreadable).</summary>
+        private static int? LiveUserDataVersion()
+        {
+            try
+            {
+                return Envir.UserStore.ReadEnvirVersion();
+            }
+            catch (Exception ex)
+            {
+                WebAdminLog.Error(ex, "Reading the UserData.db version failed");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// World stopped: VACUUM INTO "Pre-restore &lt;ts&gt;.bak" of the live UserData.db, then the writer closes its connection and swaps the
+        /// checked backup in. File errors are audited (500); the live file is unchanged then.
+        /// </summary>
+        private static string SwapInUserData(WebAdminRequest req, KindSpec spec, string name, string path, string reason)
+        {
+            string preName = null;
+            try
+            {
+                if (File.Exists(spec.LiveFile)) preName = BackupStore.NewName(spec.Root, "Pre-restore", DateTime.Now);
+                Envir.UserStore.Restore(path, preName == null ? null : Path.Combine(spec.Root, preName));
+                return preName;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is InvalidDataException || ex is Microsoft.Data.Sqlite.SqliteException)
+            {
+                WebAdminLog.Error(ex, "Restoring " + spec.Kind + " backup " + name + " failed");
+                if (preName != null && !File.Exists(Path.Combine(spec.Root, preName))) preName = null;
+                WebAdminAudit.Record(req, "backup.restore-failed", spec.Kind + ":" + name, new { kind = spec.Kind, name, preRestore = preName, rolledBack = false, error = "file in use, access denied or not a usable UserData.db" }, reason);
+                throw new WebAdminException(500, "The backup could not be swapped in for " + Path.GetFileName(spec.LiveFile) + " (see the server log); nothing was changed");
+            }
         }
 
         /// <summary>
@@ -453,10 +500,18 @@ namespace Server.WebAdmin.Routes
                 return;
             }
 
-            if (!BackupStore.TryReadHeader(path, out var version, out _))
-                throw new WebAdminException(422, "The backup is not a valid " + spec.Kind + " file (unreadable header)");
-            if (!VersionSupported(version))
-                throw new WebAdminException(422, "The backup has version " + version + "; this server supports " + Envir.MinVersion + "–" + Envir.Version);
+            if (!SqliteWorldFile.LooksLikeSqlite(path))
+                throw new WebAdminException(422, "The backup is a binary Server.MirADB file; the server keeps user data in UserData.db now. To use it, stop the server, " +
+                                                 "move UserData.db aside and put the backup in as Server.MirADB: the next start imports it (Knowledgebase/Runbook.md)");
+            try
+            {
+                UserDataStore.CheckCandidate(path);
+            }
+            catch (Exception ex) when (ex is InvalidDataException || ex is IOException || ex is Microsoft.Data.Sqlite.SqliteException)
+            {
+                WebAdminLog.Error(ex, "Backup " + Path.GetFileName(path) + " failed the UserData integrity/schema check");
+                throw new WebAdminException(422, "The backup is not a usable UserData database (integrity, schema or world check failed; see the server log)");
+            }
         }
 
         /// <summary>Copies the live file to "Pre-restore &lt;ts&gt;.bak", then replaces it with the backup. File errors are audited (500).</summary>
@@ -506,7 +561,7 @@ namespace Server.WebAdmin.Routes
             }
         }
 
-        /// <summary>World fully stopped, caller holds LoadLock: re-reads Server.MirADB into Envir.Main under AccountLock.</summary>
+        /// <summary>World fully stopped, caller holds LoadLock: re-reads UserData.db (world + accounts) into Envir.Main under AccountLock.</summary>
         private static bool ReloadMainAccounts()
         {
             try
@@ -533,6 +588,7 @@ namespace Server.WebAdmin.Routes
             {
                 Envir.Main.AccountList.Clear();
                 Envir.Main.CharacterList.Clear();
+                Envir.Main.MarkUserDataUnloaded(); // no save of any kind until a load
                 AccountRoutes.MarkAccountsUnloaded();
             }
             Envir.InvalidateAccountCache(); // P9-12

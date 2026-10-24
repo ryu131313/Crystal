@@ -336,7 +336,7 @@ namespace Server.WebAdmin
                 Url = null;
             }
 
-            // Let in-flight handlers finish before the process exits: one may be writing Server.MirDB, Server.MirADB, Setup.ini or a
+            // Let in-flight handlers finish before the process exits: one may be writing SystemData.db, UserData.db, Setup.ini or a
             // restore swap, and the host process ends right after Stop() (thread-pool threads die mid-write).
             DrainInFlight(slots, slotCount);
 

@@ -477,6 +477,7 @@ namespace Server
         {
             if (SMain.Envir.Running) return;
 
+            // World stopped: accounts + world (+ pending account deletes) into UserData.db; logged when it cannot save.
             SMain.Envir.SaveAccounts();
         }
 
@@ -645,6 +646,7 @@ namespace Server
                     if (SMain.Envir.AccountList.Contains(accInfo))
                     {
                         SMain.Envir.AccountList.Remove(accInfo);
+                        SMain.Envir.MarkAccountDeleted(accInfo.Index); // its UserData.db row goes with the next successful save
                     }
 
                     // Remove the selected item from AccountInfoListView

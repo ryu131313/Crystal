@@ -973,7 +973,7 @@ namespace Server.WebAdmin
             if (WebAdminGame.IsRunning) return; // the periodic save handles it
 
             var envir = Main;
-            if (envir.AccountList == null || envir.AccountList.Count == 0) return; // never loaded: refuse to overwrite the file with nothing
+            if (envir.AccountList == null || envir.AccountList.Count == 0 || !envir.UserDataLoaded) return; // never loaded: refuse to overwrite the store with nothing
 
             envir.SaveAccounts();
         }

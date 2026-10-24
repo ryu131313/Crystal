@@ -185,11 +185,11 @@ namespace Server.MirObjects
             {
                 loadedNPC.UsedGoods.Clear();
 
-                string path = Path.Combine(Settings.GoodsPath, loadedNPC.Info.Index.ToString() + ".msd");
+                // UserData.db (Part A, Goods in memory): the goods bytes are held by Envir, filled at world start and replaced by every
+                // save that serialises this NPC's goods. Nothing reads a goods file or the store here.
+                if (!Envir.TryGetGoods(loadedNPC.Info.Index, out var data)) return;
 
-                if (!File.Exists(path)) return;
-
-                using (FileStream stream = File.OpenRead(path))
+                using (MemoryStream stream = new MemoryStream(data, false))
                 {
                     using (BinaryReader reader = new BinaryReader(stream))
                     {
