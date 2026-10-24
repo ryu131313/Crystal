@@ -1593,18 +1593,29 @@ namespace Server.WebAdmin
             }
             var single = new[] { plan.Spell };
 
-            // A copy: nothing here may depend on the live list staying put.
-            var players = Main.Players.ToArray();
-            int matched = 0, granted = 0, skipped = 0, partial = 0;
-            long total = 0;
+            // Granting to thousands of players in one tick stalls the loop (bag adds, level-ups and stat refreshes each send packets),
+            // so the matching players are copied now and served on later ticks, MassGrantPerTick at a time, starting this tick, like
+            // teleportall. A player who logged out meanwhile is skipped, and with a map one who left it.
+            var players = new List<PlayerObject>();
             var names = new List<string>();
 
-            foreach (var p in players)
+            foreach (var p in Main.Players)
             {
                 if (p?.Info == null || p.CurrentMap == null) continue;
                 if (!GmRules.MassGrantIncludes(plan.Who, p.IsGM, map != null, p.CurrentMap == map)) continue;
-                matched++;
 
+                players.Add(p);
+                if (names.Count < 50) names.Add(p.Name);
+            }
+
+            var scope = plan.Who + (map != null ? " on " + MapLabel(map) : string.Empty);
+            if (players.Count == 0) throw new WebAdminException(409, "No online player matches (" + scope + ")");
+
+            int next = 0, granted = 0, skipped = 0, partial = 0, gone = 0;
+            long total = 0;
+
+            long Grant(PlayerObject p)
+            {
                 long given = 0;
                 switch (action)
                 {
@@ -1657,75 +1668,79 @@ namespace Server.WebAdmin
                         }
                         break;
                 }
-
-                if (given > 0)
-                {
-                    granted++;
-                    total += given;
-                    if (names.Count < 50) names.Add(p.Name);
-                }
-                else
-                {
-                    skipped++;
-                }
+                return given;
             }
 
-            var scope = plan.Who + (map != null ? " on " + MapLabel(map) : string.Empty);
-            if (matched == 0) throw new WebAdminException(409, "No online player matches (" + scope + ")");
+            // The outcome is known only after the last batch, so the tally goes to the server log then.
+            var label = action + " (" + plan.Who + (map != null ? " on " + map.Info.FileName : string.Empty) + ")";
+            Main.AddAdminTickJob(() =>
+            {
+                var end = Math.Min(next + MassGrantPerTick, players.Count);
+                for (; next < end; next++)
+                {
+                    var p = players[next];
+                    if (p.Node == null || p.Info == null || p.CurrentMap == null || (map != null && p.CurrentMap != map)) { gone++; continue; }
 
-            string what, skipReason;
+                    var given = Grant(p);
+                    if (given > 0) { granted++; total += given; }
+                    else skipped++;
+                }
+
+                if (next < players.Count) return false;
+
+                WebAdminLog.Info(label + " done: " + granted + " granted, " + skipped + " got nothing, " + partial + " partial (bag full), " +
+                                 gone + " gone, total " + total + ".");
+                return true;
+            });
+
+            string what;
             switch (action)
             {
                 case "massgold":
-                    what = total.ToString("N0", CultureInfo.InvariantCulture) + " gold (" + plan.Amount.ToString("N0", CultureInfo.InvariantCulture) + " each)";
-                    skipReason = "already at the gold maximum";
+                    what = plan.Amount.ToString("N0", CultureInfo.InvariantCulture) + " gold each";
                     break;
                 case "masscredit":
-                    what = total.ToString("N0", CultureInfo.InvariantCulture) + " credit (" + plan.Amount.ToString("N0", CultureInfo.InvariantCulture) + " each)";
-                    skipReason = "already at the credit maximum";
+                    what = plan.Amount.ToString("N0", CultureInfo.InvariantCulture) + " credit each";
                     break;
                 case "massitem":
-                    what = total + " x " + item.FriendlyName + " (" + plan.Count + " each)";
-                    skipReason = "bag full";
+                    what = plan.Count + " x " + item.FriendlyName + " each";
                     break;
                 case "massskill":
                     what = plan.Spell + " at level " + plan.SpellLevel;
-                    skipReason = "other class, or already known at that level";
                     break;
                 case "masslevel":
                     what = "level " + plan.Level;
-                    skipReason = "already at that level";
                     break;
                 default:
-                    what = "their class spells at level " + plan.SpellLevel + " (" + total + " taught or raised)";
-                    skipReason = "already know them all";
+                    what = "their class spells at level " + plan.SpellLevel;
                     break;
             }
 
+            var ticks = (players.Count + MassGrantPerTick - 1) / MassGrantPerTick;
             result.Target = scope;
-            result.Message = "Gave " + what + " to " + granted + (granted == 1 ? " player" : " players") + " (" + scope + ")" +
-                             (partial > 0 ? "; " + partial + " got part (bag full)" : string.Empty) +
-                             (skipped > 0 ? "; " + skipped + " got nothing (" + skipReason + ")" : string.Empty) + ".";
+            result.Message = "Giving " + what + " to " + players.Count + (players.Count == 1 ? " player" : " players") + " (" + scope + ")" +
+                             (ticks > 1 ? ", " + MassGrantPerTick + " per tick over " + ticks + " ticks" : string.Empty) +
+                             "; the totals go to the server log when done.";
             result.Details["who"] = plan.Who;
             if (map != null) result.Details["map"] = map.Info.FileName;
-            result.Details["matched"] = matched;
-            result.Details["granted"] = granted;
-            result.Details["skipped"] = skipped;
-            result.Details["total"] = total;
+            result.Details["queued"] = players.Count;
+            result.Details["perTick"] = MassGrantPerTick;
             if (action == "massgold" || action == "masscredit") result.Details["amount"] = plan.Amount;
             if (item != null)
             {
                 result.Details["item"] = item.Name;
                 result.Details["itemIndex"] = item.Index;
                 result.Details["count"] = plan.Count;
-                result.Details["partial"] = partial;
             }
             if (action == "massskill") result.Details["spell"] = plan.Spell.ToString();
             if (action == "massskill" || action == "massallskills") result.Details["level"] = plan.SpellLevel;
             if (action == "masslevel") result.Details["level"] = plan.Level;
             result.Details["players"] = names;
-            result.Data = new { matched, granted, skipped, partial, total };
+            result.Data = new { queued = players.Count, perTick = MassGrantPerTick };
         }
+
+        /// <summary>Players served per game tick by the mass grant verbs.</summary>
+        private const int MassGrantPerTick = 50;
 
         private static ConquestObject FindConquest(int index)
         {

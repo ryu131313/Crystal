@@ -177,7 +177,8 @@ confirmation dialog, with a reason field for moderation actions. Every successfu
   chat ban, spawn monsters, clear monsters or start a conquest. The World actions card also has a **Mass actions** group that
   gives gold, credit, an item, a skill or all class skills, or sets the level (`masslevel`, the online Set level path), for every online player in a scope (everyone, non-GM players, GMs
   only, or players on a map; a map narrows any scope); `massskill` skips players of other classes, and the skill grants raise
-  known spells but never lower them. The verbs use the same code paths as the in-game `@` commands. Most verbs need the world running (`503` otherwise). Some, such as setlevel and chat ban, also work on
+  known spells but never lower them. Mass grants are spread over ticks (50 players per tick); the reply says how many are queued
+  and the final tally (granted, nothing, partial, logged out) goes to the server log. The verbs use the same code paths as the in-game `@` commands. Most verbs need the world running (`503` otherwise). Some, such as setlevel and chat ban, also work on
   offline characters. Spawn monster takes up to 50,000 at once; its **Map wide** button (spread 1000) scatters them over every
   walkable cell of the map and makes X/Y optional (also in the Live Monitor and Map editor spawn dialogs).
 - **Remembered inputs:** the GM inline forms and every `OpsUI.actionDialog` popup prefill the values last used in that form or
@@ -319,7 +320,7 @@ the game thread and must only be touched there.
 - `Envir.QueueAdminAction(Action run, Action<Exception> dropped)` enqueues work. `WorkLoop` drains the queue in
   `DrainAdminActions()` **right after `Process()`** on each tick, running at most 64 actions or about 10 ms. The queue opens just
   before `WorldStarted` and closes when the loop exits. Actions still waiting at that point get `dropped(WorldNotRunningException)`.
-- `Envir.AddAdminTickJob(Func<bool> step)` (game thread only, from a queued action) runs `step` once per tick after the drain until it returns true; for jobs too big for one tick (`randomteleport`, `teleportall`). Discarded when the loop exits.
+- `Envir.AddAdminTickJob(Func<bool> step)` (game thread only, from a queued action) runs `step` once per tick after the drain until it returns true; for jobs too big for one tick (`randomteleport`, `teleportall`, the mass grants). Discarded when the loop exits.
 - `Envir.RequestSaveNow()` makes the next tick run the periodic save block.
 - `WebAdminGame.RunAsync<T>(fn, timeoutMs = 5000)` queues `fn` and awaits its result. It throws `WorldNotRunningException` (503)
   if the loop is not running and `GameThreadTimeoutException` (504) on timeout. A timed-out action that has not started yet is
