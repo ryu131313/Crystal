@@ -1267,7 +1267,9 @@ namespace Server.MirObjects
                 return;
             }
 
-            if (player.Account.Gold < (recipe.Gold * count))
+            // ulong: Gold * count wrapped in uint, so a large count could cost almost nothing.
+            ulong cost = (ulong)recipe.Gold * count;
+            if (player.Account.Gold < cost)
             {
                 player.Enqueue(p);
                 return;
@@ -1438,8 +1440,8 @@ namespace Server.MirObjects
             }
 
             //Take Gold
-            player.Account.Gold -= (recipe.Gold * count);
-            player.Enqueue(new S.LoseGold { Gold = (recipe.Gold * count) });
+            player.Account.Gold -= (uint)cost; // cost <= Gold, checked above
+            player.Enqueue(new S.LoseGold { Gold = (uint)cost });
 
             if (Envir.Random.Next(100) >= recipe.Chance + player.Stats[Stat.CraftRatePercent])
             {
