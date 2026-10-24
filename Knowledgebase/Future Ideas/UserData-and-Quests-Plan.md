@@ -648,3 +648,38 @@ No open decision blocks phases 1-4; decisions 4, 5 and 6 are needed before phase
 
 ### Never/Always rules (for whoever implements this, both parts)
 From AGENTS.md: packet rule, persisted-enum rule, Build & Output rules (no solution build; scratch `-o`; never `Build\`), compile every consumer after a `Shared/` change, `Shared.Tests` / `Server.Persistence.Tests` / `Server.WebAdmin.Tests` as listed above, user-data fields bump `Envir.Version`, system-data fields are additive SQLite columns. server.md §3 and client.md §3 apply to their phases; check their Known debt sections before touching `PlayerObject` quest code (LINQ per event and `FinishNPC`'s `Envir.NPCs.Single` are Known debt replaced here, not drive-by fixes).
+
+### Dry-run report (live copy, 2026-10-24)
+
+Lane B ran the importer on a `VACUUM INTO` copy of the live `SystemData.db` (read-only connection on `Build\Server\Release\SystemData.db`, copied to `%TEMP%\mir2-laneB-live` with the `Envir` folder minus `Previews`) through `QuestImporterTests.Live_copy_dry_run` (`MIR2_QUEST_LIVE_COPY`). On that copy the writer's open step added the V2 tables, columns and counters after its `Pre-migrate` copy; two imports gave identical rows and ids; a save through the real store, a reload and the JSON export / import of the quest tables gave identical rows.
+
+**Result:** 154 quests → 154 steps, 148 objectives, 76 monster groups, 394 rewards, 360 Npc endpoints, 562 condition nodes, 617 texts. **1 validation error, 3 warnings**, all real data (below). Nothing blocks: phase 1 validation only reports.
+
+| Check | Count | Entries |
+|---|---|---|
+| Quests with no body file | 0 | |
+| Legacy lines that fail to parse today (dropped silently) | 5 | 45 `[@FIXEDREWARDS] BoxofHolyWater(3)` and 139 `BoxofHolyWater(1)` (no such item); 132 `[@KILLTASKS] ElecMinotaur 20` and 139 `DarkDevouer 3` (no such monster); 150 `[@ITEMTASKS] EvilHeart 1` (no such item) |
+| `[QUESTS]` sections cut short by an unknown id | 1 | `BichonProvince/BichonWall/Clothing` stops at 156 (its last line, so nothing after it is lost) |
+| Extra `[QUESTS]` sections the loader ignores / `#INSERT`/`#INCLUDE` problems / NPCInfo rows with a missing script | 0 / 0 / 0 | |
+| Quests with several would-be givers (last script wins today) | 6 | 42 Way to Mongchon (NPCs 33, 135); 82 White Serpent, 108 Antique Book, 109 Find More Antique Books, 124 Skull Collector, 136 Shipping Relics (each NPCs 283-293, one shared script) |
+| Quests no NPC gives (no start endpoint) | 28 | 22, 23, 24, 25, 26, 27, 36, 37, 38, 43, 46, 47, 50, 51, 65, 75, 91, 92, 93, 96, 104, 113, 122, 123, 125, 143, 145, 146 (spot checks: 43 and 143 appear only as finish ids, e.g. Perry `-143`; 22-24 appear only in `GM/GM-Mount.txt`, outside a `[QUESTS]` section) |
+| Kill tasks with an empty group / overlapping groups / duplicate tasks on one monster or item | 0 / 0 / 0 | |
+| Quests with `(M)`/`(F)` reward pairs (now one reward each with a Gender condition) | 3 quests, 11 pairs | 33 Cure the Insomnia (SolidArmour); 92 Deep into the Woods (ThickArmour, FireMagicRobe, TaoArmour, SpiritRobe, LeatherArmour); 128 Returning a Book (FineIronArmour, FireRobe, YingYangRobe, FlamingRedArmour, HardTemperedArmour) |
+| Flags used by `[@FLAGTASKS]` | 13 | 521-523 (quest 111), 524 (105), 525 (135), 527-528 (143), 529 (145), 530 (146), 531 (147), 533-535 (153) |
+| …of which a script clears (`SET [n] 0`) | 0 | |
+| Runtime NPCs with no `NPCInfo` row that give quests (conquest flags / control points) | 0 | |
+| Validation errors | 1 | quest 74 Free the Souls from Zombies: `RequiredQuest` 255 does not exist |
+| Validation warnings | 3 | quest 74: `RequiredClass` 0 allows no class, imported as an empty Or (nobody can accept it, as today); quests 25 and 52 both collect item 866; quests 46 and 141 both collect item 1169 (shared quest-bag count when active together) |
+
+**Real data errors to fix in the legacy data (not in the importer):** quest 74 (`RequiredQuest` 255, `RequiredClass` 0), the five unknown names above, and a decision on the 28 quests without a giver.
+
+#### Phase 1 as built (lane B, 2026-10-24): deviations from the text above
+- The spec's `Key` columns are **`AuthorKey`** (quests, questgroups, questpools, questvars, storylines) and **`TextKey`** (texts): every store table already has a `key` column, and SQLite column names ignore case.
+- The quest V2 columns live on **`QuestInfo.Definition`** (`QuestDefinition`, namespace `Server.MirEnvir.Quests`, which also holds the child lists), not as fields of `QuestInfo`, so the binary persistence oracle and its fixtures stay unchanged. The `quests` registry columns read it and the store restores it through `GameDataColumn.StoreSet`.
+- A ninth counter, **`QuestPoolIndex`** (pools need stable ids too), added by the same written migration. Every migrated counter starts at the highest key of its table.
+- **`LegacySource` on steps too** (the text lists it on objectives, rewards and endpoints). Objective sources are `<section> <target name>` (`#n` for repeats); groups keep their ids through `AuthorKey` `q<n>.kill.<monster>`, owned conditions through their build order, texts through their key.
+- The classic link labels (`GotoMessage` … `FlagMessage`) are texts `q<n>.goto` / `.kill` / `.item` / `.flag`, found by key: steps have no column for them.
+- NPC scripts are read from disk (`Envir\NPCs` is not a design-text kind), with `#INSERT` / `#INCLUDE` resolved as `NPCScript` does.
+- The packet-size check is an estimate until `S.QuestDefinition` exists (wave 2 kick-off).
+- The re-import is `POST /api/admin/quests/reimport` (`dryRun` supported) and the last validation list `GET /api/admin/quests/validation`; there is no panel button or grid tab yet (the Game Data page lists its tables by hand; the Quests page arrives in phase 3).
+- The Server.MirDB exporter / verifier (`tools/MirDbExport`) skips the V2 tables and columns (`GameDataRegistry.InBinaryFormat`).

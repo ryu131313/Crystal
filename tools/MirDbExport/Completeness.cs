@@ -44,7 +44,7 @@ namespace MirDbExport
                     var table = GameDataRegistry.Get(spec.Endpoint);
                     foreach (var c in table.Columns)
                     {
-                        if (c.Name == spec.ParentColumn) continue;
+                        if (c.Name == spec.ParentColumn || !GameDataRegistry.InBinaryFormat(spec.Endpoint, c.Name)) continue;
                         if (Verifier.Resolve(spec, c.Name, out var m) == null) problems.Add(spec.Endpoint + "." + c.Name + ": no member");
                         else if (m != null) covered.Add(m.Name);
                     }

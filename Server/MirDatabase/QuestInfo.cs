@@ -5,7 +5,7 @@ using Server.MirEnvir;
 
 namespace Server.MirDatabase
 {
-    public class QuestInfo
+    public partial class QuestInfo
     {
         protected static Envir Envir
         {

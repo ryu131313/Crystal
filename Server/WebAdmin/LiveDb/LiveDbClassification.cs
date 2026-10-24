@@ -159,6 +159,15 @@ namespace Server.WebAdmin.LiveDb
                 all.Add(t);
             }
 
+            // Quest system V2 (UserData-and-Quests-Plan.md, Part B phase 1): every new table and column is RestartOnly while legacy QuestInfo
+            // is the runtime (phases 1-2). Phase 3 moves them to the quest-replace hook; the position-keyed children are never applied row by row.
+            foreach (var quest in QuestV2Tables)
+            {
+                var t = new LiveTableRule { Endpoint = quest, PlannedBatch = "-" };
+                t.Prefixes.Add(new KeyValuePair<string, LiveColumnRule>(string.Empty, QuestV2Rule)); // every column of the table
+                all.Add(t);
+            }
+
             var map = new Dictionary<string, LiveTableRule>(StringComparer.OrdinalIgnoreCase);
             foreach (var t in all) map[t.Endpoint] = t;
             return map;
@@ -224,6 +233,16 @@ namespace Server.WebAdmin.LiveDb
             return t;
         }
 
+        /// <summary>The quest V2 tables (all RestartOnly in phases 1-2).</summary>
+        internal static readonly string[] QuestV2Tables =
+        {
+            "queststeps", "questobjectives", "questbranches", "questendpoints", "questrewards", "questvars", "conditions", "texts", "storylines",
+            "questgroups", "questgroupmembers", "questpools", "questpoolmembers",
+        };
+
+        private static readonly LiveColumnRule QuestV2Rule = new LiveColumnRule(LiveClass.RestartOnly, LiveTiming.Restart,
+            "quest V2 definitions are not used at runtime yet (legacy quests run); the phase 3 quest-replace hook applies them");
+
         private static LiveTableRule Quests()
         {
             // Batch C: live. Inserts / deletes stay restart-only (NPC scripts bind quests at world start).
@@ -232,6 +251,7 @@ namespace Server.WebAdmin.LiveDb
             Set(t, Read(LiveTiming.Clients, "requirements and messages, pushed to clients"), "Name", "Group", "RequiredMinLevel", "RequiredMaxLevel",
                 "RequiredQuest", "RequiredClass", "GotoMessage", "KillMessage", "ItemMessage", "FlagMessage", "TimeLimitInSeconds");
             Set(t, Hook(LiveTiming.Hook, "the quest file is reloaded (refused when its kill / item / flag tasks change shape)"), "FileName");
+            Set(t, QuestV2Rule, GameData.GameDataRegistry.QuestV2Columns.ToArray());
             return t;
         }
 

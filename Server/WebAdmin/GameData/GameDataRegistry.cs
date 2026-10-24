@@ -1,3 +1,4 @@
+using Server.MirEnvir.Quests;
 using System.Drawing;
 using System.Globalization;
 using Server.MirDatabase;
@@ -67,6 +68,23 @@ namespace Server.WebAdmin.GameData
                 ConquestChild<ConquestFlagInfo>("conquestcontrolpoints", "Control points", c => c.ControlPoints, c => ++c.ControlPointIndex,
                     "Control Point", false, (e, i) => e.Index = i, e => { e.Name = "Control Point"; }),
                 Dragon(),
+                // Quest system V2 (UserData-and-Quests-Plan.md, Part B phase 1): read-only grids until the phase 3 Quests editor; the
+                // importer is their only writer.
+                QuestChild<QuestStepInfo>("queststeps", "Quest steps", q => q.Definition.Steps, s => s.Index, "QuestStepInfo.Index (global, never reused)"),
+                QuestChild<QuestObjectiveInfo>("questobjectives", "Quest objectives", q => q.Definition.Objectives, o => o.Index, "QuestObjectiveInfo.Index (global, never reused)"),
+                QuestChild<QuestBranchInfo>("questbranches", "Quest branches", q => q.Definition.Branches, null, null),
+                QuestChild<QuestEndpointInfo>("questendpoints", "Quest givers", q => q.Definition.Endpoints, null, null),
+                QuestChild<QuestRewardInfo>("questrewards", "Quest rewards", q => q.Definition.Rewards, null, null),
+                QuestChild<QuestVarInfo>("questvars", "Quest variables", q => q.Definition.Vars, v => v.Index, "QuestVarInfo.Index (global, never reused)"),
+                QuestTop<QuestConditionInfo>("conditions", "Quest conditions", ctx => ctx.QuestConditions, c => c.Index, null),
+                QuestTop<QuestTextInfo>("texts", "Quest texts", ctx => ctx.QuestTexts, t => t.Index, "TextKey"),
+                QuestTop<StorylineInfo>("storylines", "Storylines", ctx => ctx.Storylines, l => l.Index, "AuthorKey"),
+                QuestTop<QuestGroupInfo>("questgroups", "Quest target groups", ctx => ctx.QuestGroups, g => g.Index, "AuthorKey"),
+                QuestTop<QuestPoolInfo>("questpools", "Quest pools", ctx => ctx.QuestPools, p => p.Index, "AuthorKey"),
+                QuestTopChild<QuestGroupInfo, QuestGroupMemberInfo>("questgroupmembers", "Quest group members", "questgroups", "GroupIndex",
+                    ctx => ctx.QuestGroups, g => g.Index, g => g.Members),
+                QuestTopChild<QuestPoolInfo, QuestPoolMemberInfo>("questpoolmembers", "Quest pool members", "questpools", "PoolIndex",
+                    ctx => ctx.QuestPools, p => p.Index, p => p.Members),
             };
 
             // Columns know their table so LiveSafe / the schema can ask the LiveDb classification.
@@ -278,6 +296,8 @@ namespace Server.WebAdmin.GameData
                 },
             };
             opts.Lookups["RequiredQuest"] = "quests";
+            var columns = GameDataColumns.Reflect(typeof(QuestInfo), opts);
+            columns.AddRange(QuestDefinitionColumns()); // quest V2, read-only until the phase 3 Quests editor
 
             return new GameDataTable
             {
@@ -289,7 +309,7 @@ namespace Server.WebAdmin.GameData
                 Deletable = true,
                 NameColumn = "Name",
                 IndexNote = "QuestInfo.Index",
-                Columns = GameDataColumns.Reflect(typeof(QuestInfo), opts),
+                Columns = columns,
                 Rows = ctx => TopRows(ctx.Quests, q => q.Index),
                 NewDetached = ctx => new GameDataRow { Entity = new QuestInfo() },
                 Attach = (ctx, row, parent) =>
@@ -327,6 +347,133 @@ namespace Server.WebAdmin.GameData
                         errors.Add(new GameDataFieldError("FileName", "must be a relative file name (no drive, no '..')"));
                     return errors;
                 },
+            };
+        }
+
+        /// <summary>
+        /// False for the tables and columns the binary Server.MirDB format does not carry (the quest V2 definition tables and the quest V2
+        /// columns of quests, SystemData.db only): the Server.MirDB exporter / verifier (tools/MirDbExport) skips them.
+        /// </summary>
+        internal static bool InBinaryFormat(string endpoint, string column = null)
+        {
+            if (Array.IndexOf(LiveDb.LiveDbClassification.QuestV2Tables, endpoint) >= 0) return false;
+            return column == null || endpoint != "quests" || !QuestV2Columns.Contains(column);
+        }
+
+        /// <summary>The quest V2 columns of the quests table (QuestDefinition's scalar fields; read-only in the grid, RestartOnly in LiveDb).</summary>
+        internal static IReadOnlyList<string> QuestV2Columns => LazyQuestV2Columns.Value;
+
+        private static readonly Lazy<string[]> LazyQuestV2Columns = new Lazy<string[]>(() => QuestDefinitionColumns().Select(c => c.Name).ToArray());
+
+        /// <summary>QuestDefinition's scalar fields as read-only columns of the quests table, read and restored through QuestInfo.Definition.</summary>
+        private static List<GameDataColumn> QuestDefinitionColumns()
+        {
+            var columns = GameDataColumns.Reflect(typeof(QuestDefinition), new GameDataReflectOptions());
+            foreach (var c in columns)
+            {
+                var field = typeof(QuestDefinition).GetField(c.Name) ?? throw new InvalidOperationException("Game data: QuestDefinition has no field " + c.Name);
+                var get = c.Get;
+                c.Get = r => get(new GameDataRow { Entity = ((QuestInfo)r.Entity).Definition });
+                c.StoreSet = (r, v) => field.SetValue(((QuestInfo)r.Entity).Definition, v);
+                c.Set = null;
+                c.ReadOnly = true;
+                c.Group = "Quest V2";
+            }
+
+            return columns;
+        }
+
+        // ================================================================== quest system V2 (read-only)
+
+        /// <summary>Every column of a V2 table, read-only (the store restores read-only columns through the same-named field).</summary>
+        private static List<GameDataColumn> ReadOnlyColumns(Type type)
+        {
+            var opts = new GameDataReflectOptions();
+            opts.Exclude.Add("Index"); // the row key
+            var columns = GameDataColumns.Reflect(type, opts);
+            foreach (var c in columns)
+            {
+                c.ReadOnly = true;
+                c.Set = null;
+            }
+
+            return columns;
+        }
+
+        /// <summary>A child table of quests: keyed by its own stable id, or quest Index * Stride + position when it has none.</summary>
+        private static GameDataTable QuestChild<T>(string endpoint, string label, Func<QuestInfo, List<T>> list, Func<T, int> key, string indexNote) where T : class
+        {
+            var columns = new List<GameDataColumn> { ParentColumn("QuestIndex", "quests") };
+            columns.AddRange(ReadOnlyColumns(typeof(T)));
+
+            return new GameDataTable
+            {
+                Endpoint = endpoint,
+                Label = label,
+                Group = "quests",
+                EntityType = typeof(T),
+                Insertable = false,
+                Deletable = false,
+                ParentEndpoint = "quests",
+                ParentField = "QuestIndex",
+                IndexNote = indexNote ?? "QuestIndex * " + Stride.ToString(CultureInfo.InvariantCulture) + " + position (0-based) in the quest's list",
+                PositionKeyed = key == null,
+                Columns = columns,
+                Rows = ctx => ctx.Quests.Where(q => q != null).SelectMany(q => list(q).Select((e, i) => new GameDataRow
+                {
+                    Index = key != null ? key(e) : q.Index * Stride + i,
+                    Entity = e,
+                    Parent = q,
+                    ParentIndex = q.Index,
+                    Position = i,
+                })),
+            };
+        }
+
+        private static GameDataTable QuestTop<T>(string endpoint, string label, Func<GameDataContext, List<T>> list, Func<T, int> key, string nameColumn) where T : class
+        {
+            return new GameDataTable
+            {
+                Endpoint = endpoint,
+                Label = label,
+                Group = "quests",
+                EntityType = typeof(T),
+                Insertable = false,
+                Deletable = false,
+                NameColumn = nameColumn,
+                IndexNote = typeof(T).Name + ".Index (global, never reused)",
+                Columns = ReadOnlyColumns(typeof(T)),
+                Rows = ctx => TopRows(list(ctx), key),
+            };
+        }
+
+        private static GameDataTable QuestTopChild<TParent, T>(string endpoint, string label, string parentEndpoint, string parentField,
+            Func<GameDataContext, List<TParent>> parents, Func<TParent, int> parentKey, Func<TParent, List<T>> list) where T : class
+        {
+            var columns = new List<GameDataColumn> { ParentColumn(parentField, parentEndpoint) };
+            columns.AddRange(ReadOnlyColumns(typeof(T)));
+
+            return new GameDataTable
+            {
+                Endpoint = endpoint,
+                Label = label,
+                Group = "quests",
+                EntityType = typeof(T),
+                Insertable = false,
+                Deletable = false,
+                ParentEndpoint = parentEndpoint,
+                ParentField = parentField,
+                IndexNote = parentField + " * " + Stride.ToString(CultureInfo.InvariantCulture) + " + position (0-based)",
+                PositionKeyed = true,
+                Columns = columns,
+                Rows = ctx => parents(ctx).SelectMany(p => list(p).Select((e, i) => new GameDataRow
+                {
+                    Index = parentKey(p) * Stride + i,
+                    Entity = e,
+                    Parent = p,
+                    ParentIndex = parentKey(p),
+                    Position = i,
+                })),
             };
         }
 

@@ -166,6 +166,9 @@ namespace Server.WebAdmin.Tests
                 "items", "monsters", "magic", "npcs", "quests", "maps", "mapsafezones", "maprespawns", "mapmovements", "mapminezones",
                 "gameshop", "conquests", "conquestguards", "conquestgates", "conquestwalls", "conquestsieges", "conquestflags",
                 "conquestcontrolpoints", "dragon",
+                // Quest system V2 (UserData-and-Quests-Plan.md, Part B phase 1), read-only grids.
+                "queststeps", "questobjectives", "questbranches", "questendpoints", "questrewards", "questvars", "conditions", "texts", "storylines",
+                "questgroups", "questgroupmembers", "questpools", "questpoolmembers",
             };
             Assert.Equal(expected.OrderBy(x => x), GameDataRegistry.Tables.Select(t => t.Endpoint).OrderBy(x => x));
 

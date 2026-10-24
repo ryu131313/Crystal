@@ -24,41 +24,20 @@ namespace Server
             QuestSearchBox_TextChanged(this, EventArgs.Empty);
 
             UpdateInterface();
+
+            // Quest system V2 (UserData-and-Quests-Plan.md, Part B phase 1): quest ids are stable and never reused (the V2 quest tables,
+            // their LegacySource and later the quest history key on them), and Remove reset QuestIndex to 0 when the list emptied. Quests
+            // are added and removed in the web admin only.
+            AddButton.Enabled = false;
+            RemoveButton.Enabled = false;
         }
 
-        private void AddButton_Click(object sender, EventArgs e)
-        {
-            Envir.CreateQuestInfo();
+        private void AddButton_Click(object sender, EventArgs e) => ShowAddRemoveDisabled();
 
-            if (!string.IsNullOrWhiteSpace(QuestSearchBox.Text))
-                QuestSearchBox.Text = string.Empty;
+        private void RemoveButton_Click(object sender, EventArgs e) => ShowAddRemoveDisabled();
 
-            RefreshQuestList(preserveSelection: false);
-
-            QuestInfoListBox.ClearSelected();
-            int index = Envir.QuestInfoList.Count - 1;
-            if (index >= 0)
-            {
-                QuestInfoListBox.SelectedIndex = index;
-                QuestInfoListBox.TopIndex = Math.Max(0, index - 3);
-            }
-
-            UpdateInterface();
-        }
-        private void RemoveButton_Click(object sender, EventArgs e)
-        {
-            if (_selectedQuestInfos.Count == 0) return;
-
-            if (MessageBox.Show("Are you sure you want to remove the selected Quests?", "Remove Quests?", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
-
-            for (int i = 0; i < _selectedQuestInfos.Count; i++) Envir.Remove(_selectedQuestInfos[i]);
-
-            if (Envir.QuestInfoList.Count == 0) Envir.QuestIndex = 0;
-
-            RefreshQuestList();
-            QuestInfoListBox.ClearSelected();
-            UpdateInterface();
-        }
+        private static void ShowAddRemoveDisabled() =>
+            MessageBox.Show("Adding and removing quests here is disabled: use the web admin (quest ids must never be reused).", "Quests");
 
         private void UpdateInterface()
         {
