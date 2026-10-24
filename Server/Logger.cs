@@ -9,7 +9,8 @@ namespace Server
         Chat,
         Debug,
         Player,
-        Spawn
+        Spawn,
+        Quests // quest V2 telemetry (log4net.config logger "Quests", lane F)
     }
 
     public class Logger

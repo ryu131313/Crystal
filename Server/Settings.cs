@@ -113,6 +113,14 @@ namespace Server
         public static int DungeonMaxInstances = 50;    // [Dungeons] MaxInstances: most instances alive at once, including ones being generated (1-500)
         public static int DungeonEmptyMinutes = 5;     // [Dungeons] EmptyMinutes: an instance nobody is in is torn down after N minutes (1-60)
 
+        // [Quests] Quest V2 reset boundaries (UserData-and-Quests-Plan.md Part B "Rules"; read by ResetClock, lane F). UTC, like Envir.Now.
+        public static int QuestDailyResetHour = 0;                      // [Quests] DailyResetHour: hour of the daily reset (0-23)
+        public static DayOfWeek QuestWeeklyResetDay = DayOfWeek.Monday; // [Quests] WeeklyResetDay: day of the weekly reset, at DailyResetHour
+
+        // [Website] Public leaderboard export (Part A "Website export", lane G)
+        public static int WebsiteExportMinutes = 5;           // [Website] ExportMinutes: export every N minutes (0 = off, 1-1440)
+        public static string WebsiteExportPath = string.Empty; // [Website] ExportPath: folder the JSON files are written to; empty = off
+
         //HTTP
         public static bool StartHTTPService = false;
         public static string HTTPIPAddress = "http://127.0.0.1:5679/";
@@ -507,6 +515,12 @@ namespace Server
             DungeonMaxInstances = Math.Clamp(DungeonMaxInstances, 1, 500);
             DungeonEmptyMinutes = Reader.ReadInt32("Dungeons", "EmptyMinutes", DungeonEmptyMinutes);
             DungeonEmptyMinutes = Math.Clamp(DungeonEmptyMinutes, 1, 60);
+            QuestDailyResetHour = Reader.ReadInt32("Quests", "DailyResetHour", QuestDailyResetHour);
+            QuestDailyResetHour = Math.Clamp(QuestDailyResetHour, 0, 23);
+            QuestWeeklyResetDay = Reader.ReadEnum("Quests", "WeeklyResetDay", QuestWeeklyResetDay);
+            WebsiteExportMinutes = Reader.ReadInt32("Website", "ExportMinutes", WebsiteExportMinutes);
+            WebsiteExportMinutes = Math.Clamp(WebsiteExportMinutes, 0, 1440);
+            WebsiteExportPath = Reader.ReadString("Website", "ExportPath", WebsiteExportPath);
 
             //HTTP
             StartHTTPService = Reader.ReadBoolean("Network", "StartHTTPService", StartHTTPService);
@@ -853,6 +867,10 @@ namespace Server
             Reader.Write("Dungeons", "Enabled", DungeonsEnabled);
             Reader.Write("Dungeons", "MaxInstances", DungeonMaxInstances);
             Reader.Write("Dungeons", "EmptyMinutes", DungeonEmptyMinutes);
+            Reader.Write("Quests", "DailyResetHour", QuestDailyResetHour);
+            Reader.Write("Quests", "WeeklyResetDay", QuestWeeklyResetDay.ToString());
+            Reader.Write("Website", "ExportMinutes", WebsiteExportMinutes);
+            Reader.Write("Website", "ExportPath", WebsiteExportPath);
 
             //HTTP
             Reader.Write("Network", "StartHTTPService", StartHTTPService);

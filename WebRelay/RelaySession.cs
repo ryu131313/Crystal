@@ -10,8 +10,9 @@ namespace WebRelay;
 ///                      sent as ONE binary WS message, so the browser can skip ids it has not ported.
 ///   browser -> server: each WS message must be exactly one well-formed frame with a known ClientPacketIds id,
 ///                      otherwise the session is closed (the server would IP-block a malformed sender for 24 h).
-///                      C.ClientVersion is the one frame rewritten: its hash becomes the MD5 of --version-path,
-///                      so the browser never has to (and cannot) supply a client hash.
+///                      C.ClientVersion is the one frame rewritten: the browser's all-zero hash becomes the MD5 of
+///                      --version-path, so the browser never has to (and cannot) supply a client hash. A desktop client's
+///                      real hash (Client.exe through [Network] Relay) is passed through unchanged (D2, quest V2).
 /// Packet bytes are otherwise moved untouched. Each pump is the only writer of its side, except that a public relay
 /// (<see cref="PlayerGuard"/>) may answer an over-quota C.NewAccount / C.NewCharacter itself: browser sends take _send.
 /// </summary>
@@ -165,7 +166,7 @@ internal sealed class RelaySession
                         return "too many failed logins";
                     }
                 }
-                if (id == (short)ClientPacketIds.ClientVersion && _versionHash != null)
+                if (id == (short)ClientPacketIds.ClientVersion && _versionHash != null && IsPlaceholderVersionHash(message.AsSpan(HeaderSize, count - HeaderSize)))
                 {
                     await stream.WriteAsync(ClientVersionFrame(_versionHash), ct).ConfigureAwait(false);
                     continue;
@@ -208,6 +209,18 @@ internal sealed class RelaySession
         await _send.WaitAsync(ct).ConfigureAwait(false);
         try { await _ws.SendAsync(frame, WebSocketMessageType.Binary, true, ct).ConfigureAwait(false); }
         finally { _send.Release(); }
+    }
+
+    /// <summary>
+    /// True for the browser's C.ClientVersion: its hash is all zero bytes (the web client cannot hash an exe), so the relay
+    /// substitutes the MD5 of --version-path. A desktop client on [Network] Relay sends the MD5 of its own Client.exe, which is
+    /// passed through, so the server's [General] VersionPath check refuses an outdated desktop build (quest V2 / D2: an old
+    /// client must not reach the game). Payload = int32 count + bytes.
+    /// </summary>
+    internal static bool IsPlaceholderVersionHash(ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length <= sizeof(int)) return true;
+        return payload.Slice(sizeof(int)).IndexOfAnyExcept((byte)0) < 0;
     }
 
     /// <summary>C.ClientVersion { byte[] VersionHash } = int32 count + bytes, built with the real codec.</summary>

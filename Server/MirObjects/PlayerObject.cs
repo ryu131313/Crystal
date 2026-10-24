@@ -4793,6 +4793,14 @@ namespace Server.MirObjects
 
                         break;
 
+                    case "HIDERANK":
+                        // lane G: Info.HideFromRankings = true (website export opt-out; any player, no packet)
+                        break;
+
+                    case "SHOWRANK":
+                        // lane G: Info.HideFromRankings = false
+                        break;
+
                     case "SETQUEST":
                         if ((!IsGM && !Settings.TestServer) || parts.Length < 3) return;
 

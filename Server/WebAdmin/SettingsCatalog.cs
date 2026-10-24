@@ -82,6 +82,8 @@ namespace Server.WebAdmin
         public const string GroupRates = "Rates & Drops";
         public const string GroupGameplay = "Gameplay";
         public const string GroupDungeons = "Dungeons";
+        public const string GroupQuests = "Quests";
+        public const string GroupWebsite = "Website";
         public const string GroupRested = "Rested";
         public const string GroupItems = "Items";
         public const string GroupMonsters = "Monster Names";
@@ -383,6 +385,20 @@ namespace Server.WebAdmin
                 "Most dungeon instances alive at the same time, counting ones still being generated. Further parties are told to try again shortly. Live.", min: 1, max: 500);
             Add(DG, "Dungeons", "EmptyMinutes", "DungeonEmptyMinutes", I32, "Close empty dungeons after (min)",
                 "A dungeon nobody is in (everyone left, died or logged out) is torn down after this many minutes, with every monster and item in it. Live.", min: 1, max: 60);
+
+            // ---- Quests (quest V2) --------------------------------------------------------------------------------
+            const string QS = GroupQuests;
+            Add(QS, "Quests", "DailyResetHour", "QuestDailyResetHour", I32, "Daily quest reset hour (UTC)",
+                "Hour of the day (UTC, like the server clock) when daily quests can be taken again. Read by the quest system's reset clock.", min: 0, max: 23);
+            Add(QS, "Quests", "WeeklyResetDay", "QuestWeeklyResetDay", typeof(DayOfWeek), "Weekly quest reset day",
+                "Day of the week when weekly quests can be taken again, at the daily reset hour (UTC).");
+
+            // ---- Website export -----------------------------------------------------------------------------------
+            const string WS = GroupWebsite;
+            Add(WS, "Website", "ExportMinutes", "WebsiteExportMinutes", I32, "Leaderboard export interval (min)",
+                "How often the public leaderboard JSON files are written. 0 = off.", min: 0, max: 1440);
+            Add(WS, "Website", "ExportPath", "WebsiteExportPath", S, "Leaderboard export folder",
+                "Folder the public leaderboard JSON files are written to (e.g. the website's wwwroot\\crystal). Empty (the default) = off.", format: "path");
 
             // ---- Rested -------------------------------------------------------------------------------------------
             const string RS = GroupRested;
