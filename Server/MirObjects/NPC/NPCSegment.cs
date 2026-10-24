@@ -2337,7 +2337,7 @@ namespace Server.MirObjects
                     case CheckType.Check:
                         uint onCheck;
 
-                        if (!uint.TryParse(param[0], out tempUint) || !uint.TryParse(param[1], out onCheck) || tempUint > Globals.FlagIndexCount)
+                        if (!uint.TryParse(param[0], out tempUint) || !uint.TryParse(param[1], out onCheck) || tempUint >= Globals.FlagIndexCount) // Flags has FlagIndexCount entries
                         {
                             failed = true;
                             break;
@@ -4312,7 +4312,7 @@ namespace Server.MirObjects
                             player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.SummonGuildMembersMustBeInGuild), ChatType.System);
                             return;
                         }
-                        if (player.MyGuildRank.Index != 0)
+                        if (player.MyGuildRank == null || player.MyGuildRank.Index != 0)
                         {
                             player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.GuildLeaderSummonMembers), player.MyGuild.Name), ChatType.System);
                             return;
@@ -4344,6 +4344,10 @@ namespace Server.MirObjects
                             {
                                 continue;//dont try to recall yourself
                             }
+                            if (ob.Dead)
+                            {
+                                continue; // a dead member is left where they died
+                            }
                             ob.Teleport(player.CurrentMap, new Point(player.CurrentLocation.X + Envir.Random.Next(4), player.CurrentLocation.Y + Envir.Random.Next(4)));
                             ob.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.YouHaveBeenSummoned)+player.Name, ChatType.System);
                         }
@@ -4355,7 +4359,7 @@ namespace Server.MirObjects
                             player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.SummonGuildMemberRequiresGuild), ChatType.System);
                             return;
                         }
-                        if (player.MyGuildRank.Index != 0)
+                        if (player.MyGuildRank == null || player.MyGuildRank.Index != 0)
                         {
                             player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization((ServerTextKeys.LeaderMaySummonMembers), player.MyGuild.Name), ChatType.System);
                             return;
