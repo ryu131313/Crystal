@@ -35,6 +35,16 @@ namespace Client.Patching
         internal static readonly string StagedFile = Path.Combine(Dir, "Staged.bin");
         private static readonly string StateFile = Path.Combine(Dir, "State.bin");
         private static readonly string PendingFile = Path.Combine(Dir, "Pending.log");
+        private static readonly string LockFile = Path.Combine(Dir, "patch.lock");
+
+        /// <summary>
+        /// patch.lock, taken by Startup when Applying.bin exists and held through the proving start: only the holder may
+        /// count, roll back or finish a build, so a second instance started meanwhile cannot reject a good one. Handed to
+        /// PatchService (<see cref="TakeLock"/>) or released by MarkHealthy.
+        /// </summary>
+        private static FileStream _lock;
+        /// <summary>This process counted the proving start, so its CMain_Load proves the build.</summary>
+        private static bool _proving;
 
         /// <summary>A message for Error.txt once Settings is loaded (Startup runs before logging is possible).</summary>
         public static string PendingLog;
@@ -50,6 +60,8 @@ namespace Client.Patching
         /// Program.Main, first: wait for a restarting parent (--wait-pid, up to 30 s) before touching any file, then:
         /// Applying.bin without Healthy.bin and starts = 0 → this is the proving start (count it, run); starts ≥ 1 → the
         /// last start never reached the game → restore the Old__ files, reject the build, start the old build and exit.
+        /// All of that only with patch.lock: when another instance holds it (it is proving the build or running the game),
+        /// this one leaves Applying.bin alone and just runs.
         /// </summary>
         public static void Startup(string[] args)
         {
@@ -62,33 +74,47 @@ namespace Client.Patching
                     File.Delete(PendingFile);
                 }
                 if (!File.Exists(ApplyingFile)) return;
+                try { _lock = new FileStream(LockFile, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
+                catch (IOException) { return; } // another instance owns Patch\ (proving the build or in the game)
+                if (!File.Exists(ApplyingFile)) { ReleaseLock(); return; } // finished by the instance that just let go
                 var (starts, entries) = Read(ApplyingFile);
                 string text = File.ReadAllText(ApplyingFile);
                 if (File.Exists(HealthyFile) && File.ReadAllText(HealthyFile) == text.Substring(text.IndexOf('\n') + 1))
                 {
                     FinishHealthy(entries); // proven last time; the clean-up was interrupted
+                    ReleaseLock();
                     return;
                 }
                 if (starts == 0)
                 {
                     Write(ApplyingFile, 1, entries);
+                    _proving = true; // keep the lock until MarkHealthy or PatchService takes it
                     return;
                 }
                 Rollback(entries, reject: true);
                 // This process exits at once; the restarted old build logs the message (Startup reads PendingFile).
                 File.WriteAllText(PendingFile, "[Patch] the new build never reached the game: rolled back to the previous build");
+                ReleaseLock(); // before Restart: the old build waits for this process anyway (--wait-pid)
                 Restart(args);
                 ExitNow = true;
             }
             catch (Exception ex)
             {
                 PendingLog = "[Patch] startup recovery: " + ex.Message;
+                if (!_proving) ReleaseLock();
             }
         }
+
+        /// <summary>PatchService.Start: the patch.lock Startup still holds (the proving start), or null. Thread-safe.</summary>
+        internal static FileStream TakeLock() => Interlocked.Exchange(ref _lock, null);
+
+        private static void ReleaseLock() => Interlocked.Exchange(ref _lock, null)?.Dispose();
 
         /// <summary>CMain_Load: the new build reached the game. Record it, then drop the Old__ copies, Applying.bin and Staged\.</summary>
         public static void MarkHealthy()
         {
+            if (!_proving) return; // another instance is proving the build (or nothing is applied)
+            _proving = false;
             try
             {
                 if (!File.Exists(ApplyingFile)) return;
@@ -99,6 +125,10 @@ namespace Client.Patching
             catch (Exception ex)
             {
                 PendingLog = "[Patch] could not finish the update: " + ex.Message;
+            }
+            finally
+            {
+                ReleaseLock(); // no-op once PatchService took it
             }
         }
 

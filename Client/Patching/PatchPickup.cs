@@ -247,7 +247,7 @@ namespace Client.Patching
             {
                 var field = typeof(Libraries).GetField(spec.Field, BindingFlags.Public | BindingFlags.Static);
                 if (field?.GetValue(null) is not MLibrary[] array) continue;
-                int wanted = PatchService.HighestIndex(spec.Path, spec.Suffix) + 1;
+                int wanted = PatchService.HighestIndex(spec.Path, spec.Suffix, spec.Max) + 1;
                 if (wanted <= array.Length) continue;
                 int old = array.Length;
                 Array.Resize(ref array, wanted);

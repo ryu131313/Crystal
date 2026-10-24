@@ -174,6 +174,7 @@ namespace Client.Patching
         {
             Directory.CreateDirectory(PatchPaths.TempDir);
             Directory.CreateDirectory(PatchPaths.TrashDir);
+            _lockFile = PatchApply.TakeLock(); // held since Program.Main during a proving start
             for (int attempt = 0; attempt < 6 && _lockFile == null; attempt++)
             {
                 try { _lockFile = new FileStream(Path.Combine(PatchPaths.PatchDir, "patch.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
@@ -380,13 +381,15 @@ namespace Client.Patching
 
         /// <summary>
         /// The highest NNN of "folder\NNN{suffix}.Lib" the manifest lists, or -1. Libraries.InitLibrary sizes each array
-        /// from the larger of this and the disk, so a fresh install has a slot for every monster.
+        /// from the larger of this and the disk, so a fresh install has a slot for every monster. Numbers above
+        /// <paramref name="max"/> are ignored: the game cannot index them, and Data/Monster/20261024.Lib would otherwise
+        /// allocate millions of MLibrary on every start.
         /// </summary>
-        public static int HighestIndex(string folder, string suffix)
+        public static int HighestIndex(string folder, string suffix, int max)
         {
             if (_manifest == null) return -1; // also before Start finished: the cached list loaded by StartInBackground
             string dir = PatchPaths.Normalize(folder).TrimEnd('/') + "/";
-            string key = dir + "|" + suffix;
+            string key = dir + "|" + suffix + "|" + max;
             lock (_lock)
             {
                 if (_manifest == null) return -1;
@@ -399,8 +402,9 @@ namespace Client.Patching
 
         private static int ComputeHighest(PatchManifest manifest, string key)
         {
-            int bar = key.IndexOf('|');
-            string dir = key.Substring(0, bar), tail = key.Substring(bar + 1) + ".Lib";
+            int bar = key.IndexOf('|'), last = key.LastIndexOf('|');
+            string dir = key.Substring(0, bar), tail = key.Substring(bar + 1, last - bar - 1) + ".Lib";
+            int max = int.Parse(key.AsSpan(last + 1));
             int best = -1;
             foreach (var path in manifest.Files.Keys)
             {
@@ -410,7 +414,7 @@ namespace Client.Patching
                 if (len <= 0) continue;
                 bool digits = true;
                 for (int i = 0; i < len; i++) if (!char.IsDigit(path[dir.Length + i])) { digits = false; break; }
-                if (digits && int.TryParse(path.AsSpan(dir.Length, len), out int n) && n > best) best = n;
+                if (digits && int.TryParse(path.AsSpan(dir.Length, len), out int n) && n > best && n <= max) best = n;
             }
             return best;
         }
@@ -1011,25 +1015,39 @@ namespace Client.Patching
         /// <summary>
         /// Old file → Trash (works while the game has it open: libraries use FileShare.Delete), part → target, record,
         /// queue for the UI thread. A sharing violation (a playing sound) is "later", not a failure. Program files never come
-        /// here: they are staged (Stage) and applied by PatchApply.
+        /// here: they are staged (Stage) and applied by PatchApply. When part → target fails after the old file went to Trash,
+        /// the old file is moved back, so the game never runs without it until the next start.
         /// </summary>
         private static string Install(PatchFile file, string part, string local, bool program)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(local));
+            string trash = null;
             try
             {
-                if (File.Exists(local)) File.Move(local, TrashName(local));
+                if (File.Exists(local)) File.Move(local, trash = TrashName(local));
                 File.Move(part, local);
             }
-            catch (IOException) { return "later"; } // in use (a playing sound): retried, capped
+            catch (IOException) { PutBack(trash, local); return "later"; } // in use (a playing sound): retried, capped
             catch (UnauthorizedAccessException ex)
             {
+                PutBack(trash, local);
                 LogOnce("[Patch] cannot write " + local + ": " + ex.Message);
                 return "fault";
             }
             Record(file);
             _installed.Enqueue(file.Path);
             return "ok";
+        }
+
+        /// <summary>Install failed after the old file went to Trash: put it back (null = there was none).</summary>
+        private static void PutBack(string trash, string local)
+        {
+            if (trash == null || File.Exists(local)) return;
+            try { File.Move(trash, local); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                LogOnce("[Patch] could not restore " + local + ": " + ex.Message);
+            }
         }
 
         /// <summary>A program file: part → Patch\Staged\&lt;path&gt; (replacing an older staged copy), recorded in Staged.bin.</summary>

@@ -95,24 +95,24 @@ namespace Client.MirGraphics
         {
             //Wiz/War/Tao
             InitLibrary(ref CArmours, Settings.CArmourPath, "00");
-            InitLibrary(ref CHair, Settings.CHairPath, "00");
+            InitLibrary(ref CHair, Settings.CHairPath, "00", max: byte.MaxValue);
             InitLibrary(ref CWeapons, Settings.CWeaponPath, "00");
             InitLibrary(ref CWeaponEffect, Settings.CWeaponEffectPath, "00");
-            InitLibrary(ref CHumEffect, Settings.CHumEffectPath, "00");
+            InitLibrary(ref CHumEffect, Settings.CHumEffectPath, "00", max: byte.MaxValue);
 
             //Assassin
             InitLibrary(ref AArmours, Settings.AArmourPath, "00");
-            InitLibrary(ref AHair, Settings.AHairPath, "00");
+            InitLibrary(ref AHair, Settings.AHairPath, "00", max: byte.MaxValue);
             InitLibrary(ref AWeaponsL, Settings.AWeaponPath, "00", " L");
             InitLibrary(ref AWeaponsR, Settings.AWeaponPath, "00", " R");
-            InitLibrary(ref AHumEffect, Settings.AHumEffectPath, "00");
+            InitLibrary(ref AHumEffect, Settings.AHumEffectPath, "00", max: byte.MaxValue);
 
             //Archer
             InitLibrary(ref ARArmours, Settings.ARArmourPath, "00");
-            InitLibrary(ref ARHair, Settings.ARHairPath, "00");
+            InitLibrary(ref ARHair, Settings.ARHairPath, "00", max: byte.MaxValue);
             InitLibrary(ref ARWeapons, Settings.ARWeaponPath, "00");
             InitLibrary(ref ARWeaponsS, Settings.ARWeaponPath, "00", " S");
-            InitLibrary(ref ARHumEffect, Settings.ARHumEffectPath, "00");
+            InitLibrary(ref ARHumEffect, Settings.ARHumEffectPath, "00", max: byte.MaxValue);
 
             //Other
             InitLibrary(ref Monsters, Settings.MonsterPath, "000");
@@ -125,7 +125,7 @@ namespace Client.MirGraphics
             InitLibrary(ref Pets, Settings.PetsPath, "00");
             InitLibrary(ref Transform, Settings.TransformPath, "00");
             InitLibrary(ref TransformMounts, Settings.TransformMountsPath, "00");
-            InitLibrary(ref TransformEffect, Settings.TransformEffectPath, "00");
+            InitLibrary(ref TransformEffect, Settings.TransformEffectPath, "00", max: byte.MaxValue);
             InitLibrary(ref TransformWeaponEffect, Settings.TransformWeaponEffectPath, "00");
 
             #region Maplibs
@@ -206,26 +206,34 @@ namespace Client.MirGraphics
         internal sealed class ArraySpec
         {
             public string Field, Path, Format, Suffix;
+            public int Max;
         }
 
         internal static readonly List<ArraySpec> ArraySpecs = new List<ArraySpec>();
 
-        static void InitLibrary(ref MLibrary[] library, string path, string toStringValue, string suffix = "", [CallerArgumentExpression("library")] string field = "")
+        /// <param name="max">
+        /// The highest number the game can index: every library number comes from a ushort (monster and NPC image), a
+        /// short (item shape, weapon effect, mount, transform) or a byte (hair, wing effect). Files numbered above it, on
+        /// disk or in the patch manifest, are ignored, so a stray Data\Monster\20261024.Lib cannot allocate millions of MLibrary.
+        /// </param>
+        static void InitLibrary(ref MLibrary[] library, string path, string toStringValue, string suffix = "", int max = ushort.MaxValue, [CallerArgumentExpression("library")] string field = "")
         {
-            ArraySpecs.Add(new ArraySpec { Field = field, Path = path, Format = toStringValue, Suffix = suffix });
+            ArraySpecs.Add(new ArraySpec { Field = field, Path = path, Format = toStringValue, Suffix = suffix, Max = max });
 
             if (!Directory.Exists(path))
             {
                 Directory.CreateDirectory(path);
             }
 
-            var allFiles = Directory.GetFiles(path, "*" + suffix + MLibrary.Extention, SearchOption.TopDirectoryOnly).OrderBy(x => int.Parse(Regex.Match(x, @"\d+").Value));
+            int highest = 0;
+            foreach (var file in Directory.GetFiles(path, "*" + suffix + MLibrary.Extention, SearchOption.TopDirectoryOnly))
+            {
+                if (int.TryParse(Regex.Match(Path.GetFileName(file), @"\d+").Value, out int n) && n <= max && n > highest) highest = n;
+            }
 
-            var lastFile = allFiles.Count() > 0 ? Path.GetFileName(allFiles.Last()) : "0";
-
-            var count = int.Parse(Regex.Match(lastFile, @"\d+").Value) + 1;
+            var count = highest + 1;
             // In-game patcher: a fresh install sizes the array from the manifest too (else Monsters.Length == 1).
-            count = Math.Max(count, PatchService.HighestIndex(path, suffix) + 1);
+            count = Math.Max(count, PatchService.HighestIndex(path, suffix, max) + 1);
 
             library = new MLibrary[count];
 
