@@ -3390,7 +3390,17 @@ namespace Server.MirEnvir
                     }
                 }
             }
+
+            // Website export (UserData plan Part A, lane G): a copy every [Website] ExportMinutes, written by its own thread.
+            var websiteExportDelay = Settings.Minute * Math.Max(1, Settings.WebsiteExportMinutes);
+            if (Time >= websiteExportTime || websiteExportTime - Time > websiteExportDelay) // second test: a restart reset Time
+            {
+                websiteExportTime = Time + websiteExportDelay;
+                try { WebsiteExport.Tick(this); } catch (Exception ex) { WorldErrors.Record("WebsiteExport", ex); }
+            }
         }
+
+        private long websiteExportTime;
 
         private void ProcessAuction()
         {
