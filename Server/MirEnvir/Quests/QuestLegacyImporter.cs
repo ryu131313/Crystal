@@ -38,8 +38,11 @@ namespace Server.MirEnvir.Quests
         /// </summary>
         internal const int Version = 2;
 
-        /// <summary>A quest the importer owns: it has a legacy body file name. Quests made in the Quests editor have none.</summary>
-        internal static bool IsLegacy(QuestInfo q) => q != null && !string.IsNullOrWhiteSpace(q.FileName);
+        /// <summary>
+        /// A quest the importer owns: it has a legacy body file name and was never saved through the Quests editor (review S1:
+        /// <see cref="QuestDefinition.EditorOwned"/>). Quests made in the editor have no file name.
+        /// </summary>
+        internal static bool IsLegacy(QuestInfo q) => q != null && !string.IsNullOrWhiteSpace(q.FileName) && !q.Definition.EditorOwned;
 
         /// <summary>The quest a q&lt;n&gt;. key belongs to (0 = not such a key).</summary>
         private static int KeyQuest(string key)
@@ -421,9 +424,15 @@ namespace Server.MirEnvir.Quests
             var body = ReadBody(q);
             if (!body.Found) report.MissingBodies.Add(id + " " + q.Name + " (" + q.FileName + ")");
 
-            var oldSteps = q.Definition.Steps.Where(s => !string.IsNullOrEmpty(s.LegacySource)).ToDictionary(s => s.LegacySource, s => s.Index, StringComparer.Ordinal);
+            // A LegacySource seen twice (hand-edited rows) keeps the first id and is reported; it never throws (review S2: this runs at starts).
+            var oldSteps = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var s in q.Definition.Steps)
+                if (!string.IsNullOrEmpty(s.LegacySource) && !oldSteps.TryAdd(s.LegacySource, s.Index))
+                    report.DuplicateLegacySources.Add(id + " " + q.Name + ": step " + s.Index + " repeats LegacySource \"" + s.LegacySource + "\" (its id is retired)");
             var oldObjectives = new Dictionary<string, int>(StringComparer.Ordinal);
-            foreach (var o in q.Definition.Objectives) if (!string.IsNullOrEmpty(o.LegacySource)) oldObjectives.TryAdd(o.LegacySource, o.Index);
+            foreach (var o in q.Definition.Objectives)
+                if (!string.IsNullOrEmpty(o.LegacySource) && !oldObjectives.TryAdd(o.LegacySource, o.Index))
+                    report.DuplicateLegacySources.Add(id + " " + q.Name + ": objective " + o.Index + " repeats LegacySource \"" + o.LegacySource + "\" (its id is retired)");
             var oldLegacyStep = q.Definition.Steps.FirstOrDefault(s => s.LegacySource == "step");
             var firstImport = !q.HasDefinition;
 
@@ -804,6 +813,8 @@ namespace Server.MirEnvir.Quests
         /// <summary>Their indexes, ascending (the live quest replace after an import).</summary>
         public readonly List<int> ImportedQuests = new List<int>();
         public readonly List<string> MissingBodies = new List<string>();
+        /// <summary>Rows of a quest that repeat a LegacySource (the first keeps its id; review S2).</summary>
+        public readonly List<string> DuplicateLegacySources = new List<string>();
         public readonly List<string> Unparsed = new List<string>();
         public readonly List<string> CutShort = new List<string>();
         public readonly List<string> IgnoredQuestSections = new List<string>();
@@ -866,6 +877,7 @@ namespace Server.MirEnvir.Quests
             List("Kill tasks with an empty group", EmptyGroups);
             List("Overlapping kill groups (monster counted for the first task only)", OverlappingGroups);
             List("Duplicate tasks on one monster or item", DuplicateTasks);
+            List("Rows repeating a LegacySource (first id kept)", DuplicateLegacySources);
             List("Quests with (M)/(F) reward pairs (now one reward each with a Gender condition)", GenderPairs);
             var flags = Flags.Select(p => p.Key.ToString(CultureInfo.InvariantCulture) + " (quest " + string.Join(", ", p.Value) + ")").ToList();
             List("Flags used by [@FLAGTASKS]", flags);

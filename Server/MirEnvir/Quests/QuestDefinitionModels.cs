@@ -53,6 +53,11 @@ namespace Server.MirEnvir.Quests
         public bool StartItemConsumed;
         public QuestFlags Flags;
         public string GroupName = string.Empty;
+        /// <summary>
+        /// Saved through the web admin Quests editor or its JSON import (wave 3 review S1): the legacy re-import skips the quest from then on,
+        /// so an edit of an imported row is never undone. An additive column (default false); set by the editor service only.
+        /// </summary>
+        public bool EditorOwned;
 
         public List<QuestStepInfo> Steps = new List<QuestStepInfo>();
         public List<QuestObjectiveInfo> Objectives = new List<QuestObjectiveInfo>();

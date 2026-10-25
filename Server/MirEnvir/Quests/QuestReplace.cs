@@ -300,7 +300,18 @@ namespace Server.MirEnvir.Quests
             //    index, rebuilt from Main's new graph; Part B "Shared top-level tables").
             var affected = new SortedSet<int>(replacedIds);
             affected.UnionWith(deletedIds);
-            affected.UnionWith(QuestsUsingChangedSharedRows(main, before, snap));
+            try
+            {
+                affected.UnionWith(QuestsUsingChangedSharedRows(main, before, snap));
+            }
+            catch (Exception ex)
+            {
+                // Review S4: the swap stands; refresh players for every quest rather than leave anyone on the old graph.
+                MessageQueue.Instance.Enqueue("[Quests] Quest replace (" + snap.Source + "): the shared-row reverse index failed, refreshing every quest: " + ex.Message);
+                MessageQueue.Instance.Enqueue(ex);
+                foreach (var info in main.QuestInfoList) if (info != null) affected.Add(info.Index);
+            }
+
             result.Affected.AddRange(affected);
 
             // 4. Online players (steps 4-6): migration, index, sent definitions, availability. One player's failure never undoes the swap.

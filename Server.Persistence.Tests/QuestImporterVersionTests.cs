@@ -231,5 +231,55 @@ public class QuestImporterVersionTests
         }
     }
 
+    [Fact]
+    public void A_legacy_quest_saved_in_the_editor_is_skipped_by_every_later_reimport()
+    {
+        var dir = NewTempFolder("quests-editor-owned");
+        WriteLegacyFiles(dir);
+        InFolder(dir, () =>
+        {
+            var e = World();
+            QuestLegacyImporter.Import(e);
+            var d = Def(e, Legacy);
+            d.EditorOwned = true;                 // what a Quests page save sets (review S1)
+            d.Objectives[0].Count = 9;            // an edit of an imported row
+            d.Rewards.Single(r => r.Kind == QuestRewardKind.Gold).Amount = 999;
+            var image = System.Text.Json.JsonSerializer.Serialize(d, Json);
+
+            var report = QuestLegacyImporter.Import(e);
+
+            Assert.Empty(report.ImportedQuests);
+            Assert.Equal(image, System.Text.Json.JsonSerializer.Serialize(Def(e, Legacy), Json));
+            Assert.Contains(e.QuestConditionList, c => c.OwnerQuest == Legacy); // its owned accept condition stays
+            Assert.Contains(e.QuestTextList, t => t.TextKey == "q1.task");      // and its texts
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void Repeated_legacy_sources_are_reported_and_never_throw()
+    {
+        var dir = NewTempFolder("quests-dup-source");
+        WriteLegacyFiles(dir);
+        InFolder(dir, () =>
+        {
+            var e = World();
+            QuestLegacyImporter.Import(e);
+            var d = Def(e, Legacy);
+            d.Steps.Add(new QuestStepInfo { Index = ++e.QuestStepIndex, Order = 2, LegacySource = "step" });          // hand-edited duplicate
+            d.Objectives.Add(new QuestObjectiveInfo { Index = ++e.QuestObjectiveIndex, Step = d.Steps[0].Index, Type = QuestObjectiveType.Counter,
+                Count = 1, LegacySource = d.Objectives[0].LegacySource });
+            var firstStep = d.Steps[0].Index;
+            var firstObjective = d.Objectives[0].Index;
+
+            var report = QuestLegacyImporter.Import(e); // review S2: used to throw in ToDictionary at every start
+
+            Assert.Equal(2, report.DuplicateLegacySources.Count);
+            Assert.Equal(firstStep, Def(e, Legacy).Steps.Single(s => s.LegacySource == "step").Index);
+            Assert.Equal(firstObjective, Def(e, Legacy).Objectives[0].Index);
+            return 0;
+        });
+    }
+
     private static QuestDefinition Def(Envir e, int quest) => e.QuestInfoList.Single(q => q.Index == quest).Definition;
 }

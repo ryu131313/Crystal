@@ -70,13 +70,20 @@ namespace Server.WebAdmin.Quests
                 return outcome;
             }
 
-            QuestReplaceSnapshot snapshot;
-            lock (WebAdminGame.EditLock) snapshot = QuestReplace.Take(Envir.Edit, list, source ?? "Quests page");
+            // Review S3: the snapshot is taken and its apply queued under the same EditLock, so applies reach the game thread in snapshot
+            // order (an older snapshot can never overwrite a newer one). RunAsync queues synchronously (TryQueue never blocks) before its
+            // first await, so the lock is held only for the copy and the enqueue.
+            Task<QuestReplaceResult> pending;
+            lock (WebAdminGame.EditLock)
+            {
+                var snapshot = QuestReplace.Take(Envir.Edit, list, source ?? "Quests page");
+                pending = WebAdminGame.RunAsync(() => QuestReplace.Apply(Envir.Main, snapshot, Envir.Main.Players), ApplyTimeoutMs);
+            }
 
             QuestReplaceResult result;
             try
             {
-                result = await WebAdminGame.RunAsync(() => QuestReplace.Apply(Envir.Main, snapshot, Envir.Main.Players), ApplyTimeoutMs).ConfigureAwait(false);
+                result = await pending.ConfigureAwait(false);
             }
             catch (WorldNotRunningException)
             {

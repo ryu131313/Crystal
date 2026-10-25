@@ -335,4 +335,22 @@ public class QuestReplaceTests
             Assert.DoesNotContain(Pack, other.Connection.SentQuestDefinitions);
         });
     }
+
+    [Fact]
+    public void A_definition_over_the_packet_limit_is_never_sent()
+    {
+        InWorld(() =>
+        {
+            // Review S5: a ushort packet length would wrap; the engine logs and skips instead.
+            Envir.Main.QuestTextList.Single(t => t.TextKey == "pack.name").Body = new string('x', 70000);
+            Envir.Main.InvalidateQuestCatalog();
+            var p = NewPlayer("Big");
+            p.Sent.Clear();
+            p.Quests.EnsureDefinition(Envir.Main.QuestCatalog.Get(Pack));
+            Assert.Empty(p.Of<ServerPackets.QuestDefinition>());
+
+            p.Quests.EnsureDefinition(Envir.Main.QuestCatalog.Get(Hunt)); // a normal one still goes out
+            Assert.Single(p.Of<ServerPackets.QuestDefinition>(), d => d.Quest == Hunt);
+        });
+    }
 }

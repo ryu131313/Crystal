@@ -16,7 +16,8 @@
         public int Index;                 // 0 = a new quest
         public string Rev;                // concurrency token of the read (null for a new quest)
         public string Name;               // legacy QuestInfo.Name (display; set from the name text when a quest is created)
-        public bool Legacy;               // the quest has a legacy body file (QuestInfo.FileName): a re-import rebuilds its rows until D2
+        public bool Legacy;               // read only: a legacy body file and never saved here, so a legacy re-import rebuilds its rows
+        public bool EditorOwned;          // read only: saved through this editor (QuestDefinition.EditorOwned); re-imports skip it
         public int Revision;              // read only
         public string ShapeHash;          // read only (a long as text: JavaScript numbers lose precision above 2^53)
 

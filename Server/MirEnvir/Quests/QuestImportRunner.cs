@@ -101,12 +101,19 @@ namespace Server.MirEnvir.Quests
         {
             lock (WebAdminGame.EditLock)
             {
+                // The world-start checks first, so a start with nothing to do never reports a reason it would not have run for (review S7).
+                var store = Envir.Store as Storage.SqliteWorldStore;
+                long stored = 0;
+                if (onlyWhenOlderVersion)
+                {
+                    stored = store?.ReadMetaLong(VersionMetaKey) ?? 0;
+                    if (store == null || stored >= QuestLegacyImporter.Version) return new QuestImportOutcome { Message = UpToDate };
+                }
+
                 if (Envir.EditorFormsOpen > 0)
                     return new QuestImportOutcome { Message = "a WinForms game data editor is open (close it first)" };
                 if (GameDataState.EditReloadFailed)
                     return new QuestImportOutcome { Message = "the last reload of the editor copy failed; reload it first" };
-                if (!dryRun && GameDataState.Unsaved.Changes > 0)
-                    return new QuestImportOutcome { Message = GameDataState.Unsaved.Changes + " unsaved game data change(s) would be saved with it; save or discard them first" };
 
                 var edit = Envir.Edit;
                 if (!GameDataSave.EditLooksLoaded() || (edit.ItemInfoList.Count == 0 && edit.MonsterInfoList.Count == 0 && edit.MapInfoList.Count == 0 && edit.QuestInfoList.Count == 0))
@@ -133,6 +140,9 @@ namespace Server.MirEnvir.Quests
                         if (edit.QuestInfoList[i] != null && edit.QuestInfoList[i].HasDefinition)
                             return new QuestImportOutcome { Message = "the quest V2 tables already have rows" };
 
+                if (!dryRun && GameDataState.Unsaved.Changes > 0)
+                    return new QuestImportOutcome { Message = GameDataState.Unsaved.Changes + " unsaved game data change(s) would be saved with it; save or discard them first" };
+
                 if (dryRun)
                 {
                     // On a throwaway copy: nothing in Envir.Edit changes. The copy shares the info lists (read only here).
@@ -141,11 +151,8 @@ namespace Server.MirEnvir.Quests
                     return new QuestImportOutcome { Message = "dry run", Report = dry };
                 }
 
-                var store = Envir.Store as Storage.SqliteWorldStore;
                 if (onlyWhenOlderVersion)
                 {
-                    var stored = store?.ReadMetaLong(VersionMetaKey) ?? 0;
-                    if (store == null || stored >= QuestLegacyImporter.Version) return new QuestImportOutcome { Message = UpToDate };
                     MessageQueue.Enqueue("[Quests] The quest V2 rows were imported by an older importer (version " + stored + ", this build " +
                                          QuestLegacyImporter.Version + "): re-importing the legacy quests once (editor-made quests are kept).");
                 }

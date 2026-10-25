@@ -212,6 +212,27 @@ namespace Server.MirEnvir.Quests
                     if (s.NextStep > 0 && !steps.ContainsKey(s.NextStep)) Error(id, "step " + s.Index + " NextStep " + s.NextStep + " is not a step of this quest");
                     else if (s.NextStep < -1) Error(id, "step " + s.Index + " NextStep " + s.NextStep + " is invalid");
 
+                // Review C1: C.QuestChoose names a branch by its ChoiceKey and the engine takes the first match, so a key repeated
+                // within one step makes the later branch unreachable.
+                var choiceKeys = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var b in q.Definition.Branches)
+                    if (!choiceKeys.Add(b.Step + "\u0001" + (b.ChoiceKey ?? string.Empty)))
+                        Error(id, "step " + b.Step + " has two branches with the ChoiceKey '" + b.ChoiceKey + "' (the choice must be unique within a step)");
+
+                // One text key on two different fields is allowed (deliberate reuse), but usually an accident: a warning.
+                var fieldsByKey = new Dictionary<string, string>(StringComparer.Ordinal);
+                void Field(string key, string what)
+                {
+                    if (string.IsNullOrEmpty(key)) return;
+                    if (fieldsByKey.TryGetValue(key, out var first)) Warn(id, "text key " + key + " is used by " + first + " and " + what + " (one text for both)");
+                    else fieldsByKey[key] = what;
+                }
+
+                Field(q.Definition.NameKey, "NameKey"); Field(q.Definition.SummaryKey, "SummaryKey"); Field(q.Definition.CompleteKey, "CompleteKey");
+                foreach (var s in q.Definition.Steps) { Field(s.TitleKey, "step " + s.Index + " TitleKey"); Field(s.TextKey, "step " + s.Index + " TextKey"); Field(s.ReadyTextKey, "step " + s.Index + " ReadyTextKey"); }
+                foreach (var o in q.Definition.Objectives) Field(o.TextKey, "objective " + o.Index + " TextKey");
+                foreach (var b in q.Definition.Branches) { Field(b.ChoiceKey, "a branch ChoiceKey of step " + b.Step); Field(b.TextKey, "a branch TextKey of step " + b.Step); }
+
                 foreach (var b in q.Definition.Branches)
                 {
                     if (!steps.ContainsKey(b.Step)) Error(id, "a branch names step " + b.Step + ", not a step of this quest");
@@ -320,11 +341,11 @@ namespace Server.MirEnvir.Quests
                     if (c.OwnerQuest == id && c.Op == QuestConditionOp.Leaf && c.Leaf == QuestConditionLeaf.QuestVar && !vars.Contains(c.Arg1))
                         Error(id, "condition " + c.Index + " names variable " + c.Arg1 + ", not a variable of this quest");
 
-                // Size: the definition packet arrives at the wave 2 kick-off; until then a generous estimate of its encoding.
-                var estimate = 64 + 48 * (q.Definition.Steps.Count + q.Definition.Objectives.Count + q.Definition.Branches.Count + q.Definition.Endpoints.Count + q.Definition.Rewards.Count + q.Definition.Vars.Count);
-                foreach (var key in TextKeysOf(q))
-                    if (!string.IsNullOrEmpty(key) && texts.TryGetValue(key + "\u0001", out var body)) estimate += Encoding.UTF8.GetByteCount(body) + 8;
-                if (estimate > 65535) Error(id, "its definition would encode to about " + estimate + " bytes (packet limit 65,535)");
+                // Size: a generous estimate of the S.QuestDefinition encoding (fixed fields per row, every text by its UTF-8 length, the key
+                // strings, and 4 bytes per group member plus a label per group target; review S5). The engine also refuses to send a
+                // definition over the limit (PlayerQuests.EnsureDefinition).
+                var estimate = EstimateDefinitionBytes(q.Definition, texts, groups);
+                if (estimate > MaxDefinitionBytes) Error(id, "its definition would encode to about " + estimate + " bytes (packet limit 65,535)");
             }
 
             foreach (var g in groups.Values)
@@ -344,6 +365,28 @@ namespace Server.MirEnvir.Quests
                     Warn(0, "quests " + string.Join(", ", pair.Value) + " all collect item " + pair.Key + " (they share the quest-bag count when active together)");
 
             return problems;
+        }
+
+        /// <summary>The packet limit of one S.QuestDefinition (a ushort length).</summary>
+        public const int MaxDefinitionBytes = 65535;
+
+        /// <summary>A generous estimate of one quest's S.QuestDefinition size (review S5); texts keyed "key\u0001lang".</summary>
+        internal static int EstimateDefinitionBytes(QuestDefinition d, Dictionary<string, string> texts, Dictionary<int, QuestGroupInfo> groups)
+        {
+            static int Str(string s) => 5 + (string.IsNullOrEmpty(s) ? 0 : Encoding.UTF8.GetByteCount(s));
+            var estimate = 128 + Str(d.GroupName) + Str(d.AuthorKey);
+            estimate += 48 * (d.Steps.Count + d.Objectives.Count + d.Branches.Count + d.Endpoints.Count + d.Rewards.Count + d.Vars.Count);
+            foreach (var b in d.Branches) estimate += Str(b.ChoiceKey);
+            foreach (var o in d.Objectives)
+            {
+                if (o.TargetKind != QuestTargetKind.MonsterGroup && o.TargetKind != QuestTargetKind.ItemGroup) continue;
+                estimate += 64; // the server-filled target label
+                if (groups.TryGetValue(o.TargetId, out var g)) estimate += 4 * g.Members.Count + Str(g.AuthorKey);
+            }
+
+            foreach (var key in TextKeysOf(d))
+                if (!string.IsNullOrEmpty(key) && texts.TryGetValue(key + "\u0001", out var body)) estimate += Str(body) + 8;
+            return estimate;
         }
 
         private static int NextByOrder(List<QuestStepInfo> ordered, QuestStepInfo step)
@@ -464,13 +507,14 @@ namespace Server.MirEnvir.Quests
             if (o.Map != 0 && !maps.Contains(o.Map)) error("marker names a missing map " + o.Map);
         }
 
-        private static IEnumerable<string> TextKeysOf(QuestInfo q)
+        private static IEnumerable<string> TextKeysOf(QuestDefinition d)
         {
-            yield return q.Definition.NameKey;
-            yield return q.Definition.SummaryKey;
-            yield return q.Definition.CompleteKey;
-            foreach (var s in q.Definition.Steps) { yield return s.TitleKey; yield return s.TextKey; yield return s.ReadyTextKey; }
-            foreach (var o in q.Definition.Objectives) yield return o.TextKey;
+            yield return d.NameKey;
+            yield return d.SummaryKey;
+            yield return d.CompleteKey;
+            foreach (var s in d.Steps) { yield return s.TitleKey; yield return s.TextKey; yield return s.ReadyTextKey; }
+            foreach (var o in d.Objectives) yield return o.TextKey;
+            foreach (var b in d.Branches) { yield return b.ChoiceKey; yield return b.TextKey; }
         }
     }
 

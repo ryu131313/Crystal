@@ -467,6 +467,105 @@ namespace Server.WebAdmin.Tests
             Assert.Equal(RouteAuth.Admin, match.Route.Auth);
             Assert.Equal(method, match.Route.Method);
         }
+
+        // ------------------------------------------------------------------ wave 3 review fixes
+
+        [Fact]
+        public void A_save_makes_the_quest_editor_owned_and_LegacySource_stays_the_importers()
+        {
+            var w = World();
+            var (svc, _) = Editor(w);
+            var dto = FullQuest();
+            dto.Objectives[0].LegacySource = "[@KILLTASKS] Wolf"; // a client may send anything: new rows get ""
+            dto.Rewards[0].LegacySource = "[@EXPREWARD]";
+            svc.Save(dto, false);
+            var q = w.QuestInfoList.Single();
+            Assert.True(q.Definition.EditorOwned); // review S1: legacy re-imports skip it from now on
+            Assert.All(q.Definition.Objectives, o => Assert.Equal(string.Empty, o.LegacySource));
+            Assert.All(q.Definition.Rewards, r => Assert.Equal(string.Empty, r.LegacySource));
+
+            // Existing rows keep the stored value whatever the client sends; a reward keeps one only when the stored quest has it.
+            q.Definition.Objectives[0].LegacySource = "[@KILLTASKS] Wolf";
+            q.Definition.Rewards[0].LegacySource = "[@EXPREWARD]";
+            var read = svc.Read(1);
+            Assert.True(read.EditorOwned);
+            Assert.False(read.Legacy);
+            read.Objectives[0].LegacySource = "forged";
+            read.Objectives[1].LegacySource = "forged too";
+            read.Rewards[1].LegacySource = "[@NOTSTORED]";
+            svc.Save(read, false);
+            Assert.Equal("[@KILLTASKS] Wolf", q.Definition.Objectives[0].LegacySource);
+            Assert.Equal(string.Empty, q.Definition.Objectives[1].LegacySource);
+            Assert.Equal("[@EXPREWARD]", q.Definition.Rewards[0].LegacySource);
+            Assert.Equal(string.Empty, q.Definition.Rewards[1].LegacySource);
+        }
+
+        [Fact]
+        public void Dry_runs_and_refused_saves_leave_the_editor_copy_exactly_as_it_was()
+        {
+            var w = World();
+            var (svc, _) = Editor(w);
+            string Image() => JsonSerializer.Serialize(new
+            {
+                quests = w.QuestInfoList.Select(q => svc.Read(q.Index)).ToList(),
+                conditions = w.QuestConditionList.Select(c => (c.Index, c.OwnerQuest, c.Parent)).ToList(),
+                texts = w.QuestTextList.Select(t => (t.Index, t.TextKey, t.Body)).ToList(),
+                groups = w.QuestGroupList.Select(g => g.Index).ToList(),
+                counters = new[] { w.QuestIndex, w.QuestStepIndex, w.QuestObjectiveIndex, w.QuestConditionIndex, w.QuestGroupIndex, w.QuestTextIndex, w.QuestVarIndex },
+            }, WebAdminJson.Options);
+
+            var before = Image();
+            Assert.True(svc.Save(FullQuest(), dryRun: true).DryRun);
+            Assert.Equal(before, Image());
+
+            var bad = FullQuest();
+            bad.Objectives[0].Count = 0; // a validation error: refused after the graph was applied to the copy
+            Assert.Equal(422, Assert.Throws<WebAdminException>(() => svc.Save(bad, false)).Status);
+            Assert.Equal(before, Image());
+
+            svc.Save(FullQuest(), false);
+            var saved = Image();
+            var read = svc.Read(1);
+            read.Steps.Add(new QuestStepDto { Index = T - 50, Order = 9, NextStep = 4242 }); // a reference error (step 4242)
+            Assert.Equal(422, Assert.Throws<WebAdminException>(() => svc.Save(read, false)).Status);
+            Assert.Equal(saved, Image());
+        }
+
+        [Fact]
+        public void A_choice_key_repeated_within_one_step_is_an_error()
+        {
+            var w = World();
+            var (svc, _) = Editor(w);
+            var dto = FullQuest();
+            dto.Branches.Add(new QuestBranchDto { Step = T - 11, ChoiceKey = "bichon.wolves.s2", NextStep = -1, Outcome = 2 });
+            var ex = Assert.Throws<WebAdminException>(() => svc.Save(dto, false));
+            Assert.Contains(ProblemsOf(ex), p => !p.Warning && p.Message.Contains("two branches with the ChoiceKey"));
+
+            // One text on two fields is allowed, with a warning (FullQuest's first branch reuses step 2's title text).
+            var ok = svc.Save(FullQuest(), false);
+            Assert.Contains(ok.Problems, p => p.Warning && p.Message.Contains("bichon.wolves.s2"));
+        }
+
+        [Fact]
+        public void A_group_save_that_would_push_a_quest_over_the_packet_limit_is_refused()
+        {
+            var w = World();
+            for (var i = 10; i < 1010; i++) w.MonsterInfoList.Add(new MonsterInfo { Index = i, Name = "M" + i });
+            var (svc, _) = Editor(w);
+            var dto = FullQuest();
+            dto.Texts["bichon.wolves.summary"] = new string('x', 63000); // close to the limit, still under it with the 2-member group
+            svc.Save(dto, false);
+
+            var many = new QuestGroupDto { Index = 1, AuthorKey = "wolves", Kind = (int)QuestGroupKind.Monster, Members = Enumerable.Range(10, 1000).ToList() };
+            var ex = Assert.Throws<WebAdminException>(() => svc.SaveGroup(many));
+            Assert.Equal(422, ex.Status);
+            Assert.Contains(ProblemsOf(ex), p => p.Quest == 1 && p.Message.Contains("packet limit"));
+            Assert.Equal(2, w.QuestGroupList.Single(g => g.Index == 1).Members.Count); // unchanged
+
+            many.Members = new List<int> { 1, 2, 10 };
+            svc.SaveGroup(many); // a small change still saves
+            Assert.Equal(3, w.QuestGroupList.Single(g => g.Index == 1).Members.Count);
+        }
     }
 
     [Collection(WebAdminGlobalsCollection.Name)]

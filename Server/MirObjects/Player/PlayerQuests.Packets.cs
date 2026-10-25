@@ -18,8 +18,23 @@ namespace Server.MirObjects
         {
             var connection = _player.Connection;
             if (q == null || connection == null || !connection.SentQuestDefinitions.Add(q.Index)) return;
-            _player.Enqueue(BuildDefinition(q));
+            var packet = BuildDefinition(q);
+            // Review S5: never send a definition over the packet limit (its ushort length would wrap and desync the client). Measured
+            // once per connection and quest (it stays in the sent set), never per tick.
+            var size = packet.GetPacketBytes().Length;
+            if (size > QuestDefinitions.MaxDefinitionBytes)
+            {
+                QuestLog.Info("[Quests] definition of quest " + q.Index + " for " + _player.Name + " is " + size + " bytes: not sent");
+                if (OversizedLogged.Add(q.Index))
+                    MessageQueue.Instance.Enqueue("[Quests] Quest " + q.Index + "'s definition is " + size + " bytes, over the 65,535-byte packet limit: not sent to clients (shorten its texts or groups).");
+                return;
+            }
+
+            _player.Enqueue(packet);
         }
+
+        /// <summary>Quests whose oversized definition was reported in the server log (game thread only; one line per quest per process).</summary>
+        private static readonly HashSet<int> OversizedLogged = new HashSet<int>();
 
         /// <summary>C.QuestDefinitionRequest: answered only for a quest in this player's runs, history or offers.</summary>
         public void DefinitionRequest(int quest)
