@@ -285,7 +285,7 @@ D1 changes nothing players see. It moves user data into `UserData.db` (§12) and
 D2 ships the quest V2 runtime: `Envir.Version` 121 (§3.4), the V2 quest packets and the changed `S.ObjectNPC` / `S.GameDataChanged` layouts, the web admin Quests page with live quest edits (the LiveDb quest-replace hook), player statistics and the website export settings. Legacy quest bodies become read only (Scripts editor, quest reload, legacy `quests` grid columns, WinForms `QuestInfoForm`). It goes out **with a user-data wipe** (no conversion of legacy quest progress) and **one commit** for the server, the desktop client (patch root), WebRelay and the web client. Then `quests-v2` is merged into `FuckingAround`.
 
 **Before (world running or not):**
-1. Build everything from the D2 commit (`toolserify.ps1`, all green) and the Release client (version check below).
+1. Build everything from the D2 commit (`tools\verify.ps1`, all green) and the Release client (version check below).
 2. Note the new settings (defaults are fine): `[Quests] DailyResetHour=0`, `WeeklyResetDay=Monday` (UTC, like `Envir.Now`); `[Website] ExportMinutes=0` (0 = off), `ExportPath=`.
 
 **Deploy (one stop window):**
