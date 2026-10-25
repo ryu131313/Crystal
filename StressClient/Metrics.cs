@@ -21,7 +21,7 @@ internal sealed class Metrics
     public long Walks, Turns, Attacks, Blocked, MonstersSeen, Kills, Deaths, Revives, Throttled, Equips;
     public long MapsLoaded, MapsMissing, PathFound, PathFail, Repaths, Runs, DoorsOpened, MoveTimeouts, Directives;
     public long Potions, Casts, Pickups, Sold, Bought, Repairs, QuestsAccepted, QuestsFinished, Chats, Invites, GroupJoins;
-    public long QuestFinishSent, QuestAcceptSent, QuestsAbandoned;
+    public long QuestFinishSent, QuestAcceptSent, QuestsAbandoned, QuestsRefused;
     public long NpcCalls, NpcPages, NpcGoods, NpcSellPages, SellSuccess, SellFailure;
     public long KeepAliveRttTotalMs, KeepAliveRttCount;
 
@@ -90,6 +90,7 @@ internal sealed class Metrics
         QuestFinishSent = Interlocked.Read(ref QuestFinishSent),
         QuestAcceptSent = Interlocked.Read(ref QuestAcceptSent),
         QuestsAbandoned = Interlocked.Read(ref QuestsAbandoned),
+        QuestsRefused = Interlocked.Read(ref QuestsRefused),
         NpcCalls = Interlocked.Read(ref NpcCalls),
         NpcPages = Interlocked.Read(ref NpcPages),
         NpcGoods = Interlocked.Read(ref NpcGoods),
@@ -108,7 +109,7 @@ internal sealed class Metrics
         public long Walks, Turns, Attacks, Blocked, Kills, Deaths, Throttled;
         public long MapsLoaded, MapsMissing, PathFound, PathFail, Repaths, Runs, DoorsOpened, MoveTimeouts, Directives;
         public long Potions, Casts, Pickups, Sold, Bought, Repairs, QuestsAccepted, QuestsFinished, Chats, Invites, GroupJoins;
-        public long QuestFinishSent, QuestAcceptSent, QuestsAbandoned;
+        public long QuestFinishSent, QuestAcceptSent, QuestsAbandoned, QuestsRefused;
         public long NpcCalls, NpcPages, NpcGoods, NpcSellPages, SellSuccess, SellFailure;
         public long RttTotal, RttCount;
     }
@@ -182,6 +183,7 @@ internal sealed class Metrics
             w.WriteNumber("questsAccepted", b.QuestsAccepted);
             w.WriteNumber("questsDone", b.QuestsFinished);
             w.WriteNumber("questsAbandoned", b.QuestsAbandoned);
+            w.WriteNumber("questsRefused", b.QuestsRefused);
             w.WriteNumber("chats", b.Chats);
             w.WriteNumber("invites", b.Invites);
             w.WriteNumber("groups", b.GroupJoins);
