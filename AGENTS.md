@@ -10,7 +10,7 @@
 
 1. **Operating rules.** This file and the child docs are your operating framework for this repo; treat them as overrides of default behaviour. Read this index at the start of every task.
 2. **Flag conflicts.** If a user request conflicts with a NEVER/ALWAYS rule, say so and name the rule **before** proceeding.
-3. **Extract rules before editing.** Before writing or editing code, do a dedicated step that lists the NEVER/ALWAYS rules for the code you will touch from: this index's Packet, persisted-enum and Build & Output rules; `Knowledgebase/Server/server.md` §3 + §5.2 (logging) + §5.4 (build); `Knowledgebase/Client/client.md` §3 + §5.2 (logging) + §2.8 (build); and the obligation notes in any §4 recipe you follow (e.g. server §4.3 version bump).
+3. **Extract rules before editing.** Before writing or editing code, do a dedicated step that lists the NEVER/ALWAYS rules for the code you will touch from: this index's Packet, persisted-enum, Coding Style and Build & Output rules; `Knowledgebase/Server/server.md` §3 + §5.2 (logging) + §5.4 (build); `Knowledgebase/Client/client.md` §3 + §5.2 (logging) + §2.8 (build); and the obligation notes in any §4 recipe you follow (e.g. server §4.3 version bump).
 4. **Report.** After an edit, include a **"Never/Always Rules Followed"** section in your response: each extracted rule as followed, not applicable, or overridden (quote the user's approval), plus any Known debt / Known defect the change touched and left as is.
 5. **Rules are the bar for new and changed code — not a description of the current code.** Crystal is an old, unoptimised upstream codebase and breaches many rules today. Each child doc lists those breaches under **Known debt**: do **not** copy those patterns, and do **not** fix them in drive-by edits — fixing debt is a separate, explicitly requested task. **Known defects** (real bugs found 2026-10-08, not fixed) are traps to avoid, not a to-do list.
 6. **Codebase size.** Do not blindly read or grep the whole tree. Search narrowly (`Grep` with a path/glob) and read targeted line ranges. Giant files:
@@ -199,6 +199,17 @@ Also: ≤ 65 535 bytes per packet; private server packets `Observable => false`;
 - **NEVER** switch Client or LibraryEditor off `x64` (native deps: SlimDX, `NativeSquish_x64.dll`).
 - Prereqs (`dotnet-upgrade.txt`): Windows, .NET 10 SDK. **Server host: .NET 10 Desktop Runtime x64** (since roadmap P4, 2026-10-10; keep the .NET 8 runtime installed during the rollback window). **Client: .NET 8 Desktop Runtime** until roadmap C5. `Shared` stays `net8.0` while the client is on net8. There is no CI. TFMs and `LangVersion` (12) are centralised in the root `Directory.Build.props` (`ServerTfm`, `ServerWinTfm`, `SharedTfm`, `ClientTfm`, `ToolsTfm`) — change a TFM there, never in a `.csproj`. This machine builds with .NET SDK 10.0.400 (no `global.json`) — do not add a `global.json`; retargeting happens only in the roadmap phases that schedule it (P4 server, P5 tools, C5 client/Shared; approved 2026-10-09).
 - **ALWAYS** prefer `powershell -ExecutionPolicy Bypass -File tools\verify.ps1 [-Only <keys>] [-NoTests]` for compile + test checks: it builds every project to `%TEMP%\mir2-verify\<key>` and refuses `Build\`. Deploys use `tools\deploy-with-backup.ps1` and are **user-run only** (`Knowledgebase/Runbook.md`).
+
+---
+
+## Coding Style Rules (all projects: C#, TS, JS, PowerShell)
+
+- **ALWAYS** keep comments to what the code cannot say: *why* (thread boundary, timing, wire/DB compatibility, a non-obvious constraint or workaround). **NEVER** restate what the next line does.
+- **NEVER** add XML doc comments (`///`) or JSDoc to every member; use them only where a public API or a seam needs the contract spelled out.
+- **NEVER** leave commented-out code; delete it (git keeps the history).
+- **NEVER** add banner, divider or section-heading comments (`// ===== Helpers =====`), or change-log comments (`// added 2026-10-25`, `// fix for X`); that belongs in the commit message.
+- Required source/port headers are the exception: the header line naming the TS source of a new-UI file (client.md §3.6), the C# source method a web port mirrors and the source of copied WoOOLcraft files (webclient.md §3).
+- Existing comments that break these rules are Known debt: leave them in a drive-by edit, but don't copy the pattern.
 
 ---
 

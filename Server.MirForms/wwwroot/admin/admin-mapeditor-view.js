@@ -134,6 +134,7 @@
   function rgba(c, a) { return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')'; }
 
   var TILE_CONCURRENCY = 3, TILE_CACHE_MAX = 260;
+  var PLAYER_LABEL_MAX = 150;   // player names drawn only while at most this many players are on screen
 
   // ---- the view ---------------------------------------------------------------------------------------------------------
 
@@ -689,14 +690,26 @@
       });
     }
 
+    // Two batched paths (alive, dead) for the on-screen dots; names only while few are on screen, since label placement is
+    // pairwise and thousands of bots on one map made every redraw (and every pan step) crawl.
     function drawPlayers(ctx, v, labels) {
+      var alive = [], dead = [], shown = [];
       st.players.forEach(function (p) {
         var c = centre(v, num(p.x), num(p.y));
-        ctx.fillStyle = rgba(p.dead ? COL.dead : COL.player, 0.95);
-        ctx.beginPath(); ctx.arc(c.x, c.y, 3.5, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 1; ctx.stroke();
-        labels.push({ text: p.name + ' ' + p.level, x: c.x + 5, y: c.y - 4, prio: 0, color: '#e5e7eb' });
+        if (c.x < -6 || c.y < -6 || c.x > v.cw + 6 || c.y > v.ch + 6) return;
+        (p.dead ? dead : alive).push(c.x, c.y);
+        shown.push({ p: p, c: c });
       });
+      [[alive, COL.player], [dead, COL.dead]].forEach(function (set) {
+        var pts = set[0];
+        if (!pts.length) return;
+        ctx.beginPath();
+        for (var i = 0; i + 1 < pts.length; i += 2) { ctx.moveTo(pts[i] + 3.5, pts[i + 1]); ctx.arc(pts[i], pts[i + 1], 3.5, 0, Math.PI * 2); }
+        ctx.fillStyle = rgba(set[1], 0.95); ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 1; ctx.stroke();
+      });
+      if (shown.length > PLAYER_LABEL_MAX) return;
+      shown.forEach(function (s) { labels.push({ text: s.p.name + ' ' + s.p.level, x: s.c.x + 5, y: s.c.y - 4, prio: 0, color: '#e5e7eb' }); });
     }
 
     function findObj(key) {

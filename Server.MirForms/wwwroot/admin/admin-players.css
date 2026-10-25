@@ -12,6 +12,8 @@
 }
 #section-players-online .po-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 #section-players-online .po-filter { min-width: 240px; }
+#section-players-online .po-pager { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 10px; }
+#section-players-online .po-pager.hidden { display: none; }
 
 #section-players-online .po-tiles {
   display: grid;

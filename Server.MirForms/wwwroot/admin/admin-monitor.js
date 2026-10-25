@@ -5,7 +5,8 @@
  * the selected player's row on any map (?sel=), the monsters of the focus map when that layer is on, and the events since the last
  * poll) polled every 1 s while the section and the browser tab are visible.
  * Drawing stays cheap with many players: the layers below the death flashes are drawn into an offscreen canvas once per snapshot or
- * view change, so a running flash animation only copies that and draws its rings; trails are stroked in batches per colour and alpha.
+ * view change, so a running flash animation only copies that and draws its rings; trails are stroked in batches per colour and alpha,
+ * capped in segment count, and on a crowded map jumps are drawn for the selected player only; pins are filled in batches per look.
  * The map is drawn on one canvas. Base: with map art ([WebAdmin] ClientDataPath) the map's authored minimap
  * (GET .../maps/{index}/minimap) and, once zoomed in, real 768 x 512 tiles (GET .../maps/{index}/tiles/{z}/{tx}/{ty}, z = 0..3 =
  * 1/2^z scale) streamed in for the visible area; otherwise the walkability image (GET .../maps/{index}/image, 3:2 cells like the game),
@@ -27,6 +28,8 @@
   var FLASH_MS = 2600;
   var MAX_TABLE_ROWS = 200;         // rows rebuilt every second; past this the filter narrows the list (the map still draws everyone)
   var TRAIL_ALPHA_STEPS = 6;        // trail segments are batched per colour, dash and one of these fade steps
+  var TRAIL_CROWD = 150;            // past this many players on the map, jump (dashed) segments are drawn for the selected player only
+  var TRAIL_MAX_SEGMENTS = 8000;    // trail segments drawn per redraw (newest first, selected player always in full)
   var LS_KEY = 'mircraft_monitor_prefs';
   var CLASS_COLOURS = { Warrior: '#e0644f', Wizard: '#5b9cf0', Taoist: '#5fc47a', Assassin: '#b47ff0', Archer: '#e6c14f' };
   var esc = function (s) { return global.OpsUI.esc(s); };
@@ -937,26 +940,44 @@
     var win = state.layers.trail * 1000;
     if (!win) return;
     var now = Date.now();
+    var players = m.players || [];
+    // Bot swarms that teleport every second turn every segment into a map-wide dashed line, the slowest thing a canvas strokes:
+    // on a crowded map jumps show for the selected player only, off-screen segments are skipped and the total is capped.
+    var crowded = players.length > TRAIL_CROWD;
+    var budget = TRAIL_MAX_SEGMENTS;
+    var kx = 3 * v.k, ky = 2 * v.k, cw = v.cw, ch = v.ch;
     // Segments grouped by colour, dash and fade step: one path and one stroke per group instead of one per segment.
     var groups = Object.create(null);
-    (m.players || []).forEach(function (p) {
+    var addTrail = function (p, isSel) {
       var list = state.trails[String(p.name).toLowerCase()];
       if (!list || list.length < 2) return;
       var colour = CLASS_COLOURS[p.className] || '#9aa4b2';
-      var prev = null;
-      for (var i = 0; i < list.length; i++) {
+      var next = null;   // walked newest first, so a capped trail keeps its newest part
+      for (var i = list.length - 1; i >= 0; i--) {
+        if (!isSel && budget <= 0) return;
         var pt = list[i];
-        if (pt.key !== m.key || now - pt.t > win) { prev = null; continue; }
-        if (prev) {
-          var jump = Math.max(Math.abs(pt.x - prev.x), Math.abs(pt.y - prev.y)) > JUMP_CELLS;
-          var step = Math.min(TRAIL_ALPHA_STEPS - 1, Math.floor((1 - (now - pt.t) / win) * TRAIL_ALPHA_STEPS));
-          var gk = colour + '|' + (jump ? 1 : 0) + '|' + step;
-          var g = groups[gk] || (groups[gk] = { colour: colour, jump: jump, alpha: 0.25 + 0.5 * (step + 0.5) / TRAIL_ALPHA_STEPS, pts: [] });
-          g.pts.push(prev.x, prev.y, pt.x, pt.y);
+        if (now - pt.t > win) return;   // older points are older still
+        if (pt.key !== m.key) { next = null; continue; }
+        if (next) {
+          var jump = Math.max(Math.abs(next.x - pt.x), Math.abs(next.y - pt.y)) > JUMP_CELLS;
+          if (!jump || isSel || !crowded) {
+            var ax = (pt.x + 0.5 - v.vx) * kx, ay = (pt.y + 0.5 - v.vy) * ky;
+            var bx = (next.x + 0.5 - v.vx) * kx, by = (next.y + 0.5 - v.vy) * ky;
+            if (!((ax < 0 && bx < 0) || (ay < 0 && by < 0) || (ax > cw && bx > cw) || (ay > ch && by > ch))) {
+              var step = Math.min(TRAIL_ALPHA_STEPS - 1, Math.floor((1 - (now - next.t) / win) * TRAIL_ALPHA_STEPS));
+              var gk = colour + '|' + (jump ? 1 : 0) + '|' + step;
+              var g = groups[gk] || (groups[gk] = { colour: colour, jump: jump, alpha: 0.25 + 0.5 * (step + 0.5) / TRAIL_ALPHA_STEPS, pts: [] });
+              g.pts.push(ax, ay, bx, by);
+              budget--;
+            }
+          }
         }
-        prev = pt;
+        next = pt;
       }
-    });
+    };
+    var selP = state.selected ? playerByName(state.selected) : null;
+    if (selP) addTrail(selP, true);
+    for (var n = 0; n < players.length && budget > 0; n++) if (players[n] !== selP) addTrail(players[n], false);
     ctx.lineWidth = 1.5;
     Object.keys(groups).forEach(function (gk) {
       var g = groups[gk], pts = g.pts;
@@ -965,9 +986,8 @@
       ctx.setLineDash(g.jump ? [4, 4] : []);
       ctx.beginPath();
       for (var i = 0; i + 3 < pts.length; i += 4) {
-        var a = toScreen(v, pts[i], pts[i + 1]), b = toScreen(v, pts[i + 2], pts[i + 3]);
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
+        ctx.moveTo(pts[i], pts[i + 1]);
+        ctx.lineTo(pts[i + 2], pts[i + 3]);
       }
       ctx.stroke();
     });
@@ -1001,33 +1021,55 @@
   function drawPlayers(ctx, m, v) {
     var r = pinRadius(v);
     var sel = null;
+    // One path per look (fill, outline, line width) instead of a fill and a stroke per pin: thousands of bots cost a few draws.
     // Filtered-out pins first (dimmed), matches on top: one matches() call per player, no sort.
-    var dim = [], lit = [];
-    (m.players || []).forEach(function (p) { (matches(p) ? lit : dim).push(p); });
-    var drawPin = function (p, on) {
-      if (state.hideGms && p.gm) return;
-      var s = toScreen(v, p.x, p.y);
-      if (s.x < -20 || s.y < -20 || s.x > v.cw + 20 || s.y > v.ch + 20) return;
-      ctx.globalAlpha = on ? 1 : 0.28;
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = p.dead ? '#59606b' : (CLASS_COLOURS[p.className] || '#9aa4b2');
-      ctx.fill();
-      ctx.lineWidth = p.gm ? 2 : 1.25;
-      ctx.strokeStyle = p.gm ? '#ffffff' : p.safeZone ? '#7fe0a8' : '#0b0d11';
-      ctx.stroke();
-      if (p.dead) {
+    var looks = [Object.create(null), Object.create(null)];   // [dimmed, lit]
+    var crosses = [[], []];
+    var kx = 3 * v.k, ky = 2 * v.k;
+    var players = m.players || [];
+    for (var i = 0; i < players.length; i++) {
+      var p = players[i];
+      if (state.hideGms && p.gm) continue;
+      var x = (p.x + 0.5 - v.vx) * kx, y = (p.y + 0.5 - v.vy) * ky;
+      if (x < -20 || y < -20 || x > v.cw + 20 || y > v.ch + 20) continue;
+      var on = matches(p) ? 1 : 0;
+      var fill = p.dead ? '#59606b' : (CLASS_COLOURS[p.className] || '#9aa4b2');
+      var stroke = p.gm ? '#ffffff' : p.safeZone ? '#7fe0a8' : '#0b0d11';
+      var lw = p.gm ? 2 : 1.25;
+      var gk = fill + '|' + stroke + '|' + lw;
+      var g = looks[on][gk] || (looks[on][gk] = { fill: fill, stroke: stroke, lw: lw, pts: [] });
+      g.pts.push(x, y);
+      if (p.dead) crosses[on].push(x, y);
+      if (String(p.name).toLowerCase() === state.selected) sel = { p: p, s: { x: x, y: y } };
+    }
+    for (var on2 = 0; on2 < 2; on2++) {
+      ctx.globalAlpha = on2 ? 1 : 0.28;
+      Object.keys(looks[on2]).forEach(function (gk2) {
+        var g2 = looks[on2][gk2], pts = g2.pts;
+        ctx.beginPath();
+        for (var k = 0; k + 1 < pts.length; k += 2) {
+          ctx.moveTo(pts[k] + r, pts[k + 1]);
+          ctx.arc(pts[k], pts[k + 1], r, 0, Math.PI * 2);
+        }
+        ctx.fillStyle = g2.fill;
+        ctx.fill();
+        ctx.lineWidth = g2.lw;
+        ctx.strokeStyle = g2.stroke;
+        ctx.stroke();
+      });
+      var c = crosses[on2];
+      if (c.length) {
+        var d = r * 0.55;
         ctx.strokeStyle = '#0b0d11';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(s.x - r * 0.55, s.y - r * 0.55); ctx.lineTo(s.x + r * 0.55, s.y + r * 0.55);
-        ctx.moveTo(s.x + r * 0.55, s.y - r * 0.55); ctx.lineTo(s.x - r * 0.55, s.y + r * 0.55);
+        for (var q = 0; q + 1 < c.length; q += 2) {
+          ctx.moveTo(c[q] - d, c[q + 1] - d); ctx.lineTo(c[q] + d, c[q + 1] + d);
+          ctx.moveTo(c[q] + d, c[q + 1] - d); ctx.lineTo(c[q] - d, c[q + 1] + d);
+        }
         ctx.stroke();
       }
-      if (String(p.name).toLowerCase() === state.selected) sel = { p: p, s: s };
-    };
-    dim.forEach(function (p) { drawPin(p, false); });
-    lit.forEach(function (p) { drawPin(p, true); });
+    }
     ctx.globalAlpha = 1;
     if (sel) {
       ctx.beginPath();

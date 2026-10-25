@@ -12,6 +12,7 @@
   'use strict';
 
   var POLL_MS = 5000;
+  var PAGE_SIZE = 100;              // rows in the DOM at once: thousands of bots made every 5 s reconcile lag the page
   var esc = function (s) { return global.OpsUI.esc(s); };
 
   // ---------------------------------------------------------------- PlayerActions (shared with admin-characters.js)
@@ -179,6 +180,7 @@
     sort: 'name',
     dir: 'asc',
     filter: '',
+    page: 0,
     auto: true,
     world: null,
     loadedAt: null
@@ -282,12 +284,19 @@
     var perIp = {};
     state.rows.forEach(function (r) { if (r.ip) perIp[r.ip] = (perIp[r.ip] || 0) + 1; });
     var key = state.sort, mul = state.dir === 'desc' ? -1 : 1;
-    var visible = state.rows.filter(function (r) { return matchesFilter(r, f); }).sort(function (a, b) {
-      var va = sortValue(a, key), vb = sortValue(b, key);
-      if (va < vb) return -1 * mul;
-      if (va > vb) return 1 * mul;
-      return String(a.name).localeCompare(String(b.name));
+    // Sort keys computed once per row, not per comparison (onlineSince parses a date).
+    var matched = [];
+    state.rows.forEach(function (r) { if (matchesFilter(r, f)) matched.push({ r: r, v: sortValue(r, key), n: String(r.name || '').toLowerCase() }); });
+    matched.sort(function (a, b) {
+      if (a.v < b.v) return -1 * mul;
+      if (a.v > b.v) return 1 * mul;
+      return a.n < b.n ? -1 : a.n > b.n ? 1 : 0;
     });
+    var pages = Math.max(1, Math.ceil(matched.length / PAGE_SIZE));
+    if (state.page >= pages) state.page = pages - 1;
+    var start = state.page * PAGE_SIZE;
+    var visible = matched.slice(start, start + PAGE_SIZE).map(function (x) { return x.r; });
+    renderPager(matched.length, start, visible.length, pages);
 
     var tbody = els.tbody;
     var existing = Object.create(null);
@@ -321,11 +330,18 @@
       if (!keep[id] && existing[id].parentNode) existing[id].parentNode.removeChild(existing[id]);
     });
 
-    els.empty.classList.toggle('hidden', visible.length > 0);
+    els.empty.classList.toggle('hidden', matched.length > 0);
     els.empty.textContent = state.world && state.world !== 'running'
       ? 'The world is ' + state.world + ': nobody can be online.'
       : (state.rows.length ? 'No online player matches the filter.' : 'Nobody is online.');
     renderTiles(perIp);
+  }
+
+  function renderPager(total, start, shown, pages) {
+    els.pager.classList.toggle('hidden', pages <= 1);
+    els.pageinfo.textContent = total ? (start + 1) + '–' + (start + shown) + ' of ' + global.OpsUI.formatNumber(total) : '';
+    els.prev.disabled = state.page <= 0;
+    els.next.disabled = state.page >= pages - 1;
   }
 
   function tile(label, value, cls) {
@@ -478,6 +494,11 @@
       '    </table>' +
       '  </div>' +
       '  <p class="mir-muted po-empty hidden" data-role="empty"></p>' +
+      '  <div class="po-pager hidden" data-role="pager">' +
+      '    <button type="button" class="mir-btn" data-role="prev">‹ Prev</button>' +
+      '    <span class="mir-muted" data-role="pageinfo"></span>' +
+      '    <button type="button" class="mir-btn" data-role="next">Next ›</button>' +
+      '  </div>' +
       '  <p class="mir-muted po-hint">Click a name for its player menu, or use Actions for moderation. Every action asks once and is recorded in the audit trail.</p>' +
       '</div>';
     els.thead = el.querySelector('[data-role="thead"]');
@@ -488,12 +509,19 @@
     els.count = el.querySelector('[data-role="count"]');
     els.filter = el.querySelector('[data-role="filter"]');
     els.auto = el.querySelector('[data-role="auto"]');
+    els.pager = el.querySelector('[data-role="pager"]');
+    els.pageinfo = el.querySelector('[data-role="pageinfo"]');
+    els.prev = el.querySelector('[data-role="prev"]');
+    els.next = el.querySelector('[data-role="next"]');
+    els.prev.addEventListener('click', function () { if (state.page > 0) { state.page--; renderRows(); } });
+    els.next.addEventListener('click', function () { state.page++; renderRows(); });   // renderRows clamps to the last page
 
     els.auto.checked = state.auto;
     renderHeader();
 
     els.filter.addEventListener('input', function () {
       state.filter = els.filter.value;
+      state.page = 0;
       if (global.portalSetHashParams) global.portalSetHashParams({ q: state.filter.trim() || null }, true);
       renderRows();
     });
@@ -520,6 +548,7 @@
       if (state.sort === key) state.dir = state.dir === 'asc' ? 'desc' : 'asc';
       else { state.sort = key; state.dir = key === 'level' || key === 'pk' ? 'desc' : 'asc'; }
       saveSort();
+      state.page = 0;
       renderHeader();
       renderRows();
     });
@@ -568,6 +597,7 @@
     if (q !== els.filter.value) {
       els.filter.value = q;
       state.filter = q;
+      state.page = 0;
       renderRows();
     }
   });
