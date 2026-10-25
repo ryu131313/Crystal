@@ -1,0 +1,127 @@
+/* admin-quests.css — Quests section (quest V2 editor: list, graph editor, condition builder, import preview). */
+
+#section-quests .qe-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+#section-quests .qe-side { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+#section-quests .qe-side-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#section-quests .qe-side-head h3 { margin: 0 auto 0 0; }
+#section-quests .qe-search { width: 100%; }
+#section-quests .qe-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+#section-quests .qe-filters select { width: 100%; }
+#section-quests .qe-count { font-size: 12px; }
+#section-quests .qe-list { max-height: 70vh; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+
+#section-quests .qe-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0 8px;
+  text-align: left;
+  background: var(--well);
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 5px 8px;
+  cursor: pointer;
+  font: inherit;
+}
+#section-quests .qe-row:hover { border-color: var(--border-bright); }
+#section-quests .qe-row.active { border-color: var(--accent); background: var(--accent-dim); }
+#section-quests .qe-row-index { color: var(--muted); font-size: 12px; }
+#section-quests .qe-row-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#section-quests .qe-row-key { grid-column: 2; font-size: 11.5px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#section-quests .qe-badges { grid-column: 2; display: flex; gap: 4px; }
+#section-quests .qe-badges:empty { display: none; }
+
+#section-quests .qe-main { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+#section-quests .qe-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+#section-quests .qe-head h3 { margin: 0; }
+#section-quests .qe-spacer { flex: 1 1 auto; }
+#section-quests .qe-dirty { color: var(--warn); font-size: 12px; }
+#section-quests .qe-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+#section-quests .qe-tabs .mir-btn { padding: 3px 10px; font-size: 12px; }
+#section-quests .qe-tabs .mir-btn.active { border-color: var(--accent); color: var(--accent-hover); }
+#section-quests .qe-pane { display: flex; flex-direction: column; gap: 10px; }
+#section-quests .qe-empty { color: var(--text-secondary); }
+
+#section-quests .qe-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px 12px;
+}
+#section-quests .qe-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+#section-quests .qe-field input, #section-quests .qe-field select { width: 100%; }
+#section-quests .qe-label { font-size: 11.5px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .04em; }
+#section-quests .qe-hint { font-size: 11px; color: var(--muted); }
+#section-quests .qe-check { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; margin-right: 10px; }
+#section-quests .qe-flags { display: flex; flex-wrap: wrap; gap: 4px; }
+#section-quests .qe-inline { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+#section-quests .qe-inline .qe-field { min-width: 140px; }
+#section-quests .qe-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+
+#section-quests .qe-text { display: flex; flex-direction: column; gap: 3px; }
+#section-quests .qe-text-row { display: grid; grid-template-columns: minmax(140px, 220px) minmax(0, 1fr); gap: 6px; align-items: start; }
+#section-quests .qe-key { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+#section-quests .qe-body { width: 100%; min-height: 2.2em; resize: vertical; }
+#section-quests .qe-body-line { min-height: 0; }
+
+#section-quests .qe-step {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--well);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#section-quests .qe-step-head { display: flex; align-items: center; gap: 6px; }
+#section-quests .qe-objectives { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border-dim); padding-top: 8px; }
+#section-quests .qe-objectives h4 { margin: 0; font-size: 13px; }
+#section-quests .qe-objective { border-left: 2px solid var(--border-bright); padding: 6px 0 6px 10px; display: flex; flex-direction: column; gap: 6px; }
+
+#section-quests .qe-table { display: flex; flex-direction: column; gap: 6px; }
+#section-quests .qe-trow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
+}
+#section-quests .qe-trow .qe-field { min-width: 120px; flex: 1 1 120px; }
+
+#section-quests .qe-cond { padding: 4px 0; border-left: 2px solid var(--border-dim); padding-left: 8px; }
+#section-quests .qe-cond-id { font-size: 12px; color: var(--muted); min-width: 42px; }
+
+#section-quests .qe-picker-wrap { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+#section-quests .qe-picker { width: 100%; }
+#section-quests .qe-picker-name { font-size: 11px; }
+#section-quests .qe-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+#section-quests .qe-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border: 1px solid var(--border); border-radius: 10px; font-size: 12px; }
+#section-quests .qe-chip .mir-btn { padding: 0 5px; font-size: 11px; }
+
+#section-quests .qe-problems, #section-quests .qe-uses, #section-quests .qe-diff { margin: 0; padding-left: 18px; font-size: 13px; }
+#section-quests .qe-problems li, #section-quests .qe-uses li, #section-quests .qe-diff li { padding: 2px 0; }
+#section-quests .qe-bad { color: var(--danger); }
+#section-quests .qe-warn { color: var(--warn); }
+#section-quests .qe-danger { border-color: var(--danger); color: var(--danger); }
+#section-quests .qe-link { background: none; border: 0; color: var(--accent-hover); cursor: pointer; padding: 0; font: inherit; text-decoration: underline; }
+
+#section-quests .qe-import {
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--warn-dim);
+}
+#section-quests .qe-import h3 { margin: 0 0 6px; }
+
+@media (max-width: 1100px) {
+  #section-quests .qe-layout { grid-template-columns: minmax(0, 1fr); }
+  #section-quests .qe-list { max-height: 40vh; }
+  #section-quests .qe-text-row { grid-template-columns: minmax(0, 1fr); }
+}

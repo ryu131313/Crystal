@@ -415,7 +415,8 @@ namespace Server.WebAdmin.GameData
                     continue;
                 }
 
-                var guard = table.DeleteGuard?.Invoke(ctx, row);
+                // Quest V2 (phase 3): a row a quest definition references cannot be deleted; the refusal lists where it is used.
+                var guard = table.DeleteGuard?.Invoke(ctx, row) ?? Quests.QuestWhereUsed.DeleteGuard(ctx, table.Endpoint, row.Index);
                 if (guard != null)
                 {
                     result.Rejects.Add(new { index, code = "in-use", message = guard });

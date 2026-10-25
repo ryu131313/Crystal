@@ -99,7 +99,10 @@ namespace Server.MirEnvir.Quests
 
         // ------------------------------------------------------------------ validation
 
-        public static List<QuestValidationProblem> Validate(Envir e)
+        public static List<QuestValidationProblem> Validate(Envir e) => Validate(QuestWorld.FromEnvir(e));
+
+        /// <summary>Validates the quest definitions of <paramref name="e"/> (an Envir, or a detached view for the web admin editor and tests).</summary>
+        public static List<QuestValidationProblem> Validate(QuestWorld e)
         {
             var problems = new List<QuestValidationProblem>();
             void Error(int quest, string message) => problems.Add(new QuestValidationProblem { Quest = quest, Message = message });
@@ -260,7 +263,7 @@ namespace Server.MirEnvir.Quests
                     if (o.Count < 1) Error(id, what + " Count is " + o.Count + " (needs at least 1)");
                     CheckConditionRef(id, o.Condition, what + " Condition");
                     CheckText(id, o.TextKey, what + " TextKey");
-                    CheckObjectiveTarget(e, o, items, monsters, npcs, maps, groups, msg => Error(id, what + " " + msg));
+                    CheckObjectiveTarget(o, items, monsters, npcs, maps, groups, msg => Error(id, what + " " + msg));
                     if (o.Type == QuestObjectiveType.Collect && o.TargetKind == QuestTargetKind.Item)
                     {
                         if (!collectBy.TryGetValue(o.TargetId, out var list)) collectBy[o.TargetId] = list = new List<int>();
@@ -393,7 +396,7 @@ namespace Server.MirEnvir.Quests
             if (!Enum.IsDefined(typeof(QuestCompare), c.Cmp)) error(c.OwnerQuest, what + " has an unknown comparison " + (int)c.Cmp);
         }
 
-        private static void CheckObjectiveTarget(Envir e, QuestObjectiveInfo o, HashSet<int> items, HashSet<int> monsters, HashSet<int> npcs,
+        private static void CheckObjectiveTarget(QuestObjectiveInfo o, HashSet<int> items, HashSet<int> monsters, HashSet<int> npcs,
             HashSet<int> maps, Dictionary<int, QuestGroupInfo> groups, Action<string> error)
         {
             bool Kind(params QuestTargetKind[] allowed) => allowed.Contains(o.TargetKind);
@@ -468,6 +471,66 @@ namespace Server.MirEnvir.Quests
             yield return q.Definition.CompleteKey;
             foreach (var s in q.Definition.Steps) { yield return s.TitleKey; yield return s.TextKey; yield return s.ReadyTextKey; }
             foreach (var o in q.Definition.Objectives) yield return o.TextKey;
+        }
+    }
+
+    /// <summary>
+    /// The lists and counters quest validation and the web admin Quests editor read (UserData-and-Quests-Plan.md, Part B, "Authoring"): a
+    /// view over an <see cref="Envir"/> (its lists by reference, its counters copied; <see cref="Commit"/> writes them back), or a detached
+    /// world for tests. Member names match Envir's so validation reads the same either way. Same thread rules as the Envir it views
+    /// (Envir.Edit: EditLock).
+    /// </summary>
+    internal sealed class QuestWorld
+    {
+        public List<ItemInfo> ItemInfoList = new List<ItemInfo>();
+        public List<MonsterInfo> MonsterInfoList = new List<MonsterInfo>();
+        public List<NPCInfo> NPCInfoList = new List<NPCInfo>();
+        public List<MapInfo> MapInfoList = new List<MapInfo>();
+        public List<QuestInfo> QuestInfoList = new List<QuestInfo>();
+        public List<QuestConditionInfo> QuestConditionList = new List<QuestConditionInfo>();
+        public List<QuestTextInfo> QuestTextList = new List<QuestTextInfo>();
+        public List<StorylineInfo> StorylineList = new List<StorylineInfo>();
+        public List<QuestGroupInfo> QuestGroupList = new List<QuestGroupInfo>();
+        public List<QuestPoolInfo> QuestPoolList = new List<QuestPoolInfo>();
+
+        public int QuestIndex, QuestStepIndex, QuestObjectiveIndex, QuestConditionIndex, QuestGroupIndex, QuestTextIndex, QuestVarIndex, StorylineIndex, QuestPoolIndex;
+
+        /// <summary>The Envir this view reads (null for a detached world).</summary>
+        public Envir Source;
+
+        public static QuestWorld FromEnvir(Envir e)
+        {
+            var w = new QuestWorld
+            {
+                Source = e,
+                ItemInfoList = e.ItemInfoList, MonsterInfoList = e.MonsterInfoList, NPCInfoList = e.NPCInfoList, MapInfoList = e.MapInfoList,
+                QuestInfoList = e.QuestInfoList, QuestConditionList = e.QuestConditionList, QuestTextList = e.QuestTextList,
+                StorylineList = e.StorylineList, QuestGroupList = e.QuestGroupList, QuestPoolList = e.QuestPoolList,
+            };
+            w.ReadCounters();
+            return w;
+        }
+
+        /// <summary>Copies the counters from <see cref="Source"/> (no-op for a detached world).</summary>
+        public void ReadCounters()
+        {
+            var e = Source;
+            if (e == null) return;
+            QuestIndex = e.QuestIndex; QuestStepIndex = e.QuestStepIndex; QuestObjectiveIndex = e.QuestObjectiveIndex;
+            QuestConditionIndex = e.QuestConditionIndex; QuestGroupIndex = e.QuestGroupIndex; QuestTextIndex = e.QuestTextIndex;
+            QuestVarIndex = e.QuestVarIndex; StorylineIndex = e.StorylineIndex; QuestPoolIndex = e.QuestPoolIndex;
+        }
+
+        /// <summary>Writes the counters back to <see cref="Source"/> (they only go up; no-op for a detached world).</summary>
+        public void Commit()
+        {
+            var e = Source;
+            if (e == null) return;
+            e.QuestIndex = Math.Max(e.QuestIndex, QuestIndex); e.QuestStepIndex = Math.Max(e.QuestStepIndex, QuestStepIndex);
+            e.QuestObjectiveIndex = Math.Max(e.QuestObjectiveIndex, QuestObjectiveIndex); e.QuestConditionIndex = Math.Max(e.QuestConditionIndex, QuestConditionIndex);
+            e.QuestGroupIndex = Math.Max(e.QuestGroupIndex, QuestGroupIndex); e.QuestTextIndex = Math.Max(e.QuestTextIndex, QuestTextIndex);
+            e.QuestVarIndex = Math.Max(e.QuestVarIndex, QuestVarIndex); e.StorylineIndex = Math.Max(e.StorylineIndex, StorylineIndex);
+            e.QuestPoolIndex = Math.Max(e.QuestPoolIndex, QuestPoolIndex);
         }
     }
 }
