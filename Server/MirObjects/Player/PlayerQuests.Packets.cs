@@ -72,6 +72,7 @@ namespace Server.MirObjects
                 AbandonAllowed = def.AbandonAllowed,
                 Flags = def.Flags,
                 GroupName = def.GroupName ?? string.Empty,
+                ShareMode = def.ShareMode,
             };
 
             for (var i = 0; i < q.StepsByOrder.Count; i++)
@@ -94,7 +95,7 @@ namespace Server.MirObjects
                 for (var j = 0; j < objectives.Count; j++)
                 {
                     var o = objectives[j];
-                    p.Objectives.Add(new S.QuestDefinition.Objective
+                    var objective = new S.QuestDefinition.Objective
                     {
                         Index = o.Index,
                         Step = o.Step,
@@ -111,7 +112,10 @@ namespace Server.MirObjects
                         Optional = o.Optional,
                         Hidden = o.Hidden,
                         Text = LinkText(c.Text(o.TextKey)),
-                    });
+                    };
+                    if ((o.TargetKind == QuestTargetKind.MonsterGroup || o.TargetKind == QuestTargetKind.ItemGroup) && c.Groups.TryGetValue(o.TargetId, out var group))
+                        for (var m = 0; m < group.Members.Count; m++) objective.TargetMembers.Add(group.Members[m].TargetId);
+                    p.Objectives.Add(objective);
                     EnsureTargetInfo(o);
                 }
 

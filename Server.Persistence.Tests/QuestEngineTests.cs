@@ -547,4 +547,93 @@ public class QuestEngineTests
             Assert.Equal(new[] { (sword, 1L) }, p.Quests.PreviewRewards(q, new List<int> { 0 }).Items);
         });
     }
+
+    /// <summary>Records what the engine sends (no connection in these tests).</summary>
+    private sealed class RecordingPlayer : PlayerObject
+    {
+        public readonly List<Packet> Sent = new List<Packet>();
+        public override void Enqueue(Packet p) => Sent.Add(p);
+
+        public ServerPackets.QuestRefused LastRefusal() => Sent.OfType<ServerPackets.QuestRefused>().LastOrDefault();
+    }
+
+    private static RecordingPlayer NewRecordingPlayer(string name, int index = 1)
+    {
+        var p = new RecordingPlayer();
+        p.Info = new CharacterInfo { Index = index, Name = name, Level = 10, Class = MirClass.Warrior, Gender = MirGender.Male };
+        p.Report = new Reporting(p);
+        p.Quests.Login();
+        return p;
+    }
+
+    private static void AssertRefused(RecordingPlayer p, int quest, QuestRequestKind request, QuestRefusal reason)
+    {
+        var r = p.LastRefusal();
+        Assert.NotNull(r);
+        Assert.Equal(quest, r.Quest);
+        Assert.Equal(request, r.Request);
+        Assert.Equal(reason, r.Reason);
+        p.Sent.Clear();
+    }
+
+    [Fact]
+    public void Refused_requests_answer_with_QuestRefused_and_the_reason()
+    {
+        InWorld(() =>
+        {
+            var q = AddQuest(35, new[] { (350, new[] { Counter(3501) }) });
+            q.Def.AbandonAllowed = false;
+            var p = NewRecordingPlayer("Refused");
+
+            p.Quests.Accept(999, 0);
+            AssertRefused(p, 999, QuestRequestKind.Accept, QuestRefusal.UnknownQuest);
+            p.Quests.Accept(35, 0); // no pending offer and no NPC
+            AssertRefused(p, 35, QuestRequestKind.Accept, QuestRefusal.NotAvailable);
+            p.Quests.Accept(35, 12345); // no such NPC in reach
+            AssertRefused(p, 35, QuestRequestKind.Accept, QuestRefusal.NotAtNpc);
+
+            p.Quests.TurnIn(35, 0, null);
+            AssertRefused(p, 35, QuestRequestKind.TurnIn, QuestRefusal.NotAvailable);
+            Assert.True(p.Quests.AdminStart(35));
+            p.Sent.Clear();
+            p.Quests.Accept(35, 0);
+            AssertRefused(p, 35, QuestRequestKind.Accept, QuestRefusal.AlreadyActive);
+            p.Quests.TurnIn(35, 0, null);
+            AssertRefused(p, 35, QuestRequestKind.TurnIn, QuestRefusal.NotReady);
+            p.Quests.Abandon(35);
+            AssertRefused(p, 35, QuestRequestKind.Abandon, QuestRefusal.AbandonNotAllowed);
+            p.Quests.Choose(35, 0, "");
+            AssertRefused(p, 35, QuestRequestKind.Choose, QuestRefusal.InvalidPick);
+
+            // Share: ShareMode None is refused before the group check; Offer without a group is NotInGroup.
+            q.Def.ShareMode = QuestShareMode.None;
+            p.Quests.Share(35);
+            AssertRefused(p, 35, QuestRequestKind.Share, QuestRefusal.ShareNotAllowed);
+            q.Def.ShareMode = QuestShareMode.Offer;
+            p.Quests.Share(35);
+            AssertRefused(p, 35, QuestRequestKind.Share, QuestRefusal.NotInGroup);
+
+            // Ready but not at a finish NPC.
+            p.Quests.ScriptCounter("35", "3501", "1");
+            Assert.True(Ready(p, 35));
+            p.Sent.Clear();
+            p.Quests.TurnIn(35, 0, null);
+            AssertRefused(p, 35, QuestRequestKind.TurnIn, QuestRefusal.NotAtNpc);
+            Assert.True(Ready(p, 35));
+        });
+    }
+
+    [Fact]
+    public void Definition_carries_share_mode_and_group_members()
+    {
+        InWorld(() =>
+        {
+            var p = NewPlayer("Members");
+            var sent = p.Quests.BuildDefinitionPacket(Runtime(Wolves));
+            Assert.Equal(QuestShareMode.Offer, sent.ShareMode); // the importer's default
+            var wolf = sent.Objectives.Single(o => o.TargetKind == QuestTargetKind.MonsterGroup && o.TargetMembers.Count == 2);
+            Assert.Equal(new[] { Monster("Wolf").Index, Monster("Wolf2").Index }, wolf.TargetMembers.OrderBy(i => i));
+            Assert.All(sent.Objectives.Where(o => o.TargetKind != QuestTargetKind.MonsterGroup && o.TargetKind != QuestTargetKind.ItemGroup), o => Assert.Empty(o.TargetMembers));
+        });
+    }
 }

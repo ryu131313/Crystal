@@ -16,7 +16,7 @@
         /// <summary>C.QuestTurnIn. <paramref name="rewardPicks"/> = positions in the definition's Rewards list, one per choice group.</summary>
         public void QuestTurnIn(int quest, uint npcObjectId, List<int> rewardPicks)
         {
-            if (rewardPicks != null && rewardPicks.Count > 16) return; // one pick per choice group; more is a bad client
+            if (rewardPicks != null && rewardPicks.Count > 16) { Quests.Refuse(quest, QuestRequestKind.TurnIn, QuestRefusal.InvalidPick); return; } // one pick per choice group
             Quests.TurnIn(quest, npcObjectId, rewardPicks);
         }
 
@@ -35,7 +35,7 @@
         /// <summary>C.QuestChoose: a branch ChoiceKey at an NPC.</summary>
         public void QuestChoose(int quest, uint npcObjectId, string choiceKey)
         {
-            if (choiceKey != null && choiceKey.Length > 64) return;
+            if (choiceKey != null && choiceKey.Length > 64) { Quests.Refuse(quest, QuestRequestKind.Choose, QuestRefusal.InvalidPick); return; }
             Quests.Choose(quest, npcObjectId, choiceKey);
         }
 

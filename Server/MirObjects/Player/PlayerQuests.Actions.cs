@@ -128,14 +128,46 @@ namespace Server.MirObjects
                     best = Better(best, IconRank(q, ready: false), ref entry.Icon, OfferIcon(q));
                 }
 
+                // Running quests whose current step has branches, choosable here (any Start or Finish endpoint, as Choose accepts):
+                // a met step shows the Ready icon (a choice is due), an unmet one the in-progress icon.
+                hash = AddChoosing(entry, finishes, hash, ref best);
+                hash = AddChoosing(entry, starts, hash, ref best);
+
                 signature = hash * 31 + (int)entry.Icon;
             }
 
             return entry;
         }
 
-        // Icon priority (the client used to take its first available quest, UpdateBestQuestIcon): a quest ready to turn in, then an
-        // offer, then a quest in progress at its finish NPC.
+        private long AddChoosing(S.QuestAvailability.Entry entry, List<QuestRuntime> list, long hash, ref int best)
+        {
+            unchecked
+            {
+                for (var i = 0; i < list.Count; i++)
+                {
+                    var q = list[i];
+                    var due = ChoiceState(q);
+                    if (due == 0 || entry.Choosing.Contains(q.Index)) continue;
+                    entry.Choosing.Add(q.Index);
+                    EnsureDefinition(q);
+                    hash = hash * 31 + q.Index * 4 + due + 2_000_029;
+                    best = Better(best, due == 2 ? IconRank(q, ready: true) : 1, ref entry.Icon, due == 2 ? ReadyIcon(q) : QuestIcon.QuestionWhite);
+                }
+            }
+
+            return hash;
+        }
+
+        /// <summary>0 = no branch choice on the run's current step (or no Active run); 1 = branches, step not met; 2 = a choice is due.</summary>
+        private byte ChoiceState(QuestRuntime q)
+        {
+            if (!_runs.TryGetValue(q.Index, out var run) || run.Status != QuestRunStatus.Active || run.Step < 0) return 0;
+            if (!q.StepsById.TryGetValue(run.Step, out var step) || q.BranchesOf(step.Index).Count == 0) return 0;
+            return StepMet(q, run, step) ? (byte)2 : (byte)1;
+        }
+
+        // Icon priority (the client used to take its first available quest, UpdateBestQuestIcon): a quest ready to turn in (or a
+        // branch choice due), then an offer, then a quest in progress at its finish NPC (or a branch step not met yet).
         private static int IconRank(QuestRuntime q, bool ready) => ready ? 3 : 2;
 
         private static int Better(int best, int rank, ref QuestIcon icon, QuestIcon candidate)
@@ -195,43 +227,28 @@ namespace Server.MirObjects
         /// </summary>
         public void Accept(int quest, uint npcObjectId)
         {
+            const QuestRequestKind kind = QuestRequestKind.Accept;
             var q = Catalog.Get(quest);
-            if (q == null || _runs.ContainsKey(quest) || _player.Dead) return;
+            if (q == null) { Refuse(quest, kind, QuestRefusal.UnknownQuest); return; }
+            if (_runs.ContainsKey(quest)) { Refuse(quest, kind, QuestRefusal.AlreadyActive); return; }
+            if (_player.Dead) { Refuse(quest, kind, QuestRefusal.Dead); return; }
 
             var sharedFrom = 0;
             if (npcObjectId != 0)
             {
                 var npc = NpcInReach(npcObjectId);
-                if (npc == null || !Catalog.IsEndpoint(q, QuestEndpointRole.Start, npc.Info.Index)) return;
+                if (npc == null || !Catalog.IsEndpoint(q, QuestEndpointRole.Start, npc.Info.Index)) { Refuse(quest, kind, QuestRefusal.NotAtNpc); return; }
             }
-            else if (!_offers.Contains(quest)) return;
+            else if (!_offers.Contains(quest)) { Refuse(quest, kind, QuestRefusal.NotAvailable); return; }
             else _offerSharedFrom.TryGetValue(quest, out sharedFrom);
 
-            if (ActiveCount >= Globals.MaxConcurrentQuests)
-            {
-                _player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.MaximumQuestsTaken), ChatType.System);
-                return;
-            }
-
-            if (!RepeatAllows(q, Envir.Now))
-            {
-                _player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.QuestAlreadyCompleted), ChatType.System);
-                return;
-            }
-
-            if (!EvaluateCondition(q.Def.AcceptCondition))
-            {
-                _player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.CouldNotAcceptQuest), ChatType.System);
-                return;
-            }
+            if (ActiveCount >= Globals.MaxConcurrentQuests) { Refuse(quest, kind, QuestRefusal.QuestLogFull); return; }
+            if (!RepeatAllows(q, Envir.Now)) { Refuse(quest, kind, QuestRefusal.AlreadyCompleted); return; }
+            if (!EvaluateCondition(q.Def.AcceptCondition)) { Refuse(quest, kind, QuestRefusal.ConditionNotMet); return; }
 
             // Carry items (Scope = Accept) go into the quest bag: check room for all of them first, so nothing is half given.
             var carry = BuildRewardItems(q, QuestRewardScope.Accept, 0, null, out _);
-            if (carry.Count > 0 && FreeQuestSlots() < carry.Count)
-            {
-                _player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.CannotCarryMoreQuestItems), ChatType.System);
-                return;
-            }
+            if (carry.Count > 0 && FreeQuestSlots() < carry.Count) { Refuse(quest, kind, QuestRefusal.QuestBagFull); return; }
 
             var now = Envir.Now;
             var first = q.FirstStep;
@@ -298,14 +315,18 @@ namespace Server.MirObjects
         /// </summary>
         public void TurnIn(int quest, uint npcObjectId, List<int> rewardPicks, bool auto = false)
         {
-            if (!_runs.TryGetValue(quest, out var run)) return;
+            // AutoComplete is not a client request: its refusals send no S.QuestRefused (the full-bag chat line below stays).
+            const QuestRequestKind kind = QuestRequestKind.TurnIn;
+            if (!_runs.TryGetValue(quest, out var run)) { if (!auto) Refuse(quest, kind, QuestRefusal.NotAvailable); return; }
             var q = Catalog.Get(quest);
-            if (q == null || !IsReady(q, run) || _player.Dead) return;
+            if (q == null) { if (!auto) Refuse(quest, kind, QuestRefusal.UnknownQuest); return; }
+            if (!IsReady(q, run)) { if (!auto) Refuse(quest, kind, QuestRefusal.NotReady); return; }
+            if (_player.Dead) { if (!auto) Refuse(quest, kind, QuestRefusal.Dead); return; }
 
             if (!auto)
             {
                 var npc = NpcInReach(npcObjectId);
-                if (npc == null || !Catalog.IsEndpoint(q, QuestEndpointRole.Finish, npc.Info.Index)) return;
+                if (npc == null || !Catalog.IsEndpoint(q, QuestEndpointRole.Finish, npc.Info.Index)) { Refuse(quest, kind, QuestRefusal.NotAtNpc); return; }
             }
 
             // AutoComplete retries on every re-evaluation: while the inventory's free slots are unchanged since a refusal, skip quietly.
@@ -315,8 +336,12 @@ namespace Server.MirObjects
             var items = BuildRewardItems(q, QuestRewardScope.Quest, 0, rewardPicks, out var filtered);
             if (items.Count > 0 && !_player.CanGainItems(items.ToArray()))
             {
-                if (auto) _autoTurnInBlocked[quest] = free;
-                _player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.CannotHandInQuestBagFull), ChatType.System);
+                if (auto)
+                {
+                    _autoTurnInBlocked[quest] = free;
+                    _player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.CannotHandInQuestBagFull), ChatType.System);
+                }
+                else Refuse(quest, kind, QuestRefusal.BagFull);
                 return;
             }
 
@@ -588,34 +613,39 @@ namespace Server.MirObjects
         /// <summary>C.QuestAbandon (also clears a failed run). Story quests may forbid it (AbandonAllowed).</summary>
         public void Abandon(int quest)
         {
-            if (!_runs.TryGetValue(quest, out var run)) return;
+            if (!_runs.TryGetValue(quest, out var run)) { Refuse(quest, QuestRequestKind.Abandon, QuestRefusal.NotAvailable); return; }
             var q = Catalog.Get(quest);
-            if (q != null && !q.Def.AbandonAllowed && run.Status != QuestRunStatus.Failed) return;
+            if (q != null && !q.Def.AbandonAllowed && run.Status != QuestRunStatus.Failed) { Refuse(quest, QuestRequestKind.Abandon, QuestRefusal.AbandonNotAllowed); return; }
             QuestLog.Info("[Quests] abandon " + _player.Name + " quest " + quest + " step " + run.Step + " after " + SecondsSinceAccept(run) + "s");
             RemoveRun(quest);
             _player.RecalculateQuestBag();
         }
 
-        /// <summary>C.QuestShare: offers the quest to party members in range who could take it (ShareMode Offer).</summary>
+        /// <summary>
+        /// C.QuestShare: offers the quest to party members in range who could take it (ShareMode Offer or AutoParty; None is refused
+        /// with ShareNotAllowed). Each member who gets the offer sees its S.QuestOffer prompt; the sharer hears only of a refusal.
+        /// </summary>
         public void Share(int quest)
         {
-            if (!_runs.TryGetValue(quest, out var run) || run.Status != QuestRunStatus.Active) return;
+            const QuestRequestKind kind = QuestRequestKind.Share;
+            if (!_runs.TryGetValue(quest, out var run) || run.Status != QuestRunStatus.Active) { Refuse(quest, kind, QuestRefusal.NotAvailable); return; }
             var q = Catalog.Get(quest);
-            var shared = false;
+            if (q == null) { Refuse(quest, kind, QuestRefusal.UnknownQuest); return; }
+            if (q.Def.ShareMode == QuestShareMode.None) { Refuse(quest, kind, QuestRefusal.ShareNotAllowed); return; }
             var members = _player.GroupMembers;
-            if (q != null && q.Def.ShareMode != QuestShareMode.None && members != null)
+            if (members == null || members.Count < 2) { Refuse(quest, kind, QuestRefusal.NotInGroup); return; }
+
+            var shared = false;
+            for (var i = 0; i < members.Count; i++)
             {
-                for (var i = 0; i < members.Count; i++)
-                {
-                    var member = members[i];
-                    if (member == null || member == _player || member.Dead || member.Node == null || member.CurrentMap != _player.CurrentMap) continue;
-                    if (!Functions.InRange(member.CurrentLocation, _player.CurrentLocation, Globals.DataRange)) continue;
-                    if (!member.Quests.ReceiveOffer(q, Info.Index, _player.Name)) continue;
-                    shared = true;
-                }
+                var member = members[i];
+                if (member == null || member == _player || member.Dead || member.Node == null || member.CurrentMap != _player.CurrentMap) continue;
+                if (!Functions.InRange(member.CurrentLocation, _player.CurrentLocation, Globals.DataRange)) continue;
+                if (!member.Quests.ReceiveOffer(q, Info.Index, _player.Name)) continue;
+                shared = true;
             }
 
-            if (!shared) _player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.QuestNotShared), ChatType.System);
+            if (!shared) Refuse(quest, kind, QuestRefusal.NoMemberCouldTake);
         }
 
         /// <summary>A share (or another non-NPC offer) reaches this player: remembered, definition sent, S.QuestOffer prompt.</summary>
@@ -632,19 +662,21 @@ namespace Server.MirObjects
         /// <summary>C.QuestChoose: a branch of the current step, chosen at an NPC that is an endpoint of the quest.</summary>
         public void Choose(int quest, uint npcObjectId, string choiceKey)
         {
-            if (string.IsNullOrEmpty(choiceKey) || !_runs.TryGetValue(quest, out var run) || run.Status != QuestRunStatus.Active || run.Step < 0) return;
+            const QuestRequestKind kind = QuestRequestKind.Choose;
+            if (string.IsNullOrEmpty(choiceKey)) { Refuse(quest, kind, QuestRefusal.InvalidPick); return; }
+            if (!_runs.TryGetValue(quest, out var run) || run.Status != QuestRunStatus.Active || run.Step < 0) { Refuse(quest, kind, QuestRefusal.NotAvailable); return; }
             var q = Catalog.Get(quest);
-            if (q == null || !q.StepsById.TryGetValue(run.Step, out var step)) return;
-            var npc = NpcInReach(npcObjectId);
-            if (npc == null || (!Catalog.IsEndpoint(q, QuestEndpointRole.Start, npc.Info.Index) && !Catalog.IsEndpoint(q, QuestEndpointRole.Finish, npc.Info.Index))) return;
-            if (!StepMet(q, run, step)) return;
+            if (q == null) { Refuse(quest, kind, QuestRefusal.UnknownQuest); return; }
+            if (!q.StepsById.TryGetValue(run.Step, out var step)) { Refuse(quest, kind, QuestRefusal.Other); return; }
+            if (!CanChooseAt(q, NpcInReach(npcObjectId))) { Refuse(quest, kind, QuestRefusal.NotAtNpc); return; }
+            if (!StepMet(q, run, step)) { Refuse(quest, kind, QuestRefusal.NotReady); return; }
 
             var branches = q.BranchesOf(step.Index);
             for (var i = 0; i < branches.Count; i++)
             {
                 var b = branches[i];
                 if (!string.Equals(b.ChoiceKey, choiceKey, StringComparison.Ordinal)) continue;
-                if (b.Condition != 0 && !EvaluateCondition(b.Condition)) return;
+                if (b.Condition != 0 && !EvaluateCondition(b.Condition)) { Refuse(quest, kind, QuestRefusal.ConditionNotMet); return; }
 
                 TakeStepDeliveries(q, step.Index);
                 GiveScopedRewards(q, QuestRewardScope.Step, step.Index);
@@ -661,6 +693,18 @@ namespace Server.MirObjects
                 Reevaluate(run);
                 return;
             }
+
+            Refuse(quest, kind, QuestRefusal.InvalidPick);
+        }
+
+        /// <summary>A branch of <paramref name="q"/> can be chosen at <paramref name="npc"/>: any Start or Finish endpoint of the quest.</summary>
+        private bool CanChooseAt(QuestRuntime q, NPCObject npc) =>
+            npc != null && (Catalog.IsEndpoint(q, QuestEndpointRole.Start, npc.Info.Index) || Catalog.IsEndpoint(q, QuestEndpointRole.Finish, npc.Info.Index));
+
+        /// <summary>S.QuestRefused: a quest request from this client was refused (the client shows why and unlocks its buttons).</summary>
+        public void Refuse(int quest, QuestRequestKind request, QuestRefusal reason)
+        {
+            _player.Enqueue(new S.QuestRefused { Quest = quest, Request = request, Reason = reason });
         }
     }
 }
