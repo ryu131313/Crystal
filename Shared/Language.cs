@@ -4068,6 +4068,8 @@ public enum ClientTextKeys
     ModernQuestNoShare,
     QuestTargetMore,
     QuestChooseBranchPrompt,
+    // wave 3 review (C4): classic select row too small for a choice group
+    QuestRewardGroupHidden,
 }
 
 public enum ServerTextKeys
@@ -10108,6 +10110,7 @@ public static class GameLanguage
             { nameof(ClientTextKeys.ModernQuestNoShare), "This quest cannot be shared" },
             { nameof(ClientTextKeys.QuestTargetMore), "{0}, …" },
             { nameof(ClientTextKeys.QuestChooseBranchPrompt), "{0}\n\nChoose \"{1}\"?" },
+            { nameof(ClientTextKeys.QuestRewardGroupHidden), "A reward choice of this quest does not fit this window. Hand it in from the new interface (Options)." },
         },
         Enum = new Dictionary<string, string>
         {

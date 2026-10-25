@@ -4041,7 +4041,8 @@
     "QuestRefusalNoMemberCouldTake": "No group member nearby can take this quest.",
     "ModernQuestNoShare": "This quest cannot be shared",
     "QuestTargetMore": "{0}, …",
-    "QuestChooseBranchPrompt": "{0}\n\nChoose \"{1}\"?"
+    "QuestChooseBranchPrompt": "{0}\n\nChoose \"{1}\"?",
+    "QuestRewardGroupHidden": "A reward choice of this quest does not fit this window. Hand it in from the new interface (Options)."
   },
   "Enum": {
     "MirClass_Warrior": "战士",

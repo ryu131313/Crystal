@@ -50,6 +50,7 @@ namespace Client.MirScenes.Modern.Windows
         private readonly List<(PaintBox Row, int Quest)> _rows = new List<(PaintBox, int)>();
         private readonly Action _quests, _group;
         private readonly Action<(int, bool)> _added;
+        private readonly Action<S.QuestRefused> _refused;
 
         // the detail's live bits: the timer line (text refreshed once a second) and the pending state the buttons show
         private ModernLabel _timer;
@@ -68,6 +69,8 @@ namespace Client.MirScenes.Modern.Windows
             _quests = () => { _listDirty = _detailDirty = true; };
             _added = _ => { _listDirty = _detailDirty = true; };
             _group = () => _detailDirty = true;
+            // Review C2: a refused share re-enables Share at once instead of after the 3 s rest.
+            _refused = p => { if (p != null && p.Request == QuestRequestKind.Share && _shared.Remove(p.Quest)) _detailDirty = true; };
         }
 
         private static UserObject User => GameScene.User;
@@ -141,6 +144,7 @@ namespace Client.MirScenes.Modern.Windows
             ModernEvents.Quests.On(_quests);
             ModernEvents.QuestAdded.On(_added);
             GameScene.Models.Group.Changed.On(_group);
+            GameScene.Models.Quests.Refused.On(_refused);
             _listDirty = _detailDirty = true;
         }
 
@@ -149,6 +153,7 @@ namespace Client.MirScenes.Modern.Windows
             ModernEvents.Quests.Off(_quests);
             ModernEvents.QuestAdded.Off(_added);
             GameScene.Models?.Group.Changed.Off(_group);
+            GameScene.Models?.Quests.Refused.Off(_refused);
             ModernTooltip.HideAll();
         }
 

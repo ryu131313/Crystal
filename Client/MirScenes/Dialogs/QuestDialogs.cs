@@ -140,6 +140,13 @@ namespace Client.MirScenes.Dialogs
                     return;
                 }
 
+                if (Reward.HasHiddenGroup())
+                {
+                    // review C4: a choice group whose items do not fit the five select cells cannot be picked here
+                    new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.QuestRewardGroupHidden)).Show();
+                    return;
+                }
+
                 if (!Reward.PicksComplete())
                 {
                     MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.YouMustSelectRewardItem));
@@ -1513,18 +1520,28 @@ namespace Client.MirScenes.Dialogs
             SelectedItemIndex = -1;
             SelectedItem = null;
             SelectedPicks.Clear();
+            _eligibleGroups.Clear();
+            _shownGroups.Clear();
         }
 
-        /// <summary>Every choice group shown in the select row has a pick.</summary>
+        // review C4: the choice groups with a reward this character can get, and those with a cell in the select row
+        private readonly HashSet<int> _eligibleGroups = new HashSet<int>(), _shownGroups = new HashSet<int>();
+
+        /// <summary>Every choice group with an eligible reward has a pick (the server gives nothing for a group without one).</summary>
         public bool PicksComplete()
         {
             if (Quest == null) return false;
-            for (int i = 0; i < SelectItems.Length; i++)
-            {
-                if (SelectItems[i] == null || SelectItems[i].IsDisposed) continue;
-                if (!SelectedPicks.ContainsKey(QuestV2Classic.SelectGroup(Quest.Id, _selectIndex[i]))) return false;
-            }
+            foreach (int group in _eligibleGroups)
+                if (!SelectedPicks.ContainsKey(group)) return false;
             return true;
+        }
+
+        /// <summary>A choice group has eligible rewards but no cell in the select row (more choice items than the row's five cells).</summary>
+        public bool HasHiddenGroup()
+        {
+            foreach (int group in _eligibleGroups)
+                if (!_shownGroups.Contains(group)) return true;
+            return false;
         }
 
         public void UpdateInterface()
@@ -1591,6 +1608,7 @@ namespace Client.MirScenes.Dialogs
             {
                 var selRewards = FilterRewards(quest.RewardsSelectItem);
                 int questId = Quest.Id, x = 15, lastGroup = -1;
+                foreach (var r in selRewards) _eligibleGroups.Add(QuestV2Classic.SelectGroup(questId, quest.RewardsSelectItem.IndexOf(r)));
 
                 // quest V2: one pick per choice group; groups sit side by side with a small gap between them
                 for (int i = 0; i < SelectItems.Length; i++)
@@ -1602,6 +1620,7 @@ namespace Client.MirScenes.Dialogs
                     if (lastGroup >= 0 && group != lastGroup) x += 8;
                     lastGroup = group;
                     _selectIndex[i] = index;
+                    _shownGroups.Add(group);
 
                     SelectItems[i] = new QuestCell
                     {

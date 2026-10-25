@@ -671,12 +671,20 @@ export class QuestWindow {
     if (!def) return;
     const branches = this.branchesHere(def.Quest);
     if (branches.length && this.quests.run(def.Quest)?.status === QuestRunStatus.Active) {
-      // a met step's branch choice (web addition): one button per branch (the box fits three plus Cancel)
+      // a met step's branch choice (web addition): one button per branch; the box fits four buttons, so more than three branches are
+      // paged with a "More…" button (review C3)
       const npc = this.currentNpcId;
-      messageBox(this.stage, `${def.Name}\nChoose how to go on:`, [
-        ...branches.slice(0, 3).map((b) => ({ label: b.Text || b.ChoiceKey, onClick: () => this.quests.choose(def.Quest, npc, b.ChoiceKey) })),
-        { label: "Cancel" },
-      ]);
+      const page = (start: number): void => {
+        const more = branches.length - start > 3;
+        const shown = branches.slice(start, start + (more ? 2 : 3));
+        const range = branches.length > 3 ? ` (${start + 1}-${start + shown.length} of ${branches.length})` : "";
+        messageBox(this.stage, `${def.Name}\nChoose how to go on:${range}`, [
+          ...shown.map((b) => ({ label: b.Text || b.ChoiceKey, onClick: () => this.quests.choose(def.Quest, npc, b.ChoiceKey) })),
+          ...(more ? [{ label: "More…", onClick: () => page(start + shown.length) }] : []),
+          { label: "Cancel" },
+        ]);
+      };
+      page(0);
       return;
     }
     if (this.quests.run(def.Quest)?.status !== QuestRunStatus.Ready) return;

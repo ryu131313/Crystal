@@ -248,7 +248,29 @@
 
   // ---- text fields (one box per text field, server language) -------------------------------------------------------
 
-  /* key: current key; setKey(k) stores it on the row; suffix builds a default key from the author key. */
+  /* A row id as a key part: real ids as they are, temporary (negative) ids as nN (review C1). */
+  function idPart(id) { return id < 0 ? 'n' + (-id) : String(id); }
+
+  /* Every text key the quest's fields use (quest row, steps, objectives, branches). */
+  function usedKeys() {
+    var keys = {};
+    function add(k) { if (k) keys[k] = true; }
+    add(quest.nameKey); add(quest.summaryKey); add(quest.completeKey);
+    (quest.steps || []).forEach(function (s) { add(s.titleKey); add(s.textKey); add(s.readyTextKey); });
+    (quest.objectives || []).forEach(function (o) { add(o.textKey); });
+    (quest.branches || []).forEach(function (b) { add(b.choiceKey); add(b.textKey); });
+    return keys;
+  }
+
+  /* A default key that no text and no key field of this quest uses yet: base, then base-2, base-3, ... (review C1). */
+  function freeKey(base) {
+    var used = usedKeys();
+    var k = base;
+    for (var n = 2; used[k] || quest.texts[k] != null; n++) k = base + '-' + n;
+    return k;
+  }
+
+  /* key: current key; setKey(k) stores it on the row; suffix builds a default key from the author key and the row's own id. */
   function textField(label, key, setKey, suffix, multiline) {
     var keyInput = h('input', { type: 'text', value: key || '', cls: 'qe-key', placeholder: 'text key', title: 'Text key (texts table, server language)' });
     var body = h(multiline ? 'textarea' : 'input', { cls: multiline ? 'qe-body' : 'qe-body qe-body-line', placeholder: label + ' text', rows: multiline ? 3 : null, type: multiline ? null : 'text' });
@@ -265,7 +287,7 @@
     });
     body.addEventListener('input', function () {
       if (!key) {
-        key = (quest.authorKey || 'quest') + '.' + suffix;
+        key = freeKey((quest.authorKey || 'quest') + '.' + suffix);
         keyInput.value = key;
         setKey(key);
       }
@@ -459,6 +481,7 @@
 
   async function applyImport(btn) {
     if (!importPreview || !importPreview.token) return;
+    if (!await confirmDiscard()) return; // review C5: the import opens the imported quest, which drops unsaved edits
     var j = await OpsUI.withBusy(btn, function () { return OpsUI.post(API + '/import', { file: importText, apply: true, token: importPreview.token }); }, 'Importing…');
     if (!j || !j.__ok) { importPreview = { failed: true, problems: errorProblems(j), message: j && j.message }; renderImport(); return; }
     var idx = j.data.index;
@@ -567,7 +590,8 @@
     var errs = problems.filter(function (p) { return !p.warning; }).length;
     host.appendChild(h('div', { cls: 'qe-head' },
       h('h3', { text: quest.index ? 'Quest #' + quest.index + ' ' + (quest.authorKey || '') : 'New quest' }),
-      quest.legacy ? h('span', { cls: 'ops-pill ops-pill-warn', title: 'Until the ship (D2) the legacy quest file is the source of truth: a re-import of the legacy quests rebuilds this quest\'s rows and drops these edits.', text: 'legacy body' }) : null,
+      quest.legacy ? h('span', { cls: 'ops-pill ops-pill-warn', title: 'Imported from a legacy quest file and never saved here: a re-import of the legacy quests rebuilds its rows from that file. The first save on this page makes the quest editor-owned, and re-imports skip it from then on.', text: 'legacy body' }) : null,
+      quest.editorOwned && !quest.legacy && quest.index ? h('span', { cls: 'ops-pill', title: 'Saved on this page: legacy re-imports leave this quest alone.', text: 'editor-owned' }) : null,
       quest.index ? h('span', { cls: 'mir-muted', text: 'revision ' + quest.revision }) : null,
       h('span', { cls: 'qe-dirty', 'data-role': 'dirty' }),
       h('span', { cls: 'qe-spacer' }),
@@ -664,6 +688,11 @@
     UseSkill: ['Spell'], Flag: ['Flag']
   };
 
+  function scopeValue(name) {
+    var hit = enumList('rewardScope').filter(function (o) { return o.label === name; })[0];
+    return hit ? hit.value : -1;
+  }
+
   function kindValue(name) {
     var hit = enumList('targetKind').filter(function (o) { return o.label === name; })[0];
     return hit ? hit.value : 0;
@@ -679,10 +708,24 @@
         button('↑', function () { move(steps, s, -1); renumberSteps(steps); markDirty(); renderEditor(); }, null, 'Move up'),
         button('↓', function () { move(steps, s, 1); renumberSteps(steps); markDirty(); renderEditor(); }, null, 'Move down'),
         button('Remove step', function () {
+          // Review C6: nothing may keep pointing at the removed step or its objectives.
+          var gone = {};
+          quest.objectives.forEach(function (o) { if (o.step === s.index) gone[o.index] = true; });
+          var objectives = Object.keys(gone).length;
+          var rewardsBefore = quest.rewards.length, branchesBefore = quest.branches.length, relinked = 0;
           quest.steps.splice(quest.steps.indexOf(s), 1);
           quest.objectives = quest.objectives.filter(function (o) { return o.step !== s.index; });
+          quest.branches = quest.branches.filter(function (b) { return b.step !== s.index; });
+          quest.branches.forEach(function (b) { if (b.nextStep === s.index) { b.nextStep = 0; relinked++; } });
+          quest.steps.forEach(function (x) { if (x.nextStep === s.index) { x.nextStep = 0; relinked++; } });
+          var stepScope = scopeValue('Step'), objectiveScope = scopeValue('Objective');
+          quest.rewards = quest.rewards.filter(function (r) {
+            return !((r.scope === stepScope && r.scopeId === s.index) || (r.scope === objectiveScope && gone[r.scopeId]));
+          });
           renumberSteps(sortedSteps());
           markDirty(); renderEditor();
+          portalToast('Step removed with ' + objectives + ' objective(s), ' + (branchesBefore - quest.branches.length) + ' branch(es) and ' +
+            (rewardsBefore - quest.rewards.length) + ' reward(s); ' + relinked + ' link(s) to it now go to the next step by order.', 'info');
         }, 'qe-danger')));
       card.appendChild(h('div', { cls: 'qe-grid' },
         field('Completion', enumSelect('completionMode', s.completionMode, function (v) { s.completionMode = v; }, true)),
@@ -692,14 +735,14 @@
         field('Fail condition', conditionSelect(s.failCondition, function (v) { s.failCondition = v; })),
         field('On enter page', input(s.onEnterPage, function (v) { s.onEnterPage = v; }, { placeholder: 'NPC script page' })),
         field('On complete page', input(s.onCompletePage, function (v) { s.onCompletePage = v; }, { placeholder: 'NPC script page' }))));
-      var sfx = 's' + (si + 1);
+      var sfx = 's' + idPart(s.index);
       card.appendChild(textField('Title (tracker)', s.titleKey, function (k) { s.titleKey = k; }, sfx + '.title', false));
       card.appendChild(textField('Log text', s.textKey, function (k) { s.textKey = k; }, sfx + '.text', true));
       card.appendChild(textField('Ready text', s.readyTextKey, function (k) { s.readyTextKey = k; }, sfx + '.ready', true));
 
       var objs = quest.objectives.filter(function (o) { return o.step === s.index; }).sort(function (a, b) { return a.order - b.order; });
       var oh = h('div', { cls: 'qe-objectives' }, h('h4', { text: 'Objectives' }));
-      objs.forEach(function (o, oi) { oh.appendChild(renderObjective(o, objs, sfx + '.o' + (oi + 1))); });
+      objs.forEach(function (o) { oh.appendChild(renderObjective(o, objs, 'o' + idPart(o.index))); });
       oh.appendChild(button('+ Objective', function () {
         quest.objectives.push({
           index: newTemp(), step: s.index, order: objs.length + 1, type: 0, partyCredit: 0, targetKind: kindValue('Monster'), targetId: 0, count: 1,
@@ -759,8 +802,9 @@
         field('Then', select(b.nextStep, stepOptions(true), function (v) { b.nextStep = v; })),
         field('Outcome', numberInput(b.outcome, function (v) { b.outcome = v; })),
         field('Condition', conditionSelect(b.condition, function (v) { b.condition = v; }))));
-      card.appendChild(textField('Choice', b.choiceKey, function (k) { b.choiceKey = k; }, 'b' + (i + 1) + '.choice', false));
-      card.appendChild(textField('Text', b.textKey, function (k) { b.textKey = k; }, 'b' + (i + 1) + '.text', true));
+      // Branches have no id: the step's id plus freeKey's counter keeps every default key (and ChoiceKey, which C.QuestChoose sends) unique.
+      card.appendChild(textField('Choice', b.choiceKey, function (k) { b.choiceKey = k; }, 's' + idPart(b.step) + '.choice', false));
+      card.appendChild(textField('Text', b.textKey, function (k) { b.textKey = k; }, 's' + idPart(b.step) + '.branch', true));
       card.appendChild(button('Remove branch', function () { quest.branches.splice(i, 1); markDirty(); renderEditor(); }, 'qe-danger'));
       host.appendChild(card);
     });
