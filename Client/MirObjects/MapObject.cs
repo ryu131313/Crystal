@@ -259,6 +259,7 @@ namespace Client.MirObjects
             if (ObjectID == Hero?.ObjectID)
                 HeroObject = null;
 
+            if (ObjectID == GameScene.TalkedNPCID) GameScene.TalkedNPCID = 0;
             if (ObjectID != GameScene.NPCID) return;
 
             GameScene.NPCID = 0;

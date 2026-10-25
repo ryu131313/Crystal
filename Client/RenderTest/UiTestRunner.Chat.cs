@@ -155,22 +155,28 @@ namespace Client.RenderTest
             UserObject user = GameScene.User;
             ModernUi ui = ModernUiNow;
             if (user == null || ui == null) return;
-            var q1 = new ClientQuestProgress
+            // quest V2: the login picture settles the model, then two accepted runs with TrackHint
+            Feed(new S.QuestHistory { Full = true });
+            var herb = new S.QuestDefinition { Quest = 7001, Name = "The Herbalist's Errand" };
+            herb.Endpoints.Add(new S.QuestDefinition.Endpoint { Role = QuestEndpointRole.Start, Kind = QuestEndpointKind.Npc, TargetId = 90, Name = "BichonProvince_Merchant_Herbalist" });
+            herb.Steps.Add(new S.QuestDefinition.Step { Index = 70011, Order = 1 });
+            herb.Objectives.Add(new S.QuestDefinition.Objective { Index = 700111, Step = 70011, Type = QuestObjectiveType.Kill, TargetKind = QuestTargetKind.MonsterGroup, TargetName = "Hen", Count = 5 });
+            herb.Objectives.Add(new S.QuestDefinition.Objective { Index = 700112, Step = 70011, Type = QuestObjectiveType.Collect, TargetKind = QuestTargetKind.ItemGroup, TargetName = "Hen Feather", Count = 2 });
+            var letter = new S.QuestDefinition { Quest = 7002, Name = "A Letter for the Blacksmith of the Bichon Province" };
+            letter.Endpoints.Add(new S.QuestDefinition.Endpoint { Role = QuestEndpointRole.Start, Kind = QuestEndpointKind.Npc, TargetId = 90, Name = "BichonProvince_Merchant_Herbalist" });
+            letter.Steps.Add(new S.QuestDefinition.Step { Index = 70021, Order = 1, NextStep = -1 });
+            Feed(herb);
+            Feed(letter);
+            Feed(new S.QuestStates { States = new List<S.QuestStates.Entry>
             {
-                Id = 7001, Taken = true,
-                QuestInfo = new ClientQuestInfo { Index = 7001, Name = "The Herbalist's Errand", FinishNPCIndex = 9001 },
-            };
-            q1.TaskList.Add("Kill Hen: 3/5");
-            q1.TaskList.Add("Collect Hen Feather (2/2)");
-            var q2 = new ClientQuestProgress
+                new S.QuestStates.Entry { Quest = 7001, Status = QuestRunStatus.Active, Step = 70011, TrackHint = true },
+                new S.QuestStates.Entry { Quest = 7002, Status = QuestRunStatus.Ready, Step = -1, TrackHint = true },
+            } });
+            Feed(new S.QuestProgress { Progress = new List<S.QuestProgress.Entry>
             {
-                Id = 7002, Taken = true, Completed = true,
-                QuestInfo = new ClientQuestInfo { Index = 7002, Name = "A Letter for the Blacksmith of the Bichon Province", FinishNPCIndex = 9001 },
-            };
-            user.CurrentQuests.Add(q1);
-            user.CurrentQuests.Add(q2);
-            ui.QuestAdded(q1, true);
-            ui.QuestAdded(q2, true);
+                new S.QuestProgress.Entry { Quest = 7001, Objective = 700111, Value = 3 },
+                new S.QuestProgress.Entry { Quest = 7001, Objective = 700112, Value = 2 },
+            } });
             _log.Add($"   tracker visible={ui.Tracker?.Visible} tracked=[{string.Join(",", ui.Tracker?.Tracked ?? new List<int>())}]");
         }
 

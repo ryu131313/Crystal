@@ -33,6 +33,7 @@ namespace Client.MirScenes.Modern
         public void Build()
         {
             ModernTheme.ApplySettings();
+            Models.QuestText.NpcNameFormat = n => Hud.ChatGfx.NpcName(n).Name; // quest text names NPCs as the new UI does
             Root = new ModernRoot(_scene);
             RegisterWindows();
             BuildHud();          // ModernUi.Hud.cs: the bottom HUD, party / hero frames, game menu
@@ -246,12 +247,7 @@ namespace Client.MirScenes.Modern
         public void HeroBehaviourChanged(HeroBehaviour behaviour) => ModernEvents.HeroBehaviour.Emit(behaviour);
         public void UserInformationReceived() => ModernEvents.UserInformation.Emit();
         public void MountChanged() => ModernEvents.Mount.Emit();
-        public void QuestAdded(ClientQuestProgress quest, bool track)
-        {
-            ModernEvents.QuestAdded.Emit((quest, track));
-            ModernEvents.Quests.Emit();
-        }
-        public void QuestRemoved(ClientQuestProgress quest) => ModernEvents.Quests.Emit();
+        public void QuestAccepted(int quest, bool track) => ModernEvents.QuestAdded.Emit((quest, track));
         public void QuestsChanged() => ModernEvents.Quests.Emit();
         public void LightsChanged() => ModernEvents.Lights.Emit();
         public void UserItemDuraChanged(UserItem item) => ModernEvents.Durability.Emit(item);

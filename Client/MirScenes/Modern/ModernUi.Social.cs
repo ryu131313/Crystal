@@ -2,6 +2,7 @@
 using Client.MirObjects;
 using Client.MirScenes.Models;
 using Client.MirScenes.Modern.Core;
+using Client.MirScenes.Modern.Hud;
 using Client.MirScenes.Modern.Windows;
 using S = ServerPackets;
 using C = ClientPackets;
@@ -11,16 +12,16 @@ namespace Client.MirScenes.Modern
     /// <summary>
     /// Phase 4 area "social" (worker B): group, trade, friends (+ requests), mentor (+ finder), relationship, quests, and the
     /// social toggles the mentor / relationship windows show. State: Models.Group (+ MemberStatus), Models.Trade, Models.Friends
-    /// (+ Requests), Models.Relationship, Models.AllowToggles, User.CurrentQuests. Window keys "group", "trade", "friends",
+    /// (+ Requests), Models.Relationship, Models.AllowToggles, Models.Quests (quest V2). Window keys "group", "trade", "friends",
     /// "mentor", "relationship", "quests" (Client\MirScenes\Modern\Windows\Group*, Trade*, Friends*, Mentor*, Relationship*,
-    /// Quests*). The trade window opens only when the server opens a trade (S.TradeAccept). A session ticker on the HUD layer
-    /// remembers the NPCs met (the quest log's Available tab) and the group log follows the roster from log-in.
+    /// Quests*). The trade window opens only when the server opens a trade (S.TradeAccept). The quest progress toasts sit on the
+    /// HUD layer (Hud\QuestToastHud) and the group log follows the roster from log-in.
     /// </summary>
     public sealed partial class ModernUi
     {
         private Action<FriendRequestInfo> _friendRequestToast;
         private Action _friendRequestsChanged;
-        private SocialTicker _socialTicker;
+        private QuestToastHud _questToasts;
 
         /// <summary>An open request toast; Settled = answered elsewhere (or replaced, or log-out): closing it sends nothing.</summary>
         private sealed class ToastRef
@@ -49,8 +50,8 @@ namespace Client.MirScenes.Modern
             Root.Wm.Register(RelationshipWindow.WindowKey, () => new RelationshipWindow());
             Root.Wm.Register(QuestsWindow.WindowKey, () => new QuestsWindow());
             GroupLog.Start();
-            QuestNpcs.Clear();
-            _socialTicker = new SocialTicker { Parent = Root.Hud };
+            QuestActions.Reset();
+            _questToasts = new QuestToastHud { Parent = Root.Hud };
             _friendRequestToast = FriendRequestToast;
             _friendRequestsChanged = FriendRequestsChanged;
             GameScene.Models?.Friends.RequestReceived.On(_friendRequestToast);
@@ -68,7 +69,7 @@ namespace Client.MirScenes.Modern
             if (_tradeToast != null) _tradeToast.Settled = true;
             GroupLog.Stop();
             TradeWindow.Ending = true; // log-out: closing the trade window sends nothing (the server cancels the trade)
-            _socialTicker = null;      // a child of Root.Hud: disposed with it
+            _questToasts = null;       // a child of Root.Hud: disposed with it
         }
 
         /// <summary>KeybindOptions.Group / Friends / Mentor / Relationship / Quests toggle their windows; AddGroupMember invites the
@@ -160,29 +161,6 @@ namespace Client.MirScenes.Modern
         /// <summary>Models.Relationship already holds the values (MentorChanged fired; the windows listen to it).</summary>
         public void MentorUpdate(S.MentorUpdate p) { }
 
-        /// <summary>A bare surface on the HUD layer for the area's once-a-second session work (the NPCs met for the quest log).
-        /// Zero-sized: never drawn, never takes the mouse.</summary>
-        private sealed class SocialTicker : ModernSurface
-        {
-            private long _next;
-
-            public SocialTicker()
-            {
-                PassThrough = true;
-                NotControl = true;
-                Size = Size.Empty;
-            }
-
-            public override void Process()
-            {
-                if (CMain.Time < _next) return;
-                _next = CMain.Time + 1000;
-                QuestNpcs.Scan();
-            }
-
-            public override bool IsMouseOver(Point p) => false;
-        }
-
         // ---- prompts (classic: MirMessageBox in Classic\GameScene.ClassicPrompts.cs)
 
         /// <summary>S.TradeRequest: a request toast (a newer request replaces it without an answer; the trade starting closes it).</summary>
@@ -222,13 +200,19 @@ namespace Client.MirScenes.Modern
                 () => { if (!_ending) Network.Enqueue(new C.MentorReply { AcceptInvite = false }); });
         }
 
-        /// <summary>S.ShareQuest: accept sends C.AcceptQuest; declining sends nothing (as classic's No).</summary>
-        public void QuestShareRequest(S.ShareQuest p, ClientQuestInfo quest)
+        /// <summary>S.QuestOffer (a share, or an item / area / auto start): a request toast; accept sends C.QuestAccept { NpcObjectID = 0 },
+        /// declining sends nothing (as classic's No). The definition arrives just before the offer (the quest's name in the text).</summary>
+        public void QuestOffer(S.QuestOffer p)
         {
-            if (Root == null || Root.IsDisposed || p == null || quest == null) return;
-            int index = quest.Index;
-            Root.Popups.Request(p.SharerName, GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PlayerShareQuestRequest, p.SharerName), 60,
-                () => Network.Enqueue(new C.AcceptQuest { NPCIndex = 0, QuestIndex = index }), null);
+            if (Root == null || Root.IsDisposed || p == null) return;
+            int quest = p.Quest;
+            string name = GameScene.Models?.Quests.Def(quest)?.Name ?? string.Empty;
+            bool shared = !string.IsNullOrEmpty(p.SharedBy);
+            string text = shared
+                ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ModernQuestSharedOffer, p.SharedBy, name)
+                : GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.QuestOfferPrompt, name);
+            Root.Popups.Request(shared ? p.SharedBy : GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.Quests), text, 60,
+                () => Network.Enqueue(new C.QuestAccept { Quest = quest, NpcObjectID = 0 }), null);
         }
 
         /// <summary>S.FriendRequest (Models.Friends.RequestReceived): a request toast for the 60 s the server keeps it. A repeat

@@ -6,8 +6,9 @@
 // the window), {text/Colour}, (text/url) web links (http(s) only), [ITEM|MONSTER|NPC:n(|name)] / <$…:n> info links (the item
 // tooltip; a monster / NPC card like NPCDialog.ShowTooltip); a row holding only page links becomes option cards too. Service
 // chips = the page's own service links. The typewriter (180 chars/s; click or Space finishes it), the conversation log (Log),
-// the Quests tab (NPCObject.GetAvailableQuests: accept C.AcceptQuest, hand in C.FinishQuest with the chosen reward, abandon
-// C.AbandonQuest after a question; buttons lock until the quest list changes or 5 s), the portrait (the NPC's own library frame,
+// the Quests tab (quest V2: what S.QuestAvailability says this NPC offers / finishes; accept C.QuestAccept, hand in C.QuestTurnIn
+// with the choice-group picks, a met step's branch C.QuestChoose, abandon C.QuestAbandon after a question; buttons lock until the
+// quest's state changes or 5 s: QuestActions), the portrait (the NPC's own library frame,
 // as it animates in the world).
 // HIDDEN (no data): the NPC title line, the mock's fixed service list, the Back stack; the info card has no picture.
 using System.Diagnostics;
@@ -17,9 +18,11 @@ using Client.MirGraphics;
 using Client.MirGraphics.Rendering;
 using Client.MirNetwork;
 using Client.MirObjects;
+using Client.MirScenes.Models;
 using Client.MirScenes.Modern.Core;
 using Client.MirSounds;
 using Client.MirScenes.Modern.Core.Widgets;
+using S = ServerPackets;
 using C = ClientPackets;
 using DxMatrix = SlimDX.Matrix;
 
@@ -55,9 +58,9 @@ namespace Client.MirScenes.Modern.Windows
         private int _shownSeq = -1, _shownLog = -1;
         private uint _shownGold = uint.MaxValue;
         private readonly List<(string Text, string Key, string Colour)> _choices = new List<(string, string, string)>();
-        private readonly HashSet<int> _pendingQuests = new HashSet<int>();
-        private readonly Dictionary<int, long> _pendingUntil = new Dictionary<int, long>();
-        private readonly Dictionary<int, int> _rewardPick = new Dictionary<int, int>();
+        private readonly List<(int Quest, bool Offer)> _npcQuests = new List<(int, bool)>();
+        private readonly List<(int Quest, bool Pending)> _shownQuests = new List<(int, bool)>();
+        private long _nextQuestTick;
 
         // typewriter
         private bool _typing, _noRetype;
@@ -83,7 +86,7 @@ namespace Client.MirScenes.Modern.Windows
             ContentWidth = WidthHud;
             ContentHeight = HeightHud;
             _changed = () => _dirty = true;
-            _questsChanged = () => { _pendingQuests.Clear(); _questsDirty = true; _dirty = true; };
+            _questsChanged = () => { _questsDirty = true; _dirty = true; };
         }
 
         internal bool Typing => _typing;
@@ -191,7 +194,6 @@ namespace Client.MirScenes.Modern.Windows
             ModernEvents.Quests.Off(_questsChanged);
             FinishTyping();
             HideCard();
-            _pendingQuests.Clear();
             _questsDirty = true;
             if (_state.Open) _state.Close(); // NPCDialog.Hide: every NPC window goes with it (no packet)
         }
@@ -230,8 +232,13 @@ namespace Client.MirScenes.Modern.Windows
                 _shownGold = GameScene.Gold;
                 _gold.Text = W.T(ClientTextKeys.ModernWinGold) + " " + W.N(GameScene.Gold);
             }
-            foreach (var kv in _pendingUntil)
-                if (CMain.Time >= kv.Value && _pendingQuests.Remove(kv.Key)) { _questsDirty = _dirty = true; }
+            if (_tab == 1 && _shownQuests.Count > 0 && CMain.Time >= _nextQuestTick)
+            {
+                // a quest lock lifts after 5 s without a reply (QuestActions): redraw its buttons then
+                _nextQuestTick = CMain.Time + 1000;
+                for (int i = 0; i < _shownQuests.Count; i++)
+                    if (QuestActions.IsPending(_shownQuests[i].Quest) != _shownQuests[i].Pending) { _questsDirty = _dirty = true; break; }
+            }
             if (_dirty) Render();
         }
 
@@ -245,12 +252,14 @@ namespace Client.MirScenes.Modern.Windows
             SetTitle(name.ToUpperInvariant());
             _whoName.Text = name;
             _whoPlace.Text = place;
-            NPCObject npc = MapControl.Objects != null && MapControl.Objects.TryGetValue(NpcState.NpcId, out MapObject ob) ? ob as NPCObject : null;
+            // the portrait and quests follow the clicked NPC (GameScene.QuestNPCID: a quest accept's S.NPCUpdate moves NPCID to the default NPC)
+            NPCObject npc = MapControl.Objects != null && MapControl.Objects.TryGetValue(GameScene.QuestNPCID, out MapObject ob) ? ob as NPCObject : null;
             _portrait.Npc = npc;
 
-            List<ClientQuestProgress> quests = npc != null && GameScene.User != null ? SafeQuests(npc) : new List<ClientQuestProgress>();
+            // quest V2: what the server says this NPC offers / finishes (S.QuestAvailability), no client-side accept rules
+            NpcQuests(GameScene.QuestNPCID, _npcQuests);
             int ready = 0;
-            foreach (ClientQuestProgress q in quests) if (!q.Taken || q.Completed) ready++;
+            foreach (var q in _npcQuests) if (q.Offer || GameScene.Models.Quests.Run(q.Quest)?.Status == QuestRunStatus.Ready) ready++;
             _tabs.Badge(1, ready);
             QuestIcon icon = npc?.QuestIcon ?? QuestIcon.None;
             (string mark, Color mc) = Marker(icon);
@@ -265,13 +274,7 @@ namespace Client.MirScenes.Modern.Windows
             _talk.Visible = _tab == 0;
             _quests.Visible = _tab == 1;
             _hint.Visible = _tab == 0;
-            if (_tab == 1 && _questsDirty) RenderQuests(quests);
-        }
-
-        private static List<ClientQuestProgress> SafeQuests(NPCObject npc)
-        {
-            try { return npc.Quests == null ? new List<ClientQuestProgress>() : npc.GetAvailableQuests(); }
-            catch (Exception ex) { ModernLog.Once("[ModernUi] npc quests", ex); return new List<ClientQuestProgress>(); }
+            if (_tab == 1 && _questsDirty) RenderQuests(_npcQuests);
         }
 
         /// <summary>questMiniMapMarker: "!" to accept, "?" to hand in / in progress, in the quest type's colour.</summary>
@@ -651,66 +654,88 @@ namespace Client.MirScenes.Modern.Windows
             if (_linkAnchor != null) ModernTooltip.HideFor(_linkAnchor);
         }
 
-        // ------------------------------------------------------------------ quests (QuestListDialog for this NPC)
+        // ------------------------------------------------------------------ quests (QuestListDialog for this NPC; quest V2)
 
-        private void RenderQuests(List<ClientQuestProgress> list)
+        /// <summary>What this NPC finishes (the player's runs) and offers for the player, as S.QuestAvailability said; definitions known.</summary>
+        private static void NpcQuests(uint npc, List<(int Quest, bool Offer)> into)
+        {
+            into.Clear();
+            QuestBook book = GameScene.Models?.Quests;
+            if (book == null || !book.Npcs.TryGetValue(npc, out S.QuestAvailability.Entry e)) return;
+            for (int i = 0; i < e.Finishing.Count; i++)
+                if (book.Def(e.Finishing[i]) != null && book.Run(e.Finishing[i]) != null) into.Add((e.Finishing[i], false));
+            for (int i = 0; i < e.Offered.Count; i++)
+                if (book.Def(e.Offered[i]) != null && book.Run(e.Offered[i]) == null) into.Add((e.Offered[i], true));
+        }
+
+        private void RenderQuests(List<(int Quest, bool Offer)> list)
         {
             _questsDirty = false;
             for (int i = _quests.Content.Controls.Count - 1; i >= 0; i--) _quests.Content.Controls[i].Dispose();
             int w = (int)Math.Round(_quests.InnerWidth / ModernRoot.K) - 24, y = 10;
+            _shownQuests.Clear();
             if (list.Count == 0)
             {
                 W.Label(_quests.Content, W.T(ClientTextKeys.ModernNpcNoQuests), 0, 30, w + 24, 20, 12, false, ModernTheme.Dim, StringAlignment.Center);
                 _quests.FitContent(10);
                 return;
             }
-            int current = GameScene.User?.CurrentQuests?.Count ?? 0;
-            foreach (ClientQuestProgress q in list) y += QuestCard(q, 12, y, w, current) + 8;
+            foreach (var q in list)
+            {
+                _shownQuests.Add((q.Quest, QuestActions.IsPending(q.Quest)));
+                y += QuestCard(q.Quest, q.Offer, 12, y, w) + 8;
+            }
             _quests.ContentHeight = S(y + 4);
         }
 
-        private int QuestCard(ClientQuestProgress q, int x, int y, int w, int current)
+        private int QuestCard(int quest, bool offer, int x, int y, int w)
         {
-            ClientQuestInfo info = q.QuestInfo;
-            if (info == null) return 0;
-            uint npcId = NpcState.NpcId;
+            QuestBook book = GameScene.Models.Quests;
+            S.QuestDefinition def = book.Def(quest);
+            if (def == null) return 0;
+            QuestRun run = book.Run(quest);
+            uint npcId = GameScene.QuestNPCID;
+            bool ready = run != null && run.Status == QuestRunStatus.Ready, failed = run != null && run.Status == QuestRunStatus.Failed;
+            bool completedBefore = book.Done(quest) != null;
             var lines = new List<(string Text, bool Section)>();
-            void Add(List<string> src)
+            void Add(string text)
             {
-                if (src == null) return;
-                foreach (string ln in src) lines.Add((NpcPage.RowText(NpcPage.ParseLine(ln)), false));
+                if (string.IsNullOrEmpty(text)) return;
+                foreach (string ln in text.Replace("\r\n", "\n").Split('\n')) lines.Add((NpcPage.RowText(NpcPage.ParseLine(ln)), false));
             }
-            if (q.Taken && !info.SameFinishNPC && info.CompletionDescription.Count > 0 && npcId == info.FinishNPCIndex) Add(info.CompletionDescription);
-            else
+            if (offer)
             {
-                Add(info.Description);
-                if (info.TaskDescription.Count > 0) { lines.Add((W.T(ClientTextKeys.ModernNpcTasks), true)); Add(info.TaskDescription); }
-                if (info.ReturnDescription.Count > 0) { lines.Add((W.T(ClientTextKeys.ModernNpcReturn), true)); Add(info.ReturnDescription); }
-                if (info.TimeLimitInSeconds > 0) { lines.Add((W.T(ClientTextKeys.ModernNpcTimeLimit), true)); lines.Add((W.Duration(info.TimeLimitInSeconds), false)); }
-                if (q.Taken && q.TaskList.Count > 0) { lines.Add((W.T(ClientTextKeys.ModernNpcProgress), true)); Add(q.TaskList); }
+                Add(def.Summary);
+                var objectives = new List<S.QuestDefinition.Objective>();
+                S.QuestDefinition.Step first = null;
+                foreach (S.QuestDefinition.Step s in def.Steps) if (first == null || s.Order < first.Order) first = s;
+                if (first != null) QuestBook.ObjectivesOf(def, first.Index, objectives);
+                bool head = false;
+                foreach (S.QuestDefinition.Objective o in objectives)
+                {
+                    if (o.Hidden) continue;
+                    if (!head) { lines.Add((W.T(ClientTextKeys.ModernNpcTasks), true)); head = true; }
+                    lines.Add((QuestText.Label(o), false));
+                }
+                if (def.TimeLimitSeconds > 0) { lines.Add((W.T(ClientTextKeys.ModernNpcTimeLimit), true)); lines.Add((W.Duration(def.TimeLimitSeconds), false)); }
             }
-            var parts = new List<string>();
-            if (info.RewardExp > 0) parts.Add(W.T(ClientTextKeys.ModernNpcExp, W.N(info.RewardExp)));
-            if (info.RewardGold > 0) parts.Add(W.T(ClientTextKeys.ModernNpcGoldAmount, W.N(info.RewardGold)));
-            if (info.RewardCredit > 0) parts.Add(W.T(ClientTextKeys.ModernNpcCredit, W.N(info.RewardCredit)));
-            string rewardText = parts.Count > 0 ? string.Join(" · ", parts) : string.Empty;
+            else if (ready)
+            {
+                string text = string.Empty;
+                foreach (S.QuestDefinition.Step s in def.Steps) if (!string.IsNullOrEmpty(s.ReadyText)) text = s.ReadyText;
+                Add(text.Length > 0 ? text : def.CompleteText.Length > 0 ? def.CompleteText : W.T(ClientTextKeys.ModernSocialQReadyTurnIn));
+            }
+            else if (failed) lines.Add((W.T(ClientTextKeys.ModernQuestFailedHint), false));
+            else if (run.Step >= 0)
+            {
+                var objectives = new List<S.QuestDefinition.Objective>();
+                QuestBook.ObjectivesOf(def, run.Step, objectives);
+                lines.Add((W.T(ClientTextKeys.ModernNpcProgress), true));
+                foreach (S.QuestDefinition.Objective o in objectives)
+                    if (book.Shown(quest, o)) lines.Add((QuestText.Line(o, book.Value(quest, o.Index)), false));
+            }
 
-            // the select rewards the user's gender may take (QuestRewards)
-            var select = new List<(QuestItemReward R, int I)>();
-            MirGender gender = GameScene.User?.Gender ?? MirGender.Male;
-            for (int i = 0; i < info.RewardsSelectItem.Count && select.Count < 5; i++)
-            {
-                QuestItemReward rw = info.RewardsSelectItem[i];
-                if (rw?.Item == null) continue;
-                RequiredGender g = rw.Item.RequiredGender;
-                if (gender == MirGender.Male && !g.HasFlag(RequiredGender.Male)) continue;
-                if (gender == MirGender.Female && !g.HasFlag(RequiredGender.Female)) continue;
-                select.Add((rw, i));
-            }
-            var fixedItems = new List<QuestItemReward>();
-            foreach (QuestItemReward rw in info.RewardsFixedItem) if (rw?.Item != null && fixedItems.Count < 5) fixedItems.Add(rw);
-
-            // measure
+            // measure the text
             int textW = w - 54 - 110;
             Font tf = ModernSkin.Font(11.5f);
             float ty = 26;
@@ -722,16 +747,15 @@ namespace Client.MirScenes.Modern.Windows
                 ty += h + (ln.Section ? 4 : 0);
             }
             float rewardY = ty + 6;
-            int cellsY = (int)rewardY + 34;
-            bool hasCells = fixedItems.Count + select.Count > 0;
-            int height = (int)(cellsY + (hasCells ? 44 : 0)) + 6;
-            height = Math.Max(height, 96);
 
-            string meta = (info.MaxLevelNeeded > 0 && info.MaxLevelNeeded < 65535 && info.MaxLevelNeeded != info.MinLevelNeeded
-                ? W.T(ClientTextKeys.ModernNpcLvRange, info.MinLevelNeeded, info.MaxLevelNeeded) : W.T(ClientTextKeys.ModernNpcLv, info.MinLevelNeeded))
-                + " · " + NpcFmt.Pretty(info.Type.ToString()) + (string.IsNullOrEmpty(info.Group) ? string.Empty : " · " + info.Group);
-            (string mark, Color mc) = Marker(q.Icon);
-            bool ready = q.Completed;
+            string meta = (def.LevelHint > 0 ? W.T(ClientTextKeys.ModernNpcLv, def.LevelHint) + " · " : string.Empty) + QuestGfx.CategoryName(def.Category)
+                + (string.IsNullOrEmpty(def.GroupName) ? string.Empty : " · " + def.GroupName);
+            bool story = def.Category == QuestCategory.Story, daily = def.Category == QuestCategory.Daily || def.Category == QuestCategory.Weekly;
+            QuestIcon icon = offer ? (story ? QuestIcon.ExclamationGreen : daily ? QuestIcon.ExclamationBlue : QuestIcon.ExclamationYellow)
+                : ready ? (story ? QuestIcon.QuestionGreen : daily ? QuestIcon.QuestionBlue : QuestIcon.QuestionYellow)
+                : QuestIcon.QuestionWhite;
+            (string mark, Color mc) = failed ? ("✗", ModernTheme.Hex("#ff6b5a")) : Marker(icon);
+            string name = def.Name;
             var card = new PaintBox((g, b) =>
             {
                 float k = ModernRoot.K;
@@ -741,8 +765,8 @@ namespace Client.MirScenes.Modern.Windows
                 ModernSkin.Text(g, mark.Length > 0 ? mark : "…", ModernSkin.Font(17, true), mark.Length > 0 ? mc : ModernTheme.Dim, qm, StringAlignment.Center);
                 float tx = 50 * k;
                 Font nf = ModernSkin.Font(13, true);
-                float nw = Math.Min(ModernSkin.Measure(info.Name, nf) + 2, textW * k * 0.7f);
-                ModernSkin.Text(g, info.Name, nf, Color.White, new RectangleF(tx, 8 * k, nw, 18 * k));
+                float nw = Math.Min(ModernSkin.Measure(name, nf) + 2, textW * k * 0.7f);
+                ModernSkin.Text(g, name, nf, Color.White, new RectangleF(tx, 8 * k, nw, 18 * k));
                 ModernSkin.Text(g, meta, ModernSkin.Font(10), ModernTheme.Dim, new RectangleF(tx + nw + 6 * k, 9 * k, textW * k - nw, 16 * k));
                 foreach (var pl in placed)
                 {
@@ -750,94 +774,72 @@ namespace Client.MirScenes.Modern.Windows
                     else ModernSkin.Text(g, pl.Text, tf, ModernTheme.Text, new RectangleF(tx, pl.Y * k, textW * k, pl.H * k), StringAlignment.Near, StringAlignment.Near, false, true);
                 }
                 ModernSkin.Text(g, W.T(ClientTextKeys.ModernNpcReward).ToUpperInvariant(), ModernSkin.Font(9.5f, true), ModernTheme.AccentDim, new RectangleF(tx, rewardY * k, textW * k, 14 * k));
-                string rt = rewardText.Length > 0 ? rewardText : hasCells ? string.Empty : W.T(ClientTextKeys.ModernNpcNoReward);
-                if (select.Count > 0) rt += (rt.Length > 0 ? "   " : string.Empty) + W.T(ready ? ClientTextKeys.ModernNpcChooseOne : ClientTextKeys.ModernNpcOneOf);
-                ModernSkin.Text(g, rt, ModernSkin.Font(11, true), ModernTheme.Gold, new RectangleF(tx, (rewardY + 15) * k, textW * k, 16 * k));
             })
-            { Parent = _quests.Content, Location = new Point(S(x), S(y)), Size = new Size(S(w), S(height)), NotControl = true };
+            // not NotControl: a NotControl parent hides its children from the mouse (the card holds the buttons and reward cells)
+            { Parent = _quests.Content, Location = new Point(S(x), S(y)), Size = new Size(S(w), S(96)) };
 
-            int cx = 50;
-            foreach (QuestItemReward rw in fixedItems)
+            int bottom = QuestRewardsView.Build(card, def, completedBefore, ready, 50, (int)rewardY + 14, textW, () => _questsDirty = _dirty = true);
+
+            // a met step with branches: the choice buttons (C.QuestChoose here: this NPC is an endpoint of the quest)
+            bool pending = QuestActions.IsPending(quest);
+            if (!offer && book.ChoiceDue(quest))
             {
-                QuestItemReward r0 = rw;
-                var shown = new UserItem(r0.Item) { CurrentDura = r0.Item.Durability, MaxDura = r0.Item.Durability, Count = Math.Max((ushort)1, r0.Count) };
-                new NpcItemCell(38, () => shown) { Parent = card, Location = new Point(S(cx), S(cellsY)) };
-                cx += 42;
+                var branches = new List<S.QuestDefinition.Branch>();
+                QuestBook.BranchesOf(def, run.Step, branches);
+                W.Label(card, W.T(ClientTextKeys.ModernQuestChoose).ToUpperInvariant(), 50, bottom + 2, textW, 14, 9.5f, true, ModernTheme.AccentDim);
+                bottom += 18;
+                foreach (S.QuestDefinition.Branch br in branches)
+                {
+                    var b = new ModernButton(br.Text.Length > 0 ? br.Text : br.ChoiceKey, ButtonKind.Main) { Parent = card, FontSize = 11 };
+                    b.AutoWidth(120);
+                    b.Location = new Point(S(50), S(bottom));
+                    string key = br.ChoiceKey;
+                    b.SetDisabled(pending, W.T(ClientTextKeys.ModernWinWaitingServer));
+                    b.Click += (o, e) => { QuestActions.Choose(quest, npcId, key); _questsDirty = _dirty = true; };
+                    bottom += 32;
+                }
             }
-            if (fixedItems.Count > 0 && select.Count > 0) cx += 12;
-            foreach (var (rw, idx) in select)
-            {
-                var shown = new UserItem(rw.Item) { CurrentDura = rw.Item.Durability, MaxDura = rw.Item.Durability, Count = Math.Max((ushort)1, rw.Count) };
-                var cell = new NpcItemCell(38, () => shown) { Parent = card, Location = new Point(S(cx), S(cellsY)) };
-                bool on = _rewardPick.TryGetValue(info.Index, out int sel) && sel == idx;
-                cell.SetState(ready && on, false);
-                int qi = info.Index, ri = idx;
-                if (ready) cell.Click += (o, e) => { _rewardPick[qi] = ri; _questsDirty = _dirty = true; };
-                cx += 42;
-            }
+            int height = Math.Max(96, bottom + 8);
+            card.Size = new Size(card.Size.Width, S(height));
 
             // buttons
-            bool pending = _pendingQuests.Contains(info.Index);
-            int bx = w - 104, by = height / 2 - 24;
-            if (!q.Taken)
+            int bx = w - 104, by = Math.Min(height / 2, 70) - 24;
+            if (offer)
             {
-                bool full = current >= Globals.MaxConcurrentQuests;
+                bool full = book.ActiveCount >= Globals.MaxConcurrentQuests;
                 var b = new ModernButton(W.T(pending ? ClientTextKeys.ModernNpcAccepting : ClientTextKeys.ModernNpcAccept), ButtonKind.Main) { Parent = card, Location = new Point(S(bx), S(by + 12)) };
                 b.SetDisabled(pending || full, full ? W.T(ClientTextKeys.ModernNpcQuestFull, Globals.MaxConcurrentQuests) : W.T(ClientTextKeys.ModernWinWaitingServer));
-                b.Click += (o, e) => Accept(info);
+                b.Click += (o, e) => { QuestActions.Accept(quest, npcId); _questsDirty = _dirty = true; };
             }
-            else if (q.Completed)
+            else if (ready)
             {
+                bool picks = QuestActions.PicksComplete(def, completedBefore);
                 var b = new ModernButton(W.T(pending ? ClientTextKeys.ModernNpcHandingIn : ClientTextKeys.ModernNpcHandIn), ButtonKind.Main) { Parent = card, Location = new Point(S(bx), S(by + 12)) };
-                b.SetDisabled(pending, W.T(ClientTextKeys.ModernWinWaitingServer));
-                b.Click += (o, e) => Finish(info);
+                b.SetDisabled(pending || !picks, pending ? W.T(ClientTextKeys.ModernWinWaitingServer) : W.T(ClientTextKeys.YouMustSelectRewardItem));
+                b.Click += (o, e) =>
+                {
+                    QuestActions.TurnIn(def, npcId, completedBefore);
+                    _questsDirty = _dirty = true;
+                };
             }
             else
             {
-                W.Label(card, W.T(ClientTextKeys.ModernNpcInProgress), bx, by, 84, 16, 10, false, ModernTheme.Dim, StringAlignment.Center);
-                var b = new ModernButton(W.T(ClientTextKeys.ModernNpcAbandon)) { Parent = card, Location = new Point(S(bx), S(by + 20)) };
-                b.SetDisabled(pending, W.T(ClientTextKeys.ModernWinWaitingServer));
-                b.Click += (o, e) => Abandon(q);
+                W.Label(card, W.T(failed ? ClientTextKeys.ModernQuestFailedTag : ClientTextKeys.ModernNpcInProgress), bx, by, 84, 16, 10, false, failed ? ModernTheme.Hex("#ff6b5a") : ModernTheme.Dim, StringAlignment.Center);
+                var b = new ModernButton(W.T(failed ? ClientTextKeys.ModernQuestClear : ClientTextKeys.ModernNpcAbandon)) { Parent = card, Location = new Point(S(bx), S(by + 20)) };
+                bool canAbandon = def.AbandonAllowed || failed;
+                b.SetDisabled(pending || !canAbandon, !canAbandon ? W.T(ClientTextKeys.ModernQuestNoAbandon) : W.T(ClientTextKeys.ModernWinWaitingServer));
+                b.Click += (o, e) => Abandon(quest, name);
             }
             return height;
         }
 
-        /// <summary>Locks a quest's buttons until the quest list changes; a refusal sends nothing back, so the lock lifts after 5 s.</summary>
-        private void LockQuest(int index)
+        private void Abandon(int quest, string name)
         {
-            _pendingQuests.Add(index);
-            _pendingUntil[index] = CMain.Time + 5000;
-            _questsDirty = _dirty = true;
-        }
-
-        private void Accept(ClientQuestInfo info)
-        {
-            if (_pendingQuests.Contains(info.Index)) return;
-            LockQuest(info.Index);
-            Network.Enqueue(new C.AcceptQuest { NPCIndex = info.NPCIndex, QuestIndex = info.Index });
-        }
-
-        private void Finish(ClientQuestInfo info)
-        {
-            if (_pendingQuests.Contains(info.Index)) return;
-            int sel = _rewardPick.TryGetValue(info.Index, out int s) ? s : -1;
-            if (sel < 0 && info.RewardsSelectItem.Count > 0)
+            ModernRoot.Instance?.Popups.Ask(W.T(ClientTextKeys.AskCancelQuest, name), ok =>
             {
-                ModernRoot.Instance?.Popups.Confirm(W.T(ClientTextKeys.YouMustSelectRewardItem), PopupButtons.Ok, PopupKind.Info, null, false, info.Name);
-                return;
-            }
-            LockQuest(info.Index);
-            Network.Enqueue(new C.FinishQuest { QuestIndex = info.Index, SelectedItemIndex = sel });
-        }
-
-        private void Abandon(ClientQuestProgress q)
-        {
-            ClientQuestInfo info = q.QuestInfo;
-            ModernRoot.Instance?.Popups.Ask(W.T(ClientTextKeys.AskCancelQuest, info.Name), ok =>
-            {
-                if (!ok || _pendingQuests.Contains(info.Index)) return;
-                LockQuest(info.Index);
-                Network.Enqueue(new C.AbandonQuest { QuestIndex = q.Id > 0 ? q.Id : info.Index });
+                if (!ok || QuestActions.IsPending(quest) || GameScene.Models?.Quests.Run(quest) == null) return;
+                QuestActions.Abandon(quest);
+                _questsDirty = _dirty = true;
             }, true, PopupKind.Warning, W.T(ClientTextKeys.ModernNpcAbandonTitle));
         }
     }

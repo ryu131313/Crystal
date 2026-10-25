@@ -1009,13 +1009,13 @@ namespace Client.MirScenes.Dialogs
 
             QuestButton.Visible = false;
 
-            NPCObject npc = (NPCObject)MapControl.GetObject(GameScene.NPCID);
+            NPCObject npc = MapControl.GetObject(GameScene.QuestNPCID) as NPCObject; // quest V2: the clicked NPC survives S.NPCUpdate
             if (npc != null)
             {
                 string[] nameSplit = npc.Name.Split('_');
                 NameLabel.Text = nameSplit[0];
 
-                if (npc.GetAvailableQuests().Any())
+                if (GameScene.Models.Quests.NpcHasQuests(npc.ObjectID)) // quest V2: what the server says this NPC offers / finishes
                     QuestButton.Visible = true;
             }
         }

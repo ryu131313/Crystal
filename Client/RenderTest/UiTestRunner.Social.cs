@@ -15,8 +15,8 @@ namespace Client.RenderTest
     /// deposit reply, add gold, the guest's offer, confirm, the room-check refusal, S.TradeConfirm's summary, a remote cancel with
     /// the "must face" box, Esc cancelling), friends (C.RefreshFriends on open, bonds strip, pick, memo, a friend request and its
     /// result, an incoming request accepted on the Requests tab, unblock), mentor (finder, candidates, request, the bond with
-    /// details, the allow switch, end), relationship (single with a player faced, propose; married, divorce question) and the quest
-    /// log (active / available from an NPC met / completed / items, track, abandon). Starts from a fresh game and closes
+    /// details, the allow switch, end) and relationship (single with a player faced, propose; married, divorce question); the quest
+    /// log moved to UiTestRunner.Quests.cs (quest V2). Starts from a fresh game and closes
     /// everything at the end.
     /// </summary>
     internal static partial class UiTestRunner
@@ -186,29 +186,7 @@ namespace Client.RenderTest
             SStep(steps, "rel_divorce_no", () => Key(Keys.Escape));
             SStep(steps, "rel_close", () => Root?.Wm.Close(RelationshipWindow.WindowKey));
 
-            // ---- quests
-            SStep(steps, "quests_open", () =>
-            {
-                Point at = GameScene.User.CurrentLocation;
-                Feed(new S.ObjectNPC { ObjectID = 7001, Name = "BichonProvince_Guard_Captain", NameColour = Color.Lime, Image = 1, Colour = Color.White, Location = new Point(at.X + 3, at.Y - 2), Direction = MirDirection.Down });
-                foreach (ClientQuestInfo q in Quests()) if (!GameScene.QuestInfoList.Exists(x => x.Index == q.Index)) GameScene.QuestInfoList.Add(q);
-                Feed(new S.ChangeQuest { QuestState = QuestState.Add, TrackQuest = true, Quest = new ClientQuestProgress { Id = 801, TaskList = new List<string> { "Kill hens: 3/10" }, Taken = true } });
-                Feed(new S.ChangeQuest { QuestState = QuestState.Add, Quest = new ClientQuestProgress { Id = 802, TaskList = new List<string> { "Bring 5 potions: 5/5" }, Taken = true, Completed = true } });
-                Feed(new S.CompleteQuest { CompletedQuests = new List<int> { 800 } });
-                PressBind(KeybindOptions.Quests);
-            }, 1000);
-            SStep(steps, "quests_pick_ready", () => ClickAt(Centre(QuestsWin?.Row(1))), 700);
-            SStep(steps, "quests_track", () => ClickAt(Centre(FindButton(QuestsWin?.Actions, W(ClientTextKeys.ModernSocialQTrack)))));
-            SStep(steps, "quests_abandon_ask", () => ClickAt(Centre(FindButton(QuestsWin?.Actions, W(ClientTextKeys.ModernSocialQAbandon)))));
-            SStep(steps, "quests_abandon_yes", () => Key(Keys.Enter));
-            SStep(steps, "quests_abandon_reply", () => Feed(new S.ChangeQuest { QuestState = QuestState.Remove, Quest = new ClientQuestProgress { Id = 802 } }), 700);
-            SStep(steps, "quests_available", () => ClickAt(Centre(QuestsWin?.Seg(1))), 800);
-            SStep(steps, "quests_completed", () => ClickAt(Centre(QuestsWin?.Seg(2))), 700);
-            SStep(steps, "quests_items", () =>
-            {
-                GameScene.User.QuestInventory[0] = Item("UiTestScroll", 2);
-                ClickAt(Centre(QuestsWin?.Seg(3)));
-            }, 700);
+            // ---- quests: quest V2 steps live in UiTestRunner.Quests.cs (both UIs)
             SStep(steps, "soc_close_all", () => { Root?.Popups.CloseAll(); CloseAllPrompts(); PressBind(KeybindOptions.Closeall); DumpWindows(); });
         }
 
@@ -271,35 +249,6 @@ namespace Client.RenderTest
             MirScene.ActiveScene.OnMouseUp(two);
         }
 
-        private static List<ClientQuestInfo> Quests()
-        {
-            ClientQuestInfo Q(int index, string name, QuestType type, uint npc, int min, string[] desc, string[] tasks, uint exp, uint gold)
-            {
-                var q = new ClientQuestInfo
-                {
-                    Index = index, Name = name, Group = "Bichon", Type = type, NPCIndex = npc, FinishNPCIndex = npc, MinLevelNeeded = min, MaxLevelNeeded = 99,
-                    ClassNeeded = RequiredClass.None, RewardExp = exp, RewardGold = gold,
-                };
-                q.Description.AddRange(desc);
-                q.TaskDescription.AddRange(tasks);
-                q.ReturnDescription.Add("Return to the {Guard Captain/Yellow} when you are done.");
-                return q;
-            }
-            var hens = Q(801, "Hens of the Plains", QuestType.General, 7001, 10,
-                new[] { "The farmers are tired of the hens eating their crops.", "Thin them out and bring me a [ITEM:9005]." }, new[] { "Kill 10 hens", "Bring a scroll" }, 1500, 300);
-            hens.RewardsFixedItem.Add(new QuestItemReward { Item = Info("UiTestPotion"), Count = 5 });
-            hens.RewardsSelectItem.Add(new QuestItemReward { Item = Info("UiTestSword"), Count = 1 });
-            hens.RewardsSelectItem.Add(new QuestItemReward { Item = Info("UiTestRing"), Count = 1 });
-            return new List<ClientQuestInfo>
-            {
-                Q(800, "First Steps", QuestType.Story, 7001, 1, new[] { "Speak to the captain." }, new[] { "Talk to the Guard Captain" }, 100, 0),
-                hens,
-                Q(802, "Potion Run", QuestType.Daily, 7001, 5, new[] { "The healer needs potions." }, new[] { "Bring 5 potions" }, 800, 1200),
-                Q(803, "The Old Mine", QuestType.Story, 7001, 20, new[] { "Strange noises come from the old mine." }, new[] { "Explore the mine" }, 5000, 2000),
-                Q(804, "Wolf Pelts", QuestType.Repeatable, 7001, 25, new[] { "Pelts fetch a good price." }, new[] { "Bring 3 wolf pelts" }, 900, 400),
-            };
-        }
-
         /// <summary>Area B (social) state lines.</summary>
         private static void DumpSocialState(List<string> log)
         {
@@ -316,8 +265,6 @@ namespace Client.RenderTest
                 log.Add($"   [social] mentor name={GameScene.Models.Relationship.MentorName} level={GameScene.Models.Relationship.MentorLevel} details={GameScene.Models.Relationship.HasMentorDetails} sent={mw.SentTo} board=\"{mw.BoardNote}\" allow={GameScene.Models.AllowToggles.Get(AllowToggle.Mentor)}");
             if (RelWin is RelationshipWindow)
                 log.Add($"   [social] lover={GameScene.Models.Relationship.LoverName} map={GameScene.Models.Relationship.LoverMap} days={GameScene.Models.Relationship.MarriedDays}");
-            if (QuestsWin is QuestsWindow qw)
-                log.Add($"   [social] quests tab={qw.TabShown} picked={qw.PickedShown} current=[{string.Join(",", GameScene.User.CurrentQuests.ConvertAll(q => q.Id))}] tracked=[{string.Join(",", Settings.TrackedQuests)}] pending802={qw.IsPending(802)} npcs={QuestNpcs.Seen.Count}");
         }
     }
 }

@@ -248,6 +248,14 @@ namespace Client.MirScenes
         public static float NPCRate;
         public static PanelType NPCPanelType;
         public static uint DefaultNPCID;
+        /// <summary>The NPC the player last clicked (C.CallNPC "[@Main]"). After a quest accept / turn-in the server's default-NPC call
+        /// (OnAcceptQuest / OnFinishQuest) sends S.NPCUpdate, which moves NPCID to the default NPC; the quest views keep this one.</summary>
+        public static uint TalkedNPCID;
+        /// <summary>The NPC whose quests the NPC dialog shows: the clicked NPC while NPCID is it, the default NPC or none and it is still on
+        /// screen, else NPCID.</summary>
+        public static uint QuestNPCID =>
+            TalkedNPCID != 0 && (NPCID == 0 || NPCID == TalkedNPCID || NPCID == DefaultNPCID) && MapControl.Objects != null && MapControl.Objects.ContainsKey(TalkedNPCID)
+                ? TalkedNPCID : NPCID;
         public static bool HideAddedStoreStats;
 
         public long ToggleTime;
@@ -1520,15 +1528,7 @@ namespace Client.MirScenes
                 case (short)ServerPacketIds.FishingUpdate:
                     FishingUpdate((S.FishingUpdate)p);
                     break;
-                case (short)ServerPacketIds.ChangeQuest:
-                    ChangeQuest((S.ChangeQuest)p);
-                    break;
-                case (short)ServerPacketIds.CompleteQuest:
-                    CompleteQuest((S.CompleteQuest)p);
-                    break;
-                case (short)ServerPacketIds.ShareQuest:
-                    ShareQuest((S.ShareQuest)p);
-                    break;
+                // S.ChangeQuest / S.CompleteQuest / S.ShareQuest: legacy quest packets, no longer sent (quest V2, GameScene.QuestsV2.cs)
                 case (short)ServerPacketIds.GainedQuestItem:
                     GainedQuestItem((S.GainedQuestItem)p);
                     break;
@@ -2701,61 +2701,6 @@ namespace Client.MirScenes
             Redraw();
         }
 
-        private void CompleteQuest(S.CompleteQuest p)
-        {
-            User.CompletedQuests = p.CompletedQuests;
-        }
-
-        private void ShareQuest(S.ShareQuest p)
-        {
-            ClientQuestInfo quest = GameScene.QuestInfoList.FirstOrDefault(e => e.Index == p.QuestIndex);
-
-            if (quest == null) return;
-
-            Ui.QuestShareRequest(p, quest);
-        }
-
-        private void ChangeQuest(S.ChangeQuest p)
-        {
-            switch (p.QuestState)
-            {
-                case QuestState.Add:
-                    User.CurrentQuests.Add(p.Quest);
-
-                    foreach (ClientQuestProgress quest in User.CurrentQuests)
-                        BindQuest(quest);
-                    Ui.QuestAdded(p.Quest, p.TrackQuest);
-
-                    break;
-                case QuestState.Update:
-                    for (int i = 0; i < User.CurrentQuests.Count; i++)
-                    {
-                        if (User.CurrentQuests[i].Id != p.Quest.Id) continue;
-
-                        User.CurrentQuests[i] = p.Quest;
-                    }
-
-                    foreach (ClientQuestProgress quest in User.CurrentQuests)
-                        BindQuest(quest);
-
-                    break;
-                case QuestState.Remove:
-
-                    for (int i = User.CurrentQuests.Count - 1; i >= 0; i--)
-                    {
-                        if (User.CurrentQuests[i].Id != p.Quest.Id) continue;
-
-                        User.CurrentQuests.RemoveAt(i);
-                    }
-
-                    Ui.QuestRemoved(p.Quest);
-
-                    break;
-            }
-
-            Ui.QuestsChanged();
-        }
-
         private void PlayerUpdate(S.PlayerUpdate p)
         {
             if (MapControl.Objects.TryGetValue(p.ObjectID, out var ob) && ob is PlayerObject player)
@@ -3593,6 +3538,7 @@ namespace Client.MirScenes
 
             MapControl.NextAction = 0;
             Scene.MapControl.AutoPath = false;
+            Models.Quests.ClearNpcs(); // the objects are gone; the server re-sends S.QuestAvailability for the new view
             User.CurrentLocation = p.Location;
             User.MapLocation = p.Location;
             MapControl.AddObject(User);
@@ -6175,18 +6121,6 @@ namespace Client.MirScenes
             return ItemInfoList.Find(x => x.Index == index);
         }
 
-        public static void BindQuest(ClientQuestProgress quest)
-        {
-            for (int i = 0; i < QuestInfoList.Count; i++)
-            {
-                if (QuestInfoList[i].Index != quest.Id) continue;
-
-                quest.QuestInfo = QuestInfoList[i];
-
-                return;
-            }
-        }
-
         public Color GradeNameColor(ItemGrade grade)
         {
             switch (grade)
@@ -6427,6 +6361,7 @@ namespace Client.MirScenes
 
                 NPCTime = 0;
                 NPCID = 0;
+                TalkedNPCID = 0;
                 DefaultNPCID = 0;
 
                 OutputMessages.Clear();
@@ -7708,6 +7643,7 @@ namespace Client.MirScenes
 
                             GameScene.NPCTime = CMain.Time + 5000;
                             GameScene.NPCID = npc.ObjectID;
+                            GameScene.TalkedNPCID = npc.ObjectID;
                             Network.Enqueue(new C.CallNPC { ObjectID = npc.ObjectID, Key = "[@Main]" });
                         }
                     }

@@ -46,10 +46,10 @@ namespace Client.MirScenes.Modern
         public static Emitter<S.NewMapInfo> NewMapInfo = new Emitter<S.NewMapInfo>();
         public static Emitter<WorldMapSetup> WorldMap = new Emitter<WorldMapSetup>();
         public static Emitter<S.SearchMapResult> SearchMap = new Emitter<S.SearchMapResult>();
-        /// <summary>Quests changed (added / removed / progress); the tracker and quest windows re-read User.CurrentQuests.</summary>
+        /// <summary>Quests changed (added / removed / progress); the tracker and quest windows re-read GameScene.Models.Quests.</summary>
         public static Emitter Quests = new Emitter();
-        /// <summary>A quest was added; track = the server asked to track it.</summary>
-        public static Emitter<(ClientQuestProgress Quest, bool Track)> QuestAdded = new Emitter<(ClientQuestProgress, bool)>();
+        /// <summary>A quest run was added after login (S.QuestStates); track = the server's TrackHint.</summary>
+        public static Emitter<(int Quest, bool Track)> QuestAdded = new Emitter<(int, bool)>();
         /// <summary>The user is on a new (or reloaded) map: S.MapInformation / S.MapChanged, after MapControl loaded it (the map index).</summary>
         public static Emitter<int> MapChanged = new Emitter<int>();
 
@@ -79,7 +79,7 @@ namespace Client.MirScenes.Modern
             WorldMap = new Emitter<WorldMapSetup>();
             SearchMap = new Emitter<S.SearchMapResult>();
             Quests = new Emitter();
-            QuestAdded = new Emitter<(ClientQuestProgress, bool)>();
+            QuestAdded = new Emitter<(int, bool)>();
             MapChanged = new Emitter<int>();
         }
     }

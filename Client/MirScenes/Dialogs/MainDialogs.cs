@@ -2077,7 +2077,7 @@ namespace Client.MirScenes.Dialogs
 
                 #region NPC Quest Icons
 
-                if (ob is NPCObject npc && npc.GetAvailableQuests(true).Any())
+                if (ob is NPCObject npc && npc.QuestIcon != QuestIcon.None) // quest V2: the server-picked icon (S.QuestAvailability)
                 {
                     string text = "";
                     Color color = Color.Empty;

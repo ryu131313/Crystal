@@ -5,7 +5,7 @@ namespace Client.MirScenes.Classic
 {
     public sealed partial class ClassicUi
     {
-        public void QuestShareRequest(S.ShareQuest p, ClientQuestInfo quest) => _scene.ClassicQuestShareRequest(p, quest);
+        public void QuestOffer(S.QuestOffer p) => _scene.ClassicQuestOffer(p);
         public void GuildInviteRequest(S.GuildInvite p) => _scene.ClassicGuildInviteRequest(p);
         public void GuildNameRequest() => _scene.ClassicGuildNameRequest();
         public void GuildWarRequest() => _scene.ClassicGuildWarRequest();

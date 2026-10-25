@@ -20,6 +20,7 @@ namespace Client.MirScenes.Classic
 
         public void Build()
         {
+            Models.QuestText.NpcNameFormat = null; // quest text: the classic NPC name rule
             _scene.ClassicBuild();
             _scene.ClassicBuildLate();
             ListenFriendRequests();
@@ -70,8 +71,7 @@ namespace Client.MirScenes.Classic
         public void PlayerInspected(bool isHero) => _scene.ClassicPlayerInspected(isHero);
         public void MountChanged() => _scene.ClassicMountChanged();
         public void FishingUpdated(S.FishingUpdate p) => _scene.ClassicFishingUpdated(p);
-        public void QuestAdded(ClientQuestProgress quest, bool track) => _scene.ClassicQuestAdded(quest, track);
-        public void QuestRemoved(ClientQuestProgress quest) => _scene.ClassicQuestRemoved(quest);
+        public void QuestAccepted(int quest, bool track) => _scene.ClassicQuestAccepted(quest, track);
         public void QuestsChanged() => _scene.ClassicQuestsChanged();
         public void LightsChanged() => _scene.ClassicLightsChanged();
         public void UserItemDuraChanged(UserItem item) => _scene.ClassicUserItemDuraChanged(item);
