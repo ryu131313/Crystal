@@ -473,12 +473,25 @@ namespace Server.MirObjects
 
         private void CheckStatusChange(QuestRunState run)
         {
+            // A branch step becoming met (or a new branch step) changes the NPC entries' Choosing icon, not the run's status.
+            var q = Catalog.Get(run.Quest);
+            var choice = q == null ? (byte)0 : ChoiceState(q);
+            if (!_sentChoice.TryGetValue(run.Quest, out var sentChoice) ? choice != 0 : sentChoice != choice)
+            {
+                if (choice == 0) _sentChoice.Remove(run.Quest);
+                else _sentChoice[run.Quest] = choice;
+                MarkAvailabilityDirty();
+            }
+
             var status = StatusOf(run);
             if (_sentStatus.TryGetValue(run.Quest, out var sent) && sent == status) return;
             _sentStatus[run.Quest] = status;
             MarkState(run.Quest);
             MarkAvailabilityDirty();
         }
+
+        /// <summary>Per running quest: the last ChoiceState seen by CheckStatusChange (absent = 0).</summary>
+        private readonly Dictionary<int, byte> _sentChoice = new Dictionary<int, byte>();
 
         /// <summary>Moves a run from a completed step to <paramref name="next"/> (Step rewards first, then the new step's index).</summary>
         private void CompleteStep(QuestRuntime q, QuestRunState run, QuestStepInfo step, QuestStepInfo next)
@@ -925,6 +938,7 @@ namespace Server.MirObjects
         {
             if (!_runs.TryGetValue(quest, out var run)) return;
             _runs.Remove(quest);
+            _sentChoice.Remove(quest);
             Info.QuestRuns.Remove(run);
             RemoveFromIndex(quest);
             RemoveQuestRecords(quest, true);

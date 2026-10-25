@@ -20,9 +20,10 @@
 //    when the server answered it (a refused call logs nothing);
 //  - Quests tab: the NPC's S.QuestAvailability entry (quest V2: the server decides what it offers / finishes; no
 //    client CanAccept): accept with C.QuestAccept, hand in with C.QuestTurnIn and one reward pick per choice group
-//    (picks kept in the Quests model), a pending branch with C.QuestChoose, abandon with C.QuestAbandon after a
-//    question; objectives with bars (windows/questParts.ts). Buttons lock until the server's S.QuestStates; nothing
-//    changes locally. The server needs the NPC in range, which holds while the dialogue is open;
+//    (picks kept in the Quests model), a branch of the current step with C.QuestChoose (the NPC's Choosing quests:
+//    disabled until the step is met), abandon with C.QuestAbandon after a question; objectives with bars
+//    (windows/questParts.ts). Buttons lock (Quests.isPending) until the server's S.QuestStates or S.QuestRefused;
+//    nothing changes locally. The server needs the NPC in range, which holds while the dialogue is open;
 //  - keys only through the window key() hook while the dialogue is the front window: Space finishes the typing, 1-9
 //    pick an option only while the pointer is over the window (so the belt keys keep working); Esc / Shift+Esc are the
 //    window manager's (close = NPCDialog.Hide).
@@ -41,7 +42,7 @@ import { frameOffset, type Frame } from "../../../game/frames.ts";
 import { itemFriendlyName } from "../../../game/gameInfo.ts";
 import { parseLine, type NpcLinkKind, type NpcPage, type NpcSegment } from "../../../game/npcMarkup.ts";
 import {
-  MAX_CONCURRENT_QUESTS, QUEST_CATEGORY_LABEL, printTimeSpanFromSeconds, questMiniMapMarker,
+  MAX_CONCURRENT_QUESTS, QUEST_CATEGORY_LABEL, QUEST_PENDING_MS, printTimeSpanFromSeconds, questMiniMapMarker,
 } from "../../../game/quests.ts";
 import { objectiveRow, questMarker, rewardsBlock } from "./questParts.ts";
 import { Lib, libPicture, type LibPicture } from "../../mir/controls.ts";
@@ -272,7 +273,6 @@ class NpcWindow extends UiWindow {
   private questsDirty = true;
   private choices: Choice[] = [];
   private links: InfoLink[] = [];
-  private readonly pendingQuests = new Set<number>();
 
   // typewriter
   private typing: { texts: [Text, string][]; hidden: HTMLElement[]; total: number; shown: number; start: number } | null = null;
@@ -354,7 +354,6 @@ class NpcWindow extends UiWindow {
     on(state.changed.on(() => this.invalidate()));
     on(this.m.inventory.subscribe(() => { if (this.open) setText(this.gold, fmt(this.m.inventory.gold)); }));
     on(this.m.quests.onChange((c) => {
-      if (c === "quests") this.pendingQuests.clear();
       if (c !== "tracking" && c !== "items") { this.questsDirty = true; this.invalidate(); }
     }));
     on(this.m.gameInfo.onChange((kind, index) => this.infoArrived(kind, index)));
@@ -374,7 +373,6 @@ class NpcWindow extends UiWindow {
     this.hideCard();
     this.ui.tooltip.hide();
     this.hover = false;
-    this.pendingQuests.clear();
     this.questsDirty = true;
     // NPCDialog.Hide: the drop panel and every NPC window go with it (no packet, as the classic).
     if (this.npc.open) this.npc.close();
@@ -611,13 +609,9 @@ class NpcWindow extends UiWindow {
 
   // — Quests (the NPC's S.QuestAvailability entry: turn-ins / in progress first, then offers) —
 
-  /** The quests to list for the NPC: finishing here (in progress or Ready), then offered. */
+  /** The quests to list for the NPC: finishing here (in progress or Ready), branch choices, then offered. */
   private npcQuestIds(npcId: number): number[] {
-    const e = this.m.quests.npcQuests(npcId);
-    if (!e) return [];
-    const out = [...e.finishing];
-    for (const q of e.offered) if (!out.includes(q)) out.push(q);
-    return out;
+    return this.m.quests.npcQuestList(npcId);
   }
 
   private renderQuests(list: number[]): void {
@@ -665,8 +659,10 @@ class NpcWindow extends UiWindow {
     if (rewards) t.append(rewards);
 
     const btns = h("div", "btns");
-    const pending = this.pendingQuests.has(quest);
-    const branches = q.pendingBranches(quest);
+    const pending = q.isPending(quest);
+    // the current step's branches: chosen here when this NPC lists the quest as Choosing (or finishes it), once met
+    const met = q.pendingBranches(quest).length > 0;
+    const branches = met || q.npcChoosing(npcId).includes(quest) ? q.stepBranches(quest) : [];
     if (!run) {
       const full = q.activeCount >= MAX_CONCURRENT_QUESTS;
       const b = button(pending ? "Accepting…" : "Accept", () => this.accept(quest, npcId), { cls: "main" });
@@ -682,6 +678,7 @@ class NpcWindow extends UiWindow {
       for (const br of branches) {
         const b = button(br.Text || br.ChoiceKey, () => this.chooseBranch(quest, npcId, br.ChoiceKey), { cls: "main" });
         if (pending) b.setDisabled(true, "Waiting for the server");
+        else if (!met) b.setDisabled(true, "Complete the objectives first");
         btns.append(b.el);
       }
     } else {
@@ -699,45 +696,44 @@ class NpcWindow extends UiWindow {
     return this.renderRow(parseLine(line), false);
   }
 
-  /** Locks a quest's buttons until S.QuestStates; a refusal sends nothing back (or a chat line), so the lock lifts after 5 s. */
-  private lockQuest(quest: number): void {
-    this.pendingQuests.add(quest);
-    later(() => { if (this.pendingQuests.delete(quest)) { this.questsDirty = true; this.invalidate(); } }, 5000, this.signal);
-    this.questsDirty = true;
-    this.invalidate();
+  /** The model locks the quest (Quests.isPending, redrawn by its "pending" change) until S.QuestStates or S.QuestRefused;
+   *  this redraws once the lock times out with no answer. */
+  private lockQuest(): void {
+    later(() => { this.questsDirty = true; this.invalidate(); }, QUEST_PENDING_MS + 50, this.signal);
   }
 
   /** C.QuestAccept with this NPC's ObjectID (the server checks it is a Start endpoint in reach). */
   private accept(quest: number, npcId: number): void {
-    if (this.pendingQuests.has(quest)) return;
-    this.lockQuest(quest);
+    if (this.m.quests.isPending(quest)) return;
     this.m.quests.accept(quest, npcId);
+    this.lockQuest();
   }
 
   /** C.QuestTurnIn with this NPC and one reward pick per choice group (YouMustSelectRewardItem otherwise). */
   private turnIn(quest: number, npcId: number): void {
     const def = this.m.quests.def(quest);
-    if (!def || this.pendingQuests.has(quest)) return;
+    if (!def || this.m.quests.isPending(quest)) return;
     const picks = this.m.quests.picksFor(def);
     if (!picks) { void this.ui.rt.popups.ask(T.YouMustSelectRewardItem, { title: def.Name }); return; }
-    this.lockQuest(quest);
     this.m.quests.turnIn(quest, npcId, picks);
+    this.lockQuest();
   }
 
   /** C.QuestChoose: a branch of the current step at this NPC. */
   private chooseBranch(quest: number, npcId: number, key: string): void {
-    if (this.pendingQuests.has(quest)) return;
-    this.lockQuest(quest);
+    if (this.m.quests.isPending(quest)) return;
     this.m.quests.choose(quest, npcId, key);
+    this.lockQuest();
   }
 
   /** The question (not for a failed run), then C.QuestAbandon. */
   private async abandon(quest: number): Promise<void> {
     const failed = this.m.quests.run(quest)?.status === QuestRunStatus.Failed;
     const ok = failed || await this.ui.rt.popups.ask(T.AskCancelQuest(this.m.quests.name(quest)), { title: "Abandon quest", kind: "warning", okCancel: true });
-    if (!ok || this.pendingQuests.has(quest)) return;
-    this.lockQuest(quest);
+    if (!ok || this.m.quests.isPending(quest)) return;
     this.m.quests.abandon(quest);
+    this.lockQuest();
+
   }
 
   // — Info links (NPCDialog.GetDisplayNameForLink / ShowTooltip) —

@@ -688,6 +688,11 @@ internal sealed class VirtualPlayer
                 World.Quests.Offers.Add(qo.Quest);
                 break;
 
+            case S.QuestRefused qr:
+                World.Quests.ApplyRefused(qr, now);
+                Metrics.Inc(ref _m.QuestsRefused);
+                break;
+
             case S.GroupInvite:
                 NextGroupReplyAt = now + 800;
                 break;

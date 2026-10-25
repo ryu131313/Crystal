@@ -1277,6 +1277,9 @@ namespace Client.MirScenes
                 case (short)ServerPacketIds.QuestAvailability:
                     QuestAvailability((S.QuestAvailability)p);
                     break;
+                case (short)ServerPacketIds.QuestRefused:
+                    QuestRefused((S.QuestRefused)p);
+                    break;
                 case (short)ServerPacketIds.QuestOffer:
                     QuestOffer((S.QuestOffer)p);
                     break;

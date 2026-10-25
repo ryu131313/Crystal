@@ -311,6 +311,7 @@ export const ServerPacketIds = {
   QuestHistory: 306,
   QuestAvailability: 307,
   QuestOffer: 308,
+  QuestRefused: 309,
 } as const;
 export type ServerPacketIds = (typeof ServerPacketIds)[keyof typeof ServerPacketIds];
 export const ServerPacketIdsName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(ServerPacketIds).map(([k, v]) => [v, k]));
@@ -2137,4 +2138,36 @@ export const QuestRunStatus = {
 } as const;
 export type QuestRunStatus = (typeof QuestRunStatus)[keyof typeof QuestRunStatus];
 export const QuestRunStatusName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestRunStatus).map(([k, v]) => [v, k]));
+
+export const QuestRequestKind = {
+  Accept: 0,
+  TurnIn: 1,
+  Abandon: 2,
+  Share: 3,
+  Choose: 4,
+} as const;
+export type QuestRequestKind = (typeof QuestRequestKind)[keyof typeof QuestRequestKind];
+export const QuestRequestKindName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestRequestKind).map(([k, v]) => [v, k]));
+
+export const QuestRefusal = {
+  NotAvailable: 0,
+  NotAtNpc: 1,
+  QuestLogFull: 2,
+  BagFull: 3,
+  NotReady: 4,
+  InvalidPick: 5,
+  AbandonNotAllowed: 6,
+  NotInGroup: 7,
+  ShareNotAllowed: 8,
+  UnknownQuest: 9,
+  ConditionNotMet: 10,
+  AlreadyActive: 11,
+  Other: 12,
+  Dead: 13,
+  AlreadyCompleted: 14,
+  QuestBagFull: 15,
+  NoMemberCouldTake: 16,
+} as const;
+export type QuestRefusal = (typeof QuestRefusal)[keyof typeof QuestRefusal];
+export const QuestRefusalName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestRefusal).map(([k, v]) => [v, k]));
 

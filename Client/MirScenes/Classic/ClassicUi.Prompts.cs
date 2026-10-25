@@ -6,6 +6,7 @@ namespace Client.MirScenes.Classic
     public sealed partial class ClassicUi
     {
         public void QuestOffer(S.QuestOffer p) => _scene.ClassicQuestOffer(p);
+        public void QuestRefused(S.QuestRefused p) => GameScene.Models.Chat.Add(QuestText.Refusal(p, out _, out _), ChatType.System);
         public void GuildInviteRequest(S.GuildInvite p) => _scene.ClassicGuildInviteRequest(p);
         public void GuildNameRequest() => _scene.ClassicGuildNameRequest();
         public void GuildWarRequest() => _scene.ClassicGuildWarRequest();

@@ -50,7 +50,9 @@ export function questMarker(q: Quests, quest: number): { text: string; colour: s
   const def = q.def(quest), run = q.run(quest), cat = def?.Category ?? 1;
   if (!run) return questMiniMapMarker(questIconFor(cat, "offer"));
   if (run.status === QuestRunStatus.Failed) return { text: "×", colour: "#ff5a4a" };
-  return questMiniMapMarker(questIconFor(cat, run.status === QuestRunStatus.Ready ? "ready" : "active"));
+  // a met step with branches to choose reads as Ready (the server's Choosing icon)
+  return questMiniMapMarker(questIconFor(cat, run.status === QuestRunStatus.Ready || q.pendingBranches(quest).length ? "ready" : "active"));
+
 }
 
 /** One objective: its text (built by the model) and, for counted ones, a bar. */

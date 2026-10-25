@@ -584,11 +584,11 @@ internal static class Fixtures
         {
             Quest = 42, Name = "Hen Trouble 母鸡", Summary = "Thin the hens.", CompleteText = "Thanks!", Category = QuestCategory.Side, StorylineIndex = 3, LevelHint = 7,
             RepeatPolicy = QuestRepeatPolicy.Daily, CooldownSeconds = 60, TimeLimitSeconds = 3600, FailPolicy = QuestFailPolicy.Fail, AbandonAllowed = true,
-            Flags = QuestFlags.AutoComplete | QuestFlags.HiddenInLog, GroupName = "Bichon",
+            Flags = QuestFlags.AutoComplete | QuestFlags.HiddenInLog, GroupName = "Bichon", ShareMode = QuestShareMode.Offer,
             Steps = { new S.QuestDefinition.Step { Index = 1, Order = 1, Title = "Hunt", Text = "Kill hens", ReadyText = "Done", CompletionMode = QuestStepCompletion.NOf, NRequired = 2, NextStep = -1, TimeLimitSeconds = 600 } },
             Objectives =
             {
-                new S.QuestDefinition.Objective { Index = 5, Step = 1, Order = 1, Type = QuestObjectiveType.Kill, TargetKind = QuestTargetKind.MonsterGroup, TargetId = 9, TargetName = "Hens", Count = 10, Map = 1, X = 300, Y = 400, Radius = 12, Optional = true, Hidden = false, Text = "" },
+                new S.QuestDefinition.Objective { Index = 5, Step = 1, Order = 1, Type = QuestObjectiveType.Kill, TargetKind = QuestTargetKind.MonsterGroup, TargetId = 9, TargetName = "Hens", Count = 10, Map = 1, X = 300, Y = 400, Radius = 12, Optional = true, Hidden = false, Text = "", TargetMembers = { 3, 4_000_000 } },
                 new S.QuestDefinition.Objective { Index = 6, Step = 1, Order = 2, Type = QuestObjectiveType.Flag, TargetKind = QuestTargetKind.Flag, TargetId = 521, TargetName = "Seal", Count = 1, Hidden = true, Text = "Break the seal" },
             },
             Rewards =
@@ -618,11 +618,12 @@ internal static class Fixtures
         {
             Npcs =
             {
-                new S.QuestAvailability.Entry { ObjectID = 88, Icon = QuestIcon.ExclamationYellow, Offered = { 1, 2 }, Finishing = { 300 } },
+                new S.QuestAvailability.Entry { ObjectID = 88, Icon = QuestIcon.ExclamationYellow, Offered = { 1, 2 }, Finishing = { 300 }, Choosing = { 301, 302 } },
                 new S.QuestAvailability.Entry { ObjectID = 4_000_000_000, Icon = QuestIcon.None },
             },
         };
         yield return new S.QuestOffer { Quest = 42, Kind = QuestEndpointKind.Auto, SharedBy = "Ann" };
+        yield return new S.QuestRefused { Quest = 42, Request = QuestRequestKind.Share, Reason = QuestRefusal.NoMemberCouldTake };
     }
 
     private static IEnumerable<Packet> ClientSamples()

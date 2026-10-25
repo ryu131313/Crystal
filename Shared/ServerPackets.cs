@@ -7927,6 +7927,8 @@ namespace ServerPackets
             public bool Optional, Hidden;
             /// <summary>"" = the client builds the objective text.</summary>
             public string Text = string.Empty;
+            /// <summary>The member ids (MonsterInfo / ItemInfo indexes) of a MonsterGroup / ItemGroup target; empty otherwise.</summary>
+            public List<int> TargetMembers = new List<int>();
         }
 
         public sealed class Reward
@@ -7967,6 +7969,8 @@ namespace ServerPackets
         public bool AbandonAllowed;
         public QuestFlags Flags;
         public string GroupName = string.Empty;
+        /// <summary>None = the quest cannot be shared (clients disable Share; the server refuses C.QuestShare with ShareNotAllowed).</summary>
+        public QuestShareMode ShareMode;
 
         public List<Step> Steps = new List<Step>();
         public List<Objective> Objectives = new List<Objective>();
@@ -7990,6 +7994,7 @@ namespace ServerPackets
             AbandonAllowed = reader.ReadBoolean();
             Flags = (QuestFlags)reader.ReadInt32();
             GroupName = reader.ReadString();
+            ShareMode = (QuestShareMode)reader.ReadByte();
 
             int count = ReadCount(reader, 24);
             Steps = new List<Step>(count);
@@ -8007,10 +8012,11 @@ namespace ServerPackets
                     TimeLimitSeconds = reader.ReadInt32(),
                 });
 
-            count = ReadCount(reader, 40);
+            count = ReadCount(reader, 44);
             Objectives = new List<Objective>(count);
             for (int i = 0; i < count; i++)
-                Objectives.Add(new Objective
+            {
+                var o = new Objective
                 {
                     Index = reader.ReadInt32(),
                     Step = reader.ReadInt32(),
@@ -8027,7 +8033,12 @@ namespace ServerPackets
                     Optional = reader.ReadBoolean(),
                     Hidden = reader.ReadBoolean(),
                     Text = reader.ReadString(),
-                });
+                };
+                int n = ReadCount(reader, sizeof(int));
+                o.TargetMembers = new List<int>(n);
+                for (int j = 0; j < n; j++) o.TargetMembers.Add(reader.ReadInt32());
+                Objectives.Add(o);
+            }
 
             count = ReadCount(reader, 23);
             Rewards = new List<Reward>(count);
@@ -8083,6 +8094,7 @@ namespace ServerPackets
             writer.Write(AbandonAllowed);
             writer.Write((int)Flags);
             writer.Write(GroupName ?? string.Empty);
+            writer.Write((byte)ShareMode);
 
             writer.Write(Steps.Count);
             for (int i = 0; i < Steps.Count; i++)
@@ -8118,6 +8130,8 @@ namespace ServerPackets
                 writer.Write(o.Optional);
                 writer.Write(o.Hidden);
                 writer.Write(o.Text ?? string.Empty);
+                writer.Write(o.TargetMembers.Count);
+                for (int j = 0; j < o.TargetMembers.Count; j++) writer.Write(o.TargetMembers[j]);
             }
 
             writer.Write(Rewards.Count);
@@ -8311,13 +8325,15 @@ namespace ServerPackets
             public QuestIcon Icon;
             public List<int> Offered = new List<int>();
             public List<int> Finishing = new List<int>();
+            /// <summary>Running quests whose current step has branches that can be chosen at this NPC (a Start or Finish endpoint).</summary>
+            public List<int> Choosing = new List<int>();
         }
 
         public List<Entry> Npcs = new List<Entry>();
 
         protected override void ReadPacket(BinaryReader reader)
         {
-            int count = ReadCount(reader, 13);
+            int count = ReadCount(reader, 17);
             Npcs = new List<Entry>(count);
             for (int i = 0; i < count; i++)
             {
@@ -8328,6 +8344,9 @@ namespace ServerPackets
                 n = ReadCount(reader, sizeof(int));
                 e.Finishing = new List<int>(n);
                 for (int j = 0; j < n; j++) e.Finishing.Add(reader.ReadInt32());
+                n = ReadCount(reader, sizeof(int));
+                e.Choosing = new List<int>(n);
+                for (int j = 0; j < n; j++) e.Choosing.Add(reader.ReadInt32());
                 Npcs.Add(e);
             }
         }
@@ -8344,6 +8363,8 @@ namespace ServerPackets
                 for (int j = 0; j < e.Offered.Count; j++) writer.Write(e.Offered[j]);
                 writer.Write(e.Finishing.Count);
                 for (int j = 0; j < e.Finishing.Count; j++) writer.Write(e.Finishing[j]);
+                writer.Write(e.Choosing.Count);
+                for (int j = 0; j < e.Choosing.Count; j++) writer.Write(e.Choosing[j]);
             }
         }
     }
@@ -8370,6 +8391,34 @@ namespace ServerPackets
             writer.Write(Quest);
             writer.Write((byte)Kind);
             writer.Write(SharedBy ?? string.Empty);
+        }
+    }
+
+    /// <summary>
+    /// A quest request from this client (C.QuestAccept / TurnIn / Abandon / Share / Choose) was refused: which request and why. The
+    /// client shows the reason and unlocks any button waiting for a reply. Not sent for server-side attempts (AutoComplete).
+    /// </summary>
+    public sealed class QuestRefused : Packet
+    {
+        public override short Index { get { return (short)ServerPacketIds.QuestRefused; } }
+        public override bool Observable => false;
+
+        public int Quest;
+        public QuestRequestKind Request;
+        public QuestRefusal Reason;
+
+        protected override void ReadPacket(BinaryReader reader)
+        {
+            Quest = reader.ReadInt32();
+            Request = (QuestRequestKind)reader.ReadByte();
+            Reason = (QuestRefusal)reader.ReadByte();
+        }
+
+        protected override void WritePacket(BinaryWriter writer)
+        {
+            writer.Write(Quest);
+            writer.Write((byte)Request);
+            writer.Write((byte)Reason);
         }
     }
 }

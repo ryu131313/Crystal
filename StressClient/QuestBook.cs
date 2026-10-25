@@ -50,6 +50,9 @@ internal sealed class QuestBook
     // Requests sent and not yet answered: quest → when sent. The answer (S.QuestStates) clears them and counts the metric.
     public readonly Dictionary<int, long> PendingAccepts = new(), PendingTurnIns = new(), PendingAbandons = new();
 
+    // Requests the server refused (S.QuestRefused): quest → when. Not retried until ExpirePending forgets them.
+    public readonly Dictionary<int, long> RefusedAccepts = new(), RefusedTurnIns = new();
+
     private readonly HashSet<string> _targetNames = new(StringComparer.OrdinalIgnoreCase);
     private bool _targetsDirty = true;
     private int[] _targetIndexes = Array.Empty<int>();
@@ -66,15 +69,41 @@ internal sealed class QuestBook
         PendingAccepts.Clear();
         PendingTurnIns.Clear();
         PendingAbandons.Clear();
+        RefusedAccepts.Clear();
+        RefusedTurnIns.Clear();
         _targetsDirty = true;
     }
 
-    /// <summary>Forgets requests the server never answered (a refused accept or turn-in gets no reply) so they can be retried.</summary>
+    /// <summary>
+    /// Forgets requests the server never answered (a lost reply) and refusals older than <paramref name="afterMs"/>, so they can be
+    /// retried. A refusal itself clears its pending request at once (<see cref="ApplyRefused"/>).
+    /// </summary>
     public void ExpirePending(long now, long afterMs)
     {
         Expire(PendingAccepts, now, afterMs);
         Expire(PendingTurnIns, now, afterMs);
         Expire(PendingAbandons, now, afterMs);
+        Expire(RefusedAccepts, now, afterMs);
+        Expire(RefusedTurnIns, now, afterMs);
+    }
+
+    /// <summary>S.QuestRefused: the request is no longer pending; an accept or turn-in is not retried until the refusal expires.</summary>
+    public bool ApplyRefused(S.QuestRefused packet, long now)
+    {
+        if (packet == null) return false;
+        switch (packet.Request)
+        {
+            case QuestRequestKind.Accept:
+                RefusedAccepts[packet.Quest] = now;
+                return PendingAccepts.Remove(packet.Quest);
+            case QuestRequestKind.TurnIn:
+                RefusedTurnIns[packet.Quest] = now;
+                return PendingTurnIns.Remove(packet.Quest);
+            case QuestRequestKind.Abandon:
+                return PendingAbandons.Remove(packet.Quest);
+            default:
+                return false;
+        }
     }
 
     private static void Expire(Dictionary<int, long> pending, long now, long afterMs)
@@ -211,7 +240,7 @@ internal sealed class QuestBook
     public int ChooseOfferAt(uint npcId, int level)
     {
         if (!Npcs.TryGetValue(npcId, out var entry)) return 0;
-        return QuestLogic.ChooseOffer(entry.Offered, Definitions, Runs, PendingAccepts, level, MaxActive);
+        return QuestLogic.ChooseOffer(entry.Offered, Definitions, Runs, PendingAccepts, level, MaxActive, RefusedAccepts);
     }
 
     /// <summary>A Ready run that <paramref name="npcId"/> finishes (its availability entry lists it), or 0.</summary>
@@ -219,7 +248,7 @@ internal sealed class QuestBook
     {
         if (!Npcs.TryGetValue(npcId, out var entry)) return 0;
         foreach (var q in entry.Finishing)
-            if (Runs.TryGetValue(q, out var run) && run.Status == QuestRunStatus.Ready && !PendingTurnIns.ContainsKey(q)) return q;
+            if (Runs.TryGetValue(q, out var run) && run.Status == QuestRunStatus.Ready && !PendingTurnIns.ContainsKey(q) && !RefusedTurnIns.ContainsKey(q)) return q;
         return 0;
     }
 
@@ -228,7 +257,7 @@ internal sealed class QuestBook
         get
         {
             foreach (var run in Runs.Values)
-                if (run.Status == QuestRunStatus.Ready && !PendingTurnIns.ContainsKey(run.Quest)) return true;
+                if (run.Status == QuestRunStatus.Ready && !PendingTurnIns.ContainsKey(run.Quest) && !RefusedTurnIns.ContainsKey(run.Quest)) return true;
             return false;
         }
     }
@@ -238,13 +267,13 @@ internal sealed class QuestBook
     {
         if (Runs.Count + PendingAccepts.Count >= MaxActive) return false;
         foreach (var entry in Npcs.Values)
-            if (QuestLogic.ChooseOffer(entry.Offered, Definitions, Runs, PendingAccepts, level, MaxActive) != 0) return true;
+            if (QuestLogic.ChooseOffer(entry.Offered, Definitions, Runs, PendingAccepts, level, MaxActive, RefusedAccepts) != 0) return true;
         return false;
     }
 
     /// <summary>A pending S.QuestOffer (item / area / auto / share) this bot would take, or 0.</summary>
     public int ChooseNonNpcOffer(int level) =>
-        QuestLogic.ChooseOffer(Offers, Definitions, Runs, PendingAccepts, level, MaxActive);
+        QuestLogic.ChooseOffer(Offers, Definitions, Runs, PendingAccepts, level, MaxActive, RefusedAccepts);
 }
 
 /// <summary>Pure quest decisions (no I/O, no bot state), so StressClient.Tests can pin them down.</summary>
@@ -307,17 +336,19 @@ internal static class QuestLogic
 
     /// <summary>
     /// The offer to accept: a quest with a known definition, not already run or being accepted, doable, and not far above the
-    /// bot's level (LevelHint ≤ level + 5; 0 = no hint). Lowest LevelHint first, then lowest id. 0 = none, or at the cap.
+    /// bot's level (LevelHint ≤ level + 5; 0 = no hint), and not recently refused. Lowest LevelHint first, then lowest id. 0 = none,
+    /// or at the cap.
     /// </summary>
     public static int ChooseOffer(IEnumerable<int> offered, IReadOnlyDictionary<int, S.QuestDefinition> definitions,
-        IReadOnlyDictionary<int, QuestRun> runs, IReadOnlyDictionary<int, long> pending, int level, int maxActive)
+        IReadOnlyDictionary<int, QuestRun> runs, IReadOnlyDictionary<int, long> pending, int level, int maxActive,
+        IReadOnlyDictionary<int, long> refused = null)
     {
         if (offered == null || runs.Count + (pending?.Count ?? 0) >= maxActive) return 0;
 
         int best = 0, bestHint = int.MaxValue;
         foreach (var quest in offered)
         {
-            if (runs.ContainsKey(quest) || (pending != null && pending.ContainsKey(quest))) continue;
+            if (runs.ContainsKey(quest) || (pending != null && pending.ContainsKey(quest)) || (refused != null && refused.ContainsKey(quest))) continue;
             if (!definitions.TryGetValue(quest, out var def) || !IsDoable(def)) continue;
             if (def.LevelHint > level + 5) continue;
             if (def.LevelHint < bestHint || (def.LevelHint == bestHint && quest < best))
@@ -332,8 +363,9 @@ internal static class QuestLogic
 
     /// <summary>
     /// Monster names (and info indexes) of the unmet Kill objectives on each Active run's current step. A Monster target is
-    /// resolved through <paramref name="monsterNames"/>; a MonsterGroup target matches every known monster with the group's
-    /// label name (the server names the group after its first member and sends every member's info with the definition).
+    /// resolved through <paramref name="monsterNames"/>; a MonsterGroup target matches its TargetMembers (monster info indexes,
+    /// named through <paramref name="monsterNames"/> when known), and by name every known monster with the group's label name
+    /// (the server names the group after its first member) as a fallback for members whose info the bot lacks.
     /// </summary>
     public static void KillTargets(IReadOnlyDictionary<int, S.QuestDefinition> definitions, IEnumerable<QuestRun> runs,
         IReadOnlyDictionary<int, string> monsterNames, ISet<string> names, ISet<int> indexes)
@@ -351,8 +383,15 @@ internal static class QuestLogic
                     indexes?.Add(o.TargetId);
                     if (monsterNames.TryGetValue(o.TargetId, out var name) && !string.IsNullOrEmpty(name)) names.Add(name);
                 }
-                else if (o.TargetKind == QuestTargetKind.MonsterGroup && !string.IsNullOrEmpty(o.TargetName))
+                else if (o.TargetKind == QuestTargetKind.MonsterGroup)
                 {
+                    foreach (var member in o.TargetMembers)
+                    {
+                        indexes?.Add(member);
+                        if (monsterNames.TryGetValue(member, out var memberName) && !string.IsNullOrEmpty(memberName)) names.Add(memberName);
+                    }
+
+                    if (string.IsNullOrEmpty(o.TargetName)) continue;
                     names.Add(o.TargetName);
                     foreach (var pair in monsterNames)
                         if (string.Equals(pair.Value, o.TargetName, StringComparison.OrdinalIgnoreCase)) indexes?.Add(pair.Key);

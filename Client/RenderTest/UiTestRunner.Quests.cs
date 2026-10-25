@@ -16,13 +16,15 @@ namespace Client.RenderTest
     /// prompt → C.QuestAccept { NpcObjectID = 0 }), the accept reply with TrackHint (the tracker / classic tracking), progress (the
     /// toast and the bars), the log (active with steps and bars, a Ready quest, a failed quest, available, completed with a repeat
     /// timer and a history quest without a definition → C.QuestDefinitionRequest), and the NPC's quest list (accept → C.QuestAccept
-    /// with the NPC's ObjectID, turn in with a choice-group pick → C.QuestTurnIn, the reply and the completion banner).
+    /// with the NPC's ObjectID, turn in with one pick per choice group (two groups) → C.QuestTurnIn, an S.QuestRefused that unlocks
+    /// the buttons and shows the reason, the second turn-in, the reply and the completion banner; wave 3 kick-off: a branch choice
+    /// at the NPC from S.QuestAvailability.Choosing → C.QuestChoose, group objectives named by TargetMembers).
     /// Each send is checked (Expect). Runs last, so the earlier step numbers stay put.
     /// </summary>
     internal static partial class UiTestRunner
     {
         private const uint QNpc = 7701;
-        private const int QHens = 801, QPotion = 802, QMine = 803, QPelts = 804, QWolves = 805, QOld = 806, QShared = 807, QFirst = 800;
+        private const int QHens = 801, QPotion = 802, QMine = 803, QPelts = 804, QWolves = 805, QOld = 806, QShared = 807, QFirst = 800, QBranch = 808;
 
         static partial void AddQuestSteps(List<Step> steps)
         {
@@ -31,7 +33,7 @@ namespace Client.RenderTest
             QStep(steps, "qv2_login_picture", () =>
             {
                 QLoginPicture();
-                Expect(GameScene.Models.Quests.Runs.Count == 3, "three runs after the login picture");
+                Expect(GameScene.Models.Quests.Runs.Count == 4, "four runs after the login picture");
                 NPCObject npc = MapControl.Objects.TryGetValue(QNpc, out MapObject ob) ? ob as NPCObject : null;
                 Expect(npc != null && npc.QuestIcon == QuestIcon.QuestionYellow, "the NPC to take the server's icon");
             }, 900);
@@ -103,24 +105,72 @@ namespace Client.RenderTest
                 if (IsModern) ClickAt(Centre(QNpcRewardCell(QPotion, 1)));
                 else ClickClassicNpcQuest(QPotion, accept: false, pickOnly: true);
             }, 700);
+            QModern(steps, "qv2_npc_pick_group2", () => ClickAt(Centre(QNpcRewardCell(QPotion, 2))), 700);
             QStep(steps, "qv2_npc_turn_in", () =>
             {
                 if (IsModern) ClickAt(Centre(QNpcButton(QPotion, W(ClientTextKeys.ModernNpcHandIn))));
                 else ClickClassicNpcQuest(QPotion, accept: false);
             }, 700);
+            QStep(steps, "qv2_turn_in_refused", () =>
+            {
+                // one pick per choice group: the ring (group 1, reward position 3) and the potions (group 2, position 4)
+                Expect(SentSinceMark("QuestTurnIn ", "Quest=802", "NpcObjectID=" + QNpc, "RewardPicks=[3,4]"), "C.QuestTurnIn { 802, the NPC, [3,4] }");
+                if (IsModern) Expect(QuestActions.IsPending(QPotion), "the hand-in button to wait for the reply");
+                Feed(new S.QuestRefused { Quest = QPotion, Request = QuestRequestKind.TurnIn, Reason = QuestRefusal.BagFull });
+                if (IsModern) Expect(!QuestActions.IsPending(QPotion), "S.QuestRefused to unlock the hand-in button at once");
+                else Expect(QClassicChatHas(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.QuestRefusalBagFull)), "the refusal as a system chat line");
+            }, 700);
+            QStep(steps, "qv2_npc_turn_in_again", () =>
+            {
+                if (IsModern) ClickAt(Centre(QNpcButton(QPotion, W(ClientTextKeys.ModernNpcHandIn))));
+                else
+                {
+                    // the classic reward row is rebuilt on every quest change (picks cleared): pick again, then hand in
+                    ClickClassicNpcQuest(QPotion, accept: false, pickOnly: true);
+                    ClickClassicNpcQuest(QPotion, accept: false);
+                }
+            }, 700);
             QStep(steps, "qv2_turn_in_reply", () =>
             {
-                // the second choice of group 1 is the ring: reward position 3 in the definition
-                Expect(SentSinceMark("QuestTurnIn ", "Quest=802", "NpcObjectID=" + QNpc, "RewardPicks=[3]"), "C.QuestTurnIn { 802, the NPC, [3] }");
+                Expect(QSentCount("QuestTurnIn Quest=802") >= 2, "a second C.QuestTurnIn after the refusal");
                 Feed(new S.QuestStates { States = new List<S.QuestStates.Entry> { new S.QuestStates.Entry { Quest = QPotion, Status = QuestRunStatus.None } } });
                 Feed(new S.QuestHistory { History = new List<S.QuestHistory.Entry> { new S.QuestHistory.Entry { Quest = QPotion, Name = "Potion Run", Times = 1, LastAt = CMain.Now.ToBinary(), AvailableAt = CMain.Now.AddHours(20).ToBinary() } } });
-                Feed(new S.QuestAvailability { Npcs = new List<S.QuestAvailability.Entry> { new S.QuestAvailability.Entry { ObjectID = QNpc, Icon = QuestIcon.QuestionWhite, Finishing = new List<int> { QHens } } } });
+                Feed(new S.QuestAvailability { Npcs = new List<S.QuestAvailability.Entry> { new S.QuestAvailability.Entry { ObjectID = QNpc, Icon = QuestIcon.QuestionYellow, Finishing = new List<int> { QHens }, Choosing = new List<int> { QBranch } } } });
                 Expect(GameScene.Models.Quests.Run(QPotion) == null, "the turned-in run to go");
+                Expect(GameScene.Models.Quests.NpcChoosing(QBranch) == QNpc, "the NPC to take the branch choice (Choosing)");
             }, 900);
+            QModern(steps, "qv2_npc_choosing", () => QNpcScrollTo(QBranch), 700);
+            QStep(steps, "qv2_npc_choose", () =>
+            {
+                if (IsModern) ClickAt(Centre(QNpcButton(QBranch, "Spare the pack")));
+                else
+                {
+                    ClickClassicNpcQuest(QBranch, accept: false); // the finish button opens the branch prompts
+                    TopMessageBox()?.YesButton.InvokeMouseClick(null);
+                }
+            }, 700);
+            QStep(steps, "qv2_choose_sent", () =>
+            {
+                Expect(SentSinceMark("QuestChoose ", "Quest=808", "NpcObjectID=" + QNpc, "ChoiceKey=\"spare\""), "C.QuestChoose { 808, the NPC, spare }");
+            }, 500);
             QStep(steps, "qv2_close_all", () => { Root?.Popups.CloseAll(); CloseAllPrompts(); PressBind(KeybindOptions.Closeall); }, 600);
         }
 
         private static int _qMark;
+
+        /// <summary>Sends since the quest steps began whose log line starts with <paramref name="prefix"/>.</summary>
+        private static int QSentCount(string prefix)
+        {
+            int n = 0;
+            for (int i = Math.Min(_qMark, _log.Count); i < _log.Count; i++) if (_log[i].StartsWith("   sent " + prefix)) n++;
+            return n;
+        }
+
+        private static bool QClassicChatHas(string text)
+        {
+            foreach (var line in GameScene.Models.Chat.Lines) if (line.Text != null && line.Text.Contains(text)) return true;
+            return false;
+        }
 
         /// <summary>A send recorded since the quest steps began (the step logs list "sent ..." lines; a send can land a frame after the act).</summary>
         private static bool SentSinceMark(string prefix, params string[] parts)
@@ -168,7 +218,7 @@ namespace Client.RenderTest
         {
             S.QuestDefinition d = QDef(QShared, "Wolf Cull", QuestCategory.Side, 18, "UiAlly wants help with the wolves.");
             d.Steps.Add(new S.QuestDefinition.Step { Index = 8071, Order = 1, Title = "Cull the pack" });
-            d.Objectives.Add(new S.QuestDefinition.Objective { Index = 80711, Step = 8071, Type = QuestObjectiveType.Kill, TargetKind = QuestTargetKind.MonsterGroup, TargetId = 3, TargetName = "Wolf", Count = 8 });
+            d.Objectives.Add(new S.QuestDefinition.Objective { Index = 80711, Step = 8071, Type = QuestObjectiveType.Kill, TargetKind = QuestTargetKind.MonsterGroup, TargetId = 3, TargetName = "Wolf", Count = 8, TargetMembers = new List<int> { 3, 4 } });
             d.Rewards.Add(new S.QuestDefinition.Reward { Scope = QuestRewardScope.Quest, Kind = QuestRewardKind.Exp, Amount = 2400 });
             return d;
         }
@@ -177,6 +227,8 @@ namespace Client.RenderTest
         {
             Point at = GameScene.User.CurrentLocation;
             GameScene.UpsertMonsterInfo(new ClientMonsterInfo { Index = 1, Name = "Hen", GameName = "Hen", Image = Monster.Hen, Level = 2 });
+            GameScene.UpsertMonsterInfo(new ClientMonsterInfo { Index = 3, Name = "Wolf", GameName = "Wolf", Image = Monster.Hen, Level = 12 });
+            GameScene.UpsertMonsterInfo(new ClientMonsterInfo { Index = 4, Name = "WolfKing", GameName = "WolfKing", Image = Monster.Hen, Level = 18 });
             GameScene.UpsertNPCInfo(new ClientNPCInfo { Index = 77, ObjectID = QNpc, Name = "BichonProvince_Guard_Captain", MapIndex = 1, Location = new Point(at.X + 3, at.Y - 2) });
             Feed(new S.ObjectNPC { ObjectID = QNpc, Name = "BichonProvince_Guard_Captain", NameColour = Color.Lime, Image = 1, Colour = Color.White, Location = new Point(at.X + 3, at.Y - 2), Direction = MirDirection.Down });
 
@@ -203,6 +255,10 @@ namespace Client.RenderTest
             potion.Rewards.Add(new S.QuestDefinition.Reward { Scope = QuestRewardScope.Quest, Kind = QuestRewardKind.Gold, Amount = 1200 });
             potion.Rewards.Add(new S.QuestDefinition.Reward { Scope = QuestRewardScope.Quest, Kind = QuestRewardKind.Item, TargetId = Info("UiTestSword").Index, Amount = 1, ChoiceGroup = 1 });
             potion.Rewards.Add(new S.QuestDefinition.Reward { Scope = QuestRewardScope.Quest, Kind = QuestRewardKind.Item, TargetId = Info("UiTestRing").Index, Amount = 1, ChoiceGroup = 1 });
+            // a second choice group (wave 3 kick-off): potions or a second sword
+            potion.Rewards.Add(new S.QuestDefinition.Reward { Scope = QuestRewardScope.Quest, Kind = QuestRewardKind.Item, TargetId = Info("UiTestPotion").Index, Amount = 3, ChoiceGroup = 2 });
+            potion.Rewards.Add(new S.QuestDefinition.Reward { Scope = QuestRewardScope.Quest, Kind = QuestRewardKind.Item, TargetId = Info("UiTestSword").Index, Amount = 1, ChoiceGroup = 2 });
+            potion.ShareMode = QuestShareMode.None;
 
             // 803 The Old Mine: offered by the NPC; a time limit
             S.QuestDefinition mine = QDef(QMine, "The Old Mine", QuestCategory.Story, 20, "Strange noises come from the old mine.");
@@ -216,7 +272,15 @@ namespace Client.RenderTest
             S.QuestDefinition wolves = QDef(QWolves, "Wolf Hunt", QuestCategory.Side, 15, "Hunt the wolves before nightfall.");
             wolves.FailPolicy = QuestFailPolicy.Fail;
             wolves.Steps.Add(new S.QuestDefinition.Step { Index = 8051, Order = 1, Title = "Hunt" });
-            wolves.Objectives.Add(new S.QuestDefinition.Objective { Index = 80511, Step = 8051, Type = QuestObjectiveType.Kill, TargetKind = QuestTargetKind.MonsterGroup, TargetId = 3, TargetName = "Wolf", Count = 6 });
+            wolves.Objectives.Add(new S.QuestDefinition.Objective { Index = 80511, Step = 8051, Type = QuestObjectiveType.Kill, TargetKind = QuestTargetKind.MonsterGroup, TargetId = 3, TargetName = "Wolf", Count = 6, TargetMembers = new List<int> { 3, 4 } });
+
+            // 808 The Pack's Fate: its first step met, two branches, chosen at the captain (S.QuestAvailability.Choosing after the turn-in)
+            S.QuestDefinition branch = QDef(QBranch, "The Pack's Fate", QuestCategory.Story, 16, "The wolves are cornered. Decide their fate.");
+            branch.Steps.Add(new S.QuestDefinition.Step { Index = 8081, Order = 1, Title = "Corner the pack" });
+            branch.Steps.Add(new S.QuestDefinition.Step { Index = 8082, Order = 2, Title = "Lead them away" });
+            branch.Objectives.Add(new S.QuestDefinition.Objective { Index = 80811, Step = 8081, Type = QuestObjectiveType.Kill, TargetKind = QuestTargetKind.MonsterGroup, TargetId = 3, TargetName = "Wolf", Count = 2, TargetMembers = new List<int> { 3, 4 } });
+            branch.Branches.Add(new S.QuestDefinition.Branch { Step = 8081, ChoiceKey = "spare", Text = "Spare the pack", Outcome = 1 });
+            branch.Branches.Add(new S.QuestDefinition.Branch { Step = 8081, ChoiceKey = "slay", Text = "Slay the pack", Outcome = 2 });
 
             // 804 Wolf Pelts: in history only, repeatable (its definition is sent: the repeat timer)
             S.QuestDefinition pelts = QDef(QPelts, "Wolf Pelts", QuestCategory.Repeatable, 25, "Pelts fetch a good price.");
@@ -224,7 +288,7 @@ namespace Client.RenderTest
             pelts.CooldownSeconds = 7200;
             pelts.Steps.Add(new S.QuestDefinition.Step { Index = 8041, Order = 1, Title = "Bring pelts" });
 
-            foreach (S.QuestDefinition d in new[] { hens, potion, mine, wolves, pelts }) Feed(d);
+            foreach (S.QuestDefinition d in new[] { hens, potion, mine, wolves, pelts, branch }) Feed(d);
             long now = CMain.Now.ToBinary();
             Feed(new S.QuestStates
             {
@@ -234,6 +298,7 @@ namespace Client.RenderTest
                     new S.QuestStates.Entry { Quest = QHens, Status = QuestRunStatus.Active, Step = 8011, ExpiresAt = CMain.Now.AddMinutes(42).ToBinary() },
                     new S.QuestStates.Entry { Quest = QPotion, Status = QuestRunStatus.Ready, Step = -1 },
                     new S.QuestStates.Entry { Quest = QWolves, Status = QuestRunStatus.Failed, Step = 8051, ExpiresAt = CMain.Now.AddMinutes(-3).ToBinary() },
+                    new S.QuestStates.Entry { Quest = QBranch, Status = QuestRunStatus.Active, Step = 8081 },
                 },
             });
             Feed(new S.QuestProgress { Progress = new List<S.QuestProgress.Entry>
@@ -242,6 +307,7 @@ namespace Client.RenderTest
                 new S.QuestProgress.Entry { Quest = QHens, Objective = 80112, Value = 1 },
                 new S.QuestProgress.Entry { Quest = QPotion, Objective = 80211, Value = 5 },
                 new S.QuestProgress.Entry { Quest = QWolves, Objective = 80511, Value = 2 },
+                new S.QuestProgress.Entry { Quest = QBranch, Objective = 80811, Value = 2 },
             } });
             Feed(new S.QuestHistory
             {
@@ -290,6 +356,7 @@ namespace Client.RenderTest
             if (book.Npcs.TryGetValue(QNpc, out S.QuestAvailability.Entry e))
             {
                 foreach (int q in e.Finishing) if (book.Def(q) != null && book.Run(q) != null) order.Add(q);
+                foreach (int q in e.Choosing) if (book.Def(q) != null && book.Run(q) != null && !e.Finishing.Contains(q)) order.Add(q);
                 foreach (int q in e.Offered) if (book.Def(q) != null && book.Run(q) == null) order.Add(q);
             }
             int want = order.IndexOf(quest), n = 0;
@@ -305,7 +372,7 @@ namespace Client.RenderTest
             if (card == null) return null;
             var cells = new List<MirControl>();
             foreach (MirControl c in card.Controls) if (c is NpcItemCell) cells.Add(c);
-            // 802 has no fixed items: the cells are the choice group's sword, ring
+            // 802 has no fixed items: the cells are group 1's sword, ring, then group 2's potions, sword
             return choice < cells.Count ? cells[choice] : null;
         }
 

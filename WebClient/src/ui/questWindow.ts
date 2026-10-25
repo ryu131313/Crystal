@@ -18,10 +18,17 @@
 //   Quest items         InventoryDialog's quest tab (QuestButton + QuestGrid, read-only cells) as its own window on the
 //                       inventory artwork, until the inventory window ports its tabs (toggleItems() is public for it).
 //   S.QuestOffer        the "X would like to share a quest with you" box (Yes = C.QuestAccept with NpcObjectID 0).
+//   S.QuestRefused      a system chat line "<title>: <reason>" (questRefusalText; `notify`, set by classicUi).
+// Web additions over the desktop's classic dialogs (quest V2): the NPC list also holds the NPC's Choosing quests, and
+// a met step's branches are chosen with the finish button (a box with one button per branch, C.QuestChoose); Share
+// is enabled only for a ShareMode other than None while in a group (`bindGroup`).
 
 import type { ItemInfo, QuestDefinitionInfo, ServerPacket, UserItem } from "../protocol/server.ts";
 import { QuestEndpointRole, QuestRewardKind, QuestRunStatus } from "../protocol/enums.generated.ts";
-import { MAX_CONCURRENT_QUESTS, MAX_TRACKED_QUESTS, QUEST_CATEGORY_LABEL, printTimeSpanFromSeconds, questIconFor, type Quests } from "../game/quests.ts";
+import {
+  MAX_CONCURRENT_QUESTS, MAX_TRACKED_QUESTS, QUEST_CATEGORY_LABEL, printTimeSpanFromSeconds, questIconFor, questRefusalText, type Quests,
+} from "../game/quests.ts";
+import type { GroupState } from "../game/group.ts";
 import type { ItemInfos } from "../game/items.ts";
 import { type GameInfo, itemFriendlyName } from "../game/gameInfo.ts";
 import type { NpcWindow } from "./npcWindow.ts";
@@ -303,6 +310,10 @@ export class QuestWindow {
   private readonly gameInfo: GameInfo;
   /** QuestListDialog's help button (HelpDialog.DisplayPage("Quests")): set by the game when it has a help window. */
   onHelp: (() => void) | null = null;
+  /** A system chat line (S.QuestRefused): set by the game. */
+  notify: ((text: string) => void) | null = null;
+  /** The group (Share needs one): bindGroup. */
+  private group: GroupState | null = null;
 
   // QuestListDialog
   private readonly list: MirWindow;
@@ -323,6 +334,7 @@ export class QuestWindow {
   private readonly detail: MirWindow;
   private readonly detailMessage: QuestMessageView;
   private readonly detailRewards: QuestRewardsView;
+  private readonly shareButton: MirButton;
   private detailQuestId = -1;
 
   // QuestDiaryDialog
@@ -374,8 +386,8 @@ export class QuestWindow {
     new MirImage({ parent: this.detail, library: Lib.Title, index: 16, location: [18, 9] });
     this.detailMessage = new QuestMessageView(this.detail, { location: [10, 35], size: [280, 320], lineCount: 16, displayProgress: true, up: [293, 33], down: [293, 280], bar: [293, 48], posMinY: 46, posMaxY: 261 }, linkName);
     this.detailRewards = new QuestRewardsView(this.detail, [5, 307], [315, 130], this, quests);
-    new MirButton({ parent: this.detail, library: Lib.Title, index: 616, hoverIndex: 617, pressedIndex: 618, location: [40, 436], sound: SoundList.ButtonA,
-      onClick: () => { if (this.detailQuestId >= 0) quests.share(this.detailQuestId); } });
+    this.shareButton = new MirButton({ parent: this.detail, library: Lib.Title, index: 616, hoverIndex: 617, pressedIndex: 618, location: [40, 436], sound: SoundList.ButtonA,
+      onClick: () => { if (this.detailQuestId >= 0 && this.canShare(this.detailQuestId)) quests.share(this.detailQuestId); } });
     // _pauseButton (Title 270, (120, 436)) is created hidden and never shown on the desktop: not ported
     new MirButton({ parent: this.detail, library: Lib.Title, index: 203, hoverIndex: 204, pressedIndex: 205, location: [200, 436], sound: SoundList.ButtonA, onClick: () => this.cancelClick() });
     closeButton(this.detail, [289, 3], () => this.detail.hide());
@@ -413,6 +425,10 @@ export class QuestWindow {
     });
 
     const offChange = quests.onChange((c) => this.changed(c));
+    const offRefused = quests.refused.on((e) => {
+      const t = questRefusalText(e, quests.name(e.quest));
+      this.notify?.(`${t.title}: ${t.reason}`);
+    });
     gameInfo.onChange(() => this.refreshMessages()); // link names follow their info
     window.addEventListener("keydown", (e) => {
       const a = document.activeElement;
@@ -426,10 +442,27 @@ export class QuestWindow {
       offClosed();
       offOffer();
       offChange();
+      offRefused();
       for (const w of [this.list, this.detail, this.diary, this.tracking, this.itemsWindow]) w.dispose();
       itemLabelBox?.remove();
       itemLabelBox = null;
     });
+  }
+
+  /** The group whose size Share needs (its changes re-check the Share button). */
+  bindGroup(group: GroupState): void {
+    this.group = group;
+    const off = group.changed.on(() => this.updateShare());
+    gameSignal().addEventListener("abort", off, { once: true });
+  }
+
+  /** Share: the quest's ShareMode allows it and the user is in a group. */
+  private canShare(quest: number): boolean {
+    return this.quests.canShare(quest, this.group?.list.length ?? 0);
+  }
+
+  private updateShare(): void {
+    this.shareButton.enabled = this.detailQuestId >= 0 && this.canShare(this.detailQuestId);
   }
 
   /** Server packets (after Quests.handle has updated the state): nothing left here (offers come from the model). */
@@ -449,7 +482,7 @@ export class QuestWindow {
 
   private changed(c: string): void {
     if (c === "items") { if (this.itemsWindow.visible) this.renderItems(); return; }
-    if (c === "offers" || c === "history") return;
+    if (c === "offers" || c === "history" || c === "pending") return;
     this.renderTracking();
     if (this.list.visible) this.displayListInfo();
     this.npc.refreshQuestButton();
@@ -526,13 +559,16 @@ export class QuestWindow {
     this.list.hide();
   }
 
-  /** The NPC's quests (S.QuestAvailability): finishing here first, then offered. */
+  /** The NPC's quests (S.QuestAvailability): finishing here first, then branch choices, then offered. */
   private npcQuests(): number[] {
+    return this.quests.npcQuestList(this.currentNpcId);
+  }
+
+  /** The met step's branches of the quest, when this NPC lists it as Choosing or finishes it, else []. */
+  private branchesHere(quest: number): ReturnType<Quests["pendingBranches"]> {
     const e = this.quests.npcQuests(this.currentNpcId);
-    if (!e) return [];
-    const out = [...e.finishing];
-    for (const id of e.offered) if (!out.includes(id)) out.push(id);
-    return out;
+    if (!e || !(e.choosing.includes(quest) || e.finishing.includes(quest))) return [];
+    return this.quests.pendingBranches(quest);
   }
 
   /** QuestListDialog.DisplayInfo: no quest (or the NPC gone) hides the dialog. Keeps the selection by quest id. */
@@ -583,7 +619,7 @@ export class QuestWindow {
   /** The QuestIcon of a quest in the list: offered (by category), Ready, or in progress (white "?"). */
   private iconOf(quest: number): number {
     const run = this.quests.run(quest), cat = this.quests.def(quest)?.Category ?? 1;
-    return questIconFor(cat, !run ? "offer" : run.status === QuestRunStatus.Ready ? "ready" : "active");
+    return questIconFor(cat, !run ? "offer" : run.status === QuestRunStatus.Ready || this.quests.pendingBranches(quest).length ? "ready" : "active");
   }
 
   /** QuestRow (200 x 17): selected bar Prguse 956 at (25, 0), the quest icon Prguse 961 + Icon (+ 15 above 3) at (3, 0),
@@ -620,7 +656,7 @@ export class QuestWindow {
   private reDisplayButtons(): void {
     const run = this.selected >= 0 ? this.quests.run(this.selected) : undefined;
     this.acceptButton.visible = this.selected >= 0 && !run && this.quests.activeCount < MAX_CONCURRENT_QUESTS;
-    this.finishButton.visible = run?.status === QuestRunStatus.Ready;
+    this.finishButton.visible = run?.status === QuestRunStatus.Ready || (this.selected >= 0 && this.branchesHere(this.selected).length > 0);
   }
 
   /** QuestListDialog accept button: C.QuestAccept at this NPC. */
@@ -632,7 +668,18 @@ export class QuestWindow {
   /** QuestListDialog finish button: each choice group needs a pick (YouMustSelectRewardItem), then C.QuestTurnIn. */
   private finishClick(): void {
     const def = this.selected >= 0 ? this.quests.def(this.selected) : undefined;
-    if (!def || this.quests.run(def.Quest)?.status !== QuestRunStatus.Ready) return;
+    if (!def) return;
+    const branches = this.branchesHere(def.Quest);
+    if (branches.length && this.quests.run(def.Quest)?.status === QuestRunStatus.Active) {
+      // a met step's branch choice (web addition): one button per branch (the box fits three plus Cancel)
+      const npc = this.currentNpcId;
+      messageBox(this.stage, `${def.Name}\nChoose how to go on:`, [
+        ...branches.slice(0, 3).map((b) => ({ label: b.Text || b.ChoiceKey, onClick: () => this.quests.choose(def.Quest, npc, b.ChoiceKey) })),
+        { label: "Cancel" },
+      ]);
+      return;
+    }
+    if (this.quests.run(def.Quest)?.status !== QuestRunStatus.Ready) return;
     const picks = this.quests.picksFor(def);
     if (!picks) { messageBox(this.stage, "You must select a reward item."); return; }
     this.quests.turnIn(def.Quest, this.currentNpcId, picks);
@@ -645,7 +692,9 @@ export class QuestWindow {
     this.detailQuestId = quest;
     this.detailRewards.update(quest);
     this.detailMessage.update(this.messageLines(quest));
+    this.updateShare();
     this.detail.show();
+
   }
 
   /** QuestDetailDialog cancel button: AskCancelQuest, then C.QuestAbandon and hide. */

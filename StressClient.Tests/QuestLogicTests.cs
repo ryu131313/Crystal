@@ -101,6 +101,51 @@ public class QuestLogicTests
     }
 
     [Fact]
+    public void KillTargets_GroupMembersById_EvenWithoutTheLabelName()
+    {
+        var group = KillGroup(1, "Wolf");
+        group.TargetMembers.AddRange(new[] { 30, 31, 32 });
+        var def = Def(1, 0, group);
+        var run = new QuestRun { Quest = 1, Status = QuestRunStatus.Active, Step = 1 };
+        // 31 is named differently from the label; 32's info is unknown (matched by id only); 40 shares the label (fallback).
+        var names = new Dictionary<int, string> { [30] = "Wolf", [31] = "WolfKing", [40] = "Wolf" };
+
+        var found = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var indexes = new HashSet<int>();
+        QuestLogic.KillTargets(Defs(def), new[] { run }, names, found, indexes);
+
+        Assert.Equal(new[] { "Wolf", "WolfKing" }, found.OrderBy(n => n));
+        Assert.Equal(new[] { 30, 31, 32, 40 }, indexes.OrderBy(i => i));
+    }
+
+    [Fact]
+    public void QuestRefused_ClearsThePendingRequestAndBlocksARetryUntilItExpires()
+    {
+        var world = new WorldModel { MapIndex = 4 };
+        world.AddNpc(new NpcState { Id = 77, Name = "Trader", Location = new System.Drawing.Point(10, 12) });
+        var book = world.Quests;
+        book.ApplyDefinition(Def(1, 0, Kill(1, 5)));
+        book.ApplyAvailability(new S.QuestAvailability { Npcs = { new S.QuestAvailability.Entry { ObjectID = 77, Offered = { 1 } } } }, world);
+
+        book.PendingAccepts[1] = 1000;
+        Assert.True(book.ApplyRefused(new S.QuestRefused { Quest = 1, Request = QuestRequestKind.Accept, Reason = QuestRefusal.ConditionNotMet }, 1200));
+        Assert.Empty(book.PendingAccepts);
+        Assert.Equal(0, book.ChooseOfferAt(77, level: 1)); // refused: not retried at once
+        book.ExpirePending(1200 + 15_000, 15_000);
+        Assert.Equal(1, book.ChooseOfferAt(77, level: 1));
+
+        book.ApplyStates(new S.QuestStates { States = { new S.QuestStates.Entry { Quest = 1, Status = QuestRunStatus.Ready, Step = 1 } } }, 300, null, null, null);
+        book.ApplyAvailability(new S.QuestAvailability { Npcs = { new S.QuestAvailability.Entry { ObjectID = 77, Finishing = { 1 } } } }, world);
+        book.PendingTurnIns[1] = 2000;
+        Assert.True(book.ApplyRefused(new S.QuestRefused { Quest = 1, Request = QuestRequestKind.TurnIn, Reason = QuestRefusal.BagFull }, 2100));
+        Assert.Empty(book.PendingTurnIns);
+        Assert.Equal(0, book.ReadyAt(77));
+        Assert.False(book.AnyReady);
+        book.ExpirePending(2100 + 15_000, 15_000);
+        Assert.Equal(1, book.ReadyAt(77));
+    }
+
+    [Fact]
     public void RewardPicks_OnePerChoiceGroup_ItemsAndLargerAmountsWin()
     {
         var def = Def(1);

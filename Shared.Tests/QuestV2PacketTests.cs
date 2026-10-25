@@ -19,6 +19,7 @@ public class QuestV2PacketTests
         Assert.Equal(306, (int)ServerPacketIds.QuestHistory);
         Assert.Equal(307, (int)ServerPacketIds.QuestAvailability);
         Assert.Equal(308, (int)ServerPacketIds.QuestOffer);
+        Assert.Equal(309, (int)ServerPacketIds.QuestRefused);
         Assert.Equal(172, (int)ClientPacketIds.SetAllowToggle);
         Assert.Equal(173, (int)ClientPacketIds.QuestAccept);
         Assert.Equal(174, (int)ClientPacketIds.QuestTurnIn);
@@ -33,6 +34,7 @@ public class QuestV2PacketTests
         Assert.IsType<ServerPackets.QuestHistory>(GetServerPacket((short)ServerPacketIds.QuestHistory));
         Assert.IsType<ServerPackets.QuestAvailability>(GetServerPacket((short)ServerPacketIds.QuestAvailability));
         Assert.IsType<ServerPackets.QuestOffer>(GetServerPacket((short)ServerPacketIds.QuestOffer));
+        Assert.IsType<ServerPackets.QuestRefused>(GetServerPacket((short)ServerPacketIds.QuestRefused));
         Assert.IsType<ClientPackets.QuestAccept>(GetClientPacket((short)ClientPacketIds.QuestAccept));
         Assert.IsType<ClientPackets.QuestTurnIn>(GetClientPacket((short)ClientPacketIds.QuestTurnIn));
         Assert.IsType<ClientPackets.QuestAbandon>(GetClientPacket((short)ClientPacketIds.QuestAbandon));
@@ -53,6 +55,22 @@ public class QuestV2PacketTests
     }
 
     [Fact]
+    public void QuestRequestKind_and_QuestRefusal_values_are_fixed()
+    {
+        Assert.Equal(0, (byte)QuestRequestKind.Accept);
+        Assert.Equal(1, (byte)QuestRequestKind.TurnIn);
+        Assert.Equal(2, (byte)QuestRequestKind.Abandon);
+        Assert.Equal(3, (byte)QuestRequestKind.Share);
+        Assert.Equal(4, (byte)QuestRequestKind.Choose);
+        Assert.Equal(0, (byte)QuestRefusal.NotAvailable);
+        Assert.Equal(4, (byte)QuestRefusal.NotReady);
+        Assert.Equal(8, (byte)QuestRefusal.ShareNotAllowed);
+        Assert.Equal(12, (byte)QuestRefusal.Other);
+        Assert.Equal(16, (byte)QuestRefusal.NoMemberCouldTake);
+        Assert.Equal(17, Enum.GetValues<QuestRefusal>().Length);
+    }
+
+    [Fact]
     public void Every_server_packet_is_private()
     {
         Assert.False(new ServerPackets.QuestDefinition().Observable);
@@ -61,6 +79,7 @@ public class QuestV2PacketTests
         Assert.False(new ServerPackets.QuestHistory().Observable);
         Assert.False(new ServerPackets.QuestAvailability().Observable);
         Assert.False(new ServerPackets.QuestOffer().Observable);
+        Assert.False(new ServerPackets.QuestRefused().Observable);
     }
 
     private static void RoundTrip(Packet sent, Packet fresh)
@@ -75,13 +94,14 @@ public class QuestV2PacketTests
         Quest = 42, Name = "Hen Trouble", Summary = "Thin the hens.", CompleteText = "Thanks!", Category = QuestCategory.Side,
         StorylineIndex = 3, LevelHint = 7, RepeatPolicy = QuestRepeatPolicy.Daily, CooldownSeconds = 60, TimeLimitSeconds = 3600,
         FailPolicy = QuestFailPolicy.Fail, AbandonAllowed = true, Flags = QuestFlags.AutoComplete | QuestFlags.HiddenInLog, GroupName = "Bichon",
+        ShareMode = QuestShareMode.AutoParty,
         Steps =
         {
             new ServerPackets.QuestDefinition.Step { Index = 1, Order = 1, Title = "Hunt", Text = "Kill hens", ReadyText = "Done", CompletionMode = QuestStepCompletion.NOf, NRequired = 2, NextStep = -1, TimeLimitSeconds = 600 },
         },
         Objectives =
         {
-            new ServerPackets.QuestDefinition.Objective { Index = 5, Step = 1, Order = 1, Type = QuestObjectiveType.Kill, TargetKind = QuestTargetKind.MonsterGroup, TargetId = 9, TargetName = "Hens", Count = 10, Map = 1, X = 300, Y = 400, Radius = 12, Optional = true, Hidden = false, Text = "" },
+            new ServerPackets.QuestDefinition.Objective { Index = 5, Step = 1, Order = 1, Type = QuestObjectiveType.Kill, TargetKind = QuestTargetKind.MonsterGroup, TargetId = 9, TargetName = "Hens", Count = 10, Map = 1, X = 300, Y = 400, Radius = 12, Optional = true, Hidden = false, Text = "", TargetMembers = { 3, 4_000_000 } },
             new ServerPackets.QuestDefinition.Objective { Index = 6, Step = 1, Order = 2, Type = QuestObjectiveType.Flag, TargetKind = QuestTargetKind.Flag, TargetId = 521, TargetName = "Seal", Count = 1, Hidden = true, Text = "Break the seal" },
         },
         Rewards =
@@ -114,11 +134,14 @@ public class QuestV2PacketTests
         Assert.Equal(QuestFailPolicy.Fail, read.FailPolicy);
         Assert.Equal(QuestFlags.AutoComplete | QuestFlags.HiddenInLog, read.Flags);
         Assert.Equal("Bichon", read.GroupName);
+        Assert.Equal(QuestShareMode.AutoParty, read.ShareMode);
         Assert.Equal(QuestStepCompletion.NOf, read.Steps.Single().CompletionMode);
         Assert.Equal(-1, read.Steps.Single().NextStep);
         Assert.Equal(2, read.Objectives.Count);
         Assert.Equal(QuestTargetKind.MonsterGroup, read.Objectives[0].TargetKind);
         Assert.Equal(12, read.Objectives[0].Radius);
+        Assert.Equal(new[] { 3, 4_000_000 }, read.Objectives[0].TargetMembers);
+        Assert.Empty(read.Objectives[1].TargetMembers);
         Assert.True(read.Objectives[0].Optional);
         Assert.True(read.Objectives[1].Hidden);
         Assert.Equal("Break the seal", read.Objectives[1].Text);
@@ -184,7 +207,7 @@ public class QuestV2PacketTests
         {
             Npcs =
             {
-                new ServerPackets.QuestAvailability.Entry { ObjectID = 88, Icon = QuestIcon.ExclamationYellow, Offered = { 1, 2 }, Finishing = { 3 } },
+                new ServerPackets.QuestAvailability.Entry { ObjectID = 88, Icon = QuestIcon.ExclamationYellow, Offered = { 1, 2 }, Finishing = { 3 }, Choosing = { 7 } },
                 new ServerPackets.QuestAvailability.Entry { ObjectID = 89, Icon = QuestIcon.None },
             },
         };
@@ -192,6 +215,8 @@ public class QuestV2PacketTests
         RoundTrip(avail, a2);
         Assert.Equal(new[] { 1, 2 }, a2.Npcs[0].Offered);
         Assert.Equal(new[] { 3 }, a2.Npcs[0].Finishing);
+        Assert.Equal(new[] { 7 }, a2.Npcs[0].Choosing);
+        Assert.Empty(a2.Npcs[1].Choosing);
         Assert.Equal(QuestIcon.None, a2.Npcs[1].Icon);
         Assert.Empty(a2.Npcs[1].Offered);
 
@@ -200,6 +225,14 @@ public class QuestV2PacketTests
         RoundTrip(offer, o2);
         Assert.Equal(QuestEndpointKind.Auto, o2.Kind);
         Assert.Equal("Ann", o2.SharedBy);
+
+        var refused = new ServerPackets.QuestRefused { Quest = 9, Request = QuestRequestKind.TurnIn, Reason = QuestRefusal.NotReady };
+        var r2 = new ServerPackets.QuestRefused();
+        RoundTrip(refused, r2);
+        Assert.Equal(9, r2.Quest);
+        Assert.Equal(QuestRequestKind.TurnIn, r2.Request);
+        Assert.Equal(QuestRefusal.NotReady, r2.Reason);
+        Assert.Equal(4 + 1 + 1, Write(refused).Length);
     }
 
     [Fact]

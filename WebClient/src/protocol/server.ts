@@ -1206,19 +1206,23 @@ const decoders = {
     }
     return { Full, History };
   },
-  /** S.QuestAvailability: per NPC in view, the server-chosen QuestIcon and the quests offered / finished for this player. */
+  /** S.QuestAvailability: per NPC in view, the server-chosen QuestIcon and the quests offered / finished for this player;
+   *  Choosing = running quests whose current step has branches that can be chosen at this NPC (C.QuestChoose). */
   QuestAvailability: (r: Reader) => {
-    const n = readCount(r, 13);
+    const n = readCount(r, 17);
     const Npcs: QuestAvailabilityEntry[] = [];
     for (let i = 0; i < n; i++) {
       const ObjectID = r.readU32(), Icon = r.readU8();
-      const Offered = readIntList(r), Finishing = readIntList(r);
-      Npcs.push({ ObjectID, Icon, Offered, Finishing });
+      const Offered = readIntList(r), Finishing = readIntList(r), Choosing = readIntList(r);
+      Npcs.push({ ObjectID, Icon, Offered, Finishing, Choosing });
     }
     return { Npcs };
   },
   /** S.QuestOffer: accept prompt from a non-NPC endpoint; Kind = QuestEndpointKind; SharedBy "" = not a share. */
   QuestOffer: (r: Reader) => ({ Quest: r.readI32(), Kind: r.readU8(), SharedBy: r.readString() }),
+  /** S.QuestRefused (wave 3 kick-off): a C.QuestAccept / TurnIn / Abandon / Share / Choose was refused.
+   *  Request = QuestRequestKind, Reason = QuestRefusal (enums.generated.ts). Unlock the quest's buttons and show the reason. */
+  QuestRefused: (r: Reader) => ({ Quest: r.readI32(), Request: r.readU8(), Reason: r.readU8() }),
 } satisfies Record<string, (r: Reader) => object>;
 
 // — Quest V2 records (field names and order as the C# nested classes of S.QuestDefinition / S.QuestStates / ...) —
@@ -1229,6 +1233,8 @@ export interface QuestDefStep {
 export interface QuestDefObjective {
   Index: number; Step: number; Order: number; Type: number; TargetKind: number; TargetId: number; TargetName: string; Count: number;
   Map: number; X: number; Y: number; Radius: number; Optional: boolean; Hidden: boolean; Text: string;
+  /** Member ids (MonsterInfo / ItemInfo indexes) of a MonsterGroup / ItemGroup target; empty otherwise. */
+  TargetMembers: number[];
 }
 export interface QuestDefReward { Scope: number; ScopeId: number; Kind: number; TargetId: number; Amount: bigint; ChoiceGroup: number; FirstTimeOnly: boolean }
 export interface QuestDefEndpoint { Role: number; Kind: number; TargetId: number; Name: string; Map: number }
@@ -1236,12 +1242,12 @@ export interface QuestDefBranch { Step: number; ChoiceKey: string; Text: string;
 export interface QuestDefinitionInfo {
   Quest: number; Name: string; Summary: string; CompleteText: string; Category: number; StorylineIndex: number; LevelHint: number;
   RepeatPolicy: number; CooldownSeconds: number; TimeLimitSeconds: number; FailPolicy: number; AbandonAllowed: boolean; Flags: number;
-  GroupName: string; Steps: QuestDefStep[]; Objectives: QuestDefObjective[]; Rewards: QuestDefReward[]; Endpoints: QuestDefEndpoint[];
+  GroupName: string; ShareMode: number; Steps: QuestDefStep[]; Objectives: QuestDefObjective[]; Rewards: QuestDefReward[]; Endpoints: QuestDefEndpoint[];
   Branches: QuestDefBranch[];
 }
 export interface QuestStateEntry { Quest: number; Status: number; Step: number; ExpiresAt: bigint; StepExpiresAt: bigint; TrackHint: boolean }
 export interface QuestHistoryEntry { Quest: number; Name: string; Times: number; LastAt: bigint; AvailableAt: bigint }
-export interface QuestAvailabilityEntry { ObjectID: number; Icon: number; Offered: number[]; Finishing: number[] }
+export interface QuestAvailabilityEntry { ObjectID: number; Icon: number; Offered: number[]; Finishing: number[]; Choosing: number[] }
 
 function readIntList(r: Reader): number[] {
   const n = readCount(r, 4);
@@ -1254,7 +1260,7 @@ function readQuestDefinition(r: Reader): QuestDefinitionInfo {
   const Quest = r.readI32(), Name = r.readString(), Summary = r.readString(), CompleteText = r.readString();
   const Category = r.readU8(), StorylineIndex = r.readI32(), LevelHint = r.readI32(), RepeatPolicy = r.readU8();
   const CooldownSeconds = r.readI32(), TimeLimitSeconds = r.readI32(), FailPolicy = r.readU8(), AbandonAllowed = r.readBool();
-  const Flags = r.readI32(), GroupName = r.readString();
+  const Flags = r.readI32(), GroupName = r.readString(), ShareMode = r.readU8();
   const Steps: QuestDefStep[] = [];
   for (let i = 0, n = readCount(r, 24); i < n; i++) {
     Steps.push({
@@ -1263,11 +1269,11 @@ function readQuestDefinition(r: Reader): QuestDefinitionInfo {
     });
   }
   const Objectives: QuestDefObjective[] = [];
-  for (let i = 0, n = readCount(r, 40); i < n; i++) {
+  for (let i = 0, n = readCount(r, 44); i < n; i++) {
     Objectives.push({
       Index: r.readI32(), Step: r.readI32(), Order: r.readI32(), Type: r.readU8(), TargetKind: r.readU8(), TargetId: r.readI32(),
       TargetName: r.readString(), Count: r.readI32(), Map: r.readI32(), X: r.readI32(), Y: r.readI32(), Radius: r.readI32(),
-      Optional: r.readBool(), Hidden: r.readBool(), Text: r.readString(),
+      Optional: r.readBool(), Hidden: r.readBool(), Text: r.readString(), TargetMembers: readIntList(r),
     });
   }
   const Rewards: QuestDefReward[] = [];
@@ -1287,7 +1293,7 @@ function readQuestDefinition(r: Reader): QuestDefinitionInfo {
   }
   return {
     Quest, Name, Summary, CompleteText, Category, StorylineIndex, LevelHint, RepeatPolicy, CooldownSeconds, TimeLimitSeconds, FailPolicy,
-    AbandonAllowed, Flags, GroupName, Steps, Objectives, Rewards, Endpoints, Branches,
+    AbandonAllowed, Flags, GroupName, ShareMode, Steps, Objectives, Rewards, Endpoints, Branches,
   };
 }
 

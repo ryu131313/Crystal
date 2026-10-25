@@ -404,6 +404,38 @@ public enum QuestRunStatus : byte
     Completed = 4
 }
 
+/// <summary>Quest V2: the client request an S.QuestRefused answers (on the wire as a byte; explicit values, append-only).</summary>
+public enum QuestRequestKind : byte
+{
+    Accept = 0,
+    TurnIn = 1,
+    Abandon = 2,
+    Share = 3,
+    Choose = 4
+}
+
+/// <summary>Quest V2: why the server refused a quest request (S.QuestRefused; on the wire as a byte; explicit values, append-only).</summary>
+public enum QuestRefusal : byte
+{
+    NotAvailable = 0,
+    NotAtNpc = 1,
+    QuestLogFull = 2,
+    BagFull = 3,
+    NotReady = 4,
+    InvalidPick = 5,
+    AbandonNotAllowed = 6,
+    NotInGroup = 7,
+    ShareNotAllowed = 8,
+    UnknownQuest = 9,
+    ConditionNotMet = 10,
+    AlreadyActive = 11,
+    Other = 12,
+    Dead = 13,
+    AlreadyCompleted = 14,
+    QuestBagFull = 15,
+    NoMemberCouldTake = 16
+}
+
 public enum DefaultNPCType : byte
 {
     Login,
@@ -1959,6 +1991,7 @@ public enum ServerPacketIds : short
     QuestHistory, // quest V2: completed quests for the log's Completed tab and repeat timers; append-only
     QuestAvailability, // quest V2: per NPC in view, the server-chosen QuestIcon and the quests offered / finished; append-only
     QuestOffer, // quest V2: accept prompt from a non-NPC endpoint (item, area, auto, share); append-only
+    QuestRefused, // quest V2: a C.QuestAccept / TurnIn / Abandon / Share / Choose was refused, with the reason (wave 3 kick-off); append-only
 }
 
 public enum ClientPacketIds : short
