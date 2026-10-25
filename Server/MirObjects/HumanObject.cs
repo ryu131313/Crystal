@@ -1838,6 +1838,7 @@ namespace Server.MirObjects
                 MapDarkLight = CurrentMap.Info.MapDarkLight,
                 Music = CurrentMap.Info.Music
             });
+            if (Race == ObjectType.Player) ((PlayerObject)this).Quests.MapChanged(); // quest V2: the client cleared its NPC quest icons
 
             Enqueue(new S.Revived());
             Broadcast(new S.ObjectRevived { ObjectID = ObjectID, Effect = effect });
@@ -7165,6 +7166,7 @@ namespace Server.MirObjects
                 MapDarkLight = CurrentMap.Info.MapDarkLight,
                 Music = CurrentMap.Info.Music
             });
+            if (Race == ObjectType.Player) ((PlayerObject)this).Quests.MapChanged(); // quest V2: the client cleared its NPC quest icons
 
             if (effects) Enqueue(new S.ObjectTeleportIn { ObjectID = ObjectID, Type = effectnumber });
 

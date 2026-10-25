@@ -2404,6 +2404,7 @@ namespace Server.MirObjects
                 MapDarkLight = CurrentMap.Info.MapDarkLight,
                 Music = CurrentMap.Info.Music
             });
+            Quests.MapChanged(); // quest V2: the client cleared its NPC quest icons
 
             GetObjects();
             Enqueue(new S.Revived());
@@ -2774,7 +2775,11 @@ namespace Server.MirObjects
 
                             NPC.CheckVisible(this);
 
-                            if (NPC.VisibleLog[Info.Index] && NPC.Visible) Enqueue(ob.GetInfo(), c);
+                            if (NPC.VisibleLog[Info.Index] && NPC.Visible)
+                            {
+                                Enqueue(ob.GetInfo(), c);
+                                Quests.NoteNpcInView(NPC); // quest V2: S.QuestAvailability follows a fresh S.ObjectNPC
+                            }
                         }
                         else
                         {
@@ -5557,6 +5562,7 @@ namespace Server.MirObjects
                 MapDarkLight = CurrentMap.Info.MapDarkLight,
                 Music = CurrentMap.Info.Music
             });
+            Quests.MapChanged(); // quest V2: the client cleared its NPC quest icons
 
             if (RidingMount) RefreshMount();
 
@@ -12829,6 +12835,7 @@ namespace Server.MirObjects
 
                 Info.QuestInventory[i] = null;
                 Enqueue(new S.DeleteQuestItem { UniqueID = itm.UniqueID, Count = itm.Count });
+                Quests.QuestBagChanged(itm.Info); // runs collecting it (none should) re-read the bag
             }
         }
 

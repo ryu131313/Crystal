@@ -119,7 +119,7 @@ internal static class Oracle
 
     /// <summary>Oracle lines of the v121 character block (quest V2 state, statistics, rankings opt-out).</summary>
     private static readonly System.Text.RegularExpressions.Regex V121Line = new(
-        @"\.((QuestRuns|QuestObjectives|QuestHistory|QuestVars)(\[|\.Count=)|Statistics\.|HideFromRankings=)");
+        @"\.((QuestRuns|QuestObjectives|QuestHistory|QuestVars|QuestRewardsPaid)(\[|\.Count=)|Statistics\.|HideFromRankings=)");
 
     /// <summary>Oracle lines of the legacy quest lists, which v121 no longer saves (a pre-121 load discards them).</summary>
     private static readonly System.Text.RegularExpressions.Regex LegacyQuestLine = new(@"\.(CurrentQuests|CompletedQuests)(\[|\.Count=)");

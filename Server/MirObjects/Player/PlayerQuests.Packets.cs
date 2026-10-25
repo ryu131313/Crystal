@@ -38,6 +38,7 @@ namespace Server.MirObjects
         public void ClassOrGenderChanged()
         {
             _player.Connection?.SentQuestDefinitions.Clear();
+            _sentRewards.Clear();
             foreach (var run in _runs.Values) EnsureDefinition(Catalog.Get(run.Quest));
             _npcSent.Clear();
             MarkAvailabilityDirty();
@@ -48,6 +49,9 @@ namespace Server.MirObjects
         /// rewards filtered by this player's class and gender, exp / gold with the rates. Also makes sure the client has the
         /// item / monster / NPC infos the quest names (the existing on-demand rules).
         /// </summary>
+        /// <summary>Tests: builds (and records as sent) the definition packet a client would get.</summary>
+        internal S.QuestDefinition BuildDefinitionPacket(QuestRuntime q) => BuildDefinition(q);
+
         private S.QuestDefinition BuildDefinition(QuestRuntime q)
         {
             var def = q.Def;
@@ -123,6 +127,7 @@ namespace Server.MirObjects
             }
 
             var rewards = FilteredRewards(q);
+            _sentRewards[q.Index] = rewards; // turn-in picks are positions in this list
             for (var i = 0; i < rewards.Count; i++)
             {
                 var r = rewards[i];

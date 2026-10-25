@@ -483,6 +483,7 @@ namespace Server.MirObjects
         /// <summary>Moves a run from a completed step to <paramref name="next"/> (Step rewards first, then the new step's index).</summary>
         private void CompleteStep(QuestRuntime q, QuestRunState run, QuestStepInfo step, QuestStepInfo next)
         {
+            TakeStepDeliveries(q, step.Index); // the final step's items are taken at turn-in instead
             GiveScopedRewards(q, QuestRewardScope.Step, step.Index);
             QuestLog.Info("[Quests] step " + _player.Name + " quest " + q.Index + " step " + step.Index + " -> " + next.Index + " after " + SecondsSinceAccept(run) + "s");
             EnterStep(q, run, next.Index);
@@ -557,6 +558,7 @@ namespace Server.MirObjects
                         break;
                     case QuestObjectiveType.ReachLevel:
                         _targetless.Add(r);
+                        SetValue(run.Quest, o, Math.Min(_player.Level, Math.Max(1, o.Count))); // seeded: the level may already be reached
                         break;
                     case QuestObjectiveType.ReachArea:
                         _areaRefs.Add(r);
@@ -1029,6 +1031,7 @@ namespace Server.MirObjects
             foreach (var quest in quests)
             {
                 _player.Connection?.SentQuestDefinitions.Remove(quest);
+                _sentRewards.Remove(quest);
                 if (!_runs.TryGetValue(quest, out var run)) continue;
                 var q = _catalog.Get(quest);
                 if (q == null)

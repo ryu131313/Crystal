@@ -103,6 +103,7 @@ internal static class SyntheticWorld
         c1.QuestObjectives.Add(new QuestObjectiveState { Quest = 1, Objective = 2, Value = unchecked((int)0x80000005) }); // multi-spot bitmask
         c1.QuestHistory.Add(new QuestHistoryEntry { Quest = 1, Times = 3, FirstAt = now.AddDays(-9).ToBinary(), LastAt = now.AddDays(-2).ToBinary(), LastOutcome = 2 });
         c1.QuestVars.Add(new QuestVarState { Quest = 1, Key = 1, Value = -7 });
+        c1.QuestRewardsPaid.Add(new QuestRewardPaid { Quest = 1, Scope = QuestRewardScope.Step, ScopeId = 2 });
         c1.Statistics.Add(PlayerStat.MonstersKilled, 1234);
         c1.Statistics.Add(PlayerStat.GoldEarned, 5_000_000_000L);
         c1.Statistics.Max(PlayerStat.HighestHit, 987);

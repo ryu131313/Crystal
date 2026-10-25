@@ -237,6 +237,7 @@ public class FixtureTests
             Assert.Empty(c1.QuestObjectives);
             Assert.Empty(c1.QuestHistory);
             Assert.Empty(c1.QuestVars);
+            Assert.Empty(c1.QuestRewardsPaid);
             Assert.Equal(0, c1.Statistics.Count);
             Assert.False(c1.HideFromRankings);
             Assert.True(c1.ChatBanned); // the fields after the skipped legacy lists still read correctly
@@ -294,6 +295,7 @@ public class FixtureTests
             Assert.Equal(unchecked((int)0x80000005), c1.QuestObjectives[1].Value);
             Assert.Equal(3, c1.QuestHistory.Single().Times);
             Assert.Equal(-7, c1.QuestVars.Single().Value);
+            Assert.Equal((1, QuestRewardScope.Step, 2), (c1.QuestRewardsPaid.Single().Quest, c1.QuestRewardsPaid.Single().Scope, c1.QuestRewardsPaid.Single().ScopeId));
             Assert.Equal(1234, c1.Statistics.Get(PlayerStat.MonstersKilled));
             Assert.Equal(5_000_000_000L, c1.Statistics.Get(PlayerStat.GoldEarned));
             Assert.Equal(987, c1.Statistics.Get(PlayerStat.HighestHit));

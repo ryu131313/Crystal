@@ -58,6 +58,7 @@ namespace Server.MirObjects
         {
             var changed = false;
             if (_runs.ContainsKey(quest)) { RemoveRun(quest); changed = true; }
+            ClearRewardsPaid(Info, quest);
             if (_history.TryGetValue(quest, out var h))
             {
                 _history.Remove(quest);
@@ -90,6 +91,7 @@ namespace Server.MirObjects
             h.LastAt = now.ToBinary();
             if (!_dirtyHistory.Contains(quest)) _dirtyHistory.Add(quest);
             RemoveRun(quest);
+            ClearRewardsPaid(Info, quest);
             _player.RecalculateQuestBag();
             MarkAvailabilityDirty();
             QuestLog.Info("[Quests] admin complete " + _player.Name + " quest " + quest);
@@ -103,6 +105,7 @@ namespace Server.MirObjects
             _history.Clear();
             Info.QuestHistory.Clear();
             Info.QuestVars.Clear();
+            Info.QuestRewardsPaid.Clear();
             SendHistoryFull();
             _player.RecalculateQuestBag();
             MarkAvailabilityDirty();
@@ -179,6 +182,7 @@ namespace Server.MirObjects
                     ci.QuestRuns.RemoveAll(r => r == null || r.Quest == quest);
                     ci.QuestObjectives.RemoveAll(o => o == null || o.Quest == quest);
                     ci.QuestVars.RemoveAll(v => v == null || v.Quest == quest);
+                    ClearRewardsPaid(ci, quest);
                     return true;
                 }
                 case "step":

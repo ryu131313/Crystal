@@ -111,6 +111,34 @@
         }
     }
 
+    /// <summary>
+    /// A Step / Outcome reward already paid in the current cycle of a quest (Scope + ScopeId of the questrewards rows), so abandoning
+    /// and retaking the quest cannot pay it again. Cleared at turn-in (a repeatable quest pays again on its next cycle) and by an
+    /// admin reset; an abandon keeps it.
+    /// </summary>
+    public sealed class QuestRewardPaid
+    {
+        public int Quest;
+        public QuestRewardScope Scope;
+        public int ScopeId;
+
+        public QuestRewardPaid() { }
+
+        public QuestRewardPaid(BinaryReader reader)
+        {
+            Quest = reader.ReadInt32();
+            Scope = (QuestRewardScope)reader.ReadByte();
+            ScopeId = reader.ReadInt32();
+        }
+
+        public void Save(BinaryWriter writer)
+        {
+            writer.Write(Quest);
+            writer.Write((byte)Scope);
+            writer.Write(ScopeId);
+        }
+    }
+
     /// <summary>A quest-scoped variable (Key = the variable id from the definition).</summary>
     public sealed class QuestVarState
     {

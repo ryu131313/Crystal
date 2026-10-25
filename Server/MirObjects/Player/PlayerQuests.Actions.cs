@@ -268,6 +268,17 @@ namespace Server.MirObjects
             _player.CallDefaultNPC(DefaultNPCType.OnAcceptQuest, quest);
         }
 
+        /// <summary>AutoComplete quests refused for a full inventory â†’ the free slot count at that refusal.</summary>
+        private readonly Dictionary<int, int> _autoTurnInBlocked = new Dictionary<int, int>();
+
+        private int FreeInventorySlots()
+        {
+            var free = 0;
+            var bag = Info.Inventory;
+            for (var i = 0; i < bag.Length; i++) if (bag[i] == null) free++;
+            return free;
+        }
+
         private int FreeQuestSlots()
         {
             var free = 0;
@@ -297,12 +308,19 @@ namespace Server.MirObjects
                 if (npc == null || !Catalog.IsEndpoint(q, QuestEndpointRole.Finish, npc.Info.Index)) return;
             }
 
+            // AutoComplete retries on every re-evaluation: while the inventory's free slots are unchanged since a refusal, skip quietly.
+            var free = FreeInventorySlots();
+            if (auto && _autoTurnInBlocked.TryGetValue(quest, out var blockedAt) && blockedAt == free) return;
+
             var items = BuildRewardItems(q, QuestRewardScope.Quest, 0, rewardPicks, out var filtered);
             if (items.Count > 0 && !_player.CanGainItems(items.ToArray()))
             {
+                if (auto) _autoTurnInBlocked[quest] = free;
                 _player.ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.CannotHandInQuestBagFull), ChatType.System);
                 return;
             }
+
+            _autoTurnInBlocked.Remove(quest);
 
             var seconds = SecondsSinceAccept(run);
             var step = run.Step;
@@ -323,6 +341,8 @@ namespace Server.MirObjects
             if (!_dirtyHistory.Contains(quest)) _dirtyHistory.Add(quest);
 
             RemoveRun(quest);
+            ClearRewardsPaid(Info, quest);
+            FlushBagTaken(); // other runs collecting the taken items re-read the bag
 
             for (var i = 0; i < items.Count; i++)
             {
@@ -362,12 +382,21 @@ namespace Server.MirObjects
             }
         }
 
+        /// <summary>Takes the Deliver items of a step that just completed (before moving on), so a non-final step cannot keep them.</summary>
+        private void TakeStepDeliveries(QuestRuntime q, int step)
+        {
+            var list = q.ObjectivesOf(step);
+            for (var i = 0; i < list.Count; i++)
+                if (list[i].Type == QuestObjectiveType.Deliver) TakeFrom(Info.Inventory, list[i], Math.Max(1, list[i].Count), false);
+        }
+
         private void TakeFrom(UserItem[] grid, QuestObjectiveInfo o, int count, bool questBag)
         {
             for (var j = 0; j < grid.Length && count > 0; j++)
             {
                 var item = grid[j];
                 if (item?.Info == null || !TargetsItem(o, item.Info.Index)) continue;
+                if (questBag) _bagTaken.Add(item.Info);
                 var take = Math.Min(count, (int)item.Count);
                 if (questBag) _player.Enqueue(new S.DeleteQuestItem { UniqueID = item.UniqueID, Count = (ushort)take });
                 else _player.Enqueue(new S.DeleteItem { UniqueID = item.UniqueID, Count = (ushort)take });
@@ -376,7 +405,16 @@ namespace Server.MirObjects
                 count -= take;
             }
 
-            if (!questBag) _player.RefreshStats();
+            if (!questBag) _player.RefreshBagWeight(); // inventory items carry weight only (UseItem does the same)
+        }
+
+        // Quest-bag items taken by TakeFrom: other runs collecting them re-read the bag afterwards.
+        private readonly List<ItemInfo> _bagTaken = new List<ItemInfo>();
+
+        private void FlushBagTaken()
+        {
+            for (var i = 0; i < _bagTaken.Count; i++) QuestBagChanged(_bagTaken[i]);
+            _bagTaken.Clear();
         }
 
         // ------------------------------------------------------------------ rewards
@@ -421,7 +459,7 @@ namespace Server.MirObjects
                 var r = filtered[i];
                 if (r.Scope != scope || r.ScopeId != scopeId || r.Kind != QuestRewardKind.Item) continue;
                 if (r.FirstTimeOnly && !first) continue;
-                if (r.ChoiceGroup != 0 && !Picked(filtered, picks, i)) continue;
+                if (r.ChoiceGroup != 0 && !Picked(q, filtered, picks, i)) continue;
                 var info = Envir.GetItemInfo(r.TargetId);
                 if (info == null) continue;
                 var count = r.Amount;
@@ -438,20 +476,29 @@ namespace Server.MirObjects
             return items;
         }
 
-        /// <summary>True when <paramref name="position"/> is the player's pick for its choice group.</summary>
-        private static bool Picked(List<QuestRewardInfo> filtered, List<int> picks, int position)
+        /// <summary>
+        /// True when <c>filtered[position]</c> (the rewards the player can get now) is the player's pick for its choice group. Picks are
+        /// positions in the Rewards list of the S.QuestDefinition the client was sent (kept in <see cref="_sentRewards"/>), which can be
+        /// older than the current filter (a reward condition on level changed since): a pick is resolved against that sent list, and a
+        /// picked reward whose condition no longer holds is not in <paramref name="filtered"/>, so it gives nothing.
+        /// </summary>
+        private bool Picked(QuestRuntime q, List<QuestRewardInfo> filtered, List<int> picks, int position)
         {
             if (picks == null) return false;
-            var group = filtered[position].ChoiceGroup;
+            var basis = _sentRewards.TryGetValue(q.Index, out var sent) ? sent : filtered;
+            var reward = filtered[position];
             for (var i = 0; i < picks.Count; i++)
             {
                 var p = picks[i];
-                if (p < 0 || p >= filtered.Count || filtered[p].ChoiceGroup != group) continue;
-                return p == position; // the first valid pick of the group wins
+                if (p < 0 || p >= basis.Count || basis[p].ChoiceGroup != reward.ChoiceGroup) continue;
+                return basis[p] == reward; // the first valid pick of the group wins
             }
 
             return false;
         }
+
+        /// <summary>Per quest: the reward rows of the last S.QuestDefinition sent on this connection, in its order (game thread).</summary>
+        private readonly Dictionary<int, List<QuestRewardInfo>> _sentRewards = new Dictionary<int, List<QuestRewardInfo>>();
 
         /// <summary>What a turn-in of <paramref name="q"/> would give (Scope = Quest), without giving it: item totals, rated exp / gold, credit.</summary>
         public sealed class RewardPreview
@@ -474,7 +521,7 @@ namespace Server.MirObjects
                 var r = filtered[i];
                 if (r.Scope != QuestRewardScope.Quest || r.ScopeId != 0) continue;
                 if (r.FirstTimeOnly && !first) continue;
-                if (r.ChoiceGroup != 0 && !Picked(filtered, picks, i)) continue;
+                if (r.ChoiceGroup != 0 && !Picked(q, filtered, picks, i)) continue;
                 var amount = RatedAmount(r);
                 switch (r.Kind)
                 {
@@ -511,6 +558,10 @@ namespace Server.MirObjects
         /// <summary>Step / objective / outcome rewards (items into the inventory when there is room, else mailed; then currencies).</summary>
         private void GiveScopedRewards(QuestRuntime q, QuestRewardScope scope, int scopeId)
         {
+            // Paid once per cycle (saved), so abandon + retake cannot farm Step / Outcome rewards; turn-in starts a new cycle.
+            if (RewardPaid(q.Index, scope, scopeId)) return;
+            Info.QuestRewardsPaid.Add(new QuestRewardPaid { Quest = q.Index, Scope = scope, ScopeId = scopeId });
+
             var items = BuildRewardItems(q, scope, scopeId, null, out var filtered);
             for (var i = 0; i < items.Count; i++)
             {
@@ -520,6 +571,17 @@ namespace Server.MirObjects
 
             GiveCurrencyRewards(filtered, scope, scopeId, !_history.ContainsKey(q.Index));
         }
+
+        private bool RewardPaid(int quest, QuestRewardScope scope, int scopeId)
+        {
+            var paid = Info.QuestRewardsPaid;
+            for (var i = 0; i < paid.Count; i++)
+                if (paid[i].Quest == quest && paid[i].Scope == scope && paid[i].ScopeId == scopeId) return true;
+            return false;
+        }
+
+        /// <summary>Forgets a quest's paid Step / Outcome rewards (turn-in, admin complete / reset); also for offline records.</summary>
+        public static void ClearRewardsPaid(CharacterInfo info, int quest) => info.QuestRewardsPaid.RemoveAll(p => p == null || p.Quest == quest);
 
         // ------------------------------------------------------------------ abandon / share / choose
 
@@ -584,6 +646,7 @@ namespace Server.MirObjects
                 if (!string.Equals(b.ChoiceKey, choiceKey, StringComparison.Ordinal)) continue;
                 if (b.Condition != 0 && !EvaluateCondition(b.Condition)) return;
 
+                TakeStepDeliveries(q, step.Index);
                 GiveScopedRewards(q, QuestRewardScope.Step, step.Index);
                 if (b.Outcome != 0)
                 {

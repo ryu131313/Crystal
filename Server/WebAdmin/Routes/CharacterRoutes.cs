@@ -624,6 +624,7 @@ namespace Server.WebAdmin.Routes
                     ci.QuestObjectives.RemoveAll(q => q == null || match(q.Quest));
                     ci.QuestVars.RemoveAll(q => q == null || match(q.Quest));
                     ci.QuestHistory.RemoveAll(q => q == null || match(q.Quest));
+                    ci.QuestRewardsPaid.RemoveAll(q => q == null || match(q.Quest));
                 }
 
                 CharacterRouteUtil.PersistIfStopped();

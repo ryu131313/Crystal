@@ -419,4 +419,132 @@ public class QuestEngineTests
             Assert.Equal(QuestCompare.Ge, leaf.Cmp);
         });
     }
+    // ------------------------------------------------------------------ wave 2 review fixes
+
+    /// <summary>A hand-built quest on Main: steps in order, each with the given objectives; rewards as given.</summary>
+    private static QuestRuntime AddQuest(int index, (int Step, QuestObjectiveInfo[] Objectives)[] steps, params QuestRewardInfo[] rewards)
+    {
+        var info = new QuestInfo { Index = index, Name = "Q" + index, FileName = "none", RequiredMaxLevel = ushort.MaxValue };
+        var d = info.Definition;
+        d.RepeatPolicy = QuestRepeatPolicy.Unlimited;
+        for (var i = 0; i < steps.Length; i++)
+        {
+            d.Steps.Add(new QuestStepInfo { Index = steps[i].Step, Order = i + 1 });
+            foreach (var o in steps[i].Objectives) { o.Step = steps[i].Step; d.Objectives.Add(o); }
+        }
+
+        d.Rewards.AddRange(rewards);
+        Envir.Main.QuestInfoList.Add(info);
+        Envir.Main.InvalidateQuestCatalog();
+        return Runtime(index);
+    }
+
+    private static QuestObjectiveInfo Counter(int index) => new QuestObjectiveInfo { Index = index, Type = QuestObjectiveType.Counter, Count = 1 };
+
+    [Fact]
+    public void Step_rewards_are_paid_once_per_cycle_even_after_abandon_and_retake()
+    {
+        InWorld(() =>
+        {
+            AddQuest(30, new[] { (300, new[] { Counter(3001) }), (301, new[] { Counter(3011) }) },
+                new QuestRewardInfo { Scope = QuestRewardScope.Step, ScopeId = 300, Kind = QuestRewardKind.Gold, Amount = 5 });
+            var p = NewPlayer("Farm");
+            p.Account = new AccountInfo();
+
+            Assert.True(p.Quests.AdminStart(30));
+            Assert.True(p.Quests.ScriptCounter("30", "3001", "1")); // step 300 done → step reward
+            Assert.Equal(301, p.Quests.GetRun(30).Step);
+            Assert.Equal(5u, p.Account.Gold);
+
+            p.Quests.Abandon(30);
+            Assert.Single(p.Info.QuestRewardsPaid); // an abandon keeps the record
+            Assert.True(p.Quests.AdminStart(30));
+            p.Quests.ScriptCounter("30", "3001", "1");
+            Assert.Equal(301, p.Quests.GetRun(30).Step);
+            Assert.Equal(5u, p.Account.Gold); // not paid again
+
+            p.Quests.ScriptCounter("30", "3011", "1");
+            Assert.True(Ready(p, 30));
+            p.Quests.AdminComplete(30); // completion starts a new cycle (TurnIn does the same)
+            Assert.Empty(p.Info.QuestRewardsPaid);
+            Assert.True(p.Quests.AdminStart(30));
+            p.Quests.ScriptCounter("30", "3001", "1");
+            Assert.Equal(10u, p.Account.Gold);
+        });
+    }
+
+    [Fact]
+    public void Reach_level_objectives_are_seeded_on_entering_the_step()
+    {
+        InWorld(() =>
+        {
+            AddQuest(31, new[] { (310, new[] { new QuestObjectiveInfo { Index = 3101, Type = QuestObjectiveType.ReachLevel, Count = 8 } }) });
+            AddQuest(32, new[] { (320, new[] { new QuestObjectiveInfo { Index = 3201, Type = QuestObjectiveType.ReachLevel, Count = 12 } }) });
+            var p = NewPlayer("Lvl", level: 10);
+            Assert.True(p.Quests.AdminStart(31));
+            Assert.True(Ready(p, 31)); // level 10 ≥ 8 already
+            Assert.True(p.Quests.AdminStart(32));
+            Assert.False(Ready(p, 32));
+            Assert.Equal(10, p.Quests.ValueOf(Runtime(32), p.Quests.GetRun(32), Runtime(32).ObjectivesById[3201]));
+            p.Info.Level = 12;
+            p.Quests.LevelChanged();
+            Assert.True(Ready(p, 32));
+        });
+    }
+
+    [Fact]
+    public void Deliver_items_of_a_non_final_step_are_taken_when_the_step_completes()
+    {
+        InWorld(() =>
+        {
+            var pelt = Item("Pelt");
+            AddQuest(33, new[]
+            {
+                (330, new[] { new QuestObjectiveInfo { Index = 3301, Type = QuestObjectiveType.Deliver, TargetKind = QuestTargetKind.Item, TargetId = pelt.Index, Count = 2 } }),
+                (331, new[] { Counter(3311) }),
+            });
+            var p = NewPlayer("Deliver");
+            p.Info.Inventory[0] = new UserItem(pelt) { Count = 3, UniqueID = ++Envir.Main.NextUserItemID };
+
+            Assert.True(p.Quests.AdminStart(33));
+            Assert.Equal(331, p.Quests.GetRun(33).Step); // step 330 met at once and completed
+            Assert.Equal(1, p.Info.Inventory[0].Count); // its 2 pelts taken, the third kept
+            p.Quests.ScriptCounter("33", "3311", "1");
+            Assert.True(Ready(p, 33));
+            Assert.Equal(1, p.Info.Inventory[0].Count); // nothing more taken until turn-in
+        });
+    }
+
+    [Fact]
+    public void Reward_picks_resolve_against_the_definition_the_client_was_sent()
+    {
+        InWorld(() =>
+        {
+            var e = Envir.Main;
+            e.QuestConditionList.Add(new QuestConditionInfo { Index = 9101, Op = QuestConditionOp.Leaf, Leaf = QuestConditionLeaf.Level, Arg1 = 20, Cmp = QuestCompare.Ge });
+            e.QuestConditionList.Add(new QuestConditionInfo { Index = 9102, Op = QuestConditionOp.Leaf, Leaf = QuestConditionLeaf.Level, Arg1 = 10, Cmp = QuestCompare.Le });
+            var sword = Item("WoodenSword").Index;
+            var medal = Item("Medal").Index;
+            var dress = Item("BaseDress(M)").Index;
+            var q = AddQuest(34, new[] { (340, new[] { Counter(3401) }) },
+                new QuestRewardInfo { Kind = QuestRewardKind.Item, TargetId = sword, Amount = 1, ChoiceGroup = 1, Condition = 9101 }, // level ≥ 20 only
+                new QuestRewardInfo { Kind = QuestRewardKind.Item, TargetId = dress, Amount = 1, ChoiceGroup = 1, Condition = 9102 }, // level ≤ 10 only
+                new QuestRewardInfo { Kind = QuestRewardKind.Item, TargetId = medal, Amount = 1, ChoiceGroup = 1 });
+
+            var p = NewPlayer("Picks", level: 10);
+            var sent = p.Quests.BuildDefinitionPacket(q);
+            Assert.Equal(new[] { dress, medal }, sent.Rewards.Select(r => r.TargetId));
+
+            // The player picked the medal (position 1 of what they saw), then reached level 20: the filter now lists the sword first.
+            p.Info.Level = 20;
+            Assert.Equal(new[] { (medal, 1L) }, p.Quests.PreviewRewards(q, new List<int> { 1 }).Items);
+            // A picked reward whose condition no longer holds (the dress, level ≤ 10) gives nothing, never a neighbour.
+            Assert.Empty(p.Quests.PreviewRewards(q, new List<int> { 0 }).Items);
+
+            // After a re-send the positions follow the new list.
+            sent = p.Quests.BuildDefinitionPacket(q);
+            Assert.Equal(new[] { sword, medal }, sent.Rewards.Select(r => r.TargetId));
+            Assert.Equal(new[] { (sword, 1L) }, p.Quests.PreviewRewards(q, new List<int> { 0 }).Items);
+        });
+    }
 }

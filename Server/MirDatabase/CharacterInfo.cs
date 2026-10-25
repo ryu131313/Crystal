@@ -101,6 +101,8 @@ namespace Server.MirDatabase
         public List<QuestVarState> QuestVars = new List<QuestVarState>();
         public PlayerStatistics Statistics = new PlayerStatistics();
         public bool HideFromRankings;
+        /// <summary>Quest V2: Step / Outcome rewards paid in the current cycle of each quest (saved at 121, after HideFromRankings).</summary>
+        public List<QuestRewardPaid> QuestRewardsPaid = new List<QuestRewardPaid>();
 
         public bool[] Flags = new bool[Globals.FlagIndexCount];
 
@@ -420,6 +422,8 @@ namespace Server.MirDatabase
                 for (int i = 0; i < count; i++) QuestVars.Add(new QuestVarState(reader));
                 Statistics = new PlayerStatistics(reader);
                 HideFromRankings = reader.ReadBoolean();
+                count = reader.ReadInt32();
+                for (int i = 0; i < count; i++) QuestRewardsPaid.Add(new QuestRewardPaid(reader));
             }
         }
 
@@ -663,6 +667,8 @@ namespace Server.MirDatabase
             for (int i = 0; i < QuestVars.Count; i++) QuestVars[i].Save(writer);
             Statistics.Save(writer);
             writer.Write(HideFromRankings);
+            writer.Write(QuestRewardsPaid.Count);
+            for (int i = 0; i < QuestRewardsPaid.Count; i++) QuestRewardsPaid[i].Save(writer);
         }
 
         /// <summary>
