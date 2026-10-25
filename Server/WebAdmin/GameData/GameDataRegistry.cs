@@ -297,7 +297,17 @@ namespace Server.WebAdmin.GameData
             };
             opts.Lookups["RequiredQuest"] = "quests";
             var columns = GameDataColumns.Reflect(typeof(QuestInfo), opts);
-            columns.AddRange(QuestDefinitionColumns()); // quest V2, read-only until the phase 3 Quests editor
+            // Quest V2 ship (D2): the legacy columns are read only too. They only feed the legacy re-import; quests are created, edited and
+            // deleted in the Quests page (Server/WebAdmin/Quests), whose saves reach the running world through the quest-replace hook.
+            foreach (var c in columns)
+            {
+                if (c.Name == "Index" || c.Set == null) continue;
+                c.StoreSet = c.Set; // the store keeps restoring the value exactly as before
+                c.ReadOnly = true;
+                c.Set = null;
+            }
+
+            columns.AddRange(QuestDefinitionColumns()); // quest V2: written by the Quests page and the importer only
 
             return new GameDataTable
             {
@@ -305,8 +315,8 @@ namespace Server.WebAdmin.GameData
                 Label = "Quests",
                 Group = "quests",
                 EntityType = typeof(QuestInfo),
-                Insertable = true,
-                Deletable = true,
+                Insertable = false,
+                Deletable = false,
                 NameColumn = "Name",
                 IndexNote = "QuestInfo.Index",
                 Columns = columns,

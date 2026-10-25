@@ -73,11 +73,30 @@ namespace Server.MirEnvir.Quests
             copy.Vars = new List<QuestVarInfo>(Vars);
             return copy;
         }
+
+        /// <summary>
+        /// A copy with copies of every row (the wave 3 quest-replace hook: the running world never shares a row object with Envir.Edit,
+        /// server.md §3.4). Rows hold scalars and strings only.
+        /// </summary>
+        public QuestDefinition DeepCopy()
+        {
+            var copy = (QuestDefinition)MemberwiseClone();
+            copy.Steps = Steps.ConvertAll(r => r?.Copy());
+            copy.Objectives = Objectives.ConvertAll(r => r?.Copy());
+            copy.Branches = Branches.ConvertAll(r => r?.Copy());
+            copy.Endpoints = Endpoints.ConvertAll(r => r?.Copy());
+            copy.Rewards = Rewards.ConvertAll(r => r?.Copy());
+            copy.Vars = Vars.ConvertAll(r => r?.Copy());
+            return copy;
+        }
     }
 
     /// <summary><c>queststeps</c>, child of quests; keyed by its stable Index (counter QuestStepIndex).</summary>
     public sealed class QuestStepInfo
     {
+        /// <summary>A field-by-field copy (scalars and strings only).</summary>
+        public QuestStepInfo Copy() => (QuestStepInfo)MemberwiseClone();
+
         public int Index;
         public int Order;
         public string TitleKey = string.Empty;
@@ -98,6 +117,9 @@ namespace Server.MirEnvir.Quests
     /// <summary><c>questobjectives</c>, child of quests (Step names the step); keyed by its stable Index (counter QuestObjectiveIndex).</summary>
     public sealed class QuestObjectiveInfo
     {
+        /// <summary>A field-by-field copy (scalars and strings only).</summary>
+        public QuestObjectiveInfo Copy() => (QuestObjectiveInfo)MemberwiseClone();
+
         public int Index;
         public int Step;
         public int Order;
@@ -124,6 +146,9 @@ namespace Server.MirEnvir.Quests
     /// <summary><c>questbranches</c>, child of quests (position keyed).</summary>
     public sealed class QuestBranchInfo
     {
+        /// <summary>A field-by-field copy (scalars and strings only).</summary>
+        public QuestBranchInfo Copy() => (QuestBranchInfo)MemberwiseClone();
+
         public int Step;
         public string ChoiceKey = string.Empty;
         public string TextKey = string.Empty;
@@ -135,6 +160,9 @@ namespace Server.MirEnvir.Quests
     /// <summary><c>questendpoints</c>, child of quests (position keyed). Npc endpoints hold NPCInfo.Index, never a runtime ObjectID.</summary>
     public sealed class QuestEndpointInfo
     {
+        /// <summary>A field-by-field copy (scalars and strings only).</summary>
+        public QuestEndpointInfo Copy() => (QuestEndpointInfo)MemberwiseClone();
+
         public QuestEndpointRole Role;
         public QuestEndpointKind Kind;
         public int TargetId;
@@ -145,6 +173,9 @@ namespace Server.MirEnvir.Quests
     /// <summary><c>questrewards</c>, child of quests (position keyed).</summary>
     public sealed class QuestRewardInfo
     {
+        /// <summary>A field-by-field copy (scalars and strings only).</summary>
+        public QuestRewardInfo Copy() => (QuestRewardInfo)MemberwiseClone();
+
         public QuestRewardScope Scope;
         public int ScopeId;
         public QuestRewardKind Kind;
@@ -161,6 +192,9 @@ namespace Server.MirEnvir.Quests
     /// <summary><c>questvars</c>, child of quests; keyed by its stable Index (counter QuestVarIndex).</summary>
     public sealed class QuestVarInfo
     {
+        /// <summary>A field-by-field copy (scalars and strings only).</summary>
+        public QuestVarInfo Copy() => (QuestVarInfo)MemberwiseClone();
+
         public int Index;
         public string AuthorKey = string.Empty;
         public int Default;
@@ -169,6 +203,9 @@ namespace Server.MirEnvir.Quests
     /// <summary><c>conditions</c> (top level, shared): one node of a condition tree (counter QuestConditionIndex).</summary>
     public sealed class QuestConditionInfo
     {
+        /// <summary>A field-by-field copy (scalars and strings only).</summary>
+        public QuestConditionInfo Copy() => (QuestConditionInfo)MemberwiseClone();
+
         public int Index;
         public QuestConditionOp Op;
         /// <summary>Parent condition id (0 = a root); children are ordered by Order.</summary>
@@ -185,6 +222,9 @@ namespace Server.MirEnvir.Quests
     /// <summary><c>texts</c> (top level, shared), unique on (TextKey, Lang); Lang is always "" (server language, decision 8).</summary>
     public sealed class QuestTextInfo
     {
+        /// <summary>A field-by-field copy (scalars and strings only).</summary>
+        public QuestTextInfo Copy() => (QuestTextInfo)MemberwiseClone();
+
         public int Index;
         public string TextKey = string.Empty;
         public string Lang = string.Empty;
@@ -194,6 +234,9 @@ namespace Server.MirEnvir.Quests
     /// <summary><c>storylines</c> (top level, counter StorylineIndex).</summary>
     public sealed class StorylineInfo
     {
+        /// <summary>A field-by-field copy (scalars and strings only).</summary>
+        public StorylineInfo Copy() => (StorylineInfo)MemberwiseClone();
+
         public int Index;
         public string AuthorKey = string.Empty;
         public string NameKey = string.Empty;
@@ -203,6 +246,14 @@ namespace Server.MirEnvir.Quests
     /// <summary><c>questgroups</c> (top level, counter QuestGroupIndex) with <c>questgroupmembers</c>.</summary>
     public sealed class QuestGroupInfo
     {
+        /// <summary>A copy with copies of its members.</summary>
+        public QuestGroupInfo Copy()
+        {
+            var copy = (QuestGroupInfo)MemberwiseClone();
+            copy.Members = Members.ConvertAll(m => m?.Copy());
+            return copy;
+        }
+
         public int Index;
         public string AuthorKey = string.Empty;
         public QuestGroupKind Kind;
@@ -212,12 +263,23 @@ namespace Server.MirEnvir.Quests
     /// <summary><c>questgroupmembers</c>, child of questgroups (position keyed): a monster or item id.</summary>
     public sealed class QuestGroupMemberInfo
     {
+        /// <summary>A field-by-field copy (scalars and strings only).</summary>
+        public QuestGroupMemberInfo Copy() => (QuestGroupMemberInfo)MemberwiseClone();
+
         public int TargetId;
     }
 
     /// <summary><c>questpools</c> (top level, counter QuestPoolIndex) with <c>questpoolmembers</c>.</summary>
     public sealed class QuestPoolInfo
     {
+        /// <summary>A copy with copies of its members.</summary>
+        public QuestPoolInfo Copy()
+        {
+            var copy = (QuestPoolInfo)MemberwiseClone();
+            copy.Members = Members.ConvertAll(m => m?.Copy());
+            return copy;
+        }
+
         public int Index;
         public string AuthorKey = string.Empty;
         public int Picks;
@@ -228,6 +290,9 @@ namespace Server.MirEnvir.Quests
     /// <summary><c>questpoolmembers</c>, child of questpools (position keyed).</summary>
     public sealed class QuestPoolMemberInfo
     {
+        /// <summary>A field-by-field copy (scalars and strings only).</summary>
+        public QuestPoolMemberInfo Copy() => (QuestPoolMemberInfo)MemberwiseClone();
+
         public int Quest;
         public int Weight = 1;
     }

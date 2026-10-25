@@ -233,7 +233,7 @@ confirmation dialog, with a reason field for moderation actions. Every successfu
   text box per text field. Save writes Envir.Edit under EditLock with fresh counter ids (never reused) and **validation blocks the
   save** for that quest (422 + every error); refuses while Game Data has unsaved grid changes or a WinForms editor is open. Where
   used (also `GET /api/admin/quests/where-used`), per-quest JSON export and a two-step import (preview diff + token, then apply).
-  Saves call `QuestEditNotifier.QuestsChanged` (a restart is pending until the LiveDb quest-replace hook). Deleting a monster,
+  Saves go live through the quest-replace hook (`QuestEditNotifier.QuestsChangedAsync`, see LiveDb "Quest replace"). Deleting a monster,
   item, NPC, map, quest, quest group or condition that a quest references is refused everywhere (`GameDataEngine.Delete`).
 - **Drops** (Game Data › Drops, Drops-Tables-Plan phase 2; `Server/WebAdmin/Routes/DropRoutes.cs`, `wwwroot/admin/admin-drops.js`):
   every drop list as rows (the `drop_lists` / `drops` tables in SystemData.db): a list picker (search, kind filter, the monsters
@@ -405,8 +405,9 @@ unwalkable cell rejects the whole batch (422, Edit restored); a map the running 
 of the running world are per row / field with the reason in `rows[].changes[].reason` / `rows[].rowReason` and counted in
 `live.refusedLive` (the change is saved and applies after a restart).
 
-Classification (`LiveDb/LiveDbClassification.cs`): every column of every table is `ReadThrough`, `Hooked` or `RestartOnly`, with a
-timing (now / hook / spawn / clients / restart). Every table is live except the six conquest child tables (restart-only).
+Classification (`LiveDb/LiveDbClassification.cs`): every column of every table is `ReadThrough`, `Hooked`, `RestartOnly` or
+`QuestReplace`, with a timing (now / hook / spawn / clients / restart / quest-replace). Every table is live except the six conquest
+child tables (restart-only), the quest V2 tables and `quests` (see "Quest replace" below).
 Items: price, requirements, bind, flags and the other
 read-on-use columns are read through; Stats, Weight, Light, Set, Shape, Effect, Unique and CanFastRun refresh every online player
 and spawned hero holding the item (equipped, in the bag or socketed, including holders of a class / level based base item:
@@ -422,7 +423,7 @@ World tables (Batch C; the hooks are `ILiveDbHooks` / `LiveDbWorldHooks`, game t
 | Table | Live | Restart-only |
 |---|---|---|
 | npcs | visibility fields → schedule + per-player check for nearby players; Image / Name → re-broadcast; FileName → script rebound (quests and speech from the new script, unsaved used goods kept; a script that fails to load refuses only FileName); MapIndex / Location → moved (`RelocateNpc`: leave the old cell while `Info.Location` still names it, then change, then enter — F10); ShowOnBigMap / BigMapIcon (and any change of an NPC shown on the big map) → map info invalidated; insert → `NPCObject` spawned as at map load | Conquest, ConquestVisible, delete |
-| quests | requirements and messages (pushed; a saved `RequiredMaxLevel` 0 means "no maximum" as after a restart); FileName → the shared `GameData/QuestReload` (also used by the Scripts editor; refused when the kill / item / flag tasks change shape: FileName stays saved only) | Type, insert, delete |
+| quests | — (since the quest V2 ship: the legacy columns are read only, they only feed the legacy re-import; the V2 columns are `QuestReplace`) | every legacy column; insert / delete only in the Quests page |
 | maps | flags (read through `Map.Info`); MineIndex → mine rebuilt (mine state resets); Title / BigMap → sent at the next map entry, big-map info invalidated for the map and for maps whose movements show it | FileName, GT, insert, delete |
 | mapsafezones | the map's safe-zone spell objects removed (only caster-less, never-expiring zone decorations / healing cells; conquest war borders skipped) and recreated from the new zones, `Envir.StartPoints` rebuilt, `InSafeZone` recomputed for players, heroes and pets on the map; insert, delete | — |
 | maprespawns | Count / Delay / RandomDelay / Direction read at the next spawn; MonsterIndex / Location / RoutePath / Spread → `MapRespawn` cache rebuilt in place (monster, spawn cells, route; spawned monsters stay and keep counting against it); SaveRespawnTime / RespawnTicks → `Envir.SavedSpawns` membership; insert (spawns at the map's next respawn check, within `[Optimisation] MapRespawnCheckMs`, default 1 s), delete (spawned monsters stay) | — |
@@ -441,6 +442,23 @@ applied before the deletes, so an inserted row's outcome is found by its record 
 (`LiveDbEngine.CaptureInserted`). A structural change (insert / delete) that does not reach Main — a restart-only table, a failed or
 refused live step — marks the parent diverged (`LiveDbState`), and live edits, inserts and deletes of its children are saved only
 until the next world start. Respawns are keyed by their global `RespawnIndex` and never diverge.
+
+**Quest replace** (UserData-and-Quests-Plan.md Part B "Live edits", wave 3; `Quests/QuestEditNotifier.cs` →
+`MirEnvir/Quests/QuestReplace.cs`): the quest V2 tables (`queststeps`, `questobjectives`, `questbranches`, `questendpoints`,
+`questrewards`, `questvars`, `conditions`, `texts`, `storylines`, `questgroups` + members, `questpools` + members) and the V2 columns
+of `quests` are `QuestReplace`: read only in the grids, never applied row by row (their position-keyed children would diverge). The
+Quests page (save, delete, JSON import, group save / delete) and the legacy re-import call `QuestEditNotifier.QuestsChangedAsync`
+after the store was written: under `EditLock` it copies the changed quests' whole graphs and the shared quest tables from
+`Envir.Edit` (`QuestReplace.Take`, plain copies), then one `WebAdminGame.RunAsync` (30 s) runs `QuestReplace.Apply` on the game
+thread: every referenced monster / item / NPC / map / group member is resolved against Main (a missing id keeps that quest's old
+graph and is reported), the fresh rows are swapped into Main's quest lists with the old contents as before-images (any exception
+restores the whole batch), the catalog is rebuilt, quests that use a changed shared row (text, group, shared condition, storyline;
+a reverse index built from Main each time) are added, and every online player runs `PlayerQuests.ApplyDefinitionChange` (revision
+migration of runs, index rebuild, the quest dropped from the connection's sent set and re-sent where it was held, `S.QuestStates` /
+`S.QuestProgress` for migrated runs, availability re-sent to NPC entries in view, an empty entry for an NPC that no longer has
+quests). A deleted quest's online runs are dropped (`S.QuestStates` None), history stays. The routes return `live` (applied,
+replaced, deleted, refreshed, players, failed with reasons); only what could not be applied (world not running, a missing
+reference, a rollback, a timeout) goes to `WebAdminPending`.
 
 Client push (`LiveDb/LiveDbPush.cs`, packet `S.GameDataChanged`, private): after the hooks, the live step snapshots every
 changed item (a fresh `ItemInfo` copy), monster (`ClientInformation`) and spell, then, under `lock (Connections)`, sends each

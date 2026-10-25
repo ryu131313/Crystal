@@ -132,6 +132,9 @@ namespace Server.MirDatabase
         {
             if (clear) ClearInfo();
 
+            // Quests made in the web admin Quests editor have no legacy body (quest V2 only): nothing to load, nothing to report.
+            if (string.IsNullOrWhiteSpace(FileName)) return;
+
             if (!Directory.Exists(Settings.QuestPath) && !DesignFiles.IsDesignFolder(Settings.QuestPath)) return;
 
             string fileName = Path.Combine(Settings.QuestPath, FileName + ".txt");

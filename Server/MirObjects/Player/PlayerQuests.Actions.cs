@@ -66,6 +66,18 @@ namespace Server.MirObjects
             MarkAvailabilityDirty();
         }
 
+        /// <summary>A signature no entry has: the entry is re-sent at the next availability pass.</summary>
+        private const long StaleNpcEntry = long.MinValue;
+
+        /// <summary>
+        /// The quest definitions changed (the wave 3 quest-replace hook, admin path): every NPC entry the client holds is re-sent at the next
+        /// pass, and an NPC that no longer gives or takes any quest gets an empty entry, so its icon and quest list are cleared.
+        /// </summary>
+        private void MarkNpcEntriesStale()
+        {
+            foreach (var key in new List<uint>(_npcSent.Keys)) _npcSent[key] = StaleNpcEntry;
+        }
+
         /// <summary>The player changed map (the client drops every object): every entry is re-sent.</summary>
         public void MapChanged()
         {
@@ -89,7 +101,13 @@ namespace Server.MirObjects
                 if (!npc.VisibleLog.TryGetValue(Info.Index, out var seen) || !seen) continue;
                 var starts = Catalog.StartsAt(npc.Info.Index);
                 var finishes = Catalog.FinishesAt(npc.Info.Index);
-                if (starts.Count == 0 && finishes.Count == 0) continue;
+                if (starts.Count == 0 && finishes.Count == 0)
+                {
+                    // The client still shows an entry from before a definition change: clear it (icon None, no quests).
+                    if (_npcSent.Remove(npc.ObjectID))
+                        (packet ??= new S.QuestAvailability()).Npcs.Add(new S.QuestAvailability.Entry { ObjectID = npc.ObjectID, Icon = QuestIcon.None });
+                    continue;
+                }
 
                 var entry = BuildNpcEntry(npc, starts, finishes, out var signature);
                 if (_npcSent.TryGetValue(npc.ObjectID, out var old) && old == signature) continue;

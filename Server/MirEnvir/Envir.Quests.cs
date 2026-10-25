@@ -45,7 +45,13 @@ namespace Server.MirEnvir
             if (this != Main || !(Store is Storage.SqliteWorldStore)) return;
             if (QuestInfoList.Count == 0) return;
             for (var i = 0; i < QuestInfoList.Count; i++)
-                if (QuestInfoList[i].HasDefinition) return;
+            {
+                if (!QuestInfoList[i].HasDefinition) continue;
+                // The V2 tables have rows: re-import once when an older importer made them (the D2 start; the version is read from the
+                // store on the import thread, never here on the game thread).
+                QuestImportRunner.StartBackground("world start: the quest importer version changed", QuestImportRunner.StartMode.WhenOlderVersion);
+                return;
+            }
 
             QuestImportRunner.StartBackground("world start: the quest V2 tables are empty");
         }

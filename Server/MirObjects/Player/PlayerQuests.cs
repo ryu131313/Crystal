@@ -1044,9 +1044,16 @@ namespace Server.MirObjects
             _catalog = Envir.QuestCatalog;
             foreach (var quest in quests)
             {
-                _player.Connection?.SentQuestDefinitions.Remove(quest);
+                // The sent set is keyed by quest index: a connection that held the old definition gets the new one (also for a quest it
+                // only saw at a giver or opened from its history); one that never had it gets it on demand as before.
+                var hadDefinition = _player.Connection?.SentQuestDefinitions.Remove(quest) == true;
                 _sentRewards.Remove(quest);
-                if (!_runs.TryGetValue(quest, out var run)) continue;
+                if (!_runs.TryGetValue(quest, out var run))
+                {
+                    if (hadDefinition) EnsureDefinition(_catalog.Get(quest));
+                    continue;
+                }
+
                 var q = _catalog.Get(quest);
                 if (q == null)
                 {
@@ -1062,7 +1069,7 @@ namespace Server.MirObjects
             // Every run's index holds QuestRuntime references of the old catalog: rebind them all.
             foreach (var run in RunsSnapshot())
                 RebuildIndex(run);
-            _npcSent.Clear();
+            MarkNpcEntriesStale();
             MarkAvailabilityDirty();
         }
     }

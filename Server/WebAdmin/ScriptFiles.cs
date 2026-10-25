@@ -37,6 +37,9 @@ namespace Server.WebAdmin
         /// </summary>
         public bool ReadOnly { get; init; }
 
+        /// <summary>Why a <see cref="ReadOnly"/> root refuses edits, with where to edit instead (null = the drops message).</summary>
+        public string ReadOnlyMessage { get; init; }
+
         public bool Exists => System.IO.Directory.Exists(Directory) || DesignFiles.IsDesignFolder(Directory); // roadmap P7: design roots live in SystemData.db
     }
 
@@ -520,7 +523,13 @@ namespace Server.WebAdmin
             {
                 new ScriptRoot("npcs", "NPC scripts", Abs(Settings.NPCPath), false, "Envir\\NPCs — NPC dialog scripts (Reload NPCs applies changes live)."),
                 new ScriptRoot("drops", "Drops", Abs(Settings.DropPath), false, "Envir\\Drops — drop lists, read only here: edit them in Game Data › Drops.") { ReadOnly = true },
-                new ScriptRoot("quests", "Quests", Abs(Settings.QuestPath), false, "Envir\\Quests — quest descriptions, tasks and rewards."),
+                // Quest V2 ship (D2, UserData-and-Quests-Plan.md, Authoring "No content freeze"): the legacy quest bodies only feed the
+                // legacy re-import from here on; quests are edited in the Quests page.
+                new ScriptRoot("quests", "Quests", Abs(Settings.QuestPath), false, "Envir\\Quests — legacy quest bodies, read only: edit quests in the Quests page.")
+                {
+                    ReadOnly = true,
+                    ReadOnlyMessage = LegacyQuestsReadOnlyMessage,
+                },
                 new ScriptRoot("recipes", "Recipes", Abs(Settings.RecipePath), true, "Envir\\Recipe — crafting recipes, one file per crafted item."),
                 new ScriptRoot("routes", "Routes", Abs(Settings.RoutePath), false, "Envir\\Routes — monster walking routes (applied on reboot)."),
                 new ScriptRoot("values", "Values", Abs(Settings.ValuePath), false, "Envir\\Values — value files read and written by NPC scripts."),
@@ -1143,8 +1152,13 @@ namespace Server.WebAdmin
             }
         }
 
+        /// <summary>The refusal for edits of the legacy quest bodies (Scripts editor, quest reload) since the quest V2 ship.</summary>
+        public const string LegacyQuestsReadOnlyMessage =
+            "Legacy quest files are read only since the quest V2 ship: edit quests in the Quests page (Game Data › Quests). Restoring a backup still works here; the files only feed the legacy re-import.";
+
         /// <summary>
-        /// Which live reload applies a saved file: "npcs", "drops", "linemessages", "recipes", "quests" or null.
+        /// Which live reload applies a saved file: "npcs", "drops", "linemessages", "recipes" or null (legacy quest files are read only and
+        /// no longer reloaded since the quest V2 ship).
         /// </summary>
         public static string ReloadKindFor(string rootId, string normalized)
         {
@@ -1157,8 +1171,6 @@ namespace Server.WebAdmin
                     return "drops";
                 case "recipes":
                     return "recipes";
-                case "quests":
-                    return "quests";
                 case "envir":
                     return string.Equals(normalized, "LineMessage.txt", StringComparison.OrdinalIgnoreCase) ? "linemessages" : null;
                 default:
@@ -1179,7 +1191,7 @@ namespace Server.WebAdmin
                 case "recipes":
                     return "Reload Recipes to apply.";
                 case "quests":
-                    return "Reload this quest to apply task counts, messages and rewards on the server. Online players keep the old quest texts in their client until they relog. Adding, removing or changing kill, item or flag tasks needs a reboot.";
+                    return "Read only: quests are edited in the Quests page, which applies them to the running world. These files only feed the legacy re-import.";
                 case "routes":
                     return "Routes are read when maps are created: reboot the world to apply.";
                 case "values":

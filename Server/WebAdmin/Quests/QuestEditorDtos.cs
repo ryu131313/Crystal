@@ -188,6 +188,9 @@
         public List<int> ChangedQuests = new List<int>();
         public bool SharedTablesChanged;
 
+        /// <summary>What the quest-replace hook did with the change (null for a dry run or a preview).</summary>
+        public QuestLiveOutcome Live;
+
         /// <summary>Import preview only: what the import would change.</summary>
         public List<string> Diff;
         public string Mode;               // import: "create" | "update"

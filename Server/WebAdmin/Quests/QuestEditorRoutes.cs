@@ -18,7 +18,8 @@ namespace Server.WebAdmin.Quests
     /// <item>POST /api/admin/quests/groups/save {group}, POST /api/admin/quests/groups/{index}/delete</item>
     /// </list>
     /// Saves write SystemData.db through Envir.Edit under EditLock (<see cref="QuestEditorGate"/>), audit as <c>quests.*</c>, and call
-    /// <see cref="QuestEditNotifier.QuestsChanged"/>. Threads: HTTP workers only; the world is never touched here.
+    /// <see cref="QuestEditNotifier.QuestsChangedAsync"/> (the quest-replace hook), whose outcome the response carries as <c>live</c>.
+    /// Threads: HTTP workers only; the world is touched only inside the hook's one admin action on the game thread.
     /// </summary>
     public sealed class QuestEditorRoutes : IWebAdminRoutes
     {
@@ -115,7 +116,7 @@ namespace Server.WebAdmin.Quests
                 new { index = result.Index, authorKey = dto.AuthorKey, steps = dto.Steps?.Count ?? 0, objectives = dto.Objectives?.Count ?? 0, warnings = result.Problems.Count }, Reason(body));
             await AfterSave(req, result, saved).ConfigureAwait(false);
             await req.Ok(result, (result.Created ? "Quest " + result.Index.ToString(CultureInfo.InvariantCulture) + " created" : "Quest saved") +
-                                 " (" + Count(result.Problems) + "). The running world picks it up at the next restart.").ConfigureAwait(false);
+                                 " (" + Count(result.Problems) + "). " + result.Live?.Message).ConfigureAwait(false);
         }
 
         private static string Count(List<QuestProblemDto> problems)
@@ -128,11 +129,14 @@ namespace Server.WebAdmin.Quests
         {
             try
             {
-                QuestEditNotifier.QuestsChanged(result.ChangedQuests, result.SharedTablesChanged, req.AdminName);
+                // The LiveDb quest-replace hook: snapshot under EditLock, swap + online players' refresh on the game thread.
+                result.Live = await QuestEditNotifier.QuestsChangedAsync(result.ChangedQuests, result.SharedTablesChanged, req.AdminName).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 WebAdminLog.Error(ex, "[Quests] The quest change notifier failed");
+                WebAdminPending.Add("quests", "Quest definitions saved; the live apply failed (see the server log), loaded at the next world start", req.AdminName);
+                result.Live = new QuestLiveOutcome { Message = "The live apply failed (see the server log): loaded at the next world start." };
             }
 
             // Main never reloads spells: the same follow-up as the other direct game-data saves (the editor copy's spells are unchanged).
@@ -147,7 +151,7 @@ namespace Server.WebAdmin.Quests
             var (result, saved) = await Task.Run(() => QuestEditorGate.Write(s => s.Delete(index, rev))).ConfigureAwait(false);
             WebAdminAudit.Record(req, "quests.delete", "quest#" + index.ToString(CultureInfo.InvariantCulture), new { index }, Reason(body));
             await AfterSave(req, result, saved).ConfigureAwait(false);
-            await req.Ok(result, "Quest " + index.ToString(CultureInfo.InvariantCulture) + " deleted.").ConfigureAwait(false);
+            await req.Ok(result, "Quest " + index.ToString(CultureInfo.InvariantCulture) + " deleted. " + result.Live?.Message).ConfigureAwait(false);
         }
 
         private static async Task PostImport(WebAdminRequest req)
@@ -170,7 +174,7 @@ namespace Server.WebAdmin.Quests
             var (result, saved) = await Task.Run(() => QuestEditorGate.Write(s => s.Import(file, true, token))).ConfigureAwait(false);
             WebAdminAudit.Record(req, "quests.import", "quest#" + result.Index.ToString(CultureInfo.InvariantCulture), new { index = result.Index, mode = result.Created ? "create" : "update" }, Reason(body));
             await AfterSave(req, result, saved).ConfigureAwait(false);
-            await req.Ok(result, "Imported into quest " + result.Index.ToString(CultureInfo.InvariantCulture) + ". The running world picks it up at the next restart.").ConfigureAwait(false);
+            await req.Ok(result, "Imported into quest " + result.Index.ToString(CultureInfo.InvariantCulture) + ". " + result.Live?.Message).ConfigureAwait(false);
         }
 
         private static async Task PostGroupSave(WebAdminRequest req)
@@ -192,7 +196,7 @@ namespace Server.WebAdmin.Quests
             WebAdminAudit.Record(req, "quests.group-save", "questgroup#" + result.Index.ToString(CultureInfo.InvariantCulture),
                 new { index = result.Index, dto.AuthorKey, dto.Kind, members = dto.Members?.Count ?? 0 }, Reason(body));
             await AfterSave(req, result, saved).ConfigureAwait(false);
-            await req.Ok(result, "Group saved.").ConfigureAwait(false);
+            await req.Ok(result, "Group saved. " + result.Live?.Message).ConfigureAwait(false);
         }
 
         private static async Task PostGroupDelete(WebAdminRequest req)
@@ -202,7 +206,7 @@ namespace Server.WebAdmin.Quests
             var (result, saved) = await Task.Run(() => QuestEditorGate.Write(s => s.DeleteGroup(index))).ConfigureAwait(false);
             WebAdminAudit.Record(req, "quests.group-delete", "questgroup#" + index.ToString(CultureInfo.InvariantCulture), new { index }, Reason(body));
             await AfterSave(req, result, saved).ConfigureAwait(false);
-            await req.Ok(result, "Group deleted.").ConfigureAwait(false);
+            await req.Ok(result, "Group deleted. " + result.Live?.Message).ConfigureAwait(false);
         }
     }
 }

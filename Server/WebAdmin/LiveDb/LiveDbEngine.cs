@@ -698,7 +698,7 @@ namespace Server.WebAdmin.LiveDb
                     }
                     else
                     {
-                        live = f.LiveClass != nameof(LiveClass.RestartOnly);
+                        live = LiveColumnRule.IsRowLive(f.LiveClass);
                         if (!live) reason = "restart-only field";
                         else if (diverged)
                         {
@@ -829,7 +829,7 @@ namespace Server.WebAdmin.LiveDb
                         row.AfterImage[c.Field] = c.After;
                         var f = Field(ep, c);
                         row.Changes.Add(f);
-                        if (f.LiveClass == nameof(LiveClass.RestartOnly))
+                        if (!LiveColumnRule.IsRowLive(f.LiveClass))
                         {
                             f.Live = false;
                             f.Reason = "restart-only field";

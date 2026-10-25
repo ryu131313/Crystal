@@ -498,7 +498,7 @@ namespace Server.WebAdmin.Tests
         [InlineData("systemscripts", "00Default/Login.txt", "npcs")]
         [InlineData("drops", "Hen.txt", "drops")]
         [InlineData("recipes", "Sword.txt", "recipes")]
-        [InlineData("quests", "Q1.txt", "quests")]
+        [InlineData("quests", "Q1.txt", null)] // legacy quest files are read only and not reloaded since the quest V2 ship (D2)
         [InlineData("envir", "LineMessage.txt", "linemessages")]
         [InlineData("envir", "Notice.txt", null)]
         [InlineData("routes", "Route1.txt", null)]

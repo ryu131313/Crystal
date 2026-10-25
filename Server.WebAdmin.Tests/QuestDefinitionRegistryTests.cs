@@ -6,13 +6,14 @@ using Server.WebAdmin.LiveDb;
 namespace Server.WebAdmin.Tests
 {
     /// <summary>
-    /// Quest system V2 phase 1 (UserData-and-Quests-Plan.md, Part B): the new tables are read-only grids, the quest V2 columns read-only
-    /// in the quests grid, and every new table and column is RestartOnly in LiveDb while legacy quests are the runtime.
+    /// Quest system V2 (UserData-and-Quests-Plan.md, Part B): the new tables are read-only grids, the quest V2 columns read-only in the
+    /// quests grid, and every new table and quest V2 column is QuestReplace in LiveDb (wave 3): the generic engine never applies them row by
+    /// row; the Quests page and the quest-replace hook do. The legacy quests columns are read only since the ship (D2).
     /// </summary>
     public class QuestDefinitionRegistryTests
     {
         [Fact]
-        public void New_tables_are_read_only_grids_and_restart_only()
+        public void New_tables_are_read_only_grids_and_go_through_the_quest_replace_hook()
         {
             foreach (var endpoint in LiveDbClassification.QuestV2Tables)
             {
@@ -25,14 +26,18 @@ namespace Server.WebAdmin.Tests
                 foreach (var c in t.Columns)
                 {
                     Assert.True(c.ReadOnly && c.Set == null, endpoint + "." + c.Name);
-                    Assert.Equal(LiveClass.RestartOnly, LiveDbClassification.Effective(endpoint, c.Name).Class);
+                    if (c.IsParentField) continue;
+                    var rule = LiveDbClassification.Effective(endpoint, c.Name);
+                    Assert.Equal(LiveClass.QuestReplace, rule.Class);
+                    Assert.Equal(LiveTiming.QuestReplace, rule.Timing);
+                    Assert.False(rule.IsLive, endpoint + "." + c.Name); // never applied row by row by the generic engine
                     Assert.NotNull(LiveDbClassification.Planned(endpoint, c.Name));
                 }
             }
         }
 
         [Fact]
-        public void Quest_v2_columns_are_read_only_restart_only_and_restored_through_the_definition()
+        public void Quest_v2_columns_are_read_only_quest_replace_and_restored_through_the_definition()
         {
             var quests = GameDataRegistry.Get("quests");
             Assert.Contains("Category", GameDataRegistry.QuestV2Columns);
@@ -41,10 +46,22 @@ namespace Server.WebAdmin.Tests
             {
                 var c = quests.Column(name);
                 Assert.True(c.ReadOnly && c.Set == null && c.StoreSet != null, name);
+                Assert.Equal(LiveClass.QuestReplace, LiveDbClassification.Effective("quests", name).Class);
+            }
+
+            // The legacy columns are read only since the ship (they only feed the re-import), restart-only, and still restored by the store.
+            foreach (var name in new[] { "Name", "Group", "FileName", "RequiredMinLevel", "RequiredClass", "Type" })
+            {
+                var c = quests.Column(name);
+                Assert.True(c.ReadOnly && c.Set == null && c.StoreSet != null, name);
                 Assert.Equal(LiveClass.RestartOnly, LiveDbClassification.Effective("quests", name).Class);
             }
 
-            Assert.NotNull(quests.Column("Name").Set); // the legacy columns stay editable
+            Assert.False(quests.Insertable);
+            Assert.False(quests.Deletable);
+            var legacy = new QuestInfo();
+            quests.Column("Name").StoreSet(new GameDataRow { Entity = legacy }, "Restored");
+            Assert.Equal("Restored", legacy.Name);
             var q = new QuestInfo();
             var row = new GameDataRow { Entity = q };
             quests.Column("Category").StoreSet(row, QuestCategory.Daily);

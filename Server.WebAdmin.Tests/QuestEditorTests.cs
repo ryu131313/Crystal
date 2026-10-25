@@ -473,25 +473,31 @@ namespace Server.WebAdmin.Tests
     public class QuestEditNotifierTests
     {
         [Fact]
-        public void Notifier_marks_a_restart_pending_for_the_changed_quests()
+        public void Notifier_marks_a_restart_pending_while_the_world_is_not_running()
         {
+            // The live path (snapshot + quest replace on the game thread) is covered by Server.Persistence.Tests/QuestReplaceTests, which
+            // can use Envir; here only the "world stopped" branch, with a fake world (no Envir, no Settings).
             var sink = WebAdminLog.Sink;
             var lines = new List<string>();
             WebAdminLog.Sink = lines.Add;
             WebAdminPending.Clear();
+            WebAdminGame.World = FakeWorld.Stopped();
             try
             {
-                QuestEditNotifier.QuestsChanged(new[] { 3, 7 }, false);
+                var outcome = QuestEditNotifier.QuestsChanged(new[] { 3, 7 }, false);
+                Assert.False(outcome.Applied);
+                Assert.Contains("next world start", outcome.Message);
                 var item = Assert.Single(WebAdminPending.Snapshot());
                 Assert.Equal("quests", item.Area);
                 Assert.Contains("3, 7", item.Description);
                 Assert.Contains(lines, l => l.Contains("[Quests]"));
 
-                QuestEditNotifier.QuestsChanged(Array.Empty<int>(), false); // nothing changed: nothing pending
+                Assert.True(QuestEditNotifier.QuestsChanged(Array.Empty<int>(), false).Applied); // nothing changed: nothing pending
                 Assert.Single(WebAdminPending.Snapshot());
             }
             finally
             {
+                WebAdminGame.World = null;
                 WebAdminPending.Clear();
                 WebAdminLog.Sink = sink;
             }

@@ -1108,36 +1108,20 @@ namespace Server.WebAdmin.Tests
         }
 
         [Fact]
-        public void Quest_FileName_ReloadsThroughTheHook_AndIsPushed()
+        public void Quest_LegacyColumns_AreReadOnly_SinceTheQuestV2Ship()
         {
+            // Quest V2 ship (D2): the legacy quests columns only feed the legacy re-import. A batch cannot change them (read only, so
+            // ignored), nothing reloads a quest file, and the quests table is no longer a live table of the generic engine.
             var rig = new Rig();
-            var main = rig.Main.Quests[0];
-            var r = rig.Run("bc-7", "quests", Upd(rig, "quests", 1, "\"FileName\":\"FirstSteps2\",\"RequiredMaxLevel\":0,\"Name\":\"First Steps\""));
+            var r = rig.Run("bc-7", "quests", Upd(rig, "quests", 1, "\"FileName\":\"FirstSteps2\",\"Name\":\"First Steps\""));
 
-            Assert.Equal("applied", r.Live.Outcome);
-            Assert.Equal(new[] { main }, rig.Hooks.QuestsReloaded);
-            Assert.Equal("FirstSteps2", main.FileName);
-            Assert.Equal(ushort.MaxValue, main.RequiredMaxLevel);  // a saved 0 means "no maximum", as after a restart
-            Assert.Equal(0, rig.Edit.Quests[0].RequiredMaxLevel);
-            Assert.True(rig.Hooks.Pushes[0].Quests.TryGetValue(main, out var snap));
-            Assert.Equal("First Steps", snap.Name);
-        }
-
-        [Fact]
-        public void Quest_ReloadRefused_KeepsTheRunningQuestFile_OtherFieldsStayLive()
-        {
-            var rig = new Rig { Hooks = { QuestRefusal = "kill tasks 1 -> 2" } };
-            rig.Env.Hooks = rig.Hooks;
-            var r = rig.Run("bc-8", "quests", Upd(rig, "quests", 1, "\"FileName\":\"Other\",\"Name\":\"First Steps\""));
-
-            Assert.Equal("partial", r.Live.Outcome);
+            Assert.Empty(rig.Hooks.QuestsReloaded);
+            Assert.Equal("FirstSteps", rig.Edit.Quests[0].FileName);
             Assert.Equal("FirstSteps", rig.Main.Quests[0].FileName);
-            Assert.Equal("First Steps", rig.Main.Quests[0].Name);
-            Assert.Equal("Other", rig.Edit.Quests[0].FileName);
-            var f = r.Rows[0].Changes.Single(c => c.Field == "FileName");
-            Assert.False(f.Live);
-            Assert.Contains("kill tasks 1 -> 2", f.Reason);
-            Assert.True(r.Rows[0].Changes.Single(c => c.Field == "Name").Live);
+            Assert.Equal("FirstSteps", rig.Main.Quests[0].Name);
+            Assert.DoesNotContain(r.Rows.SelectMany(x => x.Changes), c => c.Live);
+            Assert.False(LiveDbClassification.IsLiveTable("quests"));
+            Assert.All(GameDataRegistry.Get("quests").Columns.Where(c => !c.IsParentField), c => Assert.True(c.ReadOnly && c.Set == null, c.Name));
         }
 
         [Fact]
@@ -1504,7 +1488,7 @@ namespace Server.WebAdmin.Tests
 
             var rig = new Rig();
             rig.Env.Options.MaxPushRows = 1;
-            var r = new LiveDbEngine(rig.Env).Run(Batch("bc-33", ("npcs", Upd(rig, "npcs", 1, "\"Rate\":70"), null), ("quests", Upd(rig, "quests", 1, "\"Name\":\"Q2\""), null)));
+            var r = new LiveDbEngine(rig.Env).Run(Batch("bc-33", ("npcs", Upd(rig, "npcs", 1, "\"Rate\":70"), null), ("gameshop", Upd(rig, "gameshop", 1, "\"GoldPrice\":700"), null)));
             Assert.True(r.Live.PushSkipped);
             Assert.Equal(70, N(rig.Main, 1).Rate);                 // still applied to the running world
             Assert.Empty(rig.Hooks.Pushes);
@@ -1545,7 +1529,7 @@ namespace Server.WebAdmin.Tests
         public void Classification_BatchC_WorldTablesAreLive()
         {
             Assert.Equal(new[] { "conquests", "dragon", "gameshop", "items", "magic", "mapminezones", "mapmovements", "maprespawns", "maps", "mapsafezones",
-                "monsters", "npcs", "quests" }, LiveDbClassification.LiveTables());
+                "monsters", "npcs" }, LiveDbClassification.LiveTables()); // quests: legacy columns read only since the quest V2 ship (D2)
             foreach (var child in new[] { "conquestguards", "conquestgates", "conquestwalls", "conquestsieges", "conquestflags", "conquestcontrolpoints" })
                 Assert.False(LiveDbClassification.IsLiveTable(child));
             Assert.Equal(LiveClass.ReadThrough, LiveDbClassification.Effective("npcs", "Rate").Class);

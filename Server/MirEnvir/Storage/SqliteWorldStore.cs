@@ -107,6 +107,22 @@ namespace Server.MirEnvir.Storage
             });
         }
 
+        /// <summary>A meta value of the store as a long (null when the store or the key is missing). Waits for the writer: never the game thread.</summary>
+        public long? ReadMetaLong(string name)
+        {
+            if (!File.Exists(DatabasePath)) return null;
+            var v = Writer.Run(w => SqliteWorldFile.ReadMeta(w.Connection, name));
+            return v switch
+            {
+                long l => l,
+                string s when long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) => parsed,
+                _ => null,
+            };
+        }
+
+        /// <summary>Sets a meta value of the store (its own transaction on the writer). Waits for the writer: never the game thread.</summary>
+        public void WriteMeta(string name, long value) => Writer.Run(w => { SqliteWorldFile.WriteMeta(w.Connection, name, value); return 0; });
+
         /// <summary>True when the store file holds any item, monster or map (the web admin refuses to save an empty editor copy over it).</summary>
         public bool HasDesignRows()
         {

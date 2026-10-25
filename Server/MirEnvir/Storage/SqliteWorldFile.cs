@@ -403,6 +403,24 @@ namespace Server.MirEnvir.Storage
             return v is DBNull ? null : v;
         }
 
+        /// <summary>One meta value (null when missing). Writer thread only.</summary>
+        internal static object ReadMeta(SqliteConnection conn, string name)
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT value FROM meta WHERE name = $n";
+            cmd.Parameters.AddWithValue("$n", name);
+            var v = cmd.ExecuteScalar();
+            return v is DBNull ? null : v;
+        }
+
+        /// <summary>Sets one meta value in its own transaction (an additive key: older builds ignore meta keys they do not know). Writer thread only.</summary>
+        internal static void WriteMeta(SqliteConnection conn, string name, object value)
+        {
+            using var tx = conn.BeginTransaction();
+            Upsert(conn, tx, "meta", name, value);
+            tx.Commit();
+        }
+
         private static void Upsert(SqliteConnection conn, SqliteTransaction tx, string table, string name, object value)
         {
             using var cmd = conn.CreateCommand();

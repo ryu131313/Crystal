@@ -30,6 +30,12 @@ namespace Server
             // are added and removed in the web admin only.
             AddButton.Enabled = false;
             RemoveButton.Enabled = false;
+
+            // Quest V2 ship (D2, UserData-and-Quests-Plan.md, Authoring "No content freeze"): the legacy quest fields only feed the legacy
+            // re-import; quests are edited in the web admin Quests page. This form only shows them (no import, paste or save).
+            ImportButton.Enabled = false;
+            PasteMButton.Enabled = false;
+            Text += " (read only: edit quests in the web admin Quests page)";
         }
 
         private void AddButton_Click(object sender, EventArgs e) => ShowAddRemoveDisabled();
@@ -52,8 +58,8 @@ namespace Server
 
             QuestInfo info = _selectedQuestInfos[0];
 
-            // Enable the panel and populate fields with selected quest details
-            QuestInfoPanel.Enabled = true;
+            // Populate fields with the selected quest's details; read only since the quest V2 ship (see the constructor).
+            QuestInfoPanel.Enabled = false;
             QuestIndexTextBox.Text = info.Index.ToString();
             QFileNameTextBox.Text = info.FileName;
             QNameTextBox.Text = info.Name;
@@ -186,7 +192,7 @@ namespace Server
 
         private void QuestInfoForm_FormClosed(object sender, FormClosedEventArgs e)
         {
-            Envir.SaveDB();
+            // Read only since the quest V2 ship: nothing to save (a save here would also write every other unsaved editor change).
         }
 
         private void PasteMButton_Click(object sender, EventArgs e)

@@ -17,14 +17,36 @@ namespace Server.MirEnvir.Quests
     /// loads, so Edit's parsed task lists cannot be used).</para>
     /// <para>Idempotent: steps, objectives and rewards keep their ids through <c>LegacySource</c>, texts through their key, groups through
     /// their AuthorKey and owned conditions through their order, so a second import over unchanged legacy data gives identical rows and
-    /// counters. It rewrites only rows it owns (quests' child lists, texts with a q&lt;n&gt;. key, groups with a q&lt;n&gt;. key,
-    /// conditions owned by a quest); in phases 1-2 the importer is the only writer of those tables.</para>
+    /// counters.</para>
+    /// <para>Legacy quests only (wave 3): a quest is imported when it has a legacy body file name (<see cref="IsLegacy"/>); quests made in
+    /// the Quests editor are never touched, nor their owned conditions, texts or groups. In a legacy quest the importer rebuilds only what it
+    /// derives from the legacy data (rows with a <c>LegacySource</c>, the legacy-derived quest fields, the accept condition, its q&lt;n&gt;.
+    /// texts and q&lt;n&gt;.kill groups) and keeps what an editor added (rows without a LegacySource, branches, variables, the conditions,
+    /// texts and groups those use, and the quest fields the legacy data has no value for).</para>
     /// <para>Threads: the caller's (a worker thread holding EditLock for Envir.Edit, or a test/tool envir). Never the game thread.</para>
     /// </summary>
     internal static class QuestLegacyImporter
     {
         private static readonly Regex MessageRegex = new Regex("\"([^\"]*)\"");
-        private static readonly Regex OwnedKey = new Regex(@"^q\d+\.", RegexOptions.CultureInvariant);
+        private static readonly Regex OwnedKey = new Regex(@"^q(\d+)\.", RegexOptions.CultureInvariant);
+
+        /// <summary>
+        /// The importer's version (wave 3), recorded in SystemData.db (meta <see cref="QuestImportRunner.VersionMetaKey"/>) with every import.
+        /// A world start whose store holds an older version re-imports the legacy quests once (<see cref="QuestImportRunner"/>). Raise it
+        /// when the importer's output changes for the same legacy data. 1 = the D1 importer (never recorded); 2 = legacy quests only, editor
+        /// rows kept, and the RequiredQuest leaf fix (lane F).
+        /// </summary>
+        internal const int Version = 2;
+
+        /// <summary>A quest the importer owns: it has a legacy body file name. Quests made in the Quests editor have none.</summary>
+        internal static bool IsLegacy(QuestInfo q) => q != null && !string.IsNullOrWhiteSpace(q.FileName);
+
+        /// <summary>The quest a q&lt;n&gt;. key belongs to (0 = not such a key).</summary>
+        private static int KeyQuest(string key)
+        {
+            var m = OwnedKey.Match(key ?? string.Empty);
+            return m.Success && int.TryParse(m.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var n) ? n : 0;
+        }
         private static readonly Regex FlagClear = new Regex(@"^\s*SET\s+\[(\d+)\]\s+0+\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         private const string DescriptionKey = "[@DESCRIPTION]", TaskDescriptionKey = "[@TASKDESCRIPTION]", ReturnDescriptionKey = "[@RETURNDESCRIPTION]",
@@ -211,6 +233,12 @@ namespace Server.MirEnvir.Quests
             public readonly Dictionary<string, int> Texts = new Dictionary<string, int>(StringComparer.Ordinal);
             public readonly Dictionary<string, int> Groups = new Dictionary<string, int>(StringComparer.Ordinal);
             public readonly Dictionary<int, Queue<int>> Conditions = new Dictionary<int, Queue<int>>();
+            /// <summary>Owned condition nodes of legacy quests that rows the importer keeps still use (never rebuilt or dropped).</summary>
+            public readonly HashSet<int> KeptConditions = new HashSet<int>();
+            /// <summary>Text keys used by rows the importer keeps (editor rows, editor-made quests, storylines).</summary>
+            public readonly HashSet<string> KeptTexts = new HashSet<string>(StringComparer.Ordinal);
+            /// <summary>Groups used by rows the importer keeps.</summary>
+            public readonly HashSet<int> KeptGroups = new HashSet<int>();
         }
 
         private sealed class Builder
@@ -249,13 +277,20 @@ namespace Server.MirEnvir.Quests
         /// </summary>
         public static QuestImportReport Import(Envir e)
         {
-            var report = new QuestImportReport { Quests = e.QuestInfoList.Count(q => q != null) };
+            var legacy = new HashSet<int>();
+            foreach (var q in e.QuestInfoList)
+                if (IsLegacy(q)) legacy.Add(q.Index);
+
+            var report = new QuestImportReport { Quests = legacy.Count };
+            report.ImportedQuests.AddRange(legacy.OrderBy(i => i));
             var prev = new Previous();
+            CollectKept(e, legacy, prev);
+
             foreach (var t in e.QuestTextList)
-                if (OwnedKey.IsMatch(t.TextKey ?? string.Empty)) prev.Texts.TryAdd(t.TextKey, t.Index);
+                if (legacy.Contains(KeyQuest(t.TextKey))) prev.Texts.TryAdd(t.TextKey, t.Index);
             foreach (var g in e.QuestGroupList)
-                if (OwnedKey.IsMatch(g.AuthorKey ?? string.Empty)) prev.Groups.TryAdd(g.AuthorKey, g.Index);
-            foreach (var c in e.QuestConditionList.Where(c => c.OwnerQuest != 0).OrderBy(c => c.Index))
+                if (legacy.Contains(KeyQuest(g.AuthorKey))) prev.Groups.TryAdd(g.AuthorKey, g.Index);
+            foreach (var c in e.QuestConditionList.Where(c => legacy.Contains(c.OwnerQuest) && !prev.KeptConditions.Contains(c.Index)).OrderBy(c => c.Index))
             {
                 if (!prev.Conditions.TryGetValue(c.OwnerQuest, out var pool)) prev.Conditions[c.OwnerQuest] = pool = new Queue<int>();
                 pool.Enqueue(c.Index);
@@ -267,29 +302,114 @@ namespace Server.MirEnvir.Quests
 
             foreach (var q in e.QuestInfoList)
             {
-                if (q == null) continue;
+                if (q == null || !legacy.Contains(q.Index)) continue;
                 ImportQuest(b, q, endpoints.TryGetValue(q.Index, out var eps) ? eps : new List<QuestEndpointInfo>());
             }
 
-            // Rows the importer does not own are kept, in their order, before the imported ones.
-            var texts = e.QuestTextList.Where(t => !OwnedKey.IsMatch(t.TextKey ?? string.Empty)).ToList();
-            texts.AddRange(b.Texts);
-            e.QuestTextList.Clear();
-            e.QuestTextList.AddRange(texts);
-
-            var groups = e.QuestGroupList.Where(g => !OwnedKey.IsMatch(g.AuthorKey ?? string.Empty)).ToList();
-            groups.AddRange(b.Groups);
-            e.QuestGroupList.Clear();
-            e.QuestGroupList.AddRange(groups);
-
-            var conditions = e.QuestConditionList.Where(c => c.OwnerQuest == 0).ToList(); // every quest-owned node is the importer's in phases 1-2
-            conditions.AddRange(b.Conditions);
-            e.QuestConditionList.Clear();
-            e.QuestConditionList.AddRange(conditions);
+            // A rebuilt row takes its old self's place (same key / index), so a re-import over unchanged data keeps every row where it was;
+            // rows the importer owns and no longer builds are dropped unless a kept row uses them; every other row stays as it is.
+            Merge(e.QuestTextList, b.Texts, x => x.TextKey ?? string.Empty,
+                x => legacy.Contains(KeyQuest(x.TextKey)) && !prev.KeptTexts.Contains(x.TextKey));
+            Merge(e.QuestGroupList, b.Groups, g => g.Index, g => legacy.Contains(KeyQuest(g.AuthorKey)) && !prev.KeptGroups.Contains(g.Index));
+            Merge(e.QuestConditionList, b.Conditions, c => c.Index, c => legacy.Contains(c.OwnerQuest) && !prev.KeptConditions.Contains(c.Index));
 
             ScanFlagClears(report);
             report.Problems = QuestDefinitions.Validate(e);
             return report;
+        }
+
+        /// <summary>
+        /// What the import must keep: in legacy quests the rows an editor added (no LegacySource), branches, variables and the quest's own
+        /// visible condition, with every condition tree, text and group those use; everything editor-made quests and storylines use.
+        /// </summary>
+        private static void CollectKept(Envir e, HashSet<int> legacy, Previous prev)
+        {
+            var roots = new List<int>();
+            foreach (var q in e.QuestInfoList)
+            {
+                if (q == null) continue;
+                var d = q.Definition;
+                if (!legacy.Contains(q.Index))
+                {
+                    AddKeys(prev.KeptTexts, d.NameKey, d.SummaryKey, d.CompleteKey);
+                    foreach (var s in d.Steps) AddKeys(prev.KeptTexts, s.TitleKey, s.TextKey, s.ReadyTextKey);
+                    foreach (var o in d.Objectives) { AddKeys(prev.KeptTexts, o.TextKey); AddGroup(prev.KeptGroups, o); }
+                    foreach (var br in d.Branches) AddKeys(prev.KeptTexts, br.TextKey, br.ChoiceKey);
+                    continue;
+                }
+
+                roots.Add(d.VisibleCondition);
+                foreach (var s in d.Steps)
+                {
+                    if (!string.IsNullOrEmpty(s.LegacySource)) continue;
+                    AddKeys(prev.KeptTexts, s.TitleKey, s.TextKey, s.ReadyTextKey);
+                    roots.Add(s.FailCondition);
+                }
+
+                foreach (var o in d.Objectives)
+                {
+                    if (!string.IsNullOrEmpty(o.LegacySource)) continue;
+                    AddKeys(prev.KeptTexts, o.TextKey);
+                    AddGroup(prev.KeptGroups, o);
+                    roots.Add(o.Condition);
+                }
+
+                foreach (var r in d.Rewards) if (string.IsNullOrEmpty(r.LegacySource)) roots.Add(r.Condition);
+                foreach (var br in d.Branches) { AddKeys(prev.KeptTexts, br.TextKey, br.ChoiceKey); roots.Add(br.Condition); }
+            }
+
+            foreach (var s in e.StorylineList) AddKeys(prev.KeptTexts, s.NameKey);
+
+            // The kept roots' whole trees (children by Parent).
+            var children = new Dictionary<int, List<int>>();
+            foreach (var c in e.QuestConditionList)
+            {
+                if (c.Parent == 0) continue;
+                if (!children.TryGetValue(c.Parent, out var list)) children[c.Parent] = list = new List<int>();
+                list.Add(c.Index);
+            }
+
+            var stack = new Stack<int>(roots.Where(r => r > 0));
+            while (stack.Count > 0)
+            {
+                var id = stack.Pop();
+                if (!prev.KeptConditions.Add(id)) continue;
+                if (children.TryGetValue(id, out var list)) foreach (var child in list) stack.Push(child);
+            }
+        }
+
+        /// <summary>
+        /// Rebuilt rows replace the old row with the same key in place; old rows <paramref name="drop"/> selects (owned, no longer built)
+        /// go; new keys are appended in build order.
+        /// </summary>
+        private static void Merge<T, TKey>(List<T> list, List<T> built, Func<T, TKey> key, Func<T, bool> drop)
+        {
+            var byKey = new Dictionary<TKey, T>();
+            foreach (var row in built) byKey.TryAdd(key(row), row);
+            var placed = new HashSet<TKey>();
+            var result = new List<T>(list.Count + built.Count);
+            foreach (var row in list)
+            {
+                var k = key(row);
+                if (byKey.TryGetValue(k, out var rebuilt)) { if (placed.Add(k)) result.Add(rebuilt); continue; }
+                if (!drop(row)) result.Add(row);
+            }
+
+            foreach (var row in built)
+                if (placed.Add(key(row))) result.Add(row);
+
+            list.Clear();
+            list.AddRange(result);
+        }
+
+        private static void AddKeys(HashSet<string> set, params string[] keys)
+        {
+            foreach (var k in keys) if (!string.IsNullOrEmpty(k)) set.Add(k);
+        }
+
+        private static void AddGroup(HashSet<int> set, QuestObjectiveInfo o)
+        {
+            if (o.TargetKind == QuestTargetKind.MonsterGroup || o.TargetKind == QuestTargetKind.ItemGroup) set.Add(o.TargetId);
         }
 
         private static void ImportQuest(Builder b, QuestInfo q, List<QuestEndpointInfo> endpoints)
@@ -304,9 +424,18 @@ namespace Server.MirEnvir.Quests
             var oldSteps = q.Definition.Steps.Where(s => !string.IsNullOrEmpty(s.LegacySource)).ToDictionary(s => s.LegacySource, s => s.Index, StringComparer.Ordinal);
             var oldObjectives = new Dictionary<string, int>(StringComparer.Ordinal);
             foreach (var o in q.Definition.Objectives) if (!string.IsNullOrEmpty(o.LegacySource)) oldObjectives.TryAdd(o.LegacySource, o.Index);
+            var oldLegacyStep = q.Definition.Steps.FirstOrDefault(s => s.LegacySource == "step");
+            var firstImport = !q.HasDefinition;
 
-            // Quest row.
-            q.Definition.AuthorKey = prefix;
+            // Rows an editor added to this legacy quest (no LegacySource): kept as they are, after the imported ones.
+            var keptSteps = q.Definition.Steps.Where(s => string.IsNullOrEmpty(s.LegacySource)).ToList();
+            var keptObjectives = q.Definition.Objectives.Where(o => string.IsNullOrEmpty(o.LegacySource)).ToList();
+            var keptRewards = q.Definition.Rewards.Where(r => string.IsNullOrEmpty(r.LegacySource)).ToList();
+            var keptEndpoints = q.Definition.Endpoints.Where(x => string.IsNullOrEmpty(x.LegacySource)).ToList();
+
+            // Quest row: the legacy-derived fields are rebuilt; the fields the legacy data has no value for are set on the first import
+            // only, so an editor's values (share mode, flags, cooldown, ...) survive a re-import.
+            if (string.IsNullOrWhiteSpace(q.Definition.AuthorKey)) q.Definition.AuthorKey = prefix;
             q.Definition.NameKey = b.Text(prefix + ".name", q.Name);
             q.Definition.SummaryKey = body.Description.Count > 0 ? b.Text(prefix + ".summary", string.Join("\n", body.Description)) : string.Empty;
             q.Definition.CompleteKey = body.CompletionDescription.Count > 0 ? b.Text(prefix + ".complete", string.Join("\n", body.CompletionDescription)) : string.Empty;
@@ -318,21 +447,24 @@ namespace Server.MirEnvir.Quests
                 default: q.Definition.Category = QuestCategory.Side; q.Definition.RepeatPolicy = QuestRepeatPolicy.Once; break;
             }
 
-            q.Definition.StorylineIndex = 0;
-            q.Definition.StorylineOrder = 0;
             q.Definition.LevelHint = q.RequiredMinLevel;
-            q.Definition.VisibleCondition = 0;
-            q.Definition.CooldownSeconds = 0;
-            q.Definition.MaxCompletions = 0;
-            q.Definition.ShareMode = QuestShareMode.Offer;
-            q.Definition.CreditMode = QuestCreditMode.PartyInRange;
             q.Definition.TimeLimitSeconds = q.TimeLimitInSeconds;
-            q.Definition.FailPolicy = QuestFailPolicy.Abandon;
-            q.Definition.AbandonAllowed = true;
-            q.Definition.PoolIndex = 0;
-            q.Definition.StartItemConsumed = false;
-            q.Definition.Flags = QuestFlags.None;
             q.Definition.GroupName = q.Group ?? string.Empty;
+            if (firstImport)
+            {
+                q.Definition.StorylineIndex = 0;
+                q.Definition.StorylineOrder = 0;
+                q.Definition.VisibleCondition = 0;
+                q.Definition.CooldownSeconds = 0;
+                q.Definition.MaxCompletions = 0;
+                q.Definition.ShareMode = QuestShareMode.Offer;
+                q.Definition.CreditMode = QuestCreditMode.PartyInRange;
+                q.Definition.FailPolicy = QuestFailPolicy.Abandon;
+                q.Definition.AbandonAllowed = true;
+                q.Definition.PoolIndex = 0;
+                q.Definition.StartItemConsumed = false;
+                q.Definition.Flags = QuestFlags.None;
+            }
             // Revision / ShapeHash are kept: QuestDefinitions.PrepareForSave bumps them when the shape changed.
 
             // Link labels of the classic dialog (no step column for them: referenced by key, see the plan's dry-run report section).
@@ -346,15 +478,17 @@ namespace Server.MirEnvir.Quests
             var step = new QuestStepInfo
             {
                 Index = oldSteps.TryGetValue(stepSource, out var oldStep) ? oldStep : ++e.QuestStepIndex,
-                Order = 1,
+                Order = oldLegacyStep?.Order ?? 1,
                 CompletionMode = QuestStepCompletion.All,
-                NextStep = -1,
+                // An editor may have chained steps of its own after the imported one: keep that link while its target is kept.
+                NextStep = oldLegacyStep != null && keptSteps.Any(s => s.Index == oldLegacyStep.NextStep) ? oldLegacyStep.NextStep : -1,
                 LegacySource = stepSource,
             };
             step.TextKey = body.TaskDescription.Count > 0 ? b.Text(prefix + ".task", string.Join("\n", body.TaskDescription)) : string.Empty;
             step.ReadyTextKey = body.ReturnDescription.Count > 0 ? b.Text(prefix + ".ready", string.Join("\n", body.ReturnDescription)) : string.Empty;
             q.Definition.Steps.Clear();
             q.Definition.Steps.Add(step);
+            q.Definition.Steps.AddRange(keptSteps);
 
             // Objectives.
             var objectives = new List<QuestObjectiveInfo>();
@@ -457,6 +591,7 @@ namespace Server.MirEnvir.Quests
 
             q.Definition.Objectives.Clear();
             q.Definition.Objectives.AddRange(objectives);
+            q.Definition.Objectives.AddRange(keptObjectives.Where(o => o.Step == step.Index || keptSteps.Any(s => s.Index == o.Step)));
 
             // Rewards (no ids: kept in a fixed order, LegacySource names the line).
             var rewards = new List<QuestRewardInfo>();
@@ -524,6 +659,7 @@ namespace Server.MirEnvir.Quests
             if (body.Credit > 0) Reward(QuestRewardScope.Quest, QuestRewardKind.Credit, 0, body.Credit, 0, 0, CreditRewardKey);
             q.Definition.Rewards.Clear();
             q.Definition.Rewards.AddRange(rewards);
+            q.Definition.Rewards.AddRange(keptRewards);
 
             // Accept condition: level range, required quest, class (as QuestInfo.CanAccept).
             var leaves = new List<(QuestConditionLeaf Leaf, int Arg1, int Arg2, QuestCompare Cmp)>();
@@ -569,13 +705,15 @@ namespace Server.MirEnvir.Quests
             // Endpoints.
             q.Definition.Endpoints.Clear();
             q.Definition.Endpoints.AddRange(endpoints);
+            foreach (var kept in keptEndpoints)
+                if (!endpoints.Any(x => x.Role == kept.Role && x.Kind == kept.Kind && x.TargetId == kept.TargetId && x.Map == kept.Map))
+                    q.Definition.Endpoints.Add(kept);
             var starts = endpoints.Count(x => x.Role == QuestEndpointRole.Start);
             if (starts == 0) report.NoGiver.Add(id + " " + q.Name);
             else if (starts > 1)
                 report.MultiGiver.Add(id + " " + q.Name + ": " + string.Join(", ", endpoints.Where(x => x.Role == QuestEndpointRole.Start).Select(x => "NPC " + x.TargetId)));
 
-            q.Definition.Branches.Clear();
-            q.Definition.Vars.Clear();
+            // Branches and variables are never imported (no legacy data maps to them): whatever an editor made stays.
         }
 
         /// <summary>Npc endpoints per quest from every NPCInfo row's script [QUESTS] section, then NPCInfo.Collect/FinishQuestIndexes.</summary>
@@ -661,7 +799,10 @@ namespace Server.MirEnvir.Quests
     /// <summary>The importer's dry-run report (Part B phase 1): counts and short lists, plus the validation result.</summary>
     internal sealed class QuestImportReport
     {
+        /// <summary>Legacy quests imported (quests with a legacy body file name; editor-made quests are not counted).</summary>
         public int Quests;
+        /// <summary>Their indexes, ascending (the live quest replace after an import).</summary>
+        public readonly List<int> ImportedQuests = new List<int>();
         public readonly List<string> MissingBodies = new List<string>();
         public readonly List<string> Unparsed = new List<string>();
         public readonly List<string> CutShort = new List<string>();

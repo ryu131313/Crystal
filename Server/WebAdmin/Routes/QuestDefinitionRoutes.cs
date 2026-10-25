@@ -5,8 +5,8 @@ namespace Server.WebAdmin.Routes
 {
     /// <summary>
     /// Quest system V2, phase 1 (UserData-and-Quests-Plan.md, Part B): the "Re-import legacy quests" action and the last validation
-    /// report. The import rebuilds the V2 definition tables from the legacy quests on Envir.Edit and saves SystemData.db (ids kept stable);
-    /// the running world is unchanged (legacy quests stay the runtime; the V2 tables are RestartOnly). The Quests editor arrives in phase 3.
+    /// report. The import rebuilds the V2 rows of the legacy quests on Envir.Edit and saves SystemData.db (ids kept stable; quests made in
+    /// the Quests editor are not touched); since wave 3 the re-imported quests reach the running world through the quest-replace hook.
     /// <para>Threads: HTTP only; the import takes EditLock itself (<see cref="QuestImportRunner"/>).</para>
     /// </summary>
     public sealed class QuestDefinitionRoutes : IWebAdminRoutes
@@ -41,12 +41,14 @@ namespace Server.WebAdmin.Routes
                 report = r.ToMarkdown(),
             };
 
+            var live = string.Empty;
             if (!dryRun)
             {
                 WebAdminAudit.Record(req, "quests.reimport", "SystemData.db", new { r.Quests, r.Errors, r.Warnings }, string.IsNullOrWhiteSpace(reason) ? null : reason.Trim());
-                WebAdminPending.Add("gamedata", "Quest V2 definitions re-imported from the legacy quests (loaded at the next world start; not used at runtime yet)", req.AdminName);
+                // The re-imported legacy quests reach the running world through the quest-replace hook (wave 3).
+                live = " " + (await Quests.QuestEditNotifier.QuestsChangedAsync(r.ImportedQuests, true, req.AdminName, "legacy re-import").ConfigureAwait(false)).Message;
             }
-            await req.Ok(data, dryRun ? "Dry run: " + r.Summary() : r.Summary() + " Saved; the running world still uses the legacy quests.").ConfigureAwait(false);
+            await req.Ok(data, dryRun ? "Dry run: " + r.Summary() : r.Summary() + " Saved." + live).ConfigureAwait(false);
         }
 
         private static Task GetValidation(WebAdminRequest req)

@@ -70,7 +70,8 @@ namespace Server.WebAdmin.Routes
         private static void RequireWritable(ScriptRoot root)
         {
             if (root.ReadOnly)
-                throw new WebAdminException(409, root.Label + " are read only in the Scripts editor: edit them in Game Data › Drops (restoring a backup still works here).");
+                throw new WebAdminException(409, root.ReadOnlyMessage ??
+                    root.Label + " are read only in the Scripts editor: edit them in Game Data › Drops (restoring a backup still works here).");
         }
 
         private static string ReadContent(JsonElement body)
@@ -482,55 +483,15 @@ namespace Server.WebAdmin.Routes
 
         // ------------------------------------------------------------------ quests reload
 
+        /// <summary>
+        /// Quest V2 ship (D2): legacy quest bodies are read only and are no longer reloaded into the running world (the V2 runtime never
+        /// reads them; quests are edited in the Quests page, whose saves reach the world through the quest-replace hook). The route stays
+        /// registered so an old page gets a clear answer.
+        /// </summary>
         private static async Task PostReloadQuests(WebAdminRequest req)
         {
-            var body = await req.ReadJsonAsync().ConfigureAwait(false);
-            var path = RequireString(body, "path", "path");
-            var normalized = ScriptPaths.Normalize(path);
-            if (!ScriptPaths.IsTextFile(normalized)) throw new WebAdminException(400, "Only .txt quest files can be reloaded.");
-            var key = QuestReload.Key(normalized);
-
-            var outcome = await WebAdminGame.RunAsync(() =>
-            {
-                var names = new List<string>();
-                var refused = new List<string>();
-                var quests = Envir.Main.QuestInfoList;
-
-                for (var i = 0; i < quests.Count; i++)
-                {
-                    var quest = quests[i];
-                    if (quest == null || !string.Equals(QuestReload.Key(quest.FileName), key, StringComparison.OrdinalIgnoreCase)) continue;
-
-                    // Shared with the LiveDb live step (a changed QuestInfo.FileName): refused reloads leave the quest unchanged.
-                    var reload = QuestReload.Reload(quest, Envir.Main.CharacterList);
-                    if (!reload.Reloaded)
-                    {
-                        refused.Add(quest.Index + " " + quest.Name + ": " + reload.Refusal);
-                        continue;
-                    }
-
-                    names.Add(quest.Index + " " + quest.Name);
-                }
-
-                return (names: names, refused: refused);
-            }, 10000).ConfigureAwait(false);
-
-            var reloaded = outcome.names;
-            if (outcome.refused.Count > 0)
-            {
-                if (reloaded.Count > 0)
-                    WebAdminAudit.Record(req, "script.reload-quests", "quests/" + normalized, new { path = normalized, quests = reloaded, refused = outcome.refused }, Reason(body));
-                throw new WebAdminException(409, "Not reloaded: " + string.Join("; ", outcome.refused) +
-                    ". Players' quest progress is sized from the old kill, item and flag tasks, so adding, removing or changing a task needs a server reboot." +
-                    " The file is saved; the running quest was left unchanged." + (reloaded.Count > 0 ? " Reloaded: " + string.Join(", ", reloaded) + "." : string.Empty));
-            }
-
-            if (reloaded.Count == 0)
-                throw new WebAdminException(404, "No quest in the running world uses " + normalized + " (QuestInfo.FileName). New quests need a reboot.");
-
-            WebAdminAudit.Record(req, "script.reload-quests", "quests/" + normalized, new { path = normalized, quests = reloaded }, Reason(body));
-            await req.Ok(new { path = normalized, reloaded = reloaded.Count, quests = reloaded },
-                "Reloaded " + reloaded.Count + " quest(s) from " + normalized + ".").ConfigureAwait(false);
+            await req.ReadJsonAsync().ConfigureAwait(false);
+            throw new WebAdminException(409, ScriptFileStore.LegacyQuestsReadOnlyMessage);
         }
 
         // ------------------------------------------------------------------ drop class tool

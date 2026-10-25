@@ -13,6 +13,13 @@ namespace Server.WebAdmin.LiveDb
 
         /// <summary>The value is copied onto Main's record and a refresh hook runs (monster sweep, drop reload, ...).</summary>
         Hooked = 2,
+
+        /// <summary>
+        /// Quest V2 definition data (UserData-and-Quests-Plan.md, Part B "Live edits"): never applied row by row by the generic LiveDb engine
+        /// (the columns are read only in the grids); the Quests page saves a whole quest and the quest-replace hook
+        /// (<c>QuestEditNotifier</c> → <c>QuestReplace</c>) rebuilds that quest's graph in the running world.
+        /// </summary>
+        QuestReplace = 3,
     }
 
     /// <summary>When a change becomes visible (schema <c>liveTiming</c>, header tooltips).</summary>
@@ -23,6 +30,8 @@ namespace Server.WebAdmin.LiveDb
         public const string Spawn = "spawn";
         public const string Clients = "clients";
         public const string Restart = "restart";
+        /// <summary>Applied with the whole quest by the quest-replace hook when the Quests page saves it.</summary>
+        public const string QuestReplace = "quest-replace";
     }
 
     /// <summary>The classification of one column.</summary>
@@ -39,7 +48,14 @@ namespace Server.WebAdmin.LiveDb
         public string Timing { get; }
         public string Note { get; }
 
-        public bool IsLive => Class != LiveClass.RestartOnly;
+        /// <summary>The generic LiveDb engine applies a change of this column row by row (ReadThrough or Hooked).</summary>
+        public bool IsLive => IsRowLive(Class);
+
+        public static bool IsRowLive(LiveClass c) => c == LiveClass.ReadThrough || c == LiveClass.Hooked;
+
+        /// <summary>As <see cref="IsRowLive(LiveClass)"/> for the class name a batch result carries.</summary>
+        public static bool IsRowLive(string className) =>
+            className == nameof(LiveClass.ReadThrough) || className == nameof(LiveClass.Hooked);
 
         internal static readonly LiveColumnRule Restart = new LiveColumnRule(LiveClass.RestartOnly, LiveTiming.Restart);
     }
@@ -104,8 +120,11 @@ namespace Server.WebAdmin.LiveDb
         public static LiveColumnRule Effective(string endpoint, string column)
         {
             var table = Table(endpoint);
-            if (table == null || !table.LiveInThisBuild) return LiveColumnRule.Restart;
-            return table.Planned(column) ?? LiveColumnRule.Restart;
+            if (table == null) return LiveColumnRule.Restart;
+            var planned = table.Planned(column);
+            if (planned?.Class == LiveClass.QuestReplace) return planned; // the quest-replace hook, not the generic live step
+            if (!table.LiveInThisBuild) return LiveColumnRule.Restart;
+            return planned ?? LiveColumnRule.Restart;
         }
 
         public static bool IsLiveTable(string endpoint) => Table(endpoint)?.LiveInThisBuild == true;
@@ -159,8 +178,9 @@ namespace Server.WebAdmin.LiveDb
                 all.Add(t);
             }
 
-            // Quest system V2 (UserData-and-Quests-Plan.md, Part B phase 1): every new table and column is RestartOnly while legacy QuestInfo
-            // is the runtime (phases 1-2). Phase 3 moves them to the quest-replace hook; the position-keyed children are never applied row by row.
+            // Quest system V2 (UserData-and-Quests-Plan.md, Part B "Live edits", wave 3): every new table and quests V2 column is QuestReplace.
+            // The generic engine never applies them row by row (read-only grids; the position-keyed children would diverge); the Quests page
+            // saves whole quests and the quest-replace hook rebuilds them in the running world.
             foreach (var quest in QuestV2Tables)
             {
                 var t = new LiveTableRule { Endpoint = quest, PlannedBatch = "-" };
@@ -233,24 +253,24 @@ namespace Server.WebAdmin.LiveDb
             return t;
         }
 
-        /// <summary>The quest V2 tables (all RestartOnly in phases 1-2).</summary>
+        /// <summary>The quest V2 tables (QuestReplace since wave 3).</summary>
         internal static readonly string[] QuestV2Tables =
         {
             "queststeps", "questobjectives", "questbranches", "questendpoints", "questrewards", "questvars", "conditions", "texts", "storylines",
             "questgroups", "questgroupmembers", "questpools", "questpoolmembers",
         };
 
-        private static readonly LiveColumnRule QuestV2Rule = new LiveColumnRule(LiveClass.RestartOnly, LiveTiming.Restart,
-            "quest V2 definitions are not used at runtime yet (legacy quests run); the phase 3 quest-replace hook applies them");
+        private static readonly LiveColumnRule QuestV2Rule = new LiveColumnRule(LiveClass.QuestReplace, LiveTiming.QuestReplace,
+            "edited in the Quests page; the quest-replace hook rebuilds the whole quest in the running world and migrates online players' runs");
 
         private static LiveTableRule Quests()
         {
-            // Batch C: live. Inserts / deletes stay restart-only (NPC scripts bind quests at world start).
-            var t = new LiveTableRule { Endpoint = "quests", PlannedBatch = "C", LiveInThisBuild = true };
-            Set(t, R("quest kind is fixed per quest"), "Type");
-            Set(t, Read(LiveTiming.Clients, "requirements and messages, pushed to clients"), "Name", "Group", "RequiredMinLevel", "RequiredMaxLevel",
-                "RequiredQuest", "RequiredClass", "GotoMessage", "KillMessage", "ItemMessage", "FlagMessage", "TimeLimitInSeconds");
-            Set(t, Hook(LiveTiming.Hook, "the quest file is reloaded (refused when its kill / item / flag tasks change shape)"), "FileName");
+            // Quest V2 ship (D2): the legacy columns are read only (they only feed the legacy re-import) and no longer live: the V2 runtime
+            // never reads them, and QuestReload no longer reloads legacy bodies. The table is not a live table of the generic engine any more.
+            var t = new LiveTableRule { Endpoint = "quests", PlannedBatch = "C", LiveInThisBuild = false };
+            Set(t, R("legacy quest field, read only since the quest V2 ship: it only feeds the legacy re-import (edit quests in the Quests page)"),
+                "Type", "Name", "Group", "RequiredMinLevel", "RequiredMaxLevel", "RequiredQuest", "RequiredClass", "GotoMessage", "KillMessage",
+                "ItemMessage", "FlagMessage", "TimeLimitInSeconds", "FileName");
             Set(t, QuestV2Rule, GameData.GameDataRegistry.QuestV2Columns.ToArray());
             return t;
         }
