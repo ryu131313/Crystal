@@ -754,7 +754,7 @@
     var flat = (rootById(file.root) || {}).flat;
     var v = await portalDialog({
       title: 'Rename ' + file.path,
-      message: 'References to this file in other scripts (#INSERT, #INCLUDE, CALL, NPC / quest FileName) are NOT updated.',
+      message: 'References to this file in other scripts (#INSERT, #INCLUDE, CALL, NPC FileName) are NOT updated.',
       fields: [{ name: 'newPath', label: 'New path', type: 'text', value: file.path, required: true }],
       validate: function (vals) {
         if (vals.newPath === file.path) return 'Enter a different name.';

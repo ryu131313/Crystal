@@ -83,7 +83,7 @@
       'DropPath', 'IsBoss', 'CanTame', 'CanPush', 'AutoRev', 'Undead', 'CanRecall'],
     magic: ['Name', 'Spell', 'Icon', 'Level1', 'Level2', 'Level3', 'Need1', 'Need2', 'Need3', 'BaseCost', 'LevelCost', 'Range'],
     npcs: ['FileName', 'Name', 'MapIndex', 'Location_X', 'Location_Y', 'Image', 'Rate', 'MinLev', 'MaxLev'],
-    quests: ['Name', 'Group', 'Type', 'FileName', 'RequiredMinLevel', 'RequiredMaxLevel', 'RequiredQuest', 'RequiredClass'],
+    quests: ['Name', 'Group', 'AuthorKey', 'Category', 'RepeatPolicy', 'LevelHint', 'GroupName', 'Revision'],
     maps: ['FileName', 'Title', 'MiniMap', 'BigMap', 'Music', 'Light', 'MapDarkLight', 'MineIndex'],
     gameshop: ['ItemIndex', 'GoldPrice', 'CreditPrice', 'Count', 'Stock', 'iStock', 'Class', 'Category', 'TopItem', 'Deal'],
     conquests: ['Name', 'MapIndex', 'PalaceIndex', 'Type', 'Game', 'StartHour', 'WarLength']

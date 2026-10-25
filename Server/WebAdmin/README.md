@@ -224,7 +224,7 @@ confirmation dialog, with a reason field for moderation actions. Every successfu
   - Saves are serialised with the world's periodic save. While Main still saves, the file IO runs on the game thread between
     ticks; otherwise it runs under `Envir.LoadLock`.
   - Conflicts are detected per row with `__rev`, and dry-run previews are available. Deletes are refused when other data still
-    references the row. A rename can be propagated into the recipe, quest and NPC files (with backups); drops need nothing (their
+    references the row. A rename can be propagated into the recipe and NPC files (with backups; quests link items and monsters by Index since quest V2); drops need nothing (their
     rows link items by Index, and a monster finds its own drop list by Index). *Discard unsaved* reloads the editor copy from disk.
 - **Quests** (Game Data › Quests, UserData-and-Quests-Plan.md Part B "Authoring"; `Server/WebAdmin/Quests/`, `wwwroot/admin/admin-quests.js`):
   the quest V2 editor. A filtered list (category, group, storyline, has errors, search) and a whole-graph form: quest columns, steps
@@ -292,7 +292,7 @@ confirmation dialog, with a reason field for moderation actions. Every successfu
     `FormDrawer.EXTENSIONS` (functions called after the drawer builds its fields, with the number inputs; a failing extension is
     logged and skipped). Grid cells get hover previews: a `...MapIndex` cell shows that map, an X / Y cell of a row with a map
     shows the map with the point marked (installed as `window.ImagePreview` unless another module already provides one).
-- **Scripts & Files:** a text editor for the NPC, quest, recipe, route and value folders, the `Envir\*.txt` files and
+- **Scripts & Files:** a text editor for the NPC, recipe, route and value folders (no quests root since quest V2 wave 4), the `Envir\*.txt` files and
   SystemScripts. It has a file tree, search, validation (missing labels and goto targets, unknown item and monster names,
   `#INSERT` targets), etag conflict detection (`409`), and keeps the file's encoding and line endings. Every save, delete or
   rename first backs up the old version to `Back Up\WebAdmin\Scripts\<root>\<path>.<yyyyMMdd-HHmmss>.bak`, and you can restore
@@ -422,8 +422,8 @@ World tables (Batch C; the hooks are `ILiveDbHooks` / `LiveDbWorldHooks`, game t
 
 | Table | Live | Restart-only |
 |---|---|---|
-| npcs | visibility fields → schedule + per-player check for nearby players; Image / Name → re-broadcast; FileName → script rebound (quests and speech from the new script, unsaved used goods kept; a script that fails to load refuses only FileName); MapIndex / Location → moved (`RelocateNpc`: leave the old cell while `Info.Location` still names it, then change, then enter — F10); ShowOnBigMap / BigMapIcon (and any change of an NPC shown on the big map) → map info invalidated; insert → `NPCObject` spawned as at map load | Conquest, ConquestVisible, delete |
-| quests | — (since the quest V2 ship: the legacy columns are read only, they only feed the legacy re-import; the V2 columns are `QuestReplace`) | every legacy column; insert / delete only in the Quests page |
+| npcs | visibility fields → schedule + per-player check for nearby players; Image / Name → re-broadcast; FileName → script rebound (speech from the new script, unsaved used goods kept; a script that fails to load refuses only FileName); MapIndex / Location → moved (`RelocateNpc`: leave the old cell while `Info.Location` still names it, then change, then enter — F10); ShowOnBigMap / BigMapIcon (and any change of an NPC shown on the big map) → map info invalidated; insert → `NPCObject` spawned as at map load | Conquest, ConquestVisible, delete |
+| quests | — (Name, Group and the V2 columns are `QuestReplace`: edited in the Quests page; the legacy columns were dropped in quest V2 wave 4) | insert / delete only in the Quests page |
 | maps | flags (read through `Map.Info`); MineIndex → mine rebuilt (mine state resets); Title / BigMap → sent at the next map entry, big-map info invalidated for the map and for maps whose movements show it | FileName, GT, insert, delete |
 | mapsafezones | the map's safe-zone spell objects removed (only caster-less, never-expiring zone decorations / healing cells; conquest war borders skipped) and recreated from the new zones, `Envir.StartPoints` rebuilt, `InSafeZone` recomputed for players, heroes and pets on the map; insert, delete | — |
 | maprespawns | Count / Delay / RandomDelay / Direction read at the next spawn; MonsterIndex / Location / RoutePath / Spread → `MapRespawn` cache rebuilt in place (monster, spawn cells, route; spawned monsters stay and keep counting against it); SaveRespawnTime / RespawnTicks → `Envir.SavedSpawns` membership; insert (spawns at the map's next respawn check, within `[Optimisation] MapRespawnCheckMs`, default 1 s), delete (spawned monsters stay) | — |
@@ -447,7 +447,7 @@ until the next world start. Respawns are keyed by their global `RespawnIndex` an
 `MirEnvir/Quests/QuestReplace.cs`): the quest V2 tables (`queststeps`, `questobjectives`, `questbranches`, `questendpoints`,
 `questrewards`, `questvars`, `conditions`, `texts`, `storylines`, `questgroups` + members, `questpools` + members) and the V2 columns
 of `quests` are `QuestReplace`: read only in the grids, never applied row by row (their position-keyed children would diverge). The
-Quests page (save, delete, JSON import, group save / delete) and the legacy re-import call `QuestEditNotifier.QuestsChangedAsync`
+Quests page (save, delete, JSON import, group save / delete) calls `QuestEditNotifier.QuestsChangedAsync`
 after the store was written: under `EditLock` it copies the changed quests' whole graphs and the shared quest tables from
 `Envir.Edit` (`QuestReplace.Take`, plain copies), then one `WebAdminGame.RunAsync` (30 s) runs `QuestReplace.Apply` on the game
 thread: every referenced monster / item / NPC / map / group member is resolved against Main (a missing id keeps that quest's old

@@ -1,6 +1,8 @@
 ﻿using Microsoft.Data.Sqlite;
 using Server.MirEnvir;
+using Server.MirEnvir.Quests;
 using Server.MirEnvir.Storage;
+using Xunit.Abstractions;
 using static Server.Persistence.Tests.PersistenceHarness;
 
 namespace Server.Persistence.Tests;
@@ -14,6 +16,91 @@ namespace Server.Persistence.Tests;
 [Collection(PersistenceCollection.Name)]
 public class QuestLegacyDropTests
 {
+    private readonly ITestOutputHelper _out;
+
+    public QuestLegacyDropTests(ITestOutputHelper output) => _out = output;
+
+    /// <summary>
+    /// The D3 dry run on real data. Set MIR2_SYSTEMDATA_COPY to a SystemData.db written by the D2 build: it is copied with a read-only
+    /// VACUUM INTO (the source is never written), the copy is opened as the server opens it (pre-migration copy, the legacy drop, the
+    /// other written migrations, schema_version 4), and every quest V2 table and quests V2 column must hold exactly the rows it held
+    /// before. Prints the quest counts and the validation totals. Passes trivially (and says so) when the variable is unset.
+    /// </summary>
+    [Fact]
+    public void Real_store_copy_drops_the_legacy_quest_data_and_keeps_every_quest()
+    {
+        var src = Environment.GetEnvironmentVariable("MIR2_SYSTEMDATA_COPY");
+        if (string.IsNullOrEmpty(src))
+        {
+            _out.WriteLine("MIR2_SYSTEMDATA_COPY not set: real-store D3 dry run not run.");
+            return;
+        }
+
+        var dir = NewTempFolder("quest-legacy-drop-real");
+        var before = Path.Combine(dir, "before.db");
+        using (var ro = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Path.GetFullPath(src), Mode = SqliteOpenMode.ReadOnly, Pooling = false }.ToString()))
+        {
+            ro.Open();
+            using var cmd = ro.CreateCommand();
+            cmd.CommandText = "VACUUM INTO $p";
+            cmd.Parameters.AddWithValue("$p", before);
+            cmd.ExecuteNonQuery();
+        }
+
+        var run = Path.Combine(dir, "run");
+        Directory.CreateDirectory(run);
+        var db = Path.Combine(run, "SystemData.db");
+        File.Copy(before, db);
+
+        WorldRows rows;
+        var writer = new SqliteWriter(db, "real legacy drop writer");
+        try { rows = writer.Run(w => SqliteWorldFile.ReadAll(w.Connection)); }
+        finally { writer.Shutdown(); }
+        Assert.Single(Directory.GetFiles(Path.Combine(run, "Back Up", "Database"), "Pre-quest-legacy-drop *.bak"));
+
+        // Every quest V2 table, and the quests table's current columns, row for row (the legacy columns are simply not selected before).
+        using (var a = SqliteWorldFile.Open(before, create: false))
+        using (var b = SqliteWorldFile.Open(db, create: false))
+        {
+            Assert.Equal(4L, Scalar(b, "SELECT value FROM meta WHERE name = 'schema_version'"));
+            foreach (var name in QuestDefinitionJson.Tables.Append("npcs"))
+            {
+                var spec = SqliteWorldCodec.Specs.First(s => s.Name == name);
+                var sql = "SELECT " + string.Join(", ", SqliteWorldCodec.ColumnNames(spec).Select(SqliteWorldCodec.Quote)) + " FROM " + SqliteWorldCodec.Quote(name) +
+                          " ORDER BY " + SqliteWorldCodec.ParentPositionColumn + ", " + SqliteWorldCodec.PositionColumn;
+                var ra = Rows(a, sql);
+                var rb = Rows(b, sql);
+                Assert.Equal(ra.Count, rb.Count);
+                for (var i = 0; i < ra.Count; i++) Assert.True(ra[i] == rb[i], name + " row " + i + " differs: " + ra[i] + " vs " + rb[i]);
+                _out.WriteLine(name + ": " + ra.Count + " row(s) unchanged");
+            }
+        }
+
+        var e = new Envir();
+        lock (Envir.LoadLock) SqliteWorldCodec.Decode(rows, e);
+        var problems = QuestDefinitions.Validate(e);
+        _out.WriteLine("quests: " + e.QuestInfoList.Count + ", with a definition: " + e.QuestInfoList.Count(q => q.HasDefinition) +
+                       "; validation: " + problems.Count(p => !p.Warning) + " error(s), " + problems.Count(p => p.Warning) + " warning(s)");
+        Assert.All(e.QuestInfoList, q => Assert.True(q.HasDefinition, "quest " + q.Index + " " + q.Name + " has no definition"));
+        Directory.Delete(dir, true);
+    }
+
+    private static List<string> Rows(SqliteConnection conn, string sql)
+    {
+        var list = new List<string>();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = sql;
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            var cells = new string[r.FieldCount];
+            for (var i = 0; i < cells.Length; i++) cells[i] = r.IsDBNull(i) ? "NULL" : Convert.ToString(r.GetValue(i), System.Globalization.CultureInfo.InvariantCulture);
+            list.Add(string.Join("|", cells));
+        }
+
+        return list;
+    }
+
     [Fact]
     public void A_D2_store_drops_the_legacy_quest_data_after_a_copy_and_keeps_every_V2_definition()
     {
