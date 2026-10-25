@@ -302,12 +302,13 @@ S	299	FriendRequestResult	FriendRequestResult	0	85399F49
 S	300	AllowToggles	AllowToggles	0	E747B3D2
 S	301	ObjectMoveBatch	ObjectMoveBatch	1	4E408ADF
 S	302	DungeonMap	DungeonMap	1	0828774A
-S	303	QuestDefinition	QuestDefinition	0	B980FE76
+S	303	QuestDefinition	QuestDefinition	0	A2E8DB72
 S	304	QuestStates	QuestStates	0	67C317E2
 S	305	QuestProgress	QuestProgress	0	9FC0ED60
 S	306	QuestHistory	QuestHistory	0	91A33B19
 S	307	QuestAvailability	QuestAvailability	0	EA9E289B
 S	308	QuestOffer	QuestOffer	0	3B432E79
+S	309	QuestRefused	QuestRefused	0	E7017676
 C	0	ClientVersion	ClientVersion	1	BA76D321
 C	1	Disconnect	Disconnect	1	E3B0C442
 C	2	KeepAlive	KeepAlive	1	1AC00927

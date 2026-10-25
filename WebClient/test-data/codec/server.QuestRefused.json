@@ -1,0 +1,11 @@
+{
+  "name": "QuestRefused",
+  "dir": "server",
+  "id": 309,
+  "hex": "0A0035012A0000000310",
+  "fields": {
+    "Quest": 42,
+    "Request": 3,
+    "Reason": 16
+  }
+}

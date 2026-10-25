@@ -33,13 +33,13 @@ q.completed.on((r) => done.push(r));
 
 const def = (quest: number, extra: Partial<QuestDefinitionInfo> = {}): QuestDefinitionInfo => ({
   Quest: quest, Name: `Quest ${quest} name`, Summary: "Help the farm.", CompleteText: "Thanks!", Category: QuestCategory.Side, StorylineIndex: 0,
-  LevelHint: 5, RepeatPolicy: 0, CooldownSeconds: 0, TimeLimitSeconds: 0, FailPolicy: 0, AbandonAllowed: true, Flags: 0, GroupName: "Farm",
+  LevelHint: 5, RepeatPolicy: 0, CooldownSeconds: 0, TimeLimitSeconds: 0, FailPolicy: 0, AbandonAllowed: true, Flags: 0, GroupName: "Farm", ShareMode: 1,
   Steps: [{ Index: 10, Order: 1, Title: "Hens", Text: "Kill hens.", ReadyText: "Go back.", CompletionMode: 0, NRequired: 0, NextStep: -1, TimeLimitSeconds: 0 }],
   Objectives: [
     { Index: 500 + quest, Step: 10, Order: 1, Type: QuestObjectiveType.Kill, TargetKind: QuestTargetKind.Monster, TargetId: 3, TargetName: "", Count: 5,
-      Map: 0, X: 0, Y: 0, Radius: 0, Optional: false, Hidden: false, Text: "" },
+      Map: 0, X: 0, Y: 0, Radius: 0, Optional: false, Hidden: false, Text: "", TargetMembers: [] },
     { Index: 600 + quest, Step: 10, Order: 2, Type: QuestObjectiveType.Collect, TargetKind: QuestTargetKind.Item, TargetId: 7, TargetName: "", Count: 2,
-      Map: 0, X: 0, Y: 0, Radius: 0, Optional: true, Hidden: false, Text: "" },
+      Map: 0, X: 0, Y: 0, Radius: 0, Optional: true, Hidden: false, Text: "", TargetMembers: [] },
   ],
   Rewards: [
     { Scope: QuestRewardScope.Quest, ScopeId: 0, Kind: QuestRewardKind.Exp, TargetId: 0, Amount: 1500n, ChoiceGroup: 0, FirstTimeOnly: false },
@@ -68,7 +68,7 @@ check("no definition request for a sent definition", sent.length === 0);
 
 // — An NPC in view offers quest 1 —
 feed({ type: "QuestDefinition", ...def(1) });
-feed({ type: "QuestAvailability", Npcs: [{ ObjectID: 100, Icon: QuestIcon.ExclamationYellow, Offered: [1], Finishing: [] }] });
+feed({ type: "QuestAvailability", Npcs: [{ ObjectID: 100, Icon: QuestIcon.ExclamationYellow, Offered: [1], Finishing: [], Choosing: [] }] });
 check("npc icon", q.npcQuestIcon(100) === QuestIcon.ExclamationYellow);
 check("npc has quests", q.npcHasQuests(100) && !q.npcHasQuests(101));
 check("available offers", q.availableOffers().length === 1 && q.availableOffers()[0]!.npc === 100 && q.availableOffers()[0]!.map === 1);
@@ -78,7 +78,7 @@ q.accept(1, 100);
 check("accept frame", sent.length === 1 && idOf(sent[0]!) === ClientPacketIds.QuestAccept);
 feed({ type: "QuestStates", Full: false, States: [{ Quest: 1, Status: QuestRunStatus.Active, Step: 10, ExpiresAt: 0n, StepExpiresAt: ms(new Date(Date.now() + 60_000)), TrackHint: true }] });
 feed({ type: "QuestProgress", Progress: [{ Quest: 1, Objective: 501, Value: 0 }, { Quest: 1, Objective: 601, Value: 0 }] });
-feed({ type: "QuestAvailability", Npcs: [{ ObjectID: 100, Icon: QuestIcon.QuestionWhite, Offered: [], Finishing: [1] }] });
+feed({ type: "QuestAvailability", Npcs: [{ ObjectID: 100, Icon: QuestIcon.QuestionWhite, Offered: [], Finishing: [1], Choosing: [] }] });
 check("accept run event", runs.length === 1 && runs[0]!.prev === null && runs[0]!.run?.quest === 1);
 check("track hint tracks", q.isTracked(1) && q.trackedRuns().some((r) => r.quest === 1));
 check("taken offer leaves Available", q.availableOffers().length === 0);

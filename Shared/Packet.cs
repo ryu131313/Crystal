@@ -628,6 +628,8 @@ public abstract class Packet
                 return new S.QuestAvailability();
             case (short)ServerPacketIds.QuestOffer:
                 return new S.QuestOffer();
+            case (short)ServerPacketIds.QuestRefused:
+                return new S.QuestRefused();
             case (short)ServerPacketIds.Login:
                 return new S.Login();
             case (short)ServerPacketIds.LoginBanned:
