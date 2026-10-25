@@ -392,6 +392,12 @@ namespace Server.WebAdmin.Tests
             Assert.Contains("Used by quest definitions", reject);
             Assert.Equal(1, GameDataEngine.Delete(ctx, monsters, new[] { 3 }, false).Deleted); // Hen is not used
 
+            // Both refusals are listed: the table's own guard (a respawn) and the quest references.
+            w.MapInfoList[0].Respawns.Add(new RespawnInfo { MonsterIndex = 1, RespawnIndex = 1 });
+            var both = JsonSerializer.Serialize(Assert.Single(GameDataEngine.Delete(ctx, monsters, new[] { 1 }, true).Rejects), WebAdminJson.Options);
+            Assert.Contains("respawn #1", both);
+            Assert.Contains("Used by quest definitions", both);
+
             Assert.Single(GameDataEngine.Delete(ctx, GameDataRegistry.Get("npcs"), new[] { 2 }, true).Rejects);
             Assert.Single(GameDataEngine.Delete(ctx, GameDataRegistry.Get("items"), new[] { 1 }, true).Rejects);
             Assert.Empty(GameDataEngine.Delete(ctx, GameDataRegistry.Get("items"), new[] { 3 }, true).Rejects);

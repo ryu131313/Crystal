@@ -152,6 +152,9 @@ namespace Server.WebAdmin.Quests
             }
         }
 
+        /// <summary>Both refusal texts (either may be null); null when neither refuses.</summary>
+        public static string Join(string a, string b) => a == null ? b : b == null ? a : a + ". " + b;
+
         /// <summary>
         /// The generic delete refusal (Game Data grid deletes and LiveDb deletes, both through <see cref="GameDataEngine.Delete"/>): a row
         /// that a quest V2 definition references cannot be deleted; returns the "where used" text, or null when nothing uses it.

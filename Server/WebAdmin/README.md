@@ -226,6 +226,15 @@ confirmation dialog, with a reason field for moderation actions. Every successfu
   - Conflicts are detected per row with `__rev`, and dry-run previews are available. Deletes are refused when other data still
     references the row. A rename can be propagated into the recipe, quest and NPC files (with backups); drops need nothing (their
     rows link items by Index, and a monster finds its own drop list by Index). *Discard unsaved* reloads the editor copy from disk.
+- **Quests** (Game Data › Quests, UserData-and-Quests-Plan.md Part B "Authoring"; `Server/WebAdmin/Quests/`, `wwwroot/admin/admin-quests.js`):
+  the quest V2 editor. A filtered list (category, group, storyline, has errors, search) and a whole-graph form: quest columns, steps
+  and objectives (pickers for monsters / items / NPCs / maps / spells, target groups), branches, givers (NPC endpoints by
+  `NPCInfo.Index`), rewards, an And/Or/Not/Leaf condition builder (owned conditions; shared ones selectable), variables and one
+  text box per text field. Save writes Envir.Edit under EditLock with fresh counter ids (never reused) and **validation blocks the
+  save** for that quest (422 + every error); refuses while Game Data has unsaved grid changes or a WinForms editor is open. Where
+  used (also `GET /api/admin/quests/where-used`), per-quest JSON export and a two-step import (preview diff + token, then apply).
+  Saves call `QuestEditNotifier.QuestsChanged` (a restart is pending until the LiveDb quest-replace hook). Deleting a monster,
+  item, NPC, map, quest, quest group or condition that a quest references is refused everywhere (`GameDataEngine.Delete`).
 - **Drops** (Game Data › Drops, Drops-Tables-Plan phase 2; `Server/WebAdmin/Routes/DropRoutes.cs`, `wwwroot/admin/admin-drops.js`):
   every drop list as rows (the `drop_lists` / `drops` tables in SystemData.db): a list picker (search, kind filter, the monsters
   that load each list) and a grid per list (chance as 1/N, item lookup, quest, gold, group mode, dragon level; group members
