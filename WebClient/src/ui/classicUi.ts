@@ -230,6 +230,8 @@ export function createClassicUi(ctx: GameUiContext): GameUi {
   /** Quests: the NPC quest list, details, log (Q), tracking panel, quest items (state: quests.ts). */
   const questWindow = new QuestWindow(stage, quests, npcWindow, npcSession, inventoryWindow, itemInfos, gameInfo);
   questWindow.onHelp = () => helpWindow.displayPageNamed("Quests");
+  questWindow.notify = (text) => chat(text, ChatType.System); // S.QuestRefused
+  questWindow.bindGroup(groupState); // Share needs a group
   mountWindow.onHelp = () => helpWindow.displayPageNamed("Mounts");
   npcWindow.onHelp = () => helpWindow.displayPageNamed("Purchasing");
   inventoryWindow.onQuestTab = () => questWindow.toggleItems(true);

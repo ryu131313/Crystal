@@ -9,11 +9,12 @@
 // (its focusQuest). Hidden while nothing is tracked.
 // Progress toasts (plan Part B "Clients"): a short card with the objective and its bar on each objective increase
 // (S.QuestProgress, one card per objective, updated in place), and a banner when a quest is accepted, becomes Ready,
-// moves to a new step, fails or is turned in (S.QuestStates / S.QuestHistory). Both live in this HUD part, top centre,
+// moves to a new step, fails or is turned in (S.QuestStates / S.QuestHistory), a red one with the reason when the server
+// refuses a quest request (S.QuestRefused, questRefusalText). Both live in this HUD part, top centre,
 // and fade on their own.
 
 import { QuestEndpointRole, QuestRunStatus } from "../../../protocol/enums.generated.ts";
-import type { QuestChange, QuestRun } from "../../../game/quests.ts";
+import { questRefusalText, type QuestChange, type QuestRun } from "../../../game/quests.ts";
 import type { GameUiContext } from "../../gameUi.ts";
 import { h, injectCss, later, rafCoalesce, setText, asButton } from "../core/dom.ts";
 import { npcName } from "../core/format.ts";
@@ -120,10 +121,11 @@ export class QuestTracker {
     this.fit = rafCoalesce(() => this.marquee(), rt.signal);
     const q = ctx.models.quests;
     const offs = [
-      q.onChange((c: QuestChange) => { if (c !== "items" && c !== "offers" && c !== "history" && c !== "npcs") this.refresh(); }),
+      q.onChange((c: QuestChange) => { if (c !== "items" && c !== "offers" && c !== "history" && c !== "npcs" && c !== "pending") this.refresh(); }),
       q.progressed.on((p) => { if (p.objective && p.prev !== undefined && p.value > p.prev) this.progressToast(p.quest, p.objective.Index); }),
       q.runChanged.on((c) => this.runBanner(c.quest, c.prev, c.run)),
       q.completed.on((row) => this.banner("Quest complete", row.name || q.name(row.quest), false)),
+      q.refused.on((e) => { const t = questRefusalText(e, q.name(e.quest)); this.banner(t.title, t.reason, true); }), // S.QuestRefused
       rt.layoutChanged.on(() => this.fit()),
     ];
     rt.signal.addEventListener("abort", () => { for (const off of offs) off(); this.timerStop?.(); }, { once: true });

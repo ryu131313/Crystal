@@ -20,9 +20,10 @@
 // No map markers (plan phase 5). Narrow layout (a layer below 1040 px): a slimmer list column.
 
 import type { ItemInfo, QuestDefinitionInfo, UserItem } from "../../../protocol/server.ts";
-import { QuestEndpointRole, QuestFlags, QuestRepeatPolicy, QuestRewardScope, QuestRunStatus } from "../../../protocol/enums.generated.ts";
+import { QuestEndpointRole, QuestFlags, QuestRepeatPolicy, QuestRequestKind, QuestRewardScope, QuestRunStatus, QuestShareMode } from "../../../protocol/enums.generated.ts";
 import {
-  MAX_CONCURRENT_QUESTS, MAX_TRACKED_QUESTS, QUEST_CATEGORY_LABEL, QUEST_CATEGORY_ORDER, QUEST_INVENTORY_SIZE, printTimeSpanFromSeconds,
+  MAX_CONCURRENT_QUESTS, MAX_TRACKED_QUESTS, QUEST_CATEGORY_LABEL, QUEST_CATEGORY_ORDER, QUEST_INVENTORY_SIZE, QUEST_PENDING_MS,
+  printTimeSpanFromSeconds,
   type QuestChange, type QuestOfferPrompt,
 } from "../../../game/quests.ts";
 import { parseLine, type NpcLinkKind } from "../../../game/npcMarkup.ts";
@@ -40,9 +41,7 @@ export const QUESTS_WINDOW = "quests";
 
 /** Seconds the offer toast stays up (declines when it runs out). */
 const OFFER_SECONDS = 30;
-/** A refused request sends nothing back: the row unlocks after this. */
-const PENDING_MS = 5000;
-/** Share again after this (the server answers a failed share with a chat line only). */
+/** Share again after this (a refused share comes back as S.QuestRefused and lifts the rest early). */
 const SHARE_REST_MS = 3000;
 
 type Tab = "active" | "available" | "completed" | "items";
@@ -148,8 +147,6 @@ class QuestsWindow extends UiWindow {
   /** Folded groups ("tab:category"). */
   private readonly shut = new Set<string>();
   private query = "";
-  /** Quests with a request on its way (until the server's state answer or PENDING_MS). */
-  private readonly pending = new Set<number>();
   private readonly shared = new Set<number>();
   /** Info links the detail waits for ("ITEM:12"): an arrival redraws it. */
   private readonly waiting = new Set<string>();
@@ -194,6 +191,9 @@ class QuestsWindow extends UiWindow {
 
     const on = (off: () => void) => this.signal.addEventListener("abort", off, { once: true });
     on(this.m.quests.onChange((c: QuestChange) => this.changed(c)));
+    on(this.m.quests.refused.on((e) => { // the model lifted the pending lock ("pending"); a refused share may share again
+      if (e.request === QuestRequestKind.Share && this.shared.delete(e.quest)) { this.detailDirty = true; this.invalidate(); }
+    }));
     on(this.m.gameInfo.onChange((kind, index) => {
       const want = kind === "item" ? "ITEM" : kind === "monster" ? "MONSTER" : kind === "npc" ? "NPC" : null;
       if (kind === "item") this.itemsDirty = true;
@@ -207,7 +207,6 @@ class QuestsWindow extends UiWindow {
   }
 
   private changed(c: QuestChange): void {
-    if (c === "quests") this.pending.clear();
     if (c === "items") { this.itemsDirty = true; if (this.open) this.renderSeg(); }
     else if (c === "progress" || c === "names") this.detailDirty = this.listDirty = true;
     else if (c !== "user") this.listDirty = this.detailDirty = true;
@@ -404,7 +403,7 @@ class QuestsWindow extends UiWindow {
     }
     const low = t !== "completed" && !!def && def.LevelHint > 0 && q.level - def.LevelHint > 10;
     const r = h("div", "row" + (isSel ? " sel" : "") + (ready ? " ready" : "") + (failed ? " failed" : "") + (t === "completed" ? " done" : "")
-      + (low ? " low" : "") + (this.pending.has(quest) ? " busy" : ""), ...parts);
+      + (low ? " low" : "") + (this.m.quests.isPending(quest) ? " busy" : ""), ...parts);
     r.addEventListener("click", () => {
       if (this.picked[t] === quest) return;
       this.picked[t] = quest;
@@ -493,12 +492,13 @@ class QuestsWindow extends UiWindow {
     const branches = q.pendingBranches(def.Quest);
     if (branches.length) {
       const s = this.m.npcSession;
-      const atNpc = s.open && (q.npcQuests(s.talkedNpcId)?.finishing.includes(def.Quest) ?? false);
+      const here = s.open ? q.npcQuests(s.talkedNpcId) : undefined;
+      const atNpc = !!here && (here.finishing.includes(def.Quest) || here.choosing.includes(def.Quest));
       const row = h("div", "branches");
       for (const b of branches) {
         const btn = button(b.Text || b.ChoiceKey, () => this.choose(def.Quest, b.ChoiceKey), { cls: "main" });
         if (!atNpc) btn.setDisabled(true, `Speak to ${this.who(def, QuestEndpointRole.Finish)} to choose`);
-        else if (this.pending.has(def.Quest)) btn.setDisabled(true, "Waiting for the server");
+        else if (q.isPending(def.Quest)) btn.setDisabled(true, "Waiting for the server");
         row.append(btn.el);
       }
       out.push(h("div", "", h("div", "lbl", "Choose"), row));
@@ -596,7 +596,7 @@ class QuestsWindow extends UiWindow {
     const q = this.m.quests, quest = e.quest, run = q.run(quest);
     const bar = h("div", "actions");
     const s = this.m.npcSession;
-    const pending = this.pending.has(quest);
+    const pending = q.isPending(quest);
     const role = run ? QuestEndpointRole.Finish : QuestEndpointRole.Start;
     const find = button("Map", () => this.findOnMap(def, role, e.npc), { icon: "map", title: `Find ${this.who(def, role)} on the map` });
 
@@ -635,7 +635,8 @@ class QuestsWindow extends UiWindow {
     const track = button(tracked ? "Untrack" : "Track", () => this.toggleTrack(quest), { icon: "pin", title: tracked ? "Remove from the on-screen tracker" : "Show on the on-screen tracker" });
     if (!tracked && q.trackedIds.length >= MAX_TRACKED_QUESTS) track.setDisabled(true, `You can track at most ${MAX_TRACKED_QUESTS} quests`);
     const share = button(this.shared.has(quest) ? "Shared" : "Share", () => this.share(quest), { icon: "group", title: "Offer this quest to your group members nearby" });
-    if (this.m.group.list.length < 2) share.setDisabled(true, "Share with your group: you are not in a group");
+    if (def.ShareMode === QuestShareMode.None) share.setDisabled(true, "This quest cannot be shared");
+    else if (!q.canShare(quest, this.m.group.list.length)) share.setDisabled(true, "Share with your group: you are not in a group");
     else if (this.shared.has(quest)) share.setDisabled(true, "Shared: wait a moment to share again");
     const abandon: Btn = button(pending ? "Abandoning…" : "Abandon", () => void this.abandon(quest, false), { cls: "warn", icon: "cross", title: "Abandon this quest" });
     if (pending) abandon.setDisabled(true, "Waiting for the server");
@@ -656,31 +657,30 @@ class QuestsWindow extends UiWindow {
 
   // — Actions (the server answers with S.QuestStates; nothing changes here first) —
 
-  private lock(quest: number): void {
-    this.pending.add(quest);
-    later(() => { if (this.pending.delete(quest)) { this.listDirty = this.detailDirty = true; this.invalidate(); } }, PENDING_MS, this.signal);
-    this.listDirty = this.detailDirty = true;
-    this.invalidate();
+  /** The model locks the quest (Quests.isPending, redrawn by its "pending" change) until S.QuestStates or S.QuestRefused;
+   *  this redraws once the lock times out with no answer. */
+  private lock(): void {
+    later(() => { this.listDirty = this.detailDirty = true; this.invalidate(); }, QUEST_PENDING_MS + 50, this.signal);
   }
 
   private accept(quest: number, npc: number): void {
-    if (this.pending.has(quest)) return;
-    this.lock(quest);
+    if (this.m.quests.isPending(quest)) return;
     this.m.quests.accept(quest, npc);
+    this.lock();
   }
 
   private turnIn(def: QuestDefinitionInfo, npc: number): void {
     const picks = this.m.quests.picksFor(def);
-    if (!picks || this.pending.has(def.Quest)) return;
-    this.lock(def.Quest);
+    if (!picks || this.m.quests.isPending(def.Quest)) return;
     this.m.quests.turnIn(def.Quest, npc, picks);
+    this.lock();
   }
 
   private choose(quest: number, key: string): void {
     const s = this.m.npcSession;
-    if (!s.open || this.pending.has(quest)) return;
-    this.lock(quest);
+    if (!s.open || this.m.quests.isPending(quest)) return;
     this.m.quests.choose(quest, s.talkedNpcId, key);
+    this.lock();
   }
 
   private toggleTrack(id: number): void {
@@ -698,12 +698,13 @@ class QuestsWindow extends UiWindow {
   }
 
   private async abandon(quest: number, failed: boolean): Promise<void> {
-    if (this.pending.has(quest)) return;
+    if (this.m.quests.isPending(quest)) return;
     const name = this.m.quests.name(quest);
     const ok = failed || await this.ui.rt.popups.ask(`Are you sure you want to cancel the quest "${name}"?`, { title: "Abandon quest", kind: "warning", okCancel: true });
-    if (!ok || this.pending.has(quest) || !this.m.quests.run(quest)) return;
-    this.lock(quest);
+    if (!ok || this.m.quests.isPending(quest) || !this.m.quests.run(quest)) return;
     this.m.quests.abandon(quest);
+    this.lock();
+
   }
 
   /** Opens the big map; when the NPC is on another map (or unknown), a note says where it is. */

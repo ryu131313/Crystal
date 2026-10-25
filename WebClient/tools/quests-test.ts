@@ -1,14 +1,18 @@
 // Quest V2 model check (src/game/quests.ts) over a recorded server sequence: login (definitions, Full states, progress,
 // history), an NPC's availability, accept -> progress -> Ready -> turn in -> history, a share offer, a failed run, a
-// history quest's definition request, and the map change that clears the NPC entries. DOM-free; no server needed.
+// history quest's definition request, the map change that clears the NPC entries, and (wave 3 kick-off) S.QuestRefused
+// (pending lock + event), an NPC's Choosing quests, group target names (TargetMembers) and ShareMode. DOM-free; no
+// server needed.
 // Run: node --experimental-strip-types tools/quests-test.ts
 
-import { Quests, type QuestHistoryRow, type QuestProgressChange, type QuestRunChange } from "../src/game/quests.ts";
+import {
+  QUEST_PENDING_MS, Quests, questRefusalText, type QuestHistoryRow, type QuestProgressChange, type QuestRefusedEvent, type QuestRunChange,
+} from "../src/game/quests.ts";
 import type { QuestDefinitionInfo, ServerPacket } from "../src/protocol/server.ts";
 import type { ItemInfos } from "../src/game/items.ts";
 import {
-  ClientPacketIds, QuestCategory, QuestEndpointKind, QuestEndpointRole, QuestIcon, QuestObjectiveType, QuestRewardKind,
-  QuestRewardScope, QuestRunStatus, QuestTargetKind,
+  ClientPacketIds, QuestCategory, QuestEndpointKind, QuestEndpointRole, QuestIcon, QuestObjectiveType, QuestRefusal, QuestRequestKind,
+  QuestRewardKind, QuestRewardScope, QuestRunStatus, QuestShareMode, QuestTargetKind,
 } from "../src/protocol/enums.generated.ts";
 
 let failed = 0, passed = 0;
@@ -138,6 +142,55 @@ check("map change clears npc entries", q.npcQuestIcon(100) === null && !q.npcHas
 // — A Full states list (relog / class change) replaces the runs —
 feed({ type: "QuestStates", Full: true, States: [] });
 check("full replace", q.runs().length === 0);
+
+// — S.QuestRefused: a refused turn-in lifts the pending lock and fires `refused` —
+const refusals: QuestRefusedEvent[] = [];
+q.refused.on((e) => refusals.push(e));
+feed({ type: "QuestDefinition", ...def(4, { ShareMode: QuestShareMode.None }) });
+feed({ type: "QuestStates", Full: false, States: [{ Quest: 4, Status: QuestRunStatus.Active, Step: 10, ExpiresAt: 0n, StepExpiresAt: 0n, TrackHint: false }] });
+q.turnIn(4, 100, []);
+check("turn-in locks the quest", q.isPending(4) && !q.isPending(5));
+check("lock times out", !q.isPending(4, Date.now() + QUEST_PENDING_MS + 1));
+feed({ type: "QuestRefused", Quest: 4, Request: QuestRequestKind.TurnIn, Reason: QuestRefusal.NotReady });
+check("refusal unlocks", !q.isPending(4));
+check("refused event", refusals.length === 1 && refusals[0]!.quest === 4 && refusals[0]!.request === QuestRequestKind.TurnIn && refusals[0]!.reason === QuestRefusal.NotReady, refusals);
+const rt = questRefusalText(refusals[0]!, q.name(4));
+check("refusal text", rt.title === "Cannot hand in Quest 4 name" && rt.reason === "The quest is not ready to hand in.", rt);
+check("refusal text fallback", questRefusalText({ quest: 4, request: QuestRequestKind.Choose, reason: 200 }, "x").reason === "The request was refused.");
+q.abandon(4);
+feed({ type: "QuestStates", Full: false, States: [{ Quest: 4, Status: QuestRunStatus.Active, Step: 10, ExpiresAt: 0n, StepExpiresAt: 0n, TrackHint: false }] });
+check("a state answer unlocks", !q.isPending(4));
+
+// — ShareMode: None never shares; Offer shares only in a group —
+check("share mode None", !q.canShare(4, 3));
+feed({ type: "QuestDefinition", ...def(6) });
+check("share mode Offer needs a group", q.canShare(6, 2) && !q.canShare(6, 1) && !q.canShare(999, 2));
+
+// — Choosing: a running quest whose step branches can be chosen at the NPC (listed met or not) —
+feed({ type: "QuestDefinition", ...def(5, { Branches: [{ Step: 10, ChoiceKey: "left", Text: "Go left", Outcome: 0 }, { Step: 10, ChoiceKey: "right", Text: "Go right", Outcome: 0 }] }) });
+feed({ type: "QuestStates", Full: false, States: [{ Quest: 5, Status: QuestRunStatus.Active, Step: 10, ExpiresAt: 0n, StepExpiresAt: 0n, TrackHint: false }] });
+feed({ type: "QuestAvailability", Npcs: [{ ObjectID: 200, Icon: QuestIcon.QuestionWhite, Offered: [6], Finishing: [], Choosing: [5] }, { ObjectID: 201, Icon: QuestIcon.None, Offered: [], Finishing: [], Choosing: [5] }] });
+check("choosing makes npcHasQuests", q.npcHasQuests(201) && JSON.stringify(q.npcChoosing(201)) === "[5]");
+check("choosing listed before offers", JSON.stringify(q.npcQuestList(200)) === "[5,6]", q.npcQuestList(200));
+check("step branches before met", q.stepBranches(5).length === 2 && q.pendingBranches(5).length === 0);
+feed({ type: "QuestProgress", Progress: [{ Quest: 5, Objective: 505, Value: 5 }] });
+check("branches once met", q.pendingBranches(5).length === 2);
+q.choose(5, 201, "left");
+check("choose frame + lock", idOf(sent[sent.length - 1]!) === ClientPacketIds.QuestChoose && q.isPending(5));
+
+// — Group targets: named by their members (at most 3, then "…") once the names are known —
+const groupObj = (members: number[], kind: number = QuestTargetKind.MonsterGroup) => ({
+  Index: 900, Step: 10, Order: 1, Type: QuestObjectiveType.Kill, TargetKind: kind, TargetId: 1, TargetName: "Hens", Count: 10,
+  Map: 0, X: 0, Y: 0, Radius: 0, Optional: false, Hidden: false, Text: "", TargetMembers: members,
+});
+const MONSTERS = ["", "", "", "Hen", "Rooster", "Chick", "Duck"];
+q.namer = { item: (i) => (i === 7 ? "Hen Feather" : i === 8 ? "Egg" : null), monster: (i) => MONSTERS[i] || null, npc: () => "Sarah", map: () => "Bichon" };
+check("group members named", q.objectiveText(groupObj([3, 4])) === "Kill Hen, Rooster: 0/10", q.objectiveText(groupObj([3, 4])));
+check("group members capped", q.objectiveText(groupObj([3, 4, 5, 6])) === "Kill Hen, Rooster, Chick, …: 0/10", q.objectiveText(groupObj([3, 4, 5, 6])));
+check("group with an unknown member keeps TargetName", q.objectiveText(groupObj([3, 77])) === "Kill Hens (any): 0/10", q.objectiveText(groupObj([3, 77])));
+check("one-member group keeps TargetName", q.objectiveText(groupObj([3])) === "Kill Hens (any): 0/10");
+check("item group members", q.targetName(groupObj([7, 8], QuestTargetKind.ItemGroup)) === "Hen Feather, Egg");
+
 
 console.log(`quests-test: ${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

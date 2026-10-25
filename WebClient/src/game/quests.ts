@@ -6,10 +6,14 @@
 //                Ready is the server's (derived there, never computed here);
 //   progress     S.QuestProgress (objective id -> value, already read live by the server for Collect / Deliver / Flag);
 //   history      S.QuestHistory (Full = replace; AvailableAt = the repeat timer);
-//   NPCs         S.QuestAvailability per NPC in view (the server-chosen QuestIcon, the quests offered / finishing there),
+//   NPCs         S.QuestAvailability per NPC in view (the server-chosen QuestIcon, the quests offered / finishing / with a
+//                branch choice there),
 //                re-sent by the server when an NPC comes into view and cleared with the map (S.MapChanged) as the server's
 //                own sent set is; no client-side CanAccept;
 //   offers       S.QuestOffer (a share / item / area / auto prompt: accept with NpcObjectID 0);
+//   refusals     S.QuestRefused (every refused Accept / TurnIn / Abandon / Share / Choose): lifts the quest's pending lock
+//                and fires `refused` (modern: a banner, classic: a system chat line; questRefusalText);
+
 //   quest bag    User.QuestInventory (UserInformation + S.GainedQuestItem / S.DeleteQuestItem, kept from V1);
 //   tracking     the tracked quest ids (QuestTrackingDialog + Settings.TrackedQuests: localStorage per character here);
 //                TrackHint on accept tracks the quest (the client decides, as before).
@@ -21,8 +25,8 @@ import type {
 } from "../protocol/server.ts";
 import { ClientPackets } from "../protocol/client.ts";
 import {
-  QuestCategory, QuestEndpointKind, QuestEndpointRole, QuestIcon, QuestObjectiveType, QuestRewardKind, QuestRewardScope,
-  QuestRunStatus, QuestStepCompletion, QuestTargetKind, SpellName,
+  QuestCategory, QuestEndpointKind, QuestEndpointRole, QuestIcon, QuestObjectiveType, QuestRefusal, QuestRequestKind, QuestRewardKind,
+  QuestRewardScope, QuestRunStatus, QuestShareMode, QuestStepCompletion, QuestTargetKind, SpellName,
 } from "../protocol/enums.generated.ts";
 import type { ItemInfos } from "./items.ts";
 import { Emitter } from "./emitter.ts";
@@ -34,6 +38,8 @@ export const MAX_CONCURRENT_QUESTS = 20;
 export const MAX_TRACKED_QUESTS = 5;
 /** UserObject.QuestInventory = new UserItem[40]. */
 export const QUEST_INVENTORY_SIZE = 40;
+/** A request with no answer unlocks its quest's buttons after this (the server answers S.QuestStates or S.QuestRefused). */
+export const QUEST_PENDING_MS = 5000;
 
 /** A quest run (S.QuestStates entry). Times are Unix ms (0 = no limit). */
 export interface QuestRun {
@@ -60,6 +66,8 @@ export interface NpcQuests {
   readonly icon: number;
   readonly offered: readonly number[];
   readonly finishing: readonly number[];
+  /** Running quests whose current step's branches can be chosen here (C.QuestChoose; listed met or not). */
+  readonly choosing: readonly number[];
 }
 
 /** A quest offered by a giver met this game (the Available tab). */
@@ -75,7 +83,10 @@ export interface QuestProgressChange { readonly quest: number; readonly objectiv
  *  changed status / step. A turn-in is told apart by the history row (`completed`). */
 export interface QuestRunChange { readonly quest: number; readonly prev: QuestRun | null; readonly run: QuestRun | null }
 
-export type QuestChange = "quests" | "progress" | "defs" | "history" | "npcs" | "offers" | "items" | "tracking" | "user" | "names";
+/** S.QuestRefused: a request (QuestRequestKind) refused for a reason (QuestRefusal). */
+export interface QuestRefusedEvent { readonly quest: number; readonly request: number; readonly reason: number }
+
+export type QuestChange = "quests" | "progress" | "defs" | "history" | "npcs" | "offers" | "items" | "tracking" | "user" | "names" | "pending";
 
 /** Names of things an objective / reward points at; game.ts wires them to GameInfo (missing ones are requested there). */
 export interface QuestNamer {
@@ -105,6 +116,42 @@ const BINARY = new Set<number>([QuestObjectiveType.Talk, QuestObjectiveType.Reac
 
 const format = (t: string, ...a: (string | number)[]) => t.replace(/\{(\d)\}/g, (_, i: string) => String(a[+i] ?? ""));
 const spaced = (s: string) => s.replace(/([a-z])([A-Z])/g, "$1 $2");
+
+// S.QuestRefused text (English constants, as the other quest texts; {0} = the quest's name)
+const REFUSED_TITLE: Readonly<Record<number, string>> = {
+  [QuestRequestKind.Accept]: "Cannot accept {0}", [QuestRequestKind.TurnIn]: "Cannot hand in {0}", [QuestRequestKind.Abandon]: "Cannot abandon {0}",
+  [QuestRequestKind.Share]: "Cannot share {0}", [QuestRequestKind.Choose]: "Cannot choose",
+};
+const REFUSED_REASON: Readonly<Record<number, string>> = {
+  [QuestRefusal.NotAvailable]: "This quest is not available.",
+  [QuestRefusal.NotAtNpc]: "You are too far from the quest giver.",
+  [QuestRefusal.QuestLogFull]: "Your quest log is full.",
+  [QuestRefusal.BagFull]: "Your bag is full.",
+  [QuestRefusal.NotReady]: "The quest is not ready to hand in.",
+  [QuestRefusal.InvalidPick]: "That choice is not available.",
+  [QuestRefusal.AbandonNotAllowed]: "This quest cannot be abandoned.",
+  [QuestRefusal.NotInGroup]: "You are not in a group.",
+  [QuestRefusal.ShareNotAllowed]: "This quest cannot be shared.",
+  [QuestRefusal.UnknownQuest]: "This quest is not available.",
+  [QuestRefusal.ConditionNotMet]: "You do not meet the quest's requirements.",
+  [QuestRefusal.AlreadyActive]: "You already have this quest.",
+  [QuestRefusal.Other]: "The request was refused.",
+  [QuestRefusal.Dead]: "You cannot do that while dead.",
+  [QuestRefusal.AlreadyCompleted]: "You have already completed this quest.",
+  [QuestRefusal.QuestBagFull]: "Your quest bag is full.",
+  [QuestRefusal.NoMemberCouldTake]: "No group member nearby can take this quest.",
+};
+
+/** A refusal's title (per request kind, with the quest's name) and reason line. */
+export function questRefusalText(e: QuestRefusedEvent, questName: string): { title: string; reason: string } {
+  return {
+    title: format(REFUSED_TITLE[e.request] ?? "Cannot do that: {0}", questName),
+    reason: REFUSED_REASON[e.reason] ?? REFUSED_REASON[QuestRefusal.Other]!,
+  };
+}
+
+/** Names listed for a group target (TargetMembers) before "…". */
+const GROUP_NAMES_MAX = 3;
 
 export const QUEST_CATEGORY_LABEL: Readonly<Record<number, string>> = {
   [QuestCategory.Story]: "Story", [QuestCategory.Side]: "Side", [QuestCategory.Daily]: "Daily", [QuestCategory.Weekly]: "Weekly",
@@ -190,6 +237,11 @@ export class Quests {
   readonly completed = new Emitter<QuestHistoryRow>();
   /** A new S.QuestOffer prompt. */
   readonly offered = new Emitter<QuestOfferPrompt>();
+  /** S.QuestRefused (the quest's pending lock is already lifted when this fires). */
+  readonly refused = new Emitter<QuestRefusedEvent>();
+
+  /** Quests with a request on its way (quest -> Date.now() when sent), until S.QuestStates / S.QuestRefused or QUEST_PENDING_MS. */
+  private readonly pendingAt = new Map<number, number>();
 
   private readonly listeners = new Set<(c: QuestChange) => void>();
 
@@ -243,10 +295,31 @@ export class Quests {
 
   /** The NPC's S.QuestAvailability entry, or undefined (no quests, or not seen on this map). */
   npcQuests(npcObjectId: number): NpcQuests | undefined { return this._npcs.get(npcObjectId); }
-  /** True when the NPC offers or finishes a quest for the user. */
+  /** True when the NPC offers, finishes or has a branch choice of a quest for the user. */
   npcHasQuests(npcObjectId: number): boolean {
     const e = this._npcs.get(npcObjectId);
-    return !!e && (e.offered.length > 0 || e.finishing.length > 0);
+    return !!e && (e.offered.length > 0 || e.finishing.length > 0 || e.choosing.length > 0);
+  }
+  /** The running quests whose branch can be chosen at this NPC (S.QuestAvailability Choosing). */
+  npcChoosing(npcObjectId: number): readonly number[] { return this._npcs.get(npcObjectId)?.choosing ?? []; }
+  /** The NPC's quests to list: finishing here, then branch choices, then offered (no duplicates). */
+  npcQuestList(npcObjectId: number): number[] {
+    const e = this._npcs.get(npcObjectId);
+    if (!e) return [];
+    const out = [...e.finishing];
+    for (const q of e.choosing) if (!out.includes(q)) out.push(q);
+    for (const q of e.offered) if (!out.includes(q)) out.push(q);
+    return out;
+  }
+  /** True when a request for the quest is on its way (buttons locked). */
+  isPending(quest: number, now = Date.now()): boolean {
+    const t = this.pendingAt.get(quest);
+    return t !== undefined && now - t < QUEST_PENDING_MS;
+  }
+  /** True when the quest may be offered to the group (ShareMode not None and a group of two or more). */
+  canShare(quest: number, groupSize: number): boolean {
+    const def = this.defs.get(quest);
+    return !!def && def.ShareMode !== QuestShareMode.None && groupSize >= 2;
   }
   /** The server-chosen QuestIcon above the NPC, or null (QuestIcon.None / unknown). */
   npcQuestIcon(npcObjectId: number): number | null {
@@ -301,12 +374,15 @@ export class Quests {
 
   /** The branch choices waiting on the run's current step (its objectives met), else []. */
   pendingBranches(quest: number): QuestDefBranch[] {
+    const list = this.stepBranches(quest);
+    return list.length && this.stepMet(this.defs.get(quest)!, this.currentStep(quest)!) ? list : [];
+  }
+  /** The branches of the run's current step, met or not (an Active run only), else []. */
+  stepBranches(quest: number): QuestDefBranch[] {
     const def = this.defs.get(quest), run = this._runs.get(quest);
     if (!def || !run || run.status !== QuestRunStatus.Active || run.step < 0) return [];
     const step = this.step(def, run.step);
-    if (!step) return [];
-    const list = def.Branches.filter((b) => b.Step === step.Index);
-    return list.length && this.stepMet(def, step) ? list : [];
+    return step ? def.Branches.filter((b) => b.Step === step.Index) : [];
   }
 
   /** The objective's text: its own Text, else built from type / target / count / value. */
@@ -316,10 +392,16 @@ export class Quests {
     return format(OBJ_TEXT[o.Type] ?? "{0}: {1}/{2}", this.targetName(o), value, count);
   }
 
-  /** The objective's target, named: the server's TargetName (groups, flags, maps), else the item / monster / NPC info. */
+  /** The objective's target, named: the server's TargetName (groups, flags, maps), else the item / monster / NPC info. A
+   *  group with more than one member is named by its members when their names are known (at most 3, then "…"). */
   targetName(o: QuestDefObjective): string {
+    const group = o.TargetKind === QuestTargetKind.MonsterGroup || o.TargetKind === QuestTargetKind.ItemGroup;
+    if (group && o.TargetMembers.length > 1) {
+      const names = this.memberNames(o);
+      if (names) return names;
+    }
     if (o.TargetName) {
-      if (o.TargetKind === QuestTargetKind.MonsterGroup || o.TargetKind === QuestTargetKind.ItemGroup) return `${o.TargetName} (any)`;
+      if (group) return `${o.TargetName} (any)`;
       if (o.TargetKind === QuestTargetKind.Flag) return o.Type === QuestObjectiveType.Flag ? "Complete the task" : `Task ${o.TargetName}`;
       return o.TargetName;
     }
@@ -338,6 +420,19 @@ export class Quests {
     if (o.Type === QuestObjectiveType.Flag) return "Complete the task";
     if (o.Type === QuestObjectiveType.UseSkill) return "a skill";
     return "Progress";
+  }
+
+  /** A group target's member names ("Wolf, WolfKing", at most GROUP_NAMES_MAX then "…"), or null while one is unknown. */
+  private memberNames(o: QuestDefObjective): string | null {
+    const monster = o.TargetKind === QuestTargetKind.MonsterGroup, n = this.namer;
+    const names: string[] = [];
+    let missing = false;
+    for (const id of o.TargetMembers.slice(0, GROUP_NAMES_MAX)) {
+      const name = monster ? this.named("MONSTER", id, n?.monster(id)) : this.named("ITEM", id, n?.item(id));
+      if (name) names.push(name); else missing = true;
+    }
+    if (missing) return null;
+    return names.join(", ") + (o.TargetMembers.length > GROUP_NAMES_MAX ? ", …" : "");
   }
 
   /** A name from the namer, or null (remembered: its arrival fires "names" through `nameArrived`). */
@@ -451,6 +546,11 @@ export class Quests {
         return false;
       case "QuestDefinition": this.addDefinition(p); return true;
       case "QuestStates": this.states(p.Full, p.States); return true;
+      case "QuestRefused":
+        this.pendingAt.delete(p.Quest);
+        this.emit("pending");
+        this.refused.emit({ quest: p.Quest, request: p.Request, reason: p.Reason });
+        return true;
       case "QuestProgress":
         for (const e of p.Progress) {
           const prev = this.values.get(e.Objective);
@@ -471,7 +571,7 @@ export class Quests {
         return true;
       }
       case "QuestAvailability":
-        for (const n of p.Npcs) this.npcEntry(n.ObjectID, { icon: n.Icon, offered: n.Offered, finishing: n.Finishing });
+        for (const n of p.Npcs) this.npcEntry(n.ObjectID, { icon: n.Icon, offered: n.Offered, finishing: n.Finishing, choosing: n.Choosing });
         this.emit("npcs");
         return true;
       case "QuestOffer": {
@@ -506,6 +606,7 @@ export class Quests {
   }
 
   private states(full: boolean, list: readonly QuestStateEntry[]): void {
+    this.pendingAt.clear(); // the server's answer: every lock lifts (as the windows did on "quests")
     if (full) {
       const keep = new Set<number>();
       for (const e of list) if (e.Status !== QuestRunStatus.None && e.Status !== QuestRunStatus.Completed) keep.add(e.Quest);
@@ -565,7 +666,7 @@ export class Quests {
       const seen = this.seenOffers.get(q);
       if (!seen || seen.npc !== id) this.seenOffers.set(q, { quest: q, npc: id, map: this.mapIndex });
     }
-    if (e.icon === QuestIcon.None && !e.offered.length && !e.finishing.length) this._npcs.delete(id);
+    if (e.icon === QuestIcon.None && !e.offered.length && !e.finishing.length && !e.choosing.length) this._npcs.delete(id);
     else this._npcs.set(id, e);
   }
 
@@ -630,21 +731,34 @@ export class Quests {
     try { localStorage.setItem(TRACKING_KEY(this.userName), JSON.stringify(this.savedTracked)); } catch { /* storage blocked */ }
   }
 
-  // — Requests (the server validates everything; nothing changes here until it answers) —
+  // — Requests (the server validates everything; nothing changes here until it answers). Accept / TurnIn / Abandon /
+  //   Choose lock the quest (isPending) until S.QuestStates, S.QuestRefused or QUEST_PENDING_MS —
+
+  private markPending(quest: number): void {
+    this.pendingAt.set(quest, Date.now());
+    this.emit("pending");
+  }
 
   /** C.QuestAccept: at a giver (its ObjectID), or 0 for an S.QuestOffer prompt. */
   accept(quest: number, npcObjectId: number): void {
     if (npcObjectId === 0) this.dropOffer(quest);
+    this.markPending(quest);
     this.send(ClientPackets.QuestAccept({ Quest: quest, NpcObjectID: npcObjectId }));
   }
   /** C.QuestTurnIn at the finishing NPC; `picks` = positions in def.Rewards, one per choice group. */
   turnIn(quest: number, npcObjectId: number, picks: number[]): void {
+    this.markPending(quest);
     this.send(ClientPackets.QuestTurnIn({ Quest: quest, NpcObjectID: npcObjectId, RewardPicks: picks }));
   }
-  abandon(quest: number): void { this.send(ClientPackets.QuestAbandon({ Quest: quest })); }
+  abandon(quest: number): void {
+    this.markPending(quest);
+    this.send(ClientPackets.QuestAbandon({ Quest: quest }));
+  }
+  /** C.QuestShare (no lock: the run does not change; a refusal comes back as S.QuestRefused). */
   share(quest: number): void { this.send(ClientPackets.QuestShare({ Quest: quest })); }
   /** C.QuestChoose: a branch ChoiceKey at an NPC that starts or finishes the quest. */
   choose(quest: number, npcObjectId: number, choiceKey: string): void {
+    this.markPending(quest);
     this.send(ClientPackets.QuestChoose({ Quest: quest, NpcObjectID: npcObjectId, ChoiceKey: choiceKey }));
   }
   /** C.QuestDefinitionRequest once per quest (the server answers for runs, history and offers only). */
