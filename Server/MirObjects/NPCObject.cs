@@ -36,7 +36,6 @@ namespace Server.MirObjects
         public Dictionary<int, bool> VisibleLog = new Dictionary<int, bool>();
 
         public ConquestObject Conq;
-        public List<QuestInfo> Quests = new List<QuestInfo>();
         public List<NPCSpeech> Speech = new List<NPCSpeech>();
 
         public List<UserItem> UsedGoods = new List<UserItem>();
@@ -65,7 +64,7 @@ namespace Server.MirObjects
             ScriptID = script.ScriptID;
         }
 
-        /// <summary>LiveDb: binds the script of the current Info.FileName (game thread; the caller handles Quests / Speech / goods).</summary>
+        /// <summary>LiveDb: binds the script of the current Info.FileName (game thread; the caller handles Speech / goods).</summary>
         internal void ReloadScript()
         {
             LoadScript();

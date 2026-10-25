@@ -100,7 +100,7 @@ namespace Server.WebAdmin.GameData
     /// <summary>One file a rename touches.</summary>
     internal sealed class GameDataRenameFile
     {
-        /// <summary>recipes | quests | npcs.</summary>
+        /// <summary>recipes | npcs.</summary>
         public string Root;
 
         /// <summary>Path relative to the root, '/' separated.</summary>
@@ -118,7 +118,8 @@ namespace Server.WebAdmin.GameData
 
     /// <summary>
     /// Rename propagation for item / monster names, mirroring ItemInfoFormNew.ItemNameChange and MonsterInfoFormNew.MonsterNameChange
-    /// (recipes incl. the recipe file named after the item, quest item / kill sections, NPC [TRADE]/[RECIPE] sections), but
+    /// (recipes incl. the recipe file named after the item, NPC [TRADE]/[RECIPE] sections; the legacy quest files are gone since
+    /// quest V2 wave 4: quest objectives and rewards link items and monsters by Index), but
     /// replacing only the matched token (the WinForms code ran string.Replace over the whole line) and following the game parsers'
     /// section rules (a section runs until the next line starting with "["). Drops are not touched (Drops-Tables-Plan phase 2): drop rows
     /// link items by Index and render under the current name, and a monster finds its own drop list by Index.
@@ -128,14 +129,11 @@ namespace Server.WebAdmin.GameData
         private static readonly Regex LeadingToken = new Regex(@"^( *)([^\s|\[]+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
         private static readonly Regex FirstToken = new Regex(@"^([^ ]+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-        private static readonly string[] QuestItemSections = { "[@CARRYITEMS]", "[@ITEMTASKS]", "[@FIXEDREWARDS]", "[@SELECTREWARDS]" };
-        private static readonly string[] QuestKillSections = { "[@KILLTASKS]" };
-
         /// <summary>A usable game-data name: non-empty, no whitespace (the text files split on spaces).</summary>
         public static string CheckName(string name)
         {
             if (string.IsNullOrWhiteSpace(name)) return "is empty";
-            if (name.Any(char.IsWhiteSpace)) return "contains spaces (drop, recipe and quest files split names on spaces)";
+            if (name.Any(char.IsWhiteSpace)) return "contains spaces (recipe and NPC files split names on spaces)";
             return null;
         }
 
@@ -172,79 +170,6 @@ namespace Server.WebAdmin.GameData
             return count;
         }
 
-        /// <summary>Quest files: the first token of the lines in the given [@SECTION]s (until a line starting with "[" or "//").</summary>
-        public static int RewriteQuest(List<string> lines, string oldName, string newName, bool monsters)
-        {
-            var sections = monsters ? QuestKillSections : QuestItemSections;
-            var count = 0;
-            var active = false;
-            for (var i = 0; i < lines.Count; i++)
-            {
-                var line = lines[i];
-                if (line.StartsWith("[", StringComparison.Ordinal))
-                {
-                    // Exactly as QuestInfo.ParseFile: the whole line (no trim, no trailing comment) must equal the header.
-                    var header = line.ToUpperInvariant();
-                    active = sections.Contains(header);
-                    continue;
-                }
-
-                if (line.StartsWith("//", StringComparison.Ordinal))
-                {
-                    active = false;
-                    continue;
-                }
-
-                if (!active || line.Length == 0) continue;
-
-                var m = FirstToken.Match(line);
-                if (m.Success && string.Equals(m.Groups[1].Value, oldName, StringComparison.OrdinalIgnoreCase))
-                    count += ReplaceGroup(lines, i, m, 1, newName);
-            }
-
-            return count;
-        }
-
-        /// <summary>
-        /// Quest reward lines ([@FIXEDREWARDS] / [@SELECTREWARDS]) whose first token is <paramref name="baseName"/>: QuestInfo.ParseReward
-        /// resolves such a line to both "&lt;base&gt;(M)" and "&lt;base&gt;(F)", so renaming one gender variant cannot rewrite them safely.
-        /// </summary>
-        public static int CountGenderRewardRefs(List<string> lines, string baseName)
-        {
-            var count = 0;
-            var active = false;
-            foreach (var line in lines)
-            {
-                if (line.StartsWith("[", StringComparison.Ordinal))
-                {
-                    var header = line.ToUpperInvariant();
-                    active = header == "[@FIXEDREWARDS]" || header == "[@SELECTREWARDS]";
-                    continue;
-                }
-
-                if (line.StartsWith("//", StringComparison.Ordinal))
-                {
-                    active = false;
-                    continue;
-                }
-
-                if (!active || line.Length == 0) continue;
-                var m = FirstToken.Match(line);
-                if (m.Success && string.Equals(m.Groups[1].Value, baseName, StringComparison.OrdinalIgnoreCase)) count++;
-            }
-
-            return count;
-        }
-
-        /// <summary>"Sword(M)" / "Sword(F)" → "Sword"; null for other names.</summary>
-        public static string GenderBaseName(string name)
-        {
-            if (string.IsNullOrEmpty(name) || name.Length <= 3) return null;
-            return name.EndsWith("(M)", StringComparison.OrdinalIgnoreCase) || name.EndsWith("(F)", StringComparison.OrdinalIgnoreCase)
-                ? name.Substring(0, name.Length - 3)
-                : null;
-        }
-
         /// <summary>NPC scripts: the first token of the lines in [TRADE] / [RECIPE] sections.</summary>
         public static int RewriteNpc(List<string> lines, string oldName, string newName)
         {
@@ -271,7 +196,8 @@ namespace Server.WebAdmin.GameData
         }
 
         /// <summary>
-        /// Plans the edits of a rename. <paramref name="roots"/> maps recipes / quests / npcs to their full directory paths.
+        /// Plans the edits of a rename. <paramref name="roots"/> maps recipes / npcs to their full directory paths. A monster rename
+        /// has nothing to rewrite (no text file names monsters since the legacy quest files went, quest V2 wave 4).
         /// </summary>
         public static List<GameDataRenameFile> Plan(string endpoint, string oldName, string newName, IReadOnlyDictionary<string, string> roots,
             List<string> warnings)
@@ -282,31 +208,12 @@ namespace Server.WebAdmin.GameData
             if (items)
             {
                 Scan(files, roots, "recipes", lines => RewriteRecipe(lines, oldName, newName), warnings);
-                Scan(files, roots, "quests", lines => RewriteQuest(lines, oldName, newName, false), warnings);
                 Scan(files, roots, "npcs", lines => RewriteNpc(lines, oldName, newName), warnings);
 
                 PlanFileRename(files, roots, "recipes", oldName, newName, warnings);
-                WarnGenderRewards(roots, oldName, warnings);
-            }
-            else
-            {
-                Scan(files, roots, "quests", lines => RewriteQuest(lines, oldName, newName, true), warnings);
             }
 
             return files.Where(f => f.Replacements > 0 || f.RenameTo != null).OrderBy(f => f.Root, StringComparer.Ordinal).ThenBy(f => f.Path, StringComparer.OrdinalIgnoreCase).ToList();
-        }
-
-        /// <summary>Warns about quest reward lines naming the base of a renamed (M)/(F) item: they are left as they are.</summary>
-        private static void WarnGenderRewards(IReadOnlyDictionary<string, string> roots, string oldName, List<string> warnings)
-        {
-            var baseName = GenderBaseName(oldName);
-            if (baseName == null) return;
-
-            var probe = new List<GameDataRenameFile>();
-            Scan(probe, roots, "quests", lines => CountGenderRewardRefs(lines, baseName), warnings);
-            foreach (var f in probe)
-                warnings.Add("quests/" + f.Path + " rewards \"" + baseName + "\" (" + f.Replacements + " line(s)), which the game resolves to both " + baseName +
-                             "(M) and " + baseName + "(F); it was not changed, so check it by hand.");
         }
 
         private static void Scan(List<GameDataRenameFile> files, IReadOnlyDictionary<string, string> roots, string root, Func<List<string>, int> rewrite, List<string> warnings)
@@ -319,7 +226,7 @@ namespace Server.WebAdmin.GameData
                 GameDataTextFile content;
                 try
                 {
-                    content = GameDataTextFile.Parse(DesignFiles.ReadAllBytes(path)); // roadmap P7: drops / quests / recipes are in SystemData.db
+                    content = GameDataTextFile.Parse(DesignFiles.ReadAllBytes(path)); // roadmap P7: recipes are in SystemData.db
                 }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
                 {

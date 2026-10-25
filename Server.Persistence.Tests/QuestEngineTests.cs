@@ -8,21 +8,21 @@ using static Server.Persistence.Tests.PersistenceHarness;
 namespace Server.Persistence.Tests;
 
 /// <summary>
-/// Quest V2 engine (UserData-and-Quests-Plan.md, lane F): the differential test against the legacy oracle (QuestProgressInfo with
-/// Owner = null for progress and completion, LegacyQuestRewards for the reward selection incl. the rate multipliers), plus unit tests
-/// for conditions, the revision migration, repeat policies / ResetClock boundaries and the per-member party drop copies. Runs on
-/// Envir.Main (the engine and the legacy classes read Main), so it restores Main's lists afterwards; no server, no randomness.
-///
-/// Expected differences from legacy, asserted as such:
-/// 1. Gender rewards: legacy gives both the (M) and the (F) item of a pair; V2 gives the player's gender only (deliberate fix).
-/// 2. Flag objectives: legacy completion stays once a flag task was seen set; V2 is Ready only while the flag is set (deliberate).
-/// Party fan-out is compared by feeding each member's events, since CheckGroupQuestKill / CheckGroupQuestItem are replaced.
+/// Quest V2 engine (UserData-and-Quests-Plan.md, lane F): progress and completion of a hand-built quest pair (what the legacy importer
+/// used to produce; the differential test against the legacy QuestProgressInfo oracle went with it in wave 4), rewards incl. the rate
+/// multipliers and the gender fix, conditions, the revision migration, repeat policies / ResetClock boundaries and the per-member party
+/// drop copies. Runs on Envir.Main (the engine reads Main), so it restores Main's lists afterwards; no server, no randomness.
 /// </summary>
 [Collection(PersistenceCollection.Name)]
 public class QuestEngineTests
 {
     private const int Wolves = 1, Letter = 2;
 
+    /// <summary>
+    /// Wolves (Daily, share Offer, 10 min): kill 1 of group {WolfKing} and 2 of group {Wolf, Wolf2}, collect 2 Pelt, flag 12; rewards
+    /// BaseDress(M)/(F) by gender, 2 WoodenSword, a Medal pick (choice group 1), 100 exp, 50 gold. Letter (Story, Once, needs Wolves done
+    /// once): collect 1 QuestLetter; 7 credit. Both given and taken by the Hunter NPC.
+    /// </summary>
     private static void BuildWorld()
     {
         ResetMain();
@@ -34,31 +34,50 @@ public class QuestEngineTests
         string[] monsters = { "Wolf", "WolfKing", "Wolf2", "Hen" };
         for (var i = 0; i < monsters.Length; i++) e.MonsterInfoList.Add(new MonsterInfo { Index = i + 1, Name = monsters[i] });
         e.NPCInfoList.Add(new NPCInfo { Index = 1, MapIndex = 1, FileName = "Hunter", Name = "Hunter", Location = new Point(1, 1) });
-        e.QuestInfoList.Add(new QuestInfo { Index = Wolves, Name = "Wolves", FileName = "Wolves", RequiredMaxLevel = ushort.MaxValue, Type = QuestType.Daily, TimeLimitInSeconds = 600 });
-        e.QuestInfoList.Add(new QuestInfo { Index = Letter, Name = "Letter", FileName = "Letter", RequiredMaxLevel = ushort.MaxValue, RequiredQuest = Wolves, Type = QuestType.Story });
         e.MapIndex = 1; e.ItemIndex = items.Length; e.MonsterIndex = monsters.Length; e.NPCIndex = 1; e.QuestIndex = 2;
 
-        var quests = Path.Combine("Envir", "Quests");
-        var npcs = Path.Combine("Envir", "NPCs");
-        Directory.CreateDirectory(quests);
-        Directory.CreateDirectory(npcs);
-        // Kill tasks in this order give non-overlapping groups: WolfKing = {WolfKing}, Wolf = {Wolf, Wolf2} (legacy credits the first
-        // task whose name prefixes the monster's).
-        File.WriteAllLines(Path.Combine(quests, "Wolves.txt"), new[]
-        {
-            "[@KILLTASKS]", "WolfKing 1", "Wolf 2",
-            "[@ITEMTASKS]", "Pelt 2",
-            "[@FLAGTASKS]", "12",
-            "[@FIXEDREWARDS]", "BaseDress", "WoodenSword 2",
-            "[@SELECTREWARDS]", "Medal 1",
-            "[@EXPREWARD]", "100",
-            "[@GOLDREWARD]", "50",
-        });
-        File.WriteAllLines(Path.Combine(quests, "Letter.txt"), new[] { "[@ITEMTASKS]", "QuestLetter 1", "[@CREDITREWARD]", "7" });
-        File.WriteAllLines(Path.Combine(npcs, "Hunter.txt"), new[] { "[@MAIN]", "#SAY", "Hello", "[QUESTS]", "1", "-1", "2", "-2" });
+        int ItemId(string name) => e.ItemInfoList.Single(x => x.Name == name).Index;
+        int MonsterId(string name) => e.MonsterInfoList.Single(x => x.Name == name).Index;
 
-        foreach (var q in e.QuestInfoList) q.LoadInfo();
-        QuestLegacyImporter.Import(e);
+        e.QuestGroupList.Add(new QuestGroupInfo { Index = 1, AuthorKey = "q1.kill.WolfKing", Kind = QuestGroupKind.Monster, Members = { new QuestGroupMemberInfo { TargetId = MonsterId("WolfKing") } } });
+        e.QuestGroupList.Add(new QuestGroupInfo
+        {
+            Index = 2, AuthorKey = "q1.kill.Wolf", Kind = QuestGroupKind.Monster,
+            Members = { new QuestGroupMemberInfo { TargetId = MonsterId("Wolf") }, new QuestGroupMemberInfo { TargetId = MonsterId("Wolf2") } },
+        });
+        e.QuestConditionList.Add(new QuestConditionInfo { Index = 1, Op = QuestConditionOp.Leaf, Leaf = QuestConditionLeaf.Gender, Arg1 = (int)MirGender.Male, OwnerQuest = Wolves });
+        e.QuestConditionList.Add(new QuestConditionInfo { Index = 2, Op = QuestConditionOp.Leaf, Leaf = QuestConditionLeaf.Gender, Arg1 = (int)MirGender.Female, OwnerQuest = Wolves });
+        e.QuestConditionList.Add(new QuestConditionInfo { Index = 3, Op = QuestConditionOp.Leaf, Leaf = QuestConditionLeaf.QuestCompletedCount, Arg1 = Wolves, Arg2 = 1, Cmp = QuestCompare.Ge, OwnerQuest = Letter });
+
+        var wolves = new QuestInfo { Index = Wolves, Name = "Wolves" };
+        var w = wolves.Definition;
+        w.Category = QuestCategory.Daily; w.RepeatPolicy = QuestRepeatPolicy.Daily; w.ShareMode = QuestShareMode.Offer; w.TimeLimitSeconds = 600;
+        w.Steps.Add(new QuestStepInfo { Index = 100, Order = 1, NextStep = -1 });
+        w.Objectives.Add(new QuestObjectiveInfo { Index = 1001, Step = 100, Order = 1, Type = QuestObjectiveType.Kill, TargetKind = QuestTargetKind.MonsterGroup, TargetId = 1, Count = 1 });
+        w.Objectives.Add(new QuestObjectiveInfo { Index = 1002, Step = 100, Order = 2, Type = QuestObjectiveType.Kill, TargetKind = QuestTargetKind.MonsterGroup, TargetId = 2, Count = 2 });
+        w.Objectives.Add(new QuestObjectiveInfo { Index = 1003, Step = 100, Order = 3, Type = QuestObjectiveType.Collect, TargetKind = QuestTargetKind.Item, TargetId = ItemId("Pelt"), Count = 2 });
+        w.Objectives.Add(new QuestObjectiveInfo { Index = 1004, Step = 100, Order = 4, Type = QuestObjectiveType.Flag, TargetKind = QuestTargetKind.Flag, TargetId = 12, Count = 1 });
+        w.Endpoints.Add(new QuestEndpointInfo { Role = QuestEndpointRole.Start, Kind = QuestEndpointKind.Npc, TargetId = 1 });
+        w.Endpoints.Add(new QuestEndpointInfo { Role = QuestEndpointRole.Finish, Kind = QuestEndpointKind.Npc, TargetId = 1 });
+        w.Rewards.Add(new QuestRewardInfo { Kind = QuestRewardKind.Item, TargetId = ItemId("BaseDress(M)"), Amount = 1, Condition = 1 });
+        w.Rewards.Add(new QuestRewardInfo { Kind = QuestRewardKind.Item, TargetId = ItemId("BaseDress(F)"), Amount = 1, Condition = 2 });
+        w.Rewards.Add(new QuestRewardInfo { Kind = QuestRewardKind.Item, TargetId = ItemId("WoodenSword"), Amount = 2 });
+        w.Rewards.Add(new QuestRewardInfo { Kind = QuestRewardKind.Item, TargetId = ItemId("Medal"), Amount = 1, ChoiceGroup = 1 });
+        w.Rewards.Add(new QuestRewardInfo { Kind = QuestRewardKind.Exp, Amount = 100 });
+        w.Rewards.Add(new QuestRewardInfo { Kind = QuestRewardKind.Gold, Amount = 50 });
+        e.QuestInfoList.Add(wolves);
+
+        var letter = new QuestInfo { Index = Letter, Name = "Letter" };
+        var l = letter.Definition;
+        l.Category = QuestCategory.Story; l.RepeatPolicy = QuestRepeatPolicy.Once; l.ShareMode = QuestShareMode.Offer; l.AcceptCondition = 3;
+        l.Steps.Add(new QuestStepInfo { Index = 200, Order = 1, NextStep = -1 });
+        l.Objectives.Add(new QuestObjectiveInfo { Index = 2001, Step = 200, Order = 1, Type = QuestObjectiveType.Collect, TargetKind = QuestTargetKind.Item, TargetId = ItemId("QuestLetter"), Count = 1 });
+        l.Endpoints.Add(new QuestEndpointInfo { Role = QuestEndpointRole.Start, Kind = QuestEndpointKind.Npc, TargetId = 1 });
+        l.Endpoints.Add(new QuestEndpointInfo { Role = QuestEndpointRole.Finish, Kind = QuestEndpointKind.Npc, TargetId = 1 });
+        l.Rewards.Add(new QuestRewardInfo { Kind = QuestRewardKind.Credit, Amount = 7 });
+        e.QuestInfoList.Add(letter);
+
+        e.QuestStepIndex = 200; e.QuestObjectiveIndex = 2001; e.QuestConditionIndex = 3; e.QuestGroupIndex = 2;
         e.InvalidateQuestCatalog();
     }
 
@@ -113,111 +132,70 @@ public class QuestEngineTests
         }
     }
 
-    /// <summary>One event fed to both runtimes; returns (legacy complete, V2 ready).</summary>
-    private sealed class Pair
+    private static void Kill(PlayerObject p, string monster, bool direct = true) => p.Quests.MonsterKilled(Monster(monster), direct);
+
+    private static void Gain(PlayerObject p, string item, ushort count)
     {
-        public readonly QuestProgressInfo Legacy;
-        public readonly PlayerObject Player;
-        public readonly int Quest;
-        public readonly UserItem[] LegacyBag = new UserItem[40];
-        public readonly bool[] LegacyFlags = new bool[Globals.FlagIndexCount];
+        var info = Item(item);
+        if (!p.Quests.NeedsQuestItem(info)) return;
+        AddToBag(p.Info.QuestInventory, info, count);
+        p.Quests.QuestBagChanged(info);
+    }
 
-        public Pair(PlayerObject player, int quest)
-        {
-            Player = player;
-            Quest = quest;
-            Legacy = new QuestProgressInfo(quest); // Owner = null: the oracle never touches a player
-            Assert.True(player.Quests.AdminStart(quest));
-        }
-
-        public void Kill(string monster, bool direct = true)
-        {
-            var m = Monster(monster);
-            if (Legacy.NeedKill(m)) Legacy.ProcessKill(m);
-            Player.Quests.MonsterKilled(m, direct);
-        }
-
-        public void Gain(string item, ushort count)
-        {
-            var info = Item(item);
-            var legacyNeeds = Legacy.NeedItem(info);
-            Assert.Equal(legacyNeeds, Player.Quests.NeedsQuestItem(info));
-            if (!legacyNeeds) return;
-            AddToBag(LegacyBag, info, count);
-            Legacy.ProcessItem(LegacyBag);
-            AddToBag(Player.Info.QuestInventory, info, count);
-            Player.Quests.QuestBagChanged(info);
-        }
-
-        public void Flag(int flag, bool on)
-        {
-            LegacyFlags[flag] = on;
-            Legacy.ProcessFlag(LegacyFlags);
-            Player.Info.Flags[flag] = on;
-            Player.Quests.FlagChanged(flag);
-        }
-
-        public void AssertSame(string step)
-        {
-            var legacy = Legacy.CheckCompleted();
-            var v2 = Ready(Player, Quest);
-            Assert.True(legacy == v2, step + ": legacy complete " + legacy + ", V2 ready " + v2);
-        }
+    private static void Flag(PlayerObject p, int flag, bool on)
+    {
+        p.Info.Flags[flag] = on;
+        p.Quests.FlagChanged(flag);
     }
 
     [Fact]
-    public void Differential_progress_and_completion_match_the_legacy_oracle()
+    public void Progress_and_completion_follow_the_objectives()
     {
         InWorld(() =>
         {
-            var pair = new Pair(NewPlayer("Diff"), Wolves);
-            pair.AssertSame("start");
-            pair.Kill("Hen"); pair.AssertSame("unrelated kill");
-            pair.Kill("Wolf"); pair.AssertSame("wolf");
-            pair.Kill("Wolf2"); pair.AssertSame("wolf2 (same group as wolf)");
-            pair.Kill("Wolf"); pair.AssertSame("wolf over the count");
-            pair.Kill("WolfKing"); pair.AssertSame("wolfking (own group, prefix overlap with wolf)");
-            pair.Gain("Pelt", 1); pair.AssertSame("one pelt");
-            pair.Gain("Medal", 1); pair.AssertSame("an item no task needs");
-            pair.Gain("Pelt", 1); pair.AssertSame("two pelts");
-            Assert.False(Ready(pair.Player, Wolves));
-            pair.Flag(12, true); pair.AssertSame("flag set");
-            Assert.True(Ready(pair.Player, Wolves));
+            var p = NewPlayer("Prog");
+            Assert.True(p.Quests.AdminStart(Wolves));
+            Assert.False(Ready(p, Wolves));
+            Kill(p, "Hen"); // unrelated
+            Kill(p, "Wolf");
+            Kill(p, "Wolf2"); // same group as Wolf: 2/2
+            Kill(p, "Wolf"); // over the count
+            Assert.False(Ready(p, Wolves));
+            Kill(p, "WolfKing"); // own group
+            Assert.False(p.Quests.NeedsQuestItem(Item("Medal"))); // no objective needs it
+            Gain(p, "Pelt", 1);
+            Gain(p, "Pelt", 1);
+            Assert.False(Ready(p, Wolves));
+            Flag(p, 12, true);
+            Assert.True(Ready(p, Wolves));
 
-            // Expected difference 2: clearing the flag keeps legacy complete, V2 is no longer Ready (Flag objectives are read live).
-            pair.Flag(12, false);
-            Assert.True(pair.Legacy.CheckCompleted());
-            Assert.False(Ready(pair.Player, Wolves));
-            pair.Flag(12, true);
-            Assert.True(Ready(pair.Player, Wolves));
+            // Flag objectives are read live (deliberate V2 change): clearing the flag makes the quest not Ready again.
+            Flag(p, 12, false);
+            Assert.False(Ready(p, Wolves));
+            Flag(p, 12, true);
+            Assert.True(Ready(p, Wolves));
 
-            // The chained quest: the accept condition reads the V2 history (legacy RequiredQuest).
-            var p = pair.Player;
+            // The chained quest: the accept condition reads the V2 history.
             Assert.False(p.Quests.CanTake(Runtime(Letter)));
             p.Quests.AdminComplete(Wolves); // TurnIn gives exp and items, which need a spawned player: the scratch run covers it
             Assert.Null(p.Quests.GetRun(Wolves));
             Assert.Equal(1, p.Quests.TimesCompleted(Wolves));
             Assert.True(p.Quests.CanTake(Runtime(Letter)));
 
-            var letter = new Pair(p, Letter);
-            letter.AssertSame("letter start");
-            letter.Gain("QuestLetter", 1); letter.AssertSame("letter collected");
+            Assert.True(p.Quests.AdminStart(Letter));
+            Assert.False(Ready(p, Letter));
+            Gain(p, "QuestLetter", 1);
             Assert.True(Ready(p, Letter));
         });
     }
 
     [Fact]
-    public void Differential_rewards_match_the_legacy_selection_except_the_gender_fix()
+    public void Rewards_apply_the_rates_and_give_the_players_gender_only()
     {
         InWorld(() =>
         {
             Settings.DropRate = 2F;
             Settings.ExpRate = 3F;
-            var legacyInfo = Envir.Main.QuestInfoList.Single(q => q.Index == Wolves);
-            var legacy = LegacyQuestRewards.Select(legacyInfo, 0);
-            Assert.Equal(100u, legacy.Gold);
-            Assert.Equal(300u, legacy.Exp);
-
             foreach (var gender in new[] { MirGender.Male, MirGender.Female })
             {
                 var p = NewPlayer("Rw" + gender, gender);
@@ -227,39 +205,40 @@ public class QuestEngineTests
                 Assert.True(medal >= 0);
                 var preview = p.Quests.PreviewRewards(q, new List<int> { medal });
 
-                // Expected difference 1: legacy gives both BaseDress items; V2 only the player's gender.
-                var other = gender == MirGender.Male ? "BaseDress(F)" : "BaseDress(M)";
-                var expected = legacy.Items.Where(x => x.Item.Name != other).Select(x => (x.Item.Index, (long)x.Count)).OrderBy(x => x).ToList();
-                Assert.Contains(legacy.Items, x => x.Item.Name == other);
+                var dress = gender == MirGender.Male ? "BaseDress(M)" : "BaseDress(F)";
+                var expected = new[] { (Item(dress).Index, 1L), (Item("WoodenSword").Index, 2L), (Item("Medal").Index, 1L) }.OrderBy(x => x).ToList();
                 Assert.Equal(expected, preview.Items.OrderBy(x => x).ToList());
-                Assert.Equal(legacy.Gold, preview.Gold);
-                Assert.Equal(legacy.Exp, preview.Exp);
-                Assert.Equal(legacy.Credit, preview.Credit);
+                Assert.Equal(100u, preview.Gold); // 50 × DropRate 2
+                Assert.Equal(300u, preview.Exp); // 100 × ExpRate 3
 
-                // No pick: legacy without a selected item gives no select reward, as V2 with no pick for the group.
-                var noPick = p.Quests.PreviewRewards(q, null);
-                Assert.Equal(LegacyQuestRewards.Select(legacyInfo).Items.Count - 1, noPick.Items.Count);
+                // No pick: nothing from the choice group.
+                Assert.Equal(expected.Count - 1, p.Quests.PreviewRewards(q, null).Items.Count);
             }
 
-            var letterLegacy = LegacyQuestRewards.Select(Envir.Main.QuestInfoList.Single(q => q.Index == Letter));
-            var lp = NewPlayer("RwLetter");
-            Assert.Equal(letterLegacy.Credit, lp.Quests.PreviewRewards(Runtime(Letter), null).Credit);
+            Assert.Equal(7u, NewPlayer("RwLetter").Quests.PreviewRewards(Runtime(Letter), null).Credit);
         });
     }
 
     [Fact]
-    public void Differential_party_kill_credit_by_feeding_each_member()
+    public void Party_kill_credit_counts_for_each_member()
     {
         InWorld(() =>
         {
-            var killer = new Pair(NewPlayer("Killer", index: 1), Wolves);
-            var member = new Pair(NewPlayer("Member", index: 2), Wolves);
+            var killer = NewPlayer("Killer", index: 1);
+            var member = NewPlayer("Member", index: 2);
+            foreach (var p in new[] { killer, member }) Assert.True(p.Quests.AdminStart(Wolves));
             foreach (var m in new[] { "Wolf", "WolfKing", "Wolf2" })
             {
-                killer.Kill(m, direct: true);
-                member.Kill(m, direct: false); // PartyCredit.Each: party members in range get the same credit
-                killer.AssertSame("killer " + m);
-                member.AssertSame("member " + m);
+                Kill(killer, m, direct: true);
+                Kill(member, m, direct: false); // PartyCredit.Each: party members in range get the same credit
+            }
+
+            foreach (var p in new[] { killer, member })
+            {
+                var q = Runtime(Wolves);
+                var run = p.Quests.GetRun(Wolves);
+                Assert.Equal(1, p.Quests.ValueOf(q, run, q.ObjectivesById[1001]));
+                Assert.Equal(2, p.Quests.ValueOf(q, run, q.ObjectivesById[1002]));
             }
         });
     }
@@ -406,25 +385,12 @@ public class QuestEngineTests
         });
     }
 
-    [Fact]
-    public void Importer_requires_the_previous_quest_completed_at_least_once()
-    {
-        InWorld(() =>
-        {
-            var root = Runtime(Letter).Def.AcceptCondition;
-            var leaf = Envir.Main.QuestConditionList.Single(x => x.Index == root); // the only part: the leaf is the root
-            Assert.Equal(QuestConditionLeaf.QuestCompletedCount, leaf.Leaf);
-            Assert.Equal(Wolves, leaf.Arg1);
-            Assert.Equal(1, leaf.Arg2);
-            Assert.Equal(QuestCompare.Ge, leaf.Cmp);
-        });
-    }
     // ------------------------------------------------------------------ wave 2 review fixes
 
     /// <summary>A hand-built quest on Main: steps in order, each with the given objectives; rewards as given.</summary>
     private static QuestRuntime AddQuest(int index, (int Step, QuestObjectiveInfo[] Objectives)[] steps, params QuestRewardInfo[] rewards)
     {
-        var info = new QuestInfo { Index = index, Name = "Q" + index, FileName = "none", RequiredMaxLevel = ushort.MaxValue };
+        var info = new QuestInfo { Index = index, Name = "Q" + index };
         var d = info.Definition;
         d.RepeatPolicy = QuestRepeatPolicy.Unlimited;
         for (var i = 0; i < steps.Length; i++)
@@ -630,7 +596,7 @@ public class QuestEngineTests
         {
             var p = NewPlayer("Members");
             var sent = p.Quests.BuildDefinitionPacket(Runtime(Wolves));
-            Assert.Equal(QuestShareMode.Offer, sent.ShareMode); // the importer's default
+            Assert.Equal(QuestShareMode.Offer, sent.ShareMode);
             var wolf = sent.Objectives.Single(o => o.TargetKind == QuestTargetKind.MonsterGroup && o.TargetMembers.Count == 2);
             Assert.Equal(new[] { Monster("Wolf").Index, Monster("Wolf2").Index }, wolf.TargetMembers.OrderBy(i => i));
             Assert.All(sent.Objectives.Where(o => o.TargetKind != QuestTargetKind.MonsterGroup && o.TargetKind != QuestTargetKind.ItemGroup), o => Assert.Empty(o.TargetMembers));

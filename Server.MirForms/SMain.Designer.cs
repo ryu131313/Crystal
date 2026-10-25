@@ -91,7 +91,6 @@ namespace Server
             itemNEWToolStripMenuItem = new ToolStripMenuItem();
             monsterExperimentalToolStripMenuItem = new ToolStripMenuItem();
             nPCInfoToolStripMenuItem = new ToolStripMenuItem();
-            questInfoToolStripMenuItem = new ToolStripMenuItem();
             magicInfoToolStripMenuItem = new ToolStripMenuItem();
             gameshopToolStripMenuItem = new ToolStripMenuItem();
             recipeToolStripMenuItem = new ToolStripMenuItem();
@@ -531,7 +530,7 @@ namespace Server
             // 
             // databaseFormsToolStripMenuItem
             // 
-            databaseFormsToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { mapInfoToolStripMenuItem, itemInfoToolStripMenuItem, monsterInfoToolStripMenuItem, itemNEWToolStripMenuItem, monsterExperimentalToolStripMenuItem, nPCInfoToolStripMenuItem, questInfoToolStripMenuItem, magicInfoToolStripMenuItem, gameshopToolStripMenuItem, recipeToolStripMenuItem });
+            databaseFormsToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { mapInfoToolStripMenuItem, itemInfoToolStripMenuItem, monsterInfoToolStripMenuItem, itemNEWToolStripMenuItem, monsterExperimentalToolStripMenuItem, nPCInfoToolStripMenuItem, magicInfoToolStripMenuItem, gameshopToolStripMenuItem, recipeToolStripMenuItem });
             databaseFormsToolStripMenuItem.Name = "databaseFormsToolStripMenuItem";
             databaseFormsToolStripMenuItem.Size = new Size(67, 20);
             databaseFormsToolStripMenuItem.Text = "Database";
@@ -580,13 +579,6 @@ namespace Server
             nPCInfoToolStripMenuItem.Size = new Size(203, 22);
             nPCInfoToolStripMenuItem.Text = "NPC";
             nPCInfoToolStripMenuItem.Click += nPCInfoToolStripMenuItem_Click;
-            // 
-            // questInfoToolStripMenuItem
-            // 
-            questInfoToolStripMenuItem.Name = "questInfoToolStripMenuItem";
-            questInfoToolStripMenuItem.Size = new Size(203, 22);
-            questInfoToolStripMenuItem.Text = "Quest";
-            questInfoToolStripMenuItem.Click += questInfoToolStripMenuItem_Click;
             // 
             // magicInfoToolStripMenuItem
             // 
@@ -821,7 +813,6 @@ namespace Server
         private ToolStripMenuItem itemInfoToolStripMenuItem;
         private ToolStripMenuItem monsterInfoToolStripMenuItem;
         private ToolStripMenuItem nPCInfoToolStripMenuItem;
-        private ToolStripMenuItem questInfoToolStripMenuItem;
         private ToolStripMenuItem configToolStripMenuItem1;
         private ToolStripMenuItem serverToolStripMenuItem;
         private ToolStripMenuItem balanceToolStripMenuItem;

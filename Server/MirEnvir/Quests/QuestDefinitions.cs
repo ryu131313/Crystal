@@ -24,7 +24,7 @@ namespace Server.MirEnvir.Quests
     /// </summary>
     internal static class QuestDefinitions
     {
-        /// <summary>Upper bound of a legacy flag number (ParseFlag: 0 … FlagIndexCount − 1000, inclusive).</summary>
+        /// <summary>Upper bound of a flag objective number (as the legacy ParseFlag: 0 … FlagIndexCount − 1000, inclusive).</summary>
         public static int MaxFlagNumber => Globals.FlagIndexCount - 1000;
 
         private static readonly object ReportGate = new object();
@@ -42,7 +42,7 @@ namespace Server.MirEnvir.Quests
             for (var i = 0; i < e.QuestInfoList.Count; i++)
             {
                 var q = e.QuestInfoList[i];
-                if (q == null || !q.HasDefinition) continue; // legacy-only quests keep ShapeHash 0 / Revision 0
+                if (q == null || !q.HasDefinition) continue; // quests without steps keep ShapeHash 0 / Revision 0
                 var hash = ShapeHashOf(q);
                 if (hash == q.Definition.ShapeHash) continue;
                 q.Definition.ShapeHash = hash;

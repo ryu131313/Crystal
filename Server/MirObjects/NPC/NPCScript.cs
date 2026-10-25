@@ -682,44 +682,21 @@ namespace Server.MirObjects
                 }
             }
         }
+        /// <summary>
+        /// The legacy [QUESTS] section (quest ids this NPC gives / takes) is no longer read (quest V2 wave 4): quest givers and turn-in
+        /// NPCs are questendpoints rows, edited in the web admin Quests page. A script that still has the section only gets a warning.
+        /// </summary>
         private void ParseQuests(IList<string> lines)
         {
             for (int i = 0; i < lines.Count; i++)
             {
                 if (!lines[i].ToUpper().StartsWith(QuestKey)) continue;
 
-                var loadedNPC = NPCObject.Get(LoadedObjectID);
-
-                if (loadedNPC == null)
-                {
-                    return;
-                }
-
-                while (++i < lines.Count)
-                {
-                    if (lines[i].StartsWith("[")) return;
-                    if (String.IsNullOrEmpty(lines[i])) continue;
-
-                    int.TryParse(lines[i], out int index);
-
-                    if (index == 0) continue;
-
-                    QuestInfo info = Envir.GetQuestInfo(Math.Abs(index));
-
-                    if (info == null) return;
-
-                    if (index > 0)
-                        info.NpcIndex = LoadedObjectID;
-                    else
-                        info.FinishNpcIndex = LoadedObjectID;
-
-                    if (loadedNPC.Quests.All(x => x != info))
-                        loadedNPC.Quests.Add(info);
-
-                }
+                MessageQueue.Enqueue("[Quests] NPC script " + FileName + " still has a [QUESTS] section; it is ignored since quest V2 " +
+                                     "(set quest givers in the web admin Quests page) and can be removed.");
+                return;
             }
         }
-
 
         private void ParseSpeech(IList<string> lines)
         {

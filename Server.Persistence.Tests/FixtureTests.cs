@@ -93,7 +93,7 @@ public class FixtureTests
             var nonDefault = new List<string>();
             var upgradedPre119 = Oracle.WithoutV119(Oracle.WithoutV121(upgraded, nonDefault), nonDefault);
             Assert.True(nonDefault.Count == 0, "v119/v121 fields not at their defaults after a v117 load: " + string.Join("; ", nonDefault));
-            expected = Oracle.WithoutV121(expected, new List<string>()); // the legacy quest lists are discarded by a pre-121 load
+            expected = Oracle.WithoutLegacyQuestFields(Oracle.WithoutV121(expected, new List<string>())); // the legacy quest lists are discarded by a pre-121 load
 
             static string WithoutBuffData(string dump) => string.Join("\n",
                 dump.Split('\n').Where(l => !System.Text.RegularExpressions.Regex.IsMatch(l, @"\.Buffs\[\d+\]\.Data")));
@@ -139,7 +139,7 @@ public class FixtureTests
             var nonDefault = new List<string>();
             var upgradedPre119 = Oracle.WithoutV119(Oracle.WithoutV121(upgraded, nonDefault), nonDefault);
             Assert.True(nonDefault.Count == 0, "v119/v121 fields not at their defaults after a v118 load: " + string.Join("; ", nonDefault));
-            expected = Oracle.WithoutV121(expected, new List<string>()); // the legacy quest lists are discarded by a pre-121 load
+            expected = Oracle.WithoutLegacyQuestFields(Oracle.WithoutV121(expected, new List<string>())); // the legacy quest lists are discarded by a pre-121 load
             Assert.True(expected == upgradedPre119, "v118 -> v119 changed existing data: " + Oracle.FirstDifference(expected, upgradedPre119));
             Assert.Contains(".AllowFriendRequests=True", upgraded);
             var oldMail = Envir.Main.AccountList[1].Characters[0].Mail[0]; // MailInfo lives in Server.MirEnvir, which the oracle skips
@@ -184,7 +184,7 @@ public class FixtureTests
             var nonDefault = new List<string>();
             var upgradedPre121 = Oracle.WithoutV121(upgraded, nonDefault);
             Assert.True(nonDefault.Count == 0, "v121 fields not at their defaults after a v119 load: " + string.Join("; ", nonDefault));
-            var expectedPre121 = Oracle.WithoutV121(expected, new List<string>());
+            var expectedPre121 = Oracle.WithoutLegacyQuestFields(Oracle.WithoutV121(expected, new List<string>()));
             Assert.True(expectedPre121 == upgradedPre121, "v119 -> current changed existing data: " + Oracle.FirstDifference(expectedPre121, upgradedPre121));
             var c1 = Envir.Main.AccountList[1].Characters[0];
             Assert.False(c1.ChatBanned);
@@ -227,12 +227,10 @@ public class FixtureTests
             var nonDefault = new List<string>();
             var upgradedPre121 = Oracle.WithoutV121(upgraded, nonDefault);
             Assert.True(nonDefault.Count == 0, "v121 fields not at their defaults after a v120 load: " + string.Join("; ", nonDefault));
-            var expectedPre121 = Oracle.WithoutV121(expected, new List<string>());
+            var expectedPre121 = Oracle.WithoutLegacyQuestFields(Oracle.WithoutV121(expected, new List<string>()));
             Assert.True(expectedPre121 == upgradedPre121, "v120 -> v121 changed existing data: " + Oracle.FirstDifference(expectedPre121, upgradedPre121));
 
             var c1 = Envir.Main.AccountList[1].Characters[0];
-            Assert.Empty(c1.CompletedQuests); // discarded, not converted
-            Assert.Empty(c1.CurrentQuests);
             Assert.Empty(c1.QuestRuns);
             Assert.Empty(c1.QuestObjectives);
             Assert.Empty(c1.QuestHistory);
@@ -270,7 +268,8 @@ public class FixtureTests
         var dir = NewTempFolder("resave121");
         File.Copy(Path.Combine(src, "Server.MirDB"), Path.Combine(dir, "Server.MirDB"));
         File.Copy(Path.Combine(src, "Server.MirADB"), Path.Combine(dir, "Server.MirADB"));
-        var expected = File.ReadAllText(Path.Combine(src, "oracle.txt")).Replace("\r\n", "\n");
+        // The legacy QuestInfo / NPCInfo quest fields and the always-empty legacy character lists left the models in wave 4.
+        var expected = Oracle.WithoutLegacyQuestFields(File.ReadAllText(Path.Combine(src, "oracle.txt")).Replace("\r\n", "\n"));
         InFolder(dir, () =>
         {
             Assert.True(LoadAll());
@@ -308,8 +307,14 @@ public class FixtureTests
             Assert.False(c2.HideFromRankings);
 
             SaveAll();
-            Assert.True(File.ReadAllBytes(Path.Combine(src, "Server.MirDB")).AsSpan().SequenceEqual(File.ReadAllBytes(Envir.DatabasePath)), "Server.MirDB differs from the v121 fixture");
+            // Server.MirDB: the legacy quest fields (FileName, gates, link words) and the NPC quest lists are dropped on load since wave 4
+            // and written as defaults, so the system data re-saves byte-stable but no longer equal to the fixture; the user data does.
             Assert.True(File.ReadAllBytes(Path.Combine(src, "Server.MirADB")).AsSpan().SequenceEqual(AccountsImage()), "the user data differs from the v121 fixture");
+            var db1 = File.ReadAllBytes(Envir.DatabasePath);
+            Assert.True(LoadAll());
+            Assert.Equal(dump, Oracle.Dump(Envir.Main));
+            SaveAll();
+            Assert.True(db1.AsSpan().SequenceEqual(File.ReadAllBytes(Envir.DatabasePath)), "Server.MirDB is not byte-stable");
             return 0;
         });
         Directory.Delete(dir, true);

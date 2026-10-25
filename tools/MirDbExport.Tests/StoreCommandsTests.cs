@@ -13,7 +13,33 @@ public sealed class StoreCommandsTests : IDisposable
         _dir = Path.Combine(Path.GetTempPath(), "mirdbexport-tests", Guid.NewGuid().ToString("N")[..8]);
         _src = Path.Combine(_dir, "src");
         Directory.CreateDirectory(_src);
-        File.Copy(FixtureDb(), Path.Combine(_src, "Server.MirDB"));
+        File.Copy(NormalisedFixtureDb(), Path.Combine(_src, "Server.MirDB"));
+    }
+
+    private static readonly object NormaliseGate = new object();
+    private static string _normalised;
+
+    /// <summary>
+    /// The v121 fixture as this build writes it back: quest V2 wave 4 dropped the legacy quest fields and the NPC quest lists, which the
+    /// binary layout still has room for, so an import of the raw fixture exports them as defaults (the rest byte for byte). The
+    /// import / export / roundtrip tests start from this file, which carries no legacy quest data.
+    /// </summary>
+    private static string NormalisedFixtureDb()
+    {
+        lock (NormaliseGate)
+        {
+            if (_normalised != null) return _normalised;
+            var dir = Path.Combine(Path.GetTempPath(), "mirdbexport-tests", "normalised-" + Guid.NewGuid().ToString("N")[..8]);
+            var src = Path.Combine(dir, "src");
+            Directory.CreateDirectory(src);
+            File.Copy(FixtureDb(), Path.Combine(src, "Server.MirDB"));
+            Assert.Equal(0, StoreCommands.Import(src, Path.Combine(dir, "SystemData.db")));
+            Assert.Equal(0, StoreCommands.ExportBinary(Path.Combine(dir, "SystemData.db"), Path.Combine(dir, "out"), force: false));
+            var raw = File.ReadAllBytes(FixtureDb());
+            var normalised = File.ReadAllBytes(Path.Combine(dir, "out", "Server.MirDB"));
+            Assert.NotEqual(raw, normalised); // the fixture's quest has a FileName and level gates: they are not carried any more
+            return _normalised = Path.Combine(dir, "out", "Server.MirDB");
+        }
     }
 
     public void Dispose()
@@ -38,7 +64,7 @@ public sealed class StoreCommandsTests : IDisposable
 
         var outDir = Path.Combine(_dir, "out");
         Assert.Equal(0, StoreCommands.ExportBinary(store, outDir, force: false));
-        Assert.Equal(File.ReadAllBytes(FixtureDb()), File.ReadAllBytes(Path.Combine(outDir, "Server.MirDB")));
+        Assert.Equal(File.ReadAllBytes(NormalisedFixtureDb()), File.ReadAllBytes(Path.Combine(outDir, "Server.MirDB")));
         Assert.Throws<ToolException>(() => StoreCommands.ExportBinary(store, outDir, force: false));
 
         // The import recorded the source's hash: roundtrip finds it and gets the same bytes back.
@@ -55,7 +81,6 @@ public sealed class StoreCommandsTests : IDisposable
             ["Configs/Setup.ini"] = Encoding.UTF8.GetBytes("[General]\r\nX=1\r\n[Game]\r\nDropRate=2\r\n"),
             ["Envir/Drops/Hen.txt"] = Encoding.UTF8.GetBytes(";pots\n1/10 NoSuchItem\n1/20 Gold 150"),
             ["Envir/Routes/Loop.txt"] = Encoding.UTF8.GetBytes("10,20\r\n11,21,500\r\n"),
-            ["Envir/Quests/Q.txt"] = Encoding.UTF8.GetBytes("[@Description]\nHello\n"),
         };
         foreach (var (rel, bytes) in files)
         {

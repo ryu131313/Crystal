@@ -6,9 +6,9 @@ using Server.WebAdmin.GameData;
 namespace Server.WebAdmin.Routes
 {
     /// <summary>
-    /// Scripts &amp; Files editor (B10): text files under Envir (NPC scripts, drops, quests, recipes, routes, values, Envir\*.txt,
-    /// SystemScripts) — tree, read, save with etag + backup, create / rename / delete, search, backups + restore, validation,
-    /// quest reload and the ConfigForm drop class tool. All file work is confined by <see cref="ScriptFileStore"/>.
+    /// Scripts &amp; Files editor (B10): text files under Envir (NPC scripts, drops, recipes, routes, values, Envir\*.txt,
+    /// SystemScripts) — tree, read, save with etag + backup, create / rename / delete, search, backups + restore, validation
+    /// and the ConfigForm drop class tool. All file work is confined by <see cref="ScriptFileStore"/>.
     /// </summary>
     public sealed class ScriptRoutes : IWebAdminRoutes
     {
@@ -29,7 +29,6 @@ namespace Server.WebAdmin.Routes
             router.Get("/api/admin/scripts/backup", GetBackup);
             router.Post("/api/admin/scripts/restore", PostRestore);
             router.Post("/api/admin/scripts/validate", PostValidate);
-            router.Post("/api/admin/scripts/reload-quests", PostReloadQuests);
             router.Post("/api/admin/scripts/drops/class-toggle", PostDropClassToggle);
         }
 
@@ -479,19 +478,6 @@ namespace Server.WebAdmin.Routes
         {
             var full = ConfinedPath(baseDir, envirDir, relative);
             return full == null ? null : ScriptFileStore.TryReadLines(full);
-        }
-
-        // ------------------------------------------------------------------ quests reload
-
-        /// <summary>
-        /// Quest V2 ship (D2): legacy quest bodies are read only and are no longer reloaded into the running world (the V2 runtime never
-        /// reads them; quests are edited in the Quests page, whose saves reach the world through the quest-replace hook). The route stays
-        /// registered so an old page gets a clear answer.
-        /// </summary>
-        private static async Task PostReloadQuests(WebAdminRequest req)
-        {
-            await req.ReadJsonAsync().ConfigureAwait(false);
-            throw new WebAdminException(409, ScriptFileStore.LegacyQuestsReadOnlyMessage);
         }
 
         // ------------------------------------------------------------------ drop class tool

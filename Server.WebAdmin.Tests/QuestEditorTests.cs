@@ -123,7 +123,7 @@ namespace Server.WebAdmin.Tests
             Assert.False(result.SharedTablesChanged);
 
             var q = Assert.Single(w.QuestInfoList);
-            Assert.Equal("Wolves of Bichon", q.Name); // legacy name from the name text
+            Assert.Equal("Wolves of Bichon", q.Name); // QuestInfo.Name from the name text
             Assert.Equal(new[] { 1, 2 }, q.Definition.Steps.Select(s => s.Index));
             Assert.Equal(2, q.Definition.Steps[0].NextStep);
             Assert.Equal(new[] { 1, 2, 3 }, q.Definition.Objectives.Select(o => o.Index));
@@ -453,7 +453,6 @@ namespace Server.WebAdmin.Tests
         [InlineData("POST", "/api/admin/quests/import", "/api/admin/quests/import")]
         [InlineData("POST", "/api/admin/quests/groups/save", "/api/admin/quests/groups/save")]
         [InlineData("POST", "/api/admin/quests/groups/3/delete", "/api/admin/quests/groups/{index:int}/delete")]
-        [InlineData("POST", "/api/admin/quests/reimport", "/api/admin/quests/reimport")]
         [InlineData("GET", "/api/admin/quests/validation", "/api/admin/quests/validation")]
         public void Routes_are_admin_only_and_writes_are_csrf_checked_posts(string method, string path, string pattern)
         {
@@ -469,36 +468,6 @@ namespace Server.WebAdmin.Tests
         }
 
         // ------------------------------------------------------------------ wave 3 review fixes
-
-        [Fact]
-        public void A_save_makes_the_quest_editor_owned_and_LegacySource_stays_the_importers()
-        {
-            var w = World();
-            var (svc, _) = Editor(w);
-            var dto = FullQuest();
-            dto.Objectives[0].LegacySource = "[@KILLTASKS] Wolf"; // a client may send anything: new rows get ""
-            dto.Rewards[0].LegacySource = "[@EXPREWARD]";
-            svc.Save(dto, false);
-            var q = w.QuestInfoList.Single();
-            Assert.True(q.Definition.EditorOwned); // review S1: legacy re-imports skip it from now on
-            Assert.All(q.Definition.Objectives, o => Assert.Equal(string.Empty, o.LegacySource));
-            Assert.All(q.Definition.Rewards, r => Assert.Equal(string.Empty, r.LegacySource));
-
-            // Existing rows keep the stored value whatever the client sends; a reward keeps one only when the stored quest has it.
-            q.Definition.Objectives[0].LegacySource = "[@KILLTASKS] Wolf";
-            q.Definition.Rewards[0].LegacySource = "[@EXPREWARD]";
-            var read = svc.Read(1);
-            Assert.True(read.EditorOwned);
-            Assert.False(read.Legacy);
-            read.Objectives[0].LegacySource = "forged";
-            read.Objectives[1].LegacySource = "forged too";
-            read.Rewards[1].LegacySource = "[@NOTSTORED]";
-            svc.Save(read, false);
-            Assert.Equal("[@KILLTASKS] Wolf", q.Definition.Objectives[0].LegacySource);
-            Assert.Equal(string.Empty, q.Definition.Objectives[1].LegacySource);
-            Assert.Equal("[@EXPREWARD]", q.Definition.Rewards[0].LegacySource);
-            Assert.Equal(string.Empty, q.Definition.Rewards[1].LegacySource);
-        }
 
         [Fact]
         public void Dry_runs_and_refused_saves_leave_the_editor_copy_exactly_as_it_was()

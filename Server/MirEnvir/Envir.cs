@@ -4148,8 +4148,6 @@ namespace Server.MirEnvir
             if (!LoadDB())
                 throw new InvalidOperationException("[Load] Server.MirDB could not be loaded (see the message above); the world will not start.");
 
-            StartQuestDefinitionImport(); // quest system V2 phase 1: imports legacy quests on a background thread when the V2 tables are empty (Envir.Quests.cs)
-
             BuffInfoList.Clear();
             foreach (var buff in BuffInfo.Load())
             {
@@ -5412,10 +5410,6 @@ namespace Server.MirEnvir
         {
             NPCInfoList.Add(new NPCInfo { Index = ++NPCIndex });
         }
-        public void CreateQuestInfo()
-        {
-            QuestInfoList.Add(new QuestInfo { Index = ++QuestIndex });
-        }
 
         public void AddToGameShop(ItemInfo Info)
         {
@@ -5449,11 +5443,6 @@ namespace Server.MirEnvir
         public void Remove(NPCInfo info)
         {
             NPCInfoList.Remove(info);
-            //Desync all objects\
-        }
-        public void Remove(QuestInfo info)
-        {
-            QuestInfoList.Remove(info);
             //Desync all objects\
         }
 
@@ -5652,18 +5641,6 @@ namespace Server.MirEnvir
             }
 
             return true;
-        }
-
-        public bool BindQuest(QuestProgressInfo quest)
-        {
-            for (var i = 0; i < QuestInfoList.Count; i++)
-            {
-                var info = QuestInfoList[i];
-                if (info.Index != quest.Index) continue;
-                quest.Info = info;
-                return true;
-            }
-            return false;
         }
 
         public Map GetMap(int index)

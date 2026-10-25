@@ -15,9 +15,7 @@
 
         public int Index;                 // 0 = a new quest
         public string Rev;                // concurrency token of the read (null for a new quest)
-        public string Name;               // legacy QuestInfo.Name (display; set from the name text when a quest is created)
-        public bool Legacy;               // read only: a legacy body file and never saved here, so a legacy re-import rebuilds its rows
-        public bool EditorOwned;          // read only: saved through this editor (QuestDefinition.EditorOwned); re-imports skip it
+        public string Name;               // QuestInfo.Name (display; set from the name text when a quest is created)
         public int Revision;              // read only
         public string ShapeHash;          // read only (a long as text: JavaScript numbers lose precision above 2^53)
 
@@ -72,7 +70,6 @@
         public int FailCondition;
         public string OnEnterPage;
         public string OnCompletePage;
-        public string LegacySource;
     }
 
     public sealed class QuestObjectiveDto
@@ -95,7 +92,6 @@
         public string TextKey;
         public int DropChance;
         public string Params;
-        public string LegacySource;
     }
 
     public sealed class QuestBranchDto
@@ -114,7 +110,6 @@
         public int Kind;
         public int TargetId;
         public int Map;
-        public string LegacySource;
     }
 
     public sealed class QuestRewardDto
@@ -128,7 +123,6 @@
         public int ChoiceGroup;
         public int Condition;
         public bool FirstTimeOnly;
-        public string LegacySource;
     }
 
     public sealed class QuestVarDto

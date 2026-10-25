@@ -274,12 +274,10 @@ namespace Server.WebAdmin.LiveDb
             if (npc == null) return null; // not placed: the new file is used when it is placed (restart)
 
             var script = npc.ScriptID;
-            var quests = new List<QuestInfo>(npc.Quests);
             var speech = new List<NPCSpeech>(npc.Speech);
             var goods = new List<UserItem>(npc.UsedGoods);
 
-            npc.Quests.Clear();  // the new script adds its own ([QUESTS] / [SPEECH] append)
-            npc.Speech.Clear();
+            npc.Speech.Clear(); // the new script adds its own ([SPEECH] appends)
             try
             {
                 npc.ReloadScript();
@@ -299,8 +297,6 @@ namespace Server.WebAdmin.LiveDb
             void Restore()
             {
                 npc.ScriptID = script;
-                npc.Quests.Clear();
-                npc.Quests.AddRange(quests);
                 npc.Speech.Clear();
                 npc.Speech.AddRange(speech);
                 npc.UsedGoods.Clear();
@@ -352,7 +348,6 @@ namespace Server.WebAdmin.LiveDb
             }
         }
 
-        public QuestReload.Outcome ReloadQuest(QuestInfo mainInfo) => QuestReload.Reload(mainInfo, Envir.Main.CharacterList);
 
         public Action RebuildMine(MapInfo mainMap)
         {

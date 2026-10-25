@@ -498,7 +498,6 @@ namespace Server.WebAdmin.Tests
         [InlineData("systemscripts", "00Default/Login.txt", "npcs")]
         [InlineData("drops", "Hen.txt", "drops")]
         [InlineData("recipes", "Sword.txt", "recipes")]
-        [InlineData("quests", "Q1.txt", null)] // legacy quest files are read only and not reloaded since the quest V2 ship (D2)
         [InlineData("envir", "LineMessage.txt", "linemessages")]
         [InlineData("envir", "Notice.txt", null)]
         [InlineData("routes", "Route1.txt", null)]
@@ -513,7 +512,7 @@ namespace Server.WebAdmin.Tests
         {
             Assert.Equal("drops", ScriptFileStore.ValidatorFor("drops"));
             Assert.Equal("npc", ScriptFileStore.ValidatorFor("systemscripts"));
-            Assert.Equal("quest", ScriptFileStore.ValidatorFor("quests"));
+            Assert.Null(ScriptFileStore.ValidatorFor("quests")); // no legacy quest files since quest V2 wave 4
             Assert.Equal("recipe", ScriptFileStore.ValidatorFor("recipes"));
             Assert.Null(ScriptFileStore.ValidatorFor("routes"));
         }
@@ -763,35 +762,14 @@ namespace Server.WebAdmin.Tests
         // ---------------------------------------------------------------- quests
 
         [Fact]
-        public void Quest_ChecksSectionsNamesAndNumbers()
+        public void Npc_QuestsSection_IsIgnored_WithOneWarning()
         {
-            var text = string.Join("\n",
-                "[@DESCRIPTION]",       // 1
-                "Kill some hens.",      // 2
-                "[@KILLTASKS]",         // 3
-                "Hen 5",                // 4 ok
-                "OmaWarrior 2",         // 5 ok (spaces ignored)
-                "Dragon 1",             // 6 unknown monster
-                "[@FIXEDREWARDS]",      // 7
-                "Armour",               // 8 ok via (M)/(F)
-                "Sword x",              // 9 bad count
-                "Nothing 1",            // 10 unknown item
-                "[@EXPREWARD]",         // 11
-                "lots",                 // 12 not a number
-                "[@REWARDS]",           // 13 unknown section
-                " [@GOLDREWARD]",       // 14 leading space header
-                "[@FLAGTASKS]",         // 15
-                "5000");                // 16 out of range
-            var diags = Run("quest", text);
-
-            Assert.DoesNotContain(diags, d => d.Line == 4 || d.Line == 5 || d.Line == 8);
-            AssertHas(diags, 6, "warning", "Unknown monster 'Dragon'");
-            AssertHas(diags, 9, "warning", "Count 'x'");
-            AssertHas(diags, 10, "warning", "Unknown item 'Nothing'");
-            AssertHas(diags, 12, "warning", "becomes 0");
-            AssertHas(diags, 13, "warning", "Unknown section");
-            AssertHas(diags, 14, "warning", "Spaces around");
-            AssertHas(diags, 16, "warning", "Flag must be");
+            // Quest V2 wave 4: [QUESTS] is no longer read (quest givers are questendpoints rows): one warning, the ids are not checked.
+            var text = string.Join("\n", "[@MAIN]", "Hello", "[QUESTS]", "1", "-1", "x");
+            var diags = Run("npc", text);
+            AssertHas(diags, 4, "warning", "[QUESTS] is ignored");
+            Assert.DoesNotContain(diags, d => d.Line == 5 || d.Line == 6);
+            Assert.Empty(Run("quest", "[@KILLTASKS]\nDragon 5")); // no legacy quest-file validator any more
         }
 
         // ---------------------------------------------------------------- recipes

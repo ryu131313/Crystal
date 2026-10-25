@@ -1,6 +1,8 @@
 ﻿using System.Drawing;
 using Server.MirDatabase;
 using Server.MirEnvir;
+using Server.MirEnvir.Quests;
+using Server.MirEnvir.Storage;
 using StressClient;
 
 namespace ScratchWorld;
@@ -9,13 +11,15 @@ namespace ScratchWorld;
 /// Generates a minimal world a scratch Server.exe will start on:
 ///  - Maps\&lt;name&gt;.map, either synthetic (the oldest Crystal format, "type 0", all walkable floor) or copies of real
 ///    server map files (--maps-from; the files are only read, never modified),
-///  - Server.MirDB holding those maps (FileName = the map name), a StartPoint safe zone on a walkable cell, two monster
-///    types with respawns around it, and a few StartItem items.
+///  - SystemData.db (the server's system data store) holding those maps (FileName = the map name), a StartPoint safe zone on a
+///    walkable cell, two monster types with respawns around it, a few StartItem items, the merchant NPC and two quest V2 quests
+///    ("Scratch Hunt": kill a Scratch Oma; "Scratch Signal": a flag set by the merchant's @SIGNAL page). Written directly through
+///    the store codec (quest V2 wave 4: there is no legacy quest importer to fill the V2 tables from Server.MirDB any more).
 /// The walkability scan uses the same parser the stress bots use (StressClient\MapFile.cs, compiled in), so a copied
 /// real map always gets a usable start point.
-/// Envir resolves Server.MirDB relative to the current directory, so the save runs with cwd = the output folder.
-/// SCRATCH ONLY: never point --out at a live server folder (the tool refuses a folder that already has a Server.MirDB
-/// unless --force, and always refuses a path under the repo's Build\ folder).
+/// The store is written relative to the current directory, so the save runs with cwd = the output folder.
+/// SCRATCH ONLY: never point --out at a live server folder (the tool refuses a folder that already has a SystemData.db or a
+/// Server.MirDB unless --force, and always refuses a path under the repo's Build\ folder).
 /// </summary>
 internal static class Program
 {
@@ -68,9 +72,9 @@ internal static class Program
         }
 
         Directory.CreateDirectory(outDir);
-        if (File.Exists(Path.Combine(outDir, "Server.MirDB")) && !force)
+        if ((File.Exists(Path.Combine(outDir, "SystemData.db")) || File.Exists(Path.Combine(outDir, "Server.MirDB"))) && !force)
         {
-            Console.Error.WriteLine($"'{outDir}' already has a Server.MirDB. Pass --force to overwrite it (scratch folders only).");
+            Console.Error.WriteLine($"'{outDir}' already has a SystemData.db or Server.MirDB. Pass --force to overwrite it (scratch folders only).");
             return 3;
         }
 
@@ -117,18 +121,21 @@ internal static class Program
             if (force)
             {
                 // Stale data from an earlier run would otherwise be backed up and kept next to the new DB.
-                foreach (var f in new[] { "Server.MirDB", "Server.MirDBn", "Server.MirADB", "Server.MirADBn", "Server.MirADB.imported", "UserData.db", "UserData.db-journal", "UserData.db.tmp" })
+                foreach (var f in new[] { "SystemData.db", "SystemData.db.tmp", "SystemData.db-journal", "Server.MirDB", "Server.MirDBn", "Server.MirADB", "Server.MirADBn",
+                             "Server.MirADB.imported", "UserData.db", "UserData.db-journal", "UserData.db.tmp" })
                     if (File.Exists(f)) File.Delete(f);
+                if (Directory.Exists(Path.Combine("Back Up", "Database"))) Directory.Delete(Path.Combine("Back Up", "Database"), true); // SQLite backups count as prior-store evidence
             }
 
             WriteDesignFiles(outDir);
 
             var e = Envir.Main;
             Populate(e, specs);
-            new Server.MirEnvir.Storage.BinaryWorldStore().SaveDesign(e, null); // Server.MirDB; the server imports it into SQLite on its first start
-            Console.WriteLine($"Wrote {Path.Combine(outDir, "Server.MirDB")} (version {Envir.Version}): " +
+            // SystemData.db straight from the codec (via .tmp, integrity check and read-back, as the server's first import does).
+            SqliteWorldStore.Create(SqliteWorldStore.DatabasePath, SqliteWorldCodec.Encode(e, 0), new Dictionary<string, object> { ["source"] = "scratch-world" });
+            Console.WriteLine($"Wrote {Path.Combine(outDir, "SystemData.db")} (schema {SqliteWorldCodec.SchemaVersion}): " +
                               $"{e.MapInfoList.Count} map(s), {e.MonsterInfoList.Count} monsters, {e.ItemInfoList.Count} items, " +
-                              $"{e.MapInfoList.Sum(m => m.Respawns.Count)} respawns, {e.NPCInfoList.Count} NPC(s), {e.QuestInfoList.Count} quest(s)");
+                              $"{e.MapInfoList.Sum(m => m.Respawns.Count)} respawns, {e.NPCInfoList.Count} NPC(s), {e.QuestInfoList.Count} quest V2 quest(s)");
         }
         finally
         {
@@ -138,13 +145,11 @@ internal static class Program
         return 0;
     }
 
-    /// <summary>The bot-facing content: a merchant script (buy/sell, repair, storage, quests) and one kill quest.</summary>
+    /// <summary>The bot-facing content: a merchant script (buy/sell, repair, storage, the quest signal). The quests are V2 rows (Populate).</summary>
     private static void WriteDesignFiles(string outDir)
     {
         var npcDir = Path.Combine(outDir, "Envir", "NPCs");
-        var questDir = Path.Combine(outDir, "Envir", "Quests");
         Directory.CreateDirectory(npcDir);
-        Directory.CreateDirectory(questDir);
 
         File.WriteAllText(Path.Combine(npcDir, "scratchtrader.txt"), """
             [@MAIN]
@@ -172,40 +177,9 @@ internal static class Program
             [TRADE]
             (HP)DrugSmall 50
             ScratchJunk 1
-
-            [QUESTS]
-            1
-            -1
-            2
-            -2
             """);
 
-        // A flag quest (quest V2: Flag objectives are met while the flag is set): the merchant's "Raise the signal" button sets flag 100.
-        File.WriteAllText(Path.Combine(questDir, "scratchsignal.txt"), """
-            [@DESCRIPTION]
-            Light the signal fire, then come back.
-            [@TASKDESCRIPTION]
-            Ask the trader to raise the signal.
-            [@FLAGTASKS]
-            100 "Signal raised"
-            [@GOLDREWARD]
-            100
-            """);
-
-        File.WriteAllText(Path.Combine(questDir, "scratchhunt.txt"), """
-            [@DESCRIPTION]
-            The Scratch Oma are getting bold. Thin them out.
-            [@TASKDESCRIPTION]
-            Kill a Scratch Oma.
-            [@KILLTASKS]
-            ScratchOma 1 "Scratch Oma slain"
-            [@EXPREWARD]
-            200
-            [@GOLDREWARD]
-            500
-            """);
-
-        Console.WriteLine($"Wrote {npcDir}\\scratchtrader.txt and {questDir}\\scratchhunt.txt");
+        Console.WriteLine($"Wrote {npcDir}\\scratchtrader.txt");
     }
 
     private static int Usage()
@@ -398,30 +372,68 @@ internal static class Program
             Rate = 100,
         });
 
-        // Kill quest defined in Envir\Quests\scratchhunt.txt; the NPC script links it to the merchant.
-        e.QuestInfoList.Add(new QuestInfo
-        {
-            Index = 1,
-            Name = "Scratch Hunt",
-            Group = "Scratch",
-            FileName = "scratchhunt",
-            RequiredMinLevel = 1,
-            RequiredMaxLevel = 0,
-            RequiredClass = RequiredClass.None,
-            Type = QuestType.General,
-        });
+        AddQuests(e);
+    }
 
-        // Flag quest defined in Envir\Quests\scratchsignal.txt (the merchant's @SIGNAL page sets the flag).
-        e.QuestInfoList.Add(new QuestInfo
+    /// <summary>
+    /// The two scratch quests as quest V2 rows, shaped as the legacy importer made them from the old quest files (one step, a kill
+    /// objective on a MonsterGroup, Side / Once, share Offer, given and taken by the merchant): "Scratch Hunt" (kill 1 Scratch Oma;
+    /// 200 exp, 500 gold) and "Scratch Signal" (flag 100, set by the merchant's @SIGNAL page; 100 gold).
+    /// </summary>
+    private static void AddQuests(Envir e)
+    {
+        var texts = 0;
+        string Text(string key, string body)
         {
-            Index = 2,
-            Name = "Scratch Signal",
-            Group = "Scratch",
-            FileName = "scratchsignal",
-            RequiredMinLevel = 1,
-            RequiredMaxLevel = 0,
-            RequiredClass = RequiredClass.None,
-            Type = QuestType.General,
+            e.QuestTextList.Add(new QuestTextInfo { Index = ++texts, TextKey = key, Body = body });
+            return key;
+        }
+
+        QuestInfo Quest(int index, string name, int step)
+        {
+            var q = new QuestInfo { Index = index, Name = name, Group = "Scratch" };
+            var d = q.Definition;
+            d.AuthorKey = "q" + index;
+            d.NameKey = Text(d.AuthorKey + ".name", name);
+            d.Category = QuestCategory.Side;
+            d.RepeatPolicy = QuestRepeatPolicy.Once;
+            d.ShareMode = QuestShareMode.Offer;
+            d.CreditMode = QuestCreditMode.PartyInRange;
+            d.GroupName = "Scratch";
+            d.LevelHint = 1;
+            d.Steps.Add(new QuestStepInfo { Index = step, Order = 1, NextStep = -1 });
+            d.Endpoints.Add(new QuestEndpointInfo { Role = QuestEndpointRole.Start, Kind = QuestEndpointKind.Npc, TargetId = 1 });
+            d.Endpoints.Add(new QuestEndpointInfo { Role = QuestEndpointRole.Finish, Kind = QuestEndpointKind.Npc, TargetId = 1 });
+            e.QuestInfoList.Add(q);
+            return q;
+        }
+
+        var hunt = Quest(1, "Scratch Hunt", 1).Definition;
+        hunt.SummaryKey = Text("q1.summary", "The Scratch Oma are getting bold. Thin them out.");
+        hunt.Steps[0].TextKey = Text("q1.task", "Kill a Scratch Oma.");
+        e.QuestGroupList.Add(new QuestGroupInfo { Index = 1, AuthorKey = "q1.kill.ScratchOma", Kind = QuestGroupKind.Monster, Members = { new QuestGroupMemberInfo { TargetId = 2 } } });
+        hunt.Objectives.Add(new QuestObjectiveInfo
+        {
+            Index = 1, Step = 1, Order = 1, Type = QuestObjectiveType.Kill, PartyCredit = QuestPartyCredit.Each, TargetKind = QuestTargetKind.MonsterGroup,
+            TargetId = 1, Count = 1, TextKey = Text("q1.obj1", "Scratch Oma slain"),
         });
+        hunt.Rewards.Add(new QuestRewardInfo { Kind = QuestRewardKind.Exp, Amount = 200 });
+        hunt.Rewards.Add(new QuestRewardInfo { Kind = QuestRewardKind.Gold, Amount = 500 });
+
+        var signal = Quest(2, "Scratch Signal", 2).Definition;
+        signal.SummaryKey = Text("q2.summary", "Light the signal fire, then come back.");
+        signal.Steps[0].TextKey = Text("q2.task", "Ask the trader to raise the signal.");
+        signal.Objectives.Add(new QuestObjectiveInfo
+        {
+            Index = 2, Step = 2, Order = 1, Type = QuestObjectiveType.Flag, PartyCredit = QuestPartyCredit.Each, TargetKind = QuestTargetKind.Flag,
+            TargetId = 100, Count = 1, TextKey = Text("q2.obj2", "Signal raised"),
+        });
+        signal.Rewards.Add(new QuestRewardInfo { Kind = QuestRewardKind.Gold, Amount = 100 });
+
+        e.QuestIndex = 2;
+        e.QuestStepIndex = 2;
+        e.QuestObjectiveIndex = 2;
+        e.QuestGroupIndex = 1;
+        e.QuestTextIndex = texts;
     }
 }

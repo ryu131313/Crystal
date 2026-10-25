@@ -18,7 +18,6 @@ namespace Server.MirObjects
         NPC,
         Poison,
         DamageIndicator,
-        Quest,
 
         // Sanjian
         SpellEffect,

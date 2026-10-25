@@ -50,7 +50,7 @@ namespace Server.WebAdmin.Tests
             var npc = new NPCInfo { Index = 1, Name = "Merchant", FileName = "Merchant", MapIndex = 1, Location = new Point(12, 12), Image = 3, ShowOnBigMap = true };
             ctx.Npcs.Add(npc);
             bichon.NPCs.Add(npc);
-            ctx.Quests.Add(new QuestInfo { Index = 1, Name = "FirstSteps", FileName = "FirstSteps", RequiredMinLevel = 1, RequiredMaxLevel = ushort.MaxValue });
+            ctx.Quests.Add(new QuestInfo { Index = 1, Name = "FirstSteps" });
             ctx.GameShop.Add(new GameShopItem { GIndex = 1, ItemIndex = 1, Info = ctx.Items[0], GoldPrice = 500, CreditPrice = 10, Count = 1, Class = "All", Category = "Weapon", Stock = 5 });
             ctx.Conquests.Add(new ConquestInfo { Index = 1, Name = "Sabuk", MapIndex = 1, Size = 10, StartHour = 20, WarLength = 60 });
             return ctx;
@@ -98,8 +98,6 @@ namespace Server.WebAdmin.Tests
             public readonly List<NPCInfo> Rebound = new List<NPCInfo>();
             public readonly List<NPCInfo> Visibility = new List<NPCInfo>();
             public readonly List<NPCInfo> Rebroadcast = new List<NPCInfo>();
-            public readonly List<QuestInfo> QuestsReloaded = new List<QuestInfo>();
-            public string QuestRefusal;
             public bool ThrowOnScript;
             public readonly List<MapInfo> Mines = new List<MapInfo>();
             public readonly List<(MapInfo Map, List<LiveDbZone> Previous, List<LiveDbZone> Created)> ZoneRebuilds = new List<(MapInfo, List<LiveDbZone>, List<LiveDbZone>)>();
@@ -208,13 +206,6 @@ namespace Server.WebAdmin.Tests
             {
                 Visibility.AddRange(visibility);
                 Rebroadcast.AddRange(rebroadcast);
-            }
-
-            public QuestReload.Outcome ReloadQuest(QuestInfo mainInfo)
-            {
-                if (QuestRefusal != null) return new QuestReload.Outcome { Refusal = QuestRefusal };
-                QuestsReloaded.Add(mainInfo);
-                return new QuestReload.Outcome { Reloaded = true, Undo = () => Calls.Add("quest-undo") };
             }
 
             public Action RebuildMine(MapInfo mainMap)
@@ -1069,7 +1060,6 @@ namespace Server.WebAdmin.Tests
             var edit = rig.Edit.Npcs.Single(n => n.Name == "Guard");
             var main = rig.Main.Npcs.Single(n => n.Name == "Guard");
             Assert.NotSame(edit, main);
-            Assert.NotSame(edit.CollectQuestIndexes, main.CollectQuestIndexes);
             Assert.Equal(new[] { main }, rig.Hooks.Spawned);
             Assert.Contains(("npcs", main.Index), rig.Hooks.Allocated);
             Assert.Contains(main, rig.Main.Maps[0].NPCs);
@@ -1108,59 +1098,19 @@ namespace Server.WebAdmin.Tests
         }
 
         [Fact]
-        public void Quest_LegacyColumns_AreReadOnly_SinceTheQuestV2Ship()
+        public void Quest_Columns_AreReadOnly_InTheGenericEngine()
         {
-            // Quest V2 ship (D2): the legacy quests columns only feed the legacy re-import. A batch cannot change them (read only, so
-            // ignored), nothing reloads a quest file, and the quests table is no longer a live table of the generic engine.
+            // Quest V2: every quests column is edited in the Quests page (the quest-replace hook); a LiveDb batch cannot change them (read
+            // only, so ignored) and the quests table is not a live table of the generic engine. The legacy columns are gone (wave 4).
             var rig = new Rig();
-            var r = rig.Run("bc-7", "quests", Upd(rig, "quests", 1, "\"FileName\":\"FirstSteps2\",\"Name\":\"First Steps\""));
+            var r = rig.Run("bc-7", "quests", Upd(rig, "quests", 1, "\"Name\":\"First Steps\""));
 
-            Assert.Empty(rig.Hooks.QuestsReloaded);
-            Assert.Equal("FirstSteps", rig.Edit.Quests[0].FileName);
-            Assert.Equal("FirstSteps", rig.Main.Quests[0].FileName);
+            Assert.Equal("FirstSteps", rig.Edit.Quests[0].Name);
             Assert.Equal("FirstSteps", rig.Main.Quests[0].Name);
+            Assert.Null(GameDataRegistry.Get("quests").Column("FileName"));
             Assert.DoesNotContain(r.Rows.SelectMany(x => x.Changes), c => c.Live);
             Assert.False(LiveDbClassification.IsLiveTable("quests"));
             Assert.All(GameDataRegistry.Get("quests").Columns.Where(c => !c.IsParentField), c => Assert.True(c.ReadOnly && c.Set == null, c.Name));
-        }
-
-        [Fact]
-        public void QuestReload_RefusesAChangedTaskShape_AndLeavesTheQuestUnchanged()
-        {
-            var hen = new MonsterInfo { Index = 1, Name = "Hen" };
-            var quest = new QuestInfo { Index = 1, Name = "Q", FileName = "Q" };
-            quest.KillTasks.Add(new QuestKillTask { Monster = hen, Count = 5 });
-            quest.Description.Add("old");
-            var tasksBefore = quest.KillTasks;
-
-            var refused = QuestReload.Reload(quest, new List<CharacterInfo>(), q =>
-            {
-                q.ClearInfo();
-                q.Description.Add("new");
-                q.KillTasks.Add(new QuestKillTask { Monster = hen, Count = 1 });
-                q.KillTasks.Add(new QuestKillTask { Monster = hen, Count = 2 });
-            });
-
-            Assert.False(refused.Reloaded);
-            Assert.Equal("kill tasks 1 -> 2", refused.Refusal);
-            Assert.Same(tasksBefore, quest.KillTasks);
-            Assert.Equal(new[] { "old" }, quest.Description);
-
-            var unreadable = QuestReload.Reload(quest, new List<CharacterInfo>(), q => throw new IOException("locked"));
-            Assert.False(unreadable.Reloaded);
-            Assert.DoesNotContain("locked", unreadable.Refusal); // never exception text
-            Assert.Same(tasksBefore, quest.KillTasks);
-
-            var ok = QuestReload.Reload(quest, new List<CharacterInfo>(), q =>
-            {
-                q.ClearInfo();
-                q.KillTasks.Add(new QuestKillTask { Monster = hen, Count = 9 });
-            });
-            Assert.True(ok.Reloaded);
-            Assert.Equal(9, quest.KillTasks[0].Count);
-            ok.Undo();
-            Assert.Same(tasksBefore, quest.KillTasks);
-            Assert.Equal(new[] { "old" }, quest.Description);
         }
 
         [Fact]
@@ -1456,9 +1406,7 @@ namespace Server.WebAdmin.Tests
         [Fact]
         public void Push_UsesTheConnectionsShopStock_AndSendsNoQuests()
         {
-            var quest = new QuestInfo { Index = 1, Name = "Q" };
             var changes = new LiveDbPushChanges();
-            changes.Quests[quest] = new ClientQuestInfo { Index = 1, Name = "shared", Group = string.Empty };
             changes.GameShop.Add(new ServerPackets.GameDataChanged.ShopEntry { Item = new GameShopItem { GIndex = 4, Info = BigItem(9, 1), Stock = 5 }, StockLevel = 5 });
             changes.GameShop.Add(new ServerPackets.GameDataChanged.ShopEntry { Item = new GameShopItem { GIndex = 5, Info = BigItem(10, 1), Stock = 1, iStock = true }, StockLevel = 1 });
 
@@ -1474,8 +1422,8 @@ namespace Server.WebAdmin.Tests
             Assert.Equal(2, entry.StockLevel);
             Assert.Equal(new[] { 5 }, p.GameShopRemoved);         // sold out for this player: hidden, as at login
 
-            // Quest V2 (wave 2 kick-off): S.GameDataChanged has no quest section; a connection with only quest changes gets nothing.
-            Assert.Empty(LiveDbPush.Build(changes, new LiveDbPushConnection(), out _));
+            // Quest V2: S.GameDataChanged has no quest section (quest edits go through the quest-replace hook).
+            Assert.Empty(LiveDbPush.Build(new LiveDbPushChanges(), new LiveDbPushConnection(), out _));
         }
 
         [Fact]
@@ -1529,13 +1477,13 @@ namespace Server.WebAdmin.Tests
         public void Classification_BatchC_WorldTablesAreLive()
         {
             Assert.Equal(new[] { "conquests", "dragon", "gameshop", "items", "magic", "mapminezones", "mapmovements", "maprespawns", "maps", "mapsafezones",
-                "monsters", "npcs" }, LiveDbClassification.LiveTables()); // quests: legacy columns read only since the quest V2 ship (D2)
+                "monsters", "npcs" }, LiveDbClassification.LiveTables()); // quests: edited in the Quests page (quest-replace hook)
             foreach (var child in new[] { "conquestguards", "conquestgates", "conquestwalls", "conquestsieges", "conquestflags", "conquestcontrolpoints" })
                 Assert.False(LiveDbClassification.IsLiveTable(child));
             Assert.Equal(LiveClass.ReadThrough, LiveDbClassification.Effective("npcs", "Rate").Class);
             Assert.Equal(LiveClass.Hooked, LiveDbClassification.Effective("npcs", "Location_X").Class);
             Assert.Equal(LiveClass.RestartOnly, LiveDbClassification.Effective("npcs", "Conquest").Class);
-            Assert.Equal(LiveClass.RestartOnly, LiveDbClassification.Effective("quests", "Type").Class);
+            Assert.Equal(LiveClass.QuestReplace, LiveDbClassification.Effective("quests", "Name").Class);
             Assert.Equal(LiveClass.RestartOnly, LiveDbClassification.Effective("maps", "FileName").Class);
             Assert.Equal(LiveClass.Hooked, LiveDbClassification.Effective("maprespawns", "Spread").Class);
             Assert.Equal(LiveClass.RestartOnly, LiveDbClassification.Effective("conquests", "MapIndex").Class);

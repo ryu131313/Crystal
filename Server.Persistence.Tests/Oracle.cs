@@ -129,6 +129,15 @@ internal static class Oracle
     /// file loaded by v121 code. v121 lines that do not hold the value a pre-121 file loads as (empty lists, no stats,
     /// HideFromRankings false) go to <paramref name="nonDefault"/>.
     /// </summary>
+    /// <summary>Oracle lines of the fields quest V2 wave 4 removed: every QuestInfo field except Index / Name / Group, the NPCInfo quest
+    /// index lists and the always-empty legacy character quest lists. Committed fixture oracles still print them.</summary>
+    private static readonly System.Text.RegularExpressions.Regex LegacyQuestFieldLine = new(
+        @"^(QuestInfoList\[\d+\]\.(?!(Index|Name|Group)=)|NPCInfoList\[\d+\]\.(CollectQuestIndexes|FinishQuestIndexes)(\[|\.Count=))|\.(CurrentQuests|CompletedQuests)(\[|\.Count=)");
+
+    /// <summary>Drops the lines of the fields quest V2 wave 4 removed from the models (see <see cref="LegacyQuestFieldLine"/>).</summary>
+    public static string WithoutLegacyQuestFields(string dump) =>
+        string.Join("\n", dump.Split('\n').Where(l => !LegacyQuestFieldLine.IsMatch(l)));
+
     public static string WithoutV121(string dump, List<string> nonDefault)
     {
         var kept = new List<string>();

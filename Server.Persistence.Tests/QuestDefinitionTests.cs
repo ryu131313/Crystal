@@ -27,18 +27,18 @@ public class QuestDefinitionTests
         e.NPCInfoList.Add(new NPCInfo { Index = 1, MapIndex = 1, FileName = "Guide", Name = "Guide", Location = new Point(10, 10) });
         e.MapIndex = 1; e.ItemIndex = 2; e.MonsterIndex = 1; e.NPCIndex = 1;
 
-        var q = new QuestInfo { Index = 1, Name = "Wolves", FileName = "Wolves", RequiredMinLevel = 3, RequiredMaxLevel = ushort.MaxValue };
+        var q = new QuestInfo { Index = 1, Name = "Wolves" };
         e.QuestInfoList.Add(q);
         e.QuestIndex = 1;
         var d = q.Definition;
         d.AuthorKey = "q1"; d.NameKey = "q1.name"; d.Category = QuestCategory.Side; d.AcceptCondition = 1; d.Flags = QuestFlags.HiddenInLog;
         d.StorylineIndex = 1; d.PoolIndex = 1; d.GroupName = "Bichon";
-        d.Steps.Add(new QuestStepInfo { Index = 1, Order = 1, TextKey = "q1.task", NextStep = 2, LegacySource = "step" });
+        d.Steps.Add(new QuestStepInfo { Index = 1, Order = 1, TextKey = "q1.task", NextStep = 2 });
         d.Steps.Add(new QuestStepInfo { Index = 2, Order = 2, NextStep = -1, CompletionMode = QuestStepCompletion.NOf, NRequired = 1 });
         d.Objectives.Add(new QuestObjectiveInfo { Index = 1, Step = 1, Order = 1, Type = QuestObjectiveType.Kill, TargetKind = QuestTargetKind.MonsterGroup, TargetId = 1, Count = 5 });
         d.Objectives.Add(new QuestObjectiveInfo { Index = 2, Step = 2, Order = 1, Type = QuestObjectiveType.Collect, TargetKind = QuestTargetKind.Item, TargetId = 2, Count = 3, Params = "" });
         d.Branches.Add(new QuestBranchInfo { Step = 1, ChoiceKey = "q1.task", NextStep = 2, Outcome = 1 });
-        d.Endpoints.Add(new QuestEndpointInfo { Role = QuestEndpointRole.Start, Kind = QuestEndpointKind.Npc, TargetId = 1, LegacySource = "script Guide" });
+        d.Endpoints.Add(new QuestEndpointInfo { Role = QuestEndpointRole.Start, Kind = QuestEndpointKind.Npc, TargetId = 1 });
         d.Rewards.Add(new QuestRewardInfo { Scope = QuestRewardScope.Quest, Kind = QuestRewardKind.Exp, Amount = 5_000_000_000L });
         d.Rewards.Add(new QuestRewardInfo { Scope = QuestRewardScope.Quest, Kind = QuestRewardKind.Item, TargetId = 1, Amount = 1, Condition = 2, ChoiceGroup = 1 });
         d.Vars.Add(new QuestVarInfo { Index = 1, AuthorKey = "count", Default = 2 });

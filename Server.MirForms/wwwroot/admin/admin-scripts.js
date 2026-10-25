@@ -1,13 +1,13 @@
 /**
  * Scripts & Files section (#section-scripts) — B10.
- * Text editor for Crystal's script folders (Envir\NPCs, Drops, Quests, Recipe, Routes, Values, Envir\*.txt, SystemScripts):
+ * Text editor for Crystal's script folders (Envir\NPCs, Drops, Recipe, Routes, Values, Envir\*.txt, SystemScripts):
  * root tabs, filterable file tree, editor (line-number gutter, Tab inserts a tab, Ctrl+S save, Ctrl+F find, Ctrl+G go to line),
  * diagnostics from the server-side validators, dirty guard, Save / Save & reload, search across files, backups + restore,
  * create / rename / delete. A root the server marks readOnly (the drops root since drops plan phase 2: drops are edited in
  * Game Data › Drops, which also holds the class drop tool) is view-only: view, search, validate, backups + Restore (the undo of
  * a grid save), no Save / Create / Rename / Delete.
  *
- * API: /api/admin/scripts/{roots,tree,file,create,delete,rename,search,backups,backup,restore,validate,reload-quests};
+ * API: /api/admin/scripts/{roots,tree,file,create,delete,rename,search,backups,backup,restore,validate};
  * reloads use B1's POST /api/admin/server/reload/{npcs|drops|linemessages|recipes}.
  * Deep link: #section=scripts&root=<id>&path=<relative path>&line=<n>
  */
@@ -24,8 +24,7 @@
     npcs: { label: 'Reload NPCs', url: '/api/admin/server/reload/npcs' },
     drops: { label: 'Reload Drops', url: '/api/admin/server/reload/drops' },
     linemessages: { label: 'Reload Line messages', url: '/api/admin/server/reload/linemessages' },
-    recipes: { label: 'Reload Recipes', url: '/api/admin/server/reload/recipes' },
-    quests: { label: 'Reload quest', url: API + '/reload-quests' }
+    recipes: { label: 'Reload Recipes', url: '/api/admin/server/reload/recipes' }
   };
 
   var el = null;          // the section element
@@ -567,11 +566,11 @@
   async function reloadCurrent() {
     if (!current || !current.reload || !RELOAD[current.reload]) return false;
     var spec = RELOAD[current.reload];
-    var body = current.reload === 'quests' ? { path: current.path } : {};
+    var body = {};
     var res = await send('POST', spec.url, body);
     if (!res.ok) {
       var msg = (res.body && res.body.message) || ('HTTP ' + res.status);
-      if (res.status === 404 && current.reload !== 'quests') msg = 'The reload endpoint is not available on this server (' + msg + ').';
+      if (res.status === 404) msg = 'The reload endpoint is not available on this server (' + msg + ').';
       toast(spec.label + ' failed: ' + msg, 'error');
       return false;
     }

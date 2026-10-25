@@ -6,7 +6,7 @@ namespace Server.MirObjects
 {
     public sealed partial class PlayerQuests
     {
-        /// <summary>The quest's display name: its NameKey text, else the legacy name.</summary>
+        /// <summary>The quest's display name: its NameKey text, else QuestInfo.Name.</summary>
         public string QuestName(QuestRuntime q)
         {
             var name = Catalog.Text(q.Def.NameKey);
@@ -224,7 +224,7 @@ namespace Server.MirObjects
             if (info != null) _player.Connection?.CheckItemInfo(info);
         }
 
-        /// <summary>Quest markup links (&lt;$ITEM:n&gt; …) resolved as legacy CreateClientQuestInfo did, sending the linked infos.</summary>
+        /// <summary>Quest markup links (&lt;$ITEM:n&gt; …) resolved as the legacy CreateClientQuestInfo did, sending the linked infos.</summary>
         private string LinkText(string text)
         {
             if (string.IsNullOrEmpty(text)) return string.Empty;

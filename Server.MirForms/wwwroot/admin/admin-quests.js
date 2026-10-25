@@ -184,12 +184,12 @@
   function blankQuest() {
     var stepId = newTemp();
     return {
-      index: 0, rev: null, name: '', legacy: false, revision: 0, shapeHash: '0',
+      index: 0, rev: null, name: '', revision: 0, shapeHash: '0',
       authorKey: '', nameKey: '', summaryKey: '', completeKey: '',
       category: 1, storylineIndex: 0, storylineOrder: 0, levelHint: 0, acceptCondition: 0, visibleCondition: 0, repeatPolicy: 0,
       cooldownSeconds: 0, maxCompletions: 0, shareMode: 1, creditMode: 1, timeLimitSeconds: 0, failPolicy: 0, abandonAllowed: true,
       poolIndex: 0, startItemConsumed: false, flags: 0, groupName: '',
-      steps: [{ index: stepId, order: 1, titleKey: '', textKey: '', readyTextKey: '', completionMode: 0, nRequired: 0, nextStep: 0, timeLimitSeconds: 0, failCondition: 0, onEnterPage: '', onCompletePage: '', legacySource: '' }],
+      steps: [{ index: stepId, order: 1, titleKey: '', textKey: '', readyTextKey: '', completionMode: 0, nRequired: 0, nextStep: 0, timeLimitSeconds: 0, failCondition: 0, onEnterPage: '', onCompletePage: '' }],
       objectives: [], branches: [], endpoints: [], rewards: [], vars: [], conditions: [], texts: {}
     };
   }
@@ -356,7 +356,7 @@
       var badges = h('span', { cls: 'qe-badges' },
         x.errors ? h('span', { cls: 'ops-pill ops-pill-danger', text: x.errors + ' err' }) : null,
         x.warnings ? h('span', { cls: 'ops-pill ops-pill-warn', text: x.warnings + ' warn' }) : null,
-        !x.hasDefinition ? h('span', { cls: 'ops-pill', text: 'legacy only' }) : null);
+        !x.hasDefinition ? h('span', { cls: 'ops-pill', title: 'No steps yet: the quest does nothing until it has a step.', text: 'no steps' }) : null);
       var row = h('button', { type: 'button', cls: 'qe-row' + (quest && quest.index === x.index ? ' active' : ''), onclick: function () { openQuest(x.index); } },
         h('span', { cls: 'qe-row-index', text: '#' + x.index }),
         h('span', { cls: 'qe-row-name', text: x.name || '(unnamed)' }),
@@ -590,8 +590,6 @@
     var errs = problems.filter(function (p) { return !p.warning; }).length;
     host.appendChild(h('div', { cls: 'qe-head' },
       h('h3', { text: quest.index ? 'Quest #' + quest.index + ' ' + (quest.authorKey || '') : 'New quest' }),
-      quest.legacy ? h('span', { cls: 'ops-pill ops-pill-warn', title: 'Imported from a legacy quest file and never saved here: a re-import of the legacy quests rebuilds its rows from that file. The first save on this page makes the quest editor-owned, and re-imports skip it from then on.', text: 'legacy body' }) : null,
-      quest.editorOwned && !quest.legacy && quest.index ? h('span', { cls: 'ops-pill', title: 'Saved on this page: legacy re-imports leave this quest alone.', text: 'editor-owned' }) : null,
       quest.index ? h('span', { cls: 'mir-muted', text: 'revision ' + quest.revision }) : null,
       h('span', { cls: 'qe-dirty', 'data-role': 'dirty' }),
       h('span', { cls: 'qe-spacer' }),
@@ -746,7 +744,7 @@
       oh.appendChild(button('+ Objective', function () {
         quest.objectives.push({
           index: newTemp(), step: s.index, order: objs.length + 1, type: 0, partyCredit: 0, targetKind: kindValue('Monster'), targetId: 0, count: 1,
-          map: 0, x: 0, y: 0, radius: 0, optional: false, hidden: false, condition: 0, textKey: '', dropChance: 0, params: '', legacySource: ''
+          map: 0, x: 0, y: 0, radius: 0, optional: false, hidden: false, condition: 0, textKey: '', dropChance: 0, params: ''
         });
         markDirty(); renderEditor();
       }));
@@ -755,7 +753,7 @@
     });
     host.appendChild(button('+ Step', function () {
       var s = sortedSteps();
-      quest.steps.push({ index: newTemp(), order: s.length + 1, titleKey: '', textKey: '', readyTextKey: '', completionMode: 0, nRequired: 0, nextStep: 0, timeLimitSeconds: 0, failCondition: 0, onEnterPage: '', onCompletePage: '', legacySource: '' });
+      quest.steps.push({ index: newTemp(), order: s.length + 1, titleKey: '', textKey: '', readyTextKey: '', completionMode: 0, nRequired: 0, nextStep: 0, timeLimitSeconds: 0, failCondition: 0, onEnterPage: '', onCompletePage: '' });
       markDirty(); renderEditor();
     }, 'primary'));
   }
@@ -832,8 +830,8 @@
     });
     host.appendChild(table);
     host.appendChild(h('div', { cls: 'qe-actions' },
-      button('+ Start NPC', function () { quest.endpoints.push({ role: 0, kind: 0, targetId: 0, map: 0, legacySource: '' }); markDirty(); renderEditor(); }, 'primary'),
-      button('+ Finish NPC', function () { quest.endpoints.push({ role: 1, kind: 0, targetId: 0, map: 0, legacySource: '' }); markDirty(); renderEditor(); })));
+      button('+ Start NPC', function () { quest.endpoints.push({ role: 0, kind: 0, targetId: 0, map: 0 }); markDirty(); renderEditor(); }, 'primary'),
+      button('+ Finish NPC', function () { quest.endpoints.push({ role: 1, kind: 0, targetId: 0, map: 0 }); markDirty(); renderEditor(); })));
   }
 
   // -- rewards --
@@ -869,7 +867,7 @@
     });
     host.appendChild(table);
     host.appendChild(button('+ Reward', function () {
-      quest.rewards.push({ scope: 0, scopeId: 0, kind: 0, targetId: 0, amount: 0, scaling: 0, choiceGroup: 0, condition: 0, firstTimeOnly: false, legacySource: '' });
+      quest.rewards.push({ scope: 0, scopeId: 0, kind: 0, targetId: 0, amount: 0, scaling: 0, choiceGroup: 0, condition: 0, firstTimeOnly: false });
       markDirty(); renderEditor();
     }, 'primary'));
   }

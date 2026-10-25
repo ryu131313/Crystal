@@ -5,12 +5,12 @@
 .DESCRIPTION
   1. Builds Server.exe into <Scratch>\build via tools\verify.ps1 (never Build\), and the
      tools\scratch-world generator into its own bin\.
-  2. Assembles <Scratch>\run: the build output, a generated Server.MirDB + Maps\scratch0.map
-     (only when missing, or with -Reset), and Configs\Setup.ini with the load-test profile.
+  2. Assembles <Scratch>\run: the build output, a generated SystemData.db (with the two scratch quest V2 quests,
+     "Scratch Hunt" and "Scratch Signal") + Maps\scratch0.map (only when missing, or with -Reset), and
+     Configs\Setup.ini with the load-test profile.
   3. Starts Server.exe minimized with the working directory = <Scratch>\run, writes the PID to
-     <Scratch>\server.pid, and waits for "Network Started." in Logs\Server\*.log. A fresh
-     SystemData.db (first start, or -Reset) is started twice: the first start imports the quest V2
-     tables into Envir.Edit only, which the running world loads at its next start.
+     <Scratch>\server.pid, and waits for "Network Started." in Logs\Server\*.log. One start (since
+     quest V2 wave 4 the generator writes the quest V2 rows itself; there is no legacy import any more).
 
   SAFETY: scratch only. The profile turns on [LoadTest] ExemptLoopback (no IP blocks, MaxIP or
   per-IP account/character limits for 127.x), turns CheckVersion and EnforceDBChecks off, and
@@ -108,7 +108,7 @@ if ($Reset) {
 & robocopy $serverBuild $runDir /E /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) { Write-Error "robocopy failed ($LASTEXITCODE)"; exit 1 }
 
-if (-not (Test-Path (Join-Path $runDir 'Server.MirDB'))) {
+if (-not (Test-Path (Join-Path $runDir 'SystemData.db'))) {
     if ($MapsFrom) {
         if (-not (Test-Path $MapsFrom)) { Write-Error "MapsFrom folder not found: $MapsFrom"; exit 1 }
         & $generator --out $runDir --maps-from $MapsFrom --maps $Maps --force
@@ -158,11 +158,6 @@ Set-Content -Path (Join-Path $configs 'Setup.ini') -Value $ini -Encoding ASCII
 # ---- start ----
 $exe = Join-Path $runDir 'Server.exe'
 $logDir = Join-Path $runDir 'Logs\Server'
-# A first start imports Server.MirDB into SystemData.db, and the quest V2 importer then fills the V2 tables on Envir.Edit only;
-# the running world (Envir.Main) sees them from its next start (UserData-and-Quests-Plan.md, lane F). So a fresh store is started,
-# waited for the import, stopped politely and started again.
-$freshStore = -not (Test-Path (Join-Path $runDir 'SystemData.db'))
-
 function Start-AndWait {
     # Only log text written after this start counts (the daily log file keeps earlier starts).
     $before = @{}
@@ -188,17 +183,5 @@ function Start-AndWait {
 }
 
 $logPath = Start-AndWait
-if ($freshStore) {
-    $deadline = (Get-Date).AddSeconds(30)
-    while ((Get-Date) -lt $deadline) {
-        $text = Get-Content $logPath -Raw -ErrorAction SilentlyContinue
-        if ($text -match '\[Quests\] (Imported|Automatic import)') { break }
-        Start-Sleep -Milliseconds 500
-    }
-    Write-Host 'Fresh SystemData.db: restarting once so the running world loads the imported quest V2 tables.'
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'stop-scratch-server.ps1') -Scratch $scratchFull
-    if ($LASTEXITCODE -ne 0) { Write-Error 'Stopping the scratch server for the quest restart failed.'; exit 1 }
-    $logPath = Start-AndWait
-}
 Write-Host "World and network started ($logPath)." -ForegroundColor Green
 exit 0

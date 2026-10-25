@@ -4,7 +4,7 @@ namespace Server.MirEnvir.Storage
 {
     /// <summary>
     /// File-shaped access to the text design data (roadmap P7 phase 7.4): the game's loaders and the editors call these instead of
-    /// <c>File.*</c> for paths under the drop, quest, recipe and route folders. While the store is active such paths are served by
+    /// <c>File.*</c> for paths under the drop, recipe and route folders. While the store is active such paths are served by
     /// <see cref="DesignTexts"/> (the cache, so the game thread never queries the store); any other path, or every path while the store
     /// isn't active (first start before the import, tests and tools on Server.MirDB), goes to the disk as before.
     /// Names compare case-insensitively, like Windows paths.

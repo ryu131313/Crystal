@@ -1,54 +1,17 @@
-﻿using System.Text.Json;
-using Server.MirEnvir.Quests;
+﻿using Server.MirEnvir.Quests;
 
 namespace Server.WebAdmin.Routes
 {
     /// <summary>
-    /// Quest system V2, phase 1 (UserData-and-Quests-Plan.md, Part B): the "Re-import legacy quests" action and the last validation
-    /// report. The import rebuilds the V2 rows of the legacy quests on Envir.Edit and saves SystemData.db (ids kept stable; quests made in
-    /// the Quests editor are not touched); since wave 3 the re-imported quests reach the running world through the quest-replace hook.
-    /// <para>Threads: HTTP only; the import takes EditLock itself (<see cref="QuestImportRunner"/>).</para>
+    /// Quest system V2 (UserData-and-Quests-Plan.md, Part B): the last validation report. The legacy "re-import legacy quests" action
+    /// (<c>POST /api/admin/quests/reimport</c>) was removed with the importer in wave 4; quests are authored in the Quests page.
+    /// <para>Threads: HTTP only; reads a copy of the last report.</para>
     /// </summary>
     public sealed class QuestDefinitionRoutes : IWebAdminRoutes
     {
         public void Register(WebAdminRouter router)
         {
-            router.Post("/api/admin/quests/reimport", PostReimport);
             router.Get("/api/admin/quests/validation", GetValidation);
-        }
-
-        private static async Task PostReimport(WebAdminRequest req)
-        {
-            var body = await req.ReadJsonAsync().ConfigureAwait(false);
-            var dryRun = body.ValueKind == JsonValueKind.Object && body.GetBool("dryRun");
-            var reason = body.ValueKind == JsonValueKind.Object ? body.GetString("reason") : null;
-
-            var outcome = await Task.Run(() => QuestImportRunner.Run("web admin re-import", onlyWhenEmpty: false, dryRun)).ConfigureAwait(false);
-            if (outcome.Report == null)
-                throw new WebAdminException(409, "The quest import did not run: " + outcome.Message + ".");
-
-            var r = outcome.Report;
-            var data = new
-            {
-                dryRun,
-                quests = r.Quests,
-                unparsable = r.Unparsed.Count,
-                noGiver = r.NoGiver.Count,
-                multiGiver = r.MultiGiver.Count,
-                cutShort = r.CutShort.Count,
-                errors = r.Errors,
-                warnings = r.Warnings,
-                report = r.ToMarkdown(),
-            };
-
-            var live = string.Empty;
-            if (!dryRun)
-            {
-                WebAdminAudit.Record(req, "quests.reimport", "SystemData.db", new { r.Quests, r.Errors, r.Warnings }, string.IsNullOrWhiteSpace(reason) ? null : reason.Trim());
-                // The re-imported legacy quests reach the running world through the quest-replace hook (wave 3).
-                live = " " + (await Quests.QuestEditNotifier.QuestsChangedAsync(r.ImportedQuests, true, req.AdminName, "legacy re-import").ConfigureAwait(false)).Message;
-            }
-            await req.Ok(data, dryRun ? "Dry run: " + r.Summary() : r.Summary() + " Saved." + live).ConfigureAwait(false);
         }
 
         private static Task GetValidation(WebAdminRequest req)

@@ -16,11 +16,7 @@ namespace Server.MirEnvir.Quests
         {
             public int Index;
             public bool Deleted;
-            public string Name = string.Empty, Group = string.Empty, FileName = string.Empty;
-            public QuestType Type;
-            public int RequiredMinLevel, RequiredMaxLevel, RequiredQuest, TimeLimitInSeconds;
-            public RequiredClass RequiredClass;
-            public string GotoMessage = string.Empty, KillMessage = string.Empty, ItemMessage = string.Empty, FlagMessage = string.Empty;
+            public string Name = string.Empty, Group = string.Empty;
             public QuestDefinition Definition;
             /// <summary>The condition nodes this quest owns (OwnerQuest = Index).</summary>
             public readonly List<QuestConditionInfo> OwnedConditions = new List<QuestConditionInfo>();
@@ -106,17 +102,6 @@ namespace Server.MirEnvir.Quests
                     Index = q.Index,
                     Name = q.Name ?? string.Empty,
                     Group = q.Group ?? string.Empty,
-                    FileName = q.FileName ?? string.Empty,
-                    Type = q.Type,
-                    RequiredMinLevel = q.RequiredMinLevel,
-                    RequiredMaxLevel = q.RequiredMaxLevel,
-                    RequiredQuest = q.RequiredQuest,
-                    RequiredClass = q.RequiredClass,
-                    TimeLimitInSeconds = q.TimeLimitInSeconds,
-                    GotoMessage = q.GotoMessage ?? string.Empty,
-                    KillMessage = q.KillMessage ?? string.Empty,
-                    ItemMessage = q.ItemMessage ?? string.Empty,
-                    FlagMessage = q.FlagMessage ?? string.Empty,
                     Definition = q.Definition.DeepCopy(),
                 });
             }
@@ -254,14 +239,8 @@ namespace Server.MirEnvir.Quests
                     }
                     else
                     {
-                        // Created in the Quests page: a new Main row (no legacy body: FileName is empty for editor quests).
-                        main.QuestInfoList.Add(new QuestInfo
-                        {
-                            Index = q.Index, Name = q.Name, Group = q.Group, FileName = q.FileName, Type = q.Type,
-                            RequiredMinLevel = q.RequiredMinLevel, RequiredMaxLevel = q.RequiredMaxLevel, RequiredQuest = q.RequiredQuest,
-                            RequiredClass = q.RequiredClass, TimeLimitInSeconds = q.TimeLimitInSeconds, GotoMessage = q.GotoMessage,
-                            KillMessage = q.KillMessage, ItemMessage = q.ItemMessage, FlagMessage = q.FlagMessage, Definition = q.Definition,
-                        });
+                        // Created in the Quests page: a new Main row.
+                        main.QuestInfoList.Add(new QuestInfo { Index = q.Index, Name = q.Name, Group = q.Group, Definition = q.Definition });
                     }
                 }
 

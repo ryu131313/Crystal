@@ -140,6 +140,8 @@ namespace Server.MirEnvir.Storage
             {
                 SqliteWorldFile.CheckIntegrity(conn);
                 SqliteWorldFile.CheckSchema(conn);
+                SqliteWorldFile.DropLegacyQuestColumns(conn, MessageQueue.Enqueue, System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path), SqliteWorldStore.BackUpPath,
+                    $"Pre-quest-legacy-drop {DateTime.Now:yyyy-MM-dd HH-mm-ss}.bak"));
                 SqliteWorldFile.Migrate(conn, MessageQueue.Enqueue, System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path), SqliteWorldStore.BackUpPath,
                     $"Pre-migrate {DateTime.Now:yyyy-MM-dd HH-mm-ss}.bak"));
                 SqliteWorldFile.FixDuplicateRespawnIndexes(conn, MessageQueue.Enqueue, System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path), SqliteWorldStore.BackUpPath,

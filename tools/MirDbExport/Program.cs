@@ -31,15 +31,18 @@ Usage:
       with the server's own codec. Refuses to overwrite an existing store.
 
   MirDbExport export-binary <SystemData.db> <out-folder> [--force]
-      The rollback: writes <out-folder>\Server.MirDB from a SQLite store.
+      The rollback: writes <out-folder>\Server.MirDB from a SQLite store. Quests carry only Index, Name and Group
+      (the legacy quest fields are written as defaults since quest V2 wave 4, the NPC quest lists empty); the quest V2
+      definitions live in SystemData.db only.
 
   MirDbExport roundtrip <folder> [<store.db>]
       Loads <store.db> (default <folder>\SystemData.db), writes it as binary and compares the bytes with the
       Server.MirDB or Back Up\Database\*.bak in <folder> whose SHA-256 the store recorded at import.
-      Exit 0 only when identical (no design edits since the import).
+      Exit 0 only when identical (no design edits since the import, and no legacy quest data in the source: wave 4
+      writes those fields as defaults).
 
   MirDbExport check-files <server-folder>
-      Imports the folder's design files (Configs\*.ini, Envir\Drops, Quests, Recipe, Routes) into a scratch
+      Imports the folder's design files (Configs\*.ini, Envir\Drops, Recipe, Routes) into a scratch
       store built from its Server.MirDB and checks that every file renders back byte for byte (roadmap P7 7.4).
 
   MirDbExport check-drops <server-folder>

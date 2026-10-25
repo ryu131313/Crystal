@@ -66,8 +66,7 @@ namespace Server.MirEnvir.Storage
                 var rows = Writer.Run(w => SqliteWorldFile.ReadAll(w.Connection));
                 Envir.LoadVersion = Envir.Version;
                 Envir.LoadCustomVersion = Envir.CustomVersion;
-                // Design texts (phase 7.4): names for rendering, then import (first use) and cache every kind, before QuestInfo.LoadInfo
-                // in Decode reads quest bodies through DesignFiles.
+                // Design texts (phase 7.4): names for rendering, then import (first use) and cache every kind before the loaders read them.
                 if (DesignStore.Broken != null) throw new InvalidDataException("the design data couldn't be read at startup: " + DesignStore.Broken);
                 DesignTexts.RefreshNames(rows);
                 if (!DesignStore.Disabled) DesignTexts.EnsureLoaded();

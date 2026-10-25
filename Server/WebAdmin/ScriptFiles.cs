@@ -523,13 +523,7 @@ namespace Server.WebAdmin
             {
                 new ScriptRoot("npcs", "NPC scripts", Abs(Settings.NPCPath), false, "Envir\\NPCs — NPC dialog scripts (Reload NPCs applies changes live)."),
                 new ScriptRoot("drops", "Drops", Abs(Settings.DropPath), false, "Envir\\Drops — drop lists, read only here: edit them in Game Data › Drops.") { ReadOnly = true },
-                // Quest V2 ship (D2, UserData-and-Quests-Plan.md, Authoring "No content freeze"): the legacy quest bodies only feed the
-                // legacy re-import from here on; quests are edited in the Quests page.
-                new ScriptRoot("quests", "Quests", Abs(Settings.QuestPath), false, "Envir\\Quests — legacy quest bodies, read only: edit quests in the Quests page.")
-                {
-                    ReadOnly = true,
-                    ReadOnlyMessage = LegacyQuestsReadOnlyMessage,
-                },
+                // No Envir\Quests root since quest V2 wave 4: legacy quest bodies are no longer read (quests are edited in the Quests page).
                 new ScriptRoot("recipes", "Recipes", Abs(Settings.RecipePath), true, "Envir\\Recipe — crafting recipes, one file per crafted item."),
                 new ScriptRoot("routes", "Routes", Abs(Settings.RoutePath), false, "Envir\\Routes — monster walking routes (applied on reboot)."),
                 new ScriptRoot("values", "Values", Abs(Settings.ValuePath), false, "Envir\\Values — value files read and written by NPC scripts."),
@@ -1152,13 +1146,8 @@ namespace Server.WebAdmin
             }
         }
 
-        /// <summary>The refusal for edits of the legacy quest bodies (Scripts editor, quest reload) since the quest V2 ship.</summary>
-        public const string LegacyQuestsReadOnlyMessage =
-            "Legacy quest files are read only since the quest V2 ship: edit quests in the Quests page (Game Data › Quests). Restoring a backup still works here; the files only feed the legacy re-import.";
-
         /// <summary>
-        /// Which live reload applies a saved file: "npcs", "drops", "linemessages", "recipes" or null (legacy quest files are read only and
-        /// no longer reloaded since the quest V2 ship).
+        /// Which live reload applies a saved file: "npcs", "drops", "linemessages", "recipes" or null.
         /// </summary>
         public static string ReloadKindFor(string rootId, string normalized)
         {
@@ -1190,8 +1179,6 @@ namespace Server.WebAdmin
                     return "Reload Drops to apply.";
                 case "recipes":
                     return "Reload Recipes to apply.";
-                case "quests":
-                    return "Read only: quests are edited in the Quests page, which applies them to the running world. These files only feed the legacy re-import.";
                 case "routes":
                     return "Routes are read when maps are created: reboot the world to apply.";
                 case "values":
@@ -1206,7 +1193,7 @@ namespace Server.WebAdmin
             }
         }
 
-        /// <summary>The validator family for a root: "drops", "npc", "quest", "recipe" or null.</summary>
+        /// <summary>The validator family for a root: "drops", "npc", "recipe" or null.</summary>
         public static string ValidatorFor(string rootId)
         {
             switch ((rootId ?? string.Empty).ToLowerInvariant())
@@ -1214,7 +1201,6 @@ namespace Server.WebAdmin
                 case "drops": return "drops";
                 case "npcs":
                 case "systemscripts": return "npc";
-                case "quests": return "quest";
                 case "recipes": return "recipe";
                 default: return null;
             }

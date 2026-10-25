@@ -3,7 +3,7 @@ using Microsoft.Data.Sqlite;
 namespace Server.MirEnvir.Storage
 {
     /// <summary>
-    /// The design data that used to live in loose files (roadmap P7 phase 7.4): ini settings, drops, quest bodies, recipes and routes,
+    /// The design data that used to live in loose files (roadmap P7 phase 7.4): ini settings, drops, recipes and routes,
     /// stored in SystemData.db next to the Server.MirDB tables and written by the same <see cref="SqliteWriter"/>.
     /// <list type="bullet">
     /// <item><b>Active</b> once SystemData.db exists and the server runs on the SQLite store. Before the first import, and in tests and

@@ -239,8 +239,6 @@ namespace Server.WebAdmin.GameData
             opts.Lookups["MapIndex"] = "maps";
             opts.Required.Add("MapIndex");
             opts.Lookups["Conquest"] = "conquests";
-            opts.Lookups["CollectQuestIndexes"] = "quests";
-            opts.Lookups["FinishQuestIndexes"] = "quests";
 
             return new GameDataTable
             {
@@ -284,21 +282,14 @@ namespace Server.WebAdmin.GameData
 
         private static GameDataTable Quests()
         {
-            // Only the persisted fields: tasks / rewards / descriptions live in the quest txt file, NpcIndex is runtime and FinishNPC throws.
+            // Index, Name and Group (the legacy columns were dropped in quest V2 wave 4 by SqliteWorldFile.DropLegacyQuestColumns), plus the
+            // V2 columns. All read only here: quests are created, edited and deleted in the Quests page (Server/WebAdmin/Quests), whose saves
+            // reach the running world through the quest-replace hook.
             var opts = new GameDataReflectOptions
             {
-                Include = new[]
-                {
-                    nameof(QuestInfo.Name), nameof(QuestInfo.Group), nameof(QuestInfo.FileName), nameof(QuestInfo.RequiredMinLevel),
-                    nameof(QuestInfo.RequiredMaxLevel), nameof(QuestInfo.RequiredQuest), nameof(QuestInfo.RequiredClass), nameof(QuestInfo.Type),
-                    nameof(QuestInfo.GotoMessage), nameof(QuestInfo.KillMessage), nameof(QuestInfo.ItemMessage), nameof(QuestInfo.FlagMessage),
-                    nameof(QuestInfo.TimeLimitInSeconds),
-                },
+                Include = new[] { nameof(QuestInfo.Name), nameof(QuestInfo.Group) },
             };
-            opts.Lookups["RequiredQuest"] = "quests";
             var columns = GameDataColumns.Reflect(typeof(QuestInfo), opts);
-            // Quest V2 ship (D2): the legacy columns are read only too. They only feed the legacy re-import; quests are created, edited and
-            // deleted in the Quests page (Server/WebAdmin/Quests), whose saves reach the running world through the quest-replace hook.
             foreach (var c in columns)
             {
                 if (c.Name == "Index" || c.Set == null) continue;
@@ -307,7 +298,7 @@ namespace Server.WebAdmin.GameData
                 c.Set = null;
             }
 
-            columns.AddRange(QuestDefinitionColumns()); // quest V2: written by the Quests page and the importer only
+            columns.AddRange(QuestDefinitionColumns()); // quest V2: written by the Quests page only
 
             return new GameDataTable
             {
@@ -331,30 +322,11 @@ namespace Server.WebAdmin.GameData
                 },
                 Lists = ctx => new System.Collections.IList[] { ctx.Quests },
                 Remove = (ctx, row) => ctx.Quests.Remove((QuestInfo)row.Entity),
-                DeleteGuard = (ctx, row) =>
-                {
-                    var refs = new List<string>();
-                    foreach (var n in ctx.Npcs)
-                        if (n.CollectQuestIndexes.Contains(row.Index) || n.FinishQuestIndexes.Contains(row.Index))
-                            refs.Add("NPC #" + n.Index.ToString(CultureInfo.InvariantCulture) + " " + n.Name);
-
-                    foreach (var q in ctx.Quests)
-                        if (q.Index != row.Index && q.RequiredQuest == row.Index)
-                            refs.Add("quest #" + q.Index.ToString(CultureInfo.InvariantCulture) + " " + q.Name + " (required quest)");
-
-                    return Describe("Used by", refs);
-                },
                 Validate = (ctx, row, changed) =>
                 {
                     var q = (QuestInfo)row.Entity;
                     var errors = new List<GameDataFieldError>();
                     if (changed.Contains("Name") && string.IsNullOrWhiteSpace(q.Name)) errors.Add(new GameDataFieldError("Name", "is required"));
-                    if (changed.Contains("RequiredQuest") && q.RequiredQuest != 0 && q.RequiredQuest == row.Index)
-                        errors.Add(new GameDataFieldError("RequiredQuest", "a quest cannot require itself"));
-                    if ((changed.Contains("RequiredMinLevel") || changed.Contains("RequiredMaxLevel")) && q.RequiredMaxLevel > 0 && q.RequiredMinLevel > q.RequiredMaxLevel)
-                        errors.Add(new GameDataFieldError("RequiredMinLevel", "is higher than RequiredMaxLevel"));
-                    if (changed.Contains("FileName") && !string.IsNullOrWhiteSpace(q.FileName) && !IsSafeRelativeScriptName(q.FileName))
-                        errors.Add(new GameDataFieldError("FileName", "must be a relative file name (no drive, no '..')"));
                     return errors;
                 },
             };

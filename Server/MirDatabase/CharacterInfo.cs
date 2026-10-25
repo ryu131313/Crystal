@@ -88,11 +88,8 @@ namespace Server.MirDatabase
         public List<UserIntelligentCreature> IntelligentCreatures = new List<UserIntelligentCreature>();
         public int PearlCount;
 
-        // Legacy quest state: NOT saved since Envir.Version 121 and always empty after a load (the < 121 bytes are skipped by
-        // SkipLegacyCurrentQuests / SkipLegacyCompletedQuests). Kept only so the legacy consumers compile until lane F moves
-        // them to the V2 state below; wave 4 deletes both.
-        public List<QuestProgressInfo> CurrentQuests = new List<QuestProgressInfo>();
-        public List<int> CompletedQuests = new List<int>();
+        // The legacy CurrentQuests / CompletedQuests lists are gone (wave 4): not saved since Envir.Version 121, and a < 121 load
+        // skips their bytes (SkipLegacyCurrentQuests / SkipLegacyCompletedQuests below).
 
         //v121: quest V2 state (Part B "Character state"), player statistics and the rankings opt-out (Part A)
         public List<QuestRunState> QuestRuns = new List<QuestRunState>();

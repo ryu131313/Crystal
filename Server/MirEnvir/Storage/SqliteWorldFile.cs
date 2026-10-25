@@ -68,8 +68,9 @@ namespace Server.MirEnvir.Storage
         }
 
         /// <summary>
-        /// Raises meta.schema_version to the current one once the writer's open steps (Migrate, the respawn fix, the drops conversion) have
-        /// run, so an older build refuses the upgraded file (it would not find its drop_lines). Idempotent.
+        /// Raises meta.schema_version to the current one once the writer's open steps (the legacy quest drop, Migrate, the respawn fix, the
+        /// drops conversion) have run, so an older build refuses the upgraded file (it would not find its drop_lines or its legacy quest
+        /// columns). Idempotent.
         /// </summary>
         public static void UpgradeSchemaVersion(SqliteConnection conn)
         {
@@ -256,6 +257,82 @@ namespace Server.MirEnvir.Storage
             Upsert(conn, tx, "meta", "migrated_utc", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
             tx.Commit();
             return added;
+        }
+
+        /// <summary>The legacy quest columns quest V2 wave 4 drops (UserData-and-Quests-Plan.md, Part B phase 4), by table.</summary>
+        internal static readonly (string Table, string[] Columns)[] LegacyQuestColumns =
+        {
+            ("quests", new[]
+            {
+                "FileName", "RequiredMinLevel", "RequiredMaxLevel", "RequiredQuest", "RequiredClass", "Type", "GotoMessage", "KillMessage",
+                "ItemMessage", "FlagMessage", "TimeLimitInSeconds", "EditorOwned",
+            }),
+            ("queststeps", new[] { "LegacySource" }),
+            ("questobjectives", new[] { "LegacySource" }),
+            ("questendpoints", new[] { "LegacySource" }),
+            ("questrewards", new[] { "LegacySource" }),
+            ("npcs", new[] { "CollectQuestIndexes", "FinishQuestIndexes" }),
+        };
+
+        /// <summary>The meta key the removed legacy quest importer recorded its version under (dropped with the columns).</summary>
+        internal const string LegacyQuestImporterMetaKey = "quest_importer_version";
+
+        /// <summary>
+        /// Written migration of quest V2 wave 4 (UserData-and-Quests-Plan.md, Part B phase 4; deploy D3): drops the legacy quest columns
+        /// (<see cref="LegacyQuestColumns"/>: the legacy <c>quests</c> fields, <c>EditorOwned</c>, every <c>LegacySource</c>, the NPC quest
+        /// index lists), the legacy quest bodies of the design data (table <c>quest_lines</c> and the <c>design_files</c> rows of kind
+        /// "quests") and the importer's meta key, in one transaction. With <paramref name="backupPath"/> the store is first copied there with
+        /// VACUUM INTO: the D2 build refuses the migrated store (schema_version 4), so that copy is its rollback. Idempotent (nothing to drop
+        /// → nothing done, no copy); every dropped column / table is logged. Returns the number of columns and tables dropped.
+        /// </summary>
+        public static int DropLegacyQuestColumns(SqliteConnection conn, Action<string> log, string backupPath = null)
+        {
+            var drop = new List<(string Table, string Column)>();
+            foreach (var (table, columns) in LegacyQuestColumns)
+            {
+                var actual = TableColumns(conn, null, table);
+                foreach (var column in columns)
+                    if (actual.Contains(column)) drop.Add((table, column));
+            }
+
+            var questLines = TableColumns(conn, null, "quest_lines").Count > 0;
+            var designRows = TableColumns(conn, null, "design_files").Count > 0 &&
+                             Scalar(conn, null, "SELECT count(*) FROM design_files WHERE kind = 'quests'") is long n && n > 0;
+            var meta = Scalar(conn, null, "SELECT count(*) FROM meta WHERE name = '" + LegacyQuestImporterMetaKey + "'") is long m && m > 0;
+            if (drop.Count == 0 && !questLines && !designRows && !meta) return 0;
+
+            if (backupPath != null)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(backupPath)));
+                BackupTo(conn, backupPath);
+                log("[Store] Copied the store to " + backupPath + " before dropping the legacy quest data (quest V2 wave 4; the D2 build runs on this copy)");
+            }
+
+            using var tx = conn.BeginTransaction();
+            foreach (var (table, column) in drop)
+            {
+                Exec(conn, tx, "ALTER TABLE " + SqliteWorldCodec.Quote(table) + " DROP COLUMN " + SqliteWorldCodec.Quote(column));
+                log("[Store] Dropped legacy quest column " + table + "." + column);
+            }
+
+            if (questLines)
+            {
+                Exec(conn, tx, "DROP TABLE quest_lines");
+                log("[Store] Dropped table quest_lines (legacy quest bodies)");
+            }
+
+            if (designRows)
+            {
+                Exec(conn, tx, "DELETE FROM design_files WHERE kind = 'quests'");
+                log("[Store] Removed the legacy quest body files from design_files");
+            }
+
+            if (meta) Exec(conn, tx, "DELETE FROM meta WHERE name = '" + LegacyQuestImporterMetaKey + "'");
+            Upsert(conn, tx, "meta", "legacy_quests_dropped_utc", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
+            tx.Commit();
+            log("[Store] Legacy quest data dropped: " + drop.Count.ToString(CultureInfo.InvariantCulture) + " column(s)" + (questLines ? ", table quest_lines" : string.Empty) +
+                "; quests are V2 only from here on (schema_version " + SqliteWorldCodec.SchemaVersion.ToString(CultureInfo.InvariantCulture) + ")");
+            return drop.Count + (questLines ? 1 : 0);
         }
 
         /// <summary>

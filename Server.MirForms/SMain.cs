@@ -223,14 +223,6 @@ namespace Server
         private static void ShowEditor(Form form)
         {
             Server.MirEnvir.Envir.EditorFormOpened();
-            // Counted first, then checked: either this sees the world-start quest import, or the import sees the open editor.
-            if (Server.MirEnvir.Envir.QuestImportRunning)
-            {
-                Server.MirEnvir.Envir.EditorFormClosed();
-                form.Dispose();
-                MessageBox.Show("The legacy quest import is running (it saves the game data). Try again when the [Quests] line appears in the log.", "Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
             try
             {
                 form.ShowDialog();
@@ -267,13 +259,6 @@ namespace Server
             BalanceConfigForm form = new BalanceConfigForm();
 
             form.ShowDialog();
-        }
-
-        private void questInfoToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            QuestInfoForm form = new QuestInfoForm();
-
-            ShowEditor(form);
         }
 
         private void serverToolStripMenuItem_Click(object sender, EventArgs e)
@@ -321,13 +306,6 @@ namespace Server
         private void nPCInfoToolStripMenuItem_Click_1(object sender, EventArgs e)
         {
             NPCInfoForm form = new NPCInfoForm();
-
-            ShowEditor(form);
-        }
-
-        private void questInfoToolStripMenuItem_Click_1(object sender, EventArgs e)
-        {
-            QuestInfoForm form = new QuestInfoForm();
 
             ShowEditor(form);
         }

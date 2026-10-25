@@ -83,7 +83,7 @@ namespace Server.WebAdmin.LiveDb
         void RemoveNpc(NPCInfo mainInfo);
 
         /// <summary>
-        /// Binds the script of the NPC's new FileName (quests and speech come from the new script; unsaved used goods stay). Throws
+        /// Binds the script of the NPC's new FileName (speech comes from the new script; unsaved used goods stay). Throws
         /// when the script cannot be loaded, leaving the NPC as it was.
         /// </summary>
         Action RebindNpcScript(NPCInfo mainInfo);
@@ -93,9 +93,6 @@ namespace Server.WebAdmin.LiveDb
         /// looks or name changed. Isolated per NPC: never throws.
         /// </summary>
         void RefreshNpcs(ICollection<NPCInfo> visibility, ICollection<NPCInfo> rebroadcast);
-
-        /// <summary>The shared quest reload (<see cref="QuestReload"/>) of a changed QuestInfo.FileName.</summary>
-        QuestReload.Outcome ReloadQuest(QuestInfo mainInfo);
 
         /// <summary>Rebuilds the map's mine (mine state resets).</summary>
         Action RebuildMine(MapInfo mainMap);
@@ -255,7 +252,6 @@ namespace Server.WebAdmin.LiveDb
         public int NpcsMoved;
         public int NpcsSpawned;
         public int ScriptsRebound;
-        public int QuestsReloaded;
         public int SafeZoneMapsRebuilt;
         public int MinesRebuilt;
         public int RespawnsRebuilt;
@@ -285,7 +281,7 @@ namespace Server.WebAdmin.LiveDb
     /// remove-before-change; a conquest at war, a missing Main row or a wrong position refuse the row: saved only);</item>
     /// <item>prepared clones are inserted, deleted rows removed (resolved first, then removed by reference);</item>
     /// <item>spells are synced;</item>
-    /// <item>the throwing hooks run (drop files, random stats, start items, quest files, NPC scripts, respawn caches, saved spawns,
+    /// <item>the throwing hooks run (drop files, random stats, start items, NPC scripts, respawn caches, saved spawns,
     /// mines, safe-zone spells, start points, dragon area, the monster sweep queue), each recording its compensation;</item>
     /// <item>the notify hooks run (NPC visibility / re-broadcast, safe-zone flags, item holders: isolated per object, never throw);</item>
     /// <item>the client push is queued (S.GameDataChanged with fresh snapshot copies).</item>
@@ -464,7 +460,6 @@ namespace Server.WebAdmin.LiveDb
             public readonly List<ItemInfo> Resolve = new List<ItemInfo>();
             public bool StartItems;
 
-            public readonly List<KeyValuePair<QuestInfo, LiveDbUpdate>> QuestReloads = new List<KeyValuePair<QuestInfo, LiveDbUpdate>>();
             public readonly List<KeyValuePair<NPCInfo, LiveDbUpdate>> NpcScripts = new List<KeyValuePair<NPCInfo, LiveDbUpdate>>();
             public readonly HashSet<NPCInfo> NpcVisibility = new HashSet<NPCInfo>();
             public readonly HashSet<NPCInfo> NpcRebroadcast = new HashSet<NPCInfo>();
@@ -480,7 +475,6 @@ namespace Server.WebAdmin.LiveDb
             public readonly List<MonsterInfo> PushMonsters = new List<MonsterInfo>();
             public readonly HashSet<Spell> PushSpells = new HashSet<Spell>();
             public readonly List<NPCInfo> PushNpcs = new List<NPCInfo>();
-            public readonly List<QuestInfo> PushQuests = new List<QuestInfo>();
             public readonly List<GameShopItem> PushShop = new List<GameShopItem>();
             public readonly List<int> PushShopRemoved = new List<int>();
             public readonly HashSet<MapInfo> MapsInvalidated = new HashSet<MapInfo>();
@@ -567,7 +561,7 @@ namespace Server.WebAdmin.LiveDb
                 {
                     try
                     {
-                        var changes = Snapshot(work.PushItems, work.PushMonsters, work.PushSpells, work.PushNpcs, work.PushQuests, work.PushShop,
+                        var changes = Snapshot(work.PushItems, work.PushMonsters, work.PushSpells, work.PushNpcs, work.PushShop,
                             work.PushShopRemoved, work.MapsInvalidated, main);
                         if (!changes.IsEmpty) result.Push = hooks.Push(changes);
                     }
@@ -760,12 +754,6 @@ namespace Server.WebAdmin.LiveDb
                     }
 
                     Work.AddOnce(work.PushNpcs, n);
-                    break;
-                case QuestInfo quest:
-                    // QuestInfo's loader turns a saved 0 into "no maximum"; keep the running copy the same as after a restart.
-                    if (quest.RequiredMaxLevel == 0 && TryGet(u, "RequiredMaxLevel", out _)) quest.RequiredMaxLevel = ushort.MaxValue;
-                    if (TryGet(u, "FileName", out _)) work.QuestReloads.Add(new KeyValuePair<QuestInfo, LiveDbUpdate>(quest, u));
-                    Work.AddOnce(work.PushQuests, quest);
                     break;
                 case MapInfo map:
                     if (TryGet(u, "MineIndex", out _)) Work.AddOnce(work.Mines, map);
@@ -1134,24 +1122,6 @@ namespace Server.WebAdmin.LiveDb
                 result.StartItemsRebuilt = true;
             }
 
-            // Quest files: a refused reload keeps the running quest and refuses only FileName (shared rule with the Scripts editor).
-            for (var i = 0; i < work.QuestReloads.Count; i++)
-            {
-                var quest = work.QuestReloads[i].Key;
-                var outcome = hooks.ReloadQuest(quest);
-                if (outcome != null && outcome.Reloaded)
-                {
-                    undo.AddBefore(outcome.Undo);
-                    result.QuestsReloaded++;
-                    continue;
-                }
-
-                RevertField(undo, quest, "FileName");
-                work.QuestReloads[i].Value.RefuseField("FileName", "the quest file was not reloaded (" + (outcome?.Refusal ?? "refused") +
-                                                                   "); the running quest keeps its old file until a restart");
-                result.Refused++;
-            }
-
             // NPC scripts: a script that cannot be loaded keeps the old one and refuses only FileName.
             for (var i = 0; i < work.NpcScripts.Count; i++)
             {
@@ -1159,7 +1129,7 @@ namespace Server.WebAdmin.LiveDb
                 try
                 {
                     undo.AddBefore(hooks.RebindNpcScript(npc));
-                    work.NpcRebroadcast.Add(npc); // quest marks come from the script
+                    work.NpcRebroadcast.Add(npc);
                     result.ScriptsRebound++;
                 }
                 catch (Exception ex)
@@ -1233,19 +1203,18 @@ namespace Server.WebAdmin.LiveDb
         /// <summary>Fresh copies of the changed Main records (never Main references: packets must not change after they are queued).</summary>
         internal static LiveDbPushChanges Snapshot(List<ItemInfo> items, List<MonsterInfo> monsters, HashSet<Spell> spells)
         {
-            return Snapshot(items, monsters, spells, null, null, null, null, null, null);
+            return Snapshot(items, monsters, spells, null, null, null, null, null);
         }
 
         /// <summary>
         /// Fresh copies of the changed Main records: items (<see cref="ItemInfo.CopyFrom"/>), monsters / NPCs (ClientInformation, new
-        /// objects), quests (a viewer-free ClientQuestInfo with copied lists; the production push builds each connection's own copy so
-        /// the links it mentions are sent first), game-shop rows (a copy whose Info is a copy of Main's item), removed shop indexes and
+        /// objects), game-shop rows (a copy whose Info is a copy of Main's item), removed shop indexes and
         /// invalidated maps (Main's MapInfo keys, matched against each connection's SentMapInfo). A shop row's item is copied from
         /// <paramref name="main"/>'s ItemInfo of the same index (rows loaded at world start still point at the editor copy's item:
         /// Known debt of Envir.BindGameShop).
         /// </summary>
         internal static LiveDbPushChanges Snapshot(List<ItemInfo> items, List<MonsterInfo> monsters, HashSet<Spell> spells, List<NPCInfo> npcs,
-            List<QuestInfo> quests, List<GameShopItem> shop, List<int> shopRemoved, HashSet<MapInfo> maps, GameDataContext main)
+            List<GameShopItem> shop, List<int> shopRemoved, HashSet<MapInfo> maps, GameDataContext main)
         {
             var changes = new LiveDbPushChanges();
             if (items != null)
@@ -1267,10 +1236,6 @@ namespace Server.WebAdmin.LiveDb
             if (npcs != null)
                 for (var i = 0; i < npcs.Count; i++)
                     changes.Npcs[npcs[i]] = npcs[i].ClientInformation; // a new object with copied values
-
-            if (quests != null)
-                for (var i = 0; i < quests.Count; i++)
-                    changes.Quests[quests[i]] = CopyQuest(quests[i].CreateClientQuestInfo());
 
             if (shop != null)
                 for (var i = 0; i < shop.Count; i++)
@@ -1301,19 +1266,6 @@ namespace Server.WebAdmin.LiveDb
             info.CopyFrom(item);
             copy.Info = info;
             return copy;
-        }
-
-        /// <summary>Own lists for a ClientQuestInfo (CreateClientQuestInfo may hand out Main's lists).</summary>
-        internal static ClientQuestInfo CopyQuest(ClientQuestInfo q)
-        {
-            if (q == null) return null;
-            q.Description = new List<string>(q.Description ?? new List<string>());
-            q.TaskDescription = new List<string>(q.TaskDescription ?? new List<string>());
-            q.ReturnDescription = new List<string>(q.ReturnDescription ?? new List<string>());
-            q.CompletionDescription = new List<string>(q.CompletionDescription ?? new List<string>());
-            q.RewardsFixedItem = new List<QuestItemReward>(q.RewardsFixedItem ?? new List<QuestItemReward>());
-            q.RewardsSelectItem = new List<QuestItemReward>(q.RewardsSelectItem ?? new List<QuestItemReward>());
-            return q;
         }
 
         // ================================================================== rollback

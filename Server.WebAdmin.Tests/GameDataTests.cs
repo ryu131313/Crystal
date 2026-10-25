@@ -46,10 +46,9 @@ namespace Server.WebAdmin.Tests
             ctx.Maps.Add(new MapInfo { Index = 2, FileName = "1", Title = "Woomyon" });
 
             ctx.Quests.Add(new QuestInfo { Index = 1, Name = "First" });
-            ctx.Quests.Add(new QuestInfo { Index = 2, Name = "Second", RequiredQuest = 1 });
+            ctx.Quests.Add(new QuestInfo { Index = 2, Name = "Second" });
 
             ctx.Npcs.Add(new NPCInfo { Index = 1, Name = "Merchant", FileName = "Bichon\\Merchant", MapIndex = 1 });
-            ctx.Npcs[0].CollectQuestIndexes.Add(2);
 
             ctx.GameShop.Add(new GameShopItem { GIndex = 1, ItemIndex = 2, Count = 1, Info = ctx.Items[1] });
 
@@ -205,7 +204,8 @@ namespace Server.WebAdmin.Tests
             var npcs = T("npcs");
             Assert.NotNull(npcs.Column("Location_X"));
             Assert.NotNull(npcs.Column("Location_Y"));
-            Assert.True(npcs.Column("CollectQuestIndexes").IsList);
+            Assert.Null(npcs.Column("CollectQuestIndexes")); // dropped in quest V2 wave 4
+            Assert.True(T("conquests").Column("ExtraMaps").IsList);
             Assert.Null(npcs.Column("Colour"));
             Assert.Null(npcs.Column("Sabuk"));
 
@@ -217,7 +217,8 @@ namespace Server.WebAdmin.Tests
             Assert.NotNull(T("dragon").Column("Exps_12"));
             Assert.Null(T("dragon").Column("Level"));
             Assert.True(T("conquestguards").Column("LocalIndex").ReadOnly);
-            Assert.Null(T("quests").Column("GoldReward")); // parsed from the quest txt, not persisted
+            Assert.Null(T("quests").Column("GoldReward")); // legacy quest body field, gone
+            Assert.Null(T("quests").Column("FileName"));   // legacy column, dropped in quest V2 wave 4
         }
 
         [Fact]
@@ -250,7 +251,12 @@ namespace Server.WebAdmin.Tests
             var npcProps = npcDoc.RootElement.GetProperty("properties").EnumerateArray().ToDictionary(p => p.GetProperty("name").GetString(), p => p);
             Assert.Equal("reference", npcProps["MapIndex"].GetProperty("kind").GetString());
             Assert.Equal("maps", npcProps["MapIndex"].GetProperty("lookup").GetString());
-            Assert.Equal("quests", npcProps["FinishQuestIndexes"].GetProperty("listLookup").GetString());
+            Assert.False(npcProps.ContainsKey("FinishQuestIndexes"));
+
+            var conquestSchema = JsonSerializer.Serialize(GameDataSchema.Build(T("conquests")), WebAdminJson.Options);
+            using var conquestDoc = JsonDocument.Parse(conquestSchema);
+            var conquestProps = conquestDoc.RootElement.GetProperty("properties").EnumerateArray().ToDictionary(p => p.GetProperty("name").GetString(), p => p);
+            Assert.Equal("maps", conquestProps["ExtraMaps"].GetProperty("listLookup").GetString());
         }
 
         [Fact]
@@ -406,11 +412,11 @@ namespace Server.WebAdmin.Tests
             result = GameDataEngine.Apply(ctx, shop, Rows("[{\"Index\":0}]"), false, false);
             Assert.Equal(0, result.Applied); // ItemIndex is required on insert
 
-            result = GameDataEngine.Apply(ctx, T("npcs"), Rows("[{\"Index\":1,\"FinishQuestIndexes\":\"1, 5\"}]"), false, false);
+            result = GameDataEngine.Apply(ctx, T("conquests"), Rows("[{\"Index\":1,\"ExtraMaps\":\"1, 5\"}]"), false, false);
             Assert.Equal(0, result.Applied);
-            result = GameDataEngine.Apply(ctx, T("npcs"), Rows("[{\"Index\":1,\"FinishQuestIndexes\":\"1, 2\"}]"), false, false);
+            result = GameDataEngine.Apply(ctx, T("conquests"), Rows("[{\"Index\":1,\"ExtraMaps\":\"1, 2\"}]"), false, false);
             Assert.Equal(1, result.Applied);
-            Assert.Equal(new[] { 1, 2 }, ctx.Npcs[0].FinishQuestIndexes);
+            Assert.Equal(new[] { 1, 2 }, ctx.Conquests[0].ExtraMaps);
 
             result = GameDataEngine.Apply(ctx, T("mapminezones"), Rows("[{\"Index\":0,\"MapIndex\":2,\"Mine\":3}]"), false, false);
             Assert.Equal(0, result.Applied); // only 2 mine sets
@@ -505,8 +511,6 @@ namespace Server.WebAdmin.Tests
 
             Assert.Single(GameDataEngine.Delete(ctx, T("maps"), new[] { 1 }, false).Rejects);  // NPC on map 1
             Assert.Single(GameDataEngine.Delete(ctx, T("maps"), new[] { 2 }, false).Rejects);  // movement + conquest
-            Assert.Single(GameDataEngine.Delete(ctx, T("quests"), new[] { 1 }, false).Rejects); // quest 2 requires it
-            Assert.Single(GameDataEngine.Delete(ctx, T("quests"), new[] { 2 }, false).Rejects); // NPC lists it
         }
 
         [Fact]
@@ -645,20 +649,6 @@ namespace Server.WebAdmin.Tests
         }
 
         [Fact]
-        public void Quest_ItemAndKillSections()
-        {
-            var lines = L("[@DESCRIPTION]", "Bring a Hen feather", "[@ITEMTASKS]", "HenFeather 5 \"Hen feathers\"", "", "HenFeather 1",
-                "[@KILLTASKS]", "Hen 10", "//", "Hen 3");
-            Assert.Equal(2, GameDataRename.RewriteQuest(lines, "HenFeather", "Feather", false));
-            Assert.Equal("Feather 5 \"Hen feathers\"", lines[3]);
-            Assert.Equal("Feather 1", lines[5]);
-            Assert.Equal(1, GameDataRename.RewriteQuest(lines, "Hen", "Chicken", true));
-            Assert.Equal("Chicken 10", lines[7]);
-            Assert.Equal("Hen 3", lines[9]);
-            Assert.Equal("Bring a Hen feather", lines[1]);
-        }
-
-        [Fact]
         public void Npc_TradeAndRecipeSections()
         {
             var lines = L("[@MAIN]", "WoodenSword", "[Trade]", "WoodenSword", "HPPotion 5", "[@BUY]", "WoodenSword", "[RECIPE]", "WoodenSword");
@@ -697,29 +687,24 @@ namespace Server.WebAdmin.Tests
             {
                 var drops = Path.Combine(root, "Drops");
                 var recipes = Path.Combine(root, "Recipe");
-                var quests = Path.Combine(root, "Quests");
                 var npcs = Path.Combine(root, "NPCs", "Town");
                 Directory.CreateDirectory(drops);
                 Directory.CreateDirectory(recipes);
-                Directory.CreateDirectory(quests);
                 Directory.CreateDirectory(npcs);
                 File.WriteAllText(Path.Combine(drops, "Hen.txt"), "1/10 WoodenSword\r\n1/2 Other\r\n");
                 File.WriteAllText(Path.Combine(recipes, "WoodenSword.txt"), "[Recipe]\nAmount 1\n[Ingredients]\nLog 2\n");
-                File.WriteAllText(Path.Combine(quests, "Q1.txt"), "[@FIXEDREWARDS]\nWoodenSword 1\n");
                 File.WriteAllText(Path.Combine(npcs, "Smith.txt"), "[TRADE]\nWoodenSword\n");
-                File.WriteAllText(Path.Combine(quests, "Untouched.txt"), "[@KILLTASKS]\nHen 1\n");
 
                 var roots = new Dictionary<string, string>
                 {
                     ["recipes"] = recipes,
-                    ["quests"] = quests,
                     ["npcs"] = Path.Combine(root, "NPCs"),
                 };
 
                 var warnings = new List<string>();
                 var plan = GameDataRename.Plan("items", "WoodenSword", "OakSword", roots, warnings);
                 Assert.Empty(warnings);
-                Assert.Equal(3, plan.Count); // recipe, quest, NPC: drops follow renames by Index (Drops-Tables-Plan phase 2)
+                Assert.Equal(2, plan.Count); // recipe, NPC: drops follow renames by Index (Drops-Tables-Plan phase 2), quests by Index (V2)
                 Assert.Contains(plan, f => f.Root == "npcs" && f.Path == "Town/Smith.txt" && f.Replacements == 1);
                 var recipe = plan.Single(f => f.Root == "recipes");
                 Assert.Equal("OakSword.txt", recipe.RenameTo);
@@ -737,11 +722,10 @@ namespace Server.WebAdmin.Tests
                 Assert.Equal("[TRADE]\nOakSword\n", File.ReadAllText(Path.Combine(npcs, "Smith.txt")));
                 Assert.True(File.Exists(Path.Combine(backups, "npcs", "Town", "Smith.txt.20260102-030405.bak")));
 
-                // Monster rename: quest kill tasks only (its drop list is bound to its Index).
+                // Monster rename: nothing to rewrite (its drop list and quest objectives are bound to its Index).
                 warnings.Clear();
                 plan = GameDataRename.Plan("monsters", "Hen", "Chicken", roots, warnings);
-                Assert.Contains(plan, f => f.Root == "quests" && f.Path == "Untouched.txt");
-                Assert.DoesNotContain(plan, f => f.Root == "drops");
+                Assert.Empty(plan);
             }
             finally
             {
@@ -768,19 +752,6 @@ namespace Server.WebAdmin.Tests
             Assert.Equal((ushort)4, live.MPowerBase);
             Assert.Equal("Fencing2", live.Name);
             Assert.Equal(0, GameDataMagicSync.CopyInto(saved, liveList));
-        }
-
-        [Fact]
-        public void Quest_HeadersMatchParseFileExactly_AndGenderRewardsAreCounted()
-        {
-            var lines = L("[@KillTasks] ;old", "Hen 1", "[@KILLTASKS]", "Hen 2");
-            Assert.Equal(1, GameDataRename.RewriteQuest(lines, "Hen", "Chicken", true));
-            Assert.Equal("Hen 1", lines[1]);
-            Assert.Equal("Chicken 2", lines[3]);
-
-            Assert.Equal("Sword", GameDataRename.GenderBaseName("Sword(M)"));
-            Assert.Null(GameDataRename.GenderBaseName("Sword"));
-            Assert.Equal(1, GameDataRename.CountGenderRewardRefs(L("[@FIXEDREWARDS]", "Sword 1", "[@ITEMTASKS]", "Sword 1"), "Sword"));
         }
 
         [Fact]

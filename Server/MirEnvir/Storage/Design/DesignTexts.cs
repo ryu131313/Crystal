@@ -11,7 +11,7 @@ namespace Server.MirEnvir.Storage
     /// </summary>
     internal abstract class DesignTextFormat
     {
-        /// <summary>"routes", "drops", "quests", "recipes".</summary>
+        /// <summary>"routes", "drops", "recipes" ("quests" until quest V2 wave 4 removed the legacy quest bodies).</summary>
         public abstract string Kind { get; }
 
         /// <summary>The folder the files live in (Settings.RoutePath, ...), read when used.</summary>
@@ -149,7 +149,7 @@ namespace Server.MirEnvir.Storage
 
     /// <summary>
     /// The text design files in SystemData.db: routes, drops (incl. the fishing / awakening / strongbox / blackstone and dragon lists),
-    /// quest bodies and recipes (roadmap P7 phase 7.4). One <c>design_files</c> row per file plus the format's line table.
+    /// and recipes (roadmap P7 phase 7.4; the legacy quest bodies were a kind until quest V2 wave 4). One <c>design_files</c> row per file plus the format's line table.
     /// <list type="bullet">
     /// <item><b>Import</b> of a whole kind on first use, from its folder (recorded in <c>design_files</c> with name <c>""</c>). Names are
     /// resolved against the store's items and monsters; a line whose name doesn't resolve is kept as text and counted in the log, as the
@@ -161,7 +161,7 @@ namespace Server.MirEnvir.Storage
     /// </summary>
     internal static class DesignTexts
     {
-        public static readonly DesignTextFormat[] Formats = { new RouteFormat(), new DropFormat(), new QuestFormat(), new RecipeFormat() };
+        public static readonly DesignTextFormat[] Formats = { new RouteFormat(), new DropFormat(), new RecipeFormat() };
 
         /// <summary>Names to resolve written lines against instead of the store's (rename propagation: the editor copy's names).</summary>
         [ThreadStatic] private static DesignNames _parseNames;

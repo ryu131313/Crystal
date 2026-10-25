@@ -41,8 +41,10 @@ namespace Server.MirEnvir.Storage
     internal static class SqliteWorldCodec
     {
         /// <summary>3 = drops as tables (Drops-Tables-Plan phase 1): a build that still reads drop_lines (2) refuses the file instead of
-        /// finding no drops. A 2 store is still read, and becomes 3 when the writer opens it (<see cref="SqliteWorldFile.UpgradeSchemaVersion"/>).</summary>
-        public const int SchemaVersion = 3;
+        /// finding no drops. 4 = the legacy quest columns, quest bodies and NPC quest lists dropped (quest V2 wave 4,
+        /// <see cref="SqliteWorldFile.DropLegacyQuestColumns"/>): the D2 build (reads 2..3) refuses the file instead of re-adding the columns.
+        /// A 2 or 3 store is still read, and becomes 4 when the writer opens it (<see cref="SqliteWorldFile.UpgradeSchemaVersion"/>).</summary>
+        public const int SchemaVersion = 4;
 
         public const int OldestReadableSchemaVersion = 2;
         public const string ParentPositionColumn = "parent_position";
@@ -410,8 +412,6 @@ namespace Server.MirEnvir.Storage
                     }
 
                     if (entity is SafeZoneInfo zone) zone.Info = (MapInfo)parent;
-                    // QuestInfo.LoadInfo needs ItemInfoList/MonsterInfoList (kill and item tasks resolve by name), and
-                    // those are only swapped into Envir after every table has been built: defer it to the end.
                     entities.Add(entity);
                     if (parent != null) spec.ChildList(parent).Add(entity);
                 }
@@ -431,7 +431,6 @@ namespace Server.MirEnvir.Storage
             Replace(e.MonsterInfoList, built["monsters"]);
             Replace(e.NPCInfoList, built["npcs"]);
             Replace(e.QuestInfoList, built["quests"]);
-            foreach (var entity in built["quests"]) ((QuestInfo)entity).LoadInfo(); // after the item/monster lists are in place
             foreach (MagicInfo m in built["magic"])
                 if (!e.MagicExists(m.Spell)) e.MagicInfoList.Add(m);
             Replace(e.GameShopList, built["gameshop"]);

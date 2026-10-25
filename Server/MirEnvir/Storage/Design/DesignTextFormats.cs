@@ -106,8 +106,8 @@ namespace Server.MirEnvir.Storage
     }
 
     /// <summary>
-    /// Lines in [sections], with an item or monster name as the first token in some sections, the rest of the line verbatim (quests,
-    /// recipes). <see cref="RefKind"/> says which sections carry which reference.
+    /// Lines in [sections], with an item or monster name as the first token in some sections, the rest of the line verbatim
+    /// (recipes). <see cref="RefKind"/> says which sections carry which reference.
     /// </summary>
     internal abstract class SectionFormat : DesignTextFormat
     {
@@ -125,7 +125,7 @@ namespace Server.MirEnvir.Storage
         /// <summary>The section in force before the first header.</summary>
         protected virtual string FirstSection => null;
 
-        /// <summary>True when a line ends the current section without opening another (quests: "//").</summary>
+        /// <summary>True when a line ends the current section without opening another.</summary>
         protected virtual bool EndsSection(string line) => false;
 
         public override object[] Parse(string line, DesignNames names, ParseState state)
@@ -163,23 +163,6 @@ namespace Server.MirEnvir.Storage
             if (c[5] is string text) return text;
             return DesignTexts.CurrentName((string)c[1], c[2], (string)c[3], nameOf) + (string)c[4];
         }
-    }
-
-    /// <summary>Envir\Quests\*.txt (QuestInfo.ParseFile): [@SECTION] headers; item tasks / rewards and kill tasks name items / monsters.</summary>
-    internal sealed class QuestFormat : SectionFormat
-    {
-        public override string Kind => "quests";
-        public override string Root => Settings.QuestPath;
-        public override string Table => "quest_lines";
-
-        private static readonly HashSet<string> ItemSections = new HashSet<string>(StringComparer.Ordinal)
-            { "[@CARRYITEMS]", "[@ITEMTASKS]", "[@FIXEDREWARDS]", "[@SELECTREWARDS]" };
-
-        protected override string Header(string line) => line.StartsWith("[", StringComparison.Ordinal) ? line.ToUpperInvariant() : null;
-
-        protected override bool EndsSection(string line) => line.StartsWith("//", StringComparison.Ordinal);
-
-        protected override string RefKind(string section) => section == "[@KILLTASKS]" ? "M" : ItemSections.Contains(section) ? "I" : null;
     }
 
     /// <summary>Envir\Recipe\*.txt (RecipeInfo): [recipe]/[tools]/[ingredients]/[criteria]; tool and ingredient lines name items.</summary>

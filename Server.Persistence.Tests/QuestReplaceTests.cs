@@ -32,7 +32,7 @@ public class QuestReplaceTests
         e.NPCInfoList.Add(new NPCInfo { Index = 1, MapIndex = 1, FileName = "Hunter", Name = "Hunter", Location = new Point(1, 1) });
 
         // Hunt: two steps of counters (editor quest: no legacy body).
-        var hunt = new QuestInfo { Index = Hunt, Name = "Hunt", RequiredMaxLevel = ushort.MaxValue };
+        var hunt = new QuestInfo { Index = Hunt, Name = "Hunt" };
         var d = hunt.Definition;
         d.NameKey = "hunt.name";
         d.RepeatPolicy = QuestRepeatPolicy.Unlimited;
@@ -46,7 +46,7 @@ public class QuestReplaceTests
         e.QuestInfoList.Add(hunt);
 
         // Pack: kill any of the "wolves" group (shared row), with a level condition it owns.
-        var pack = new QuestInfo { Index = Pack, Name = "Pack", RequiredMaxLevel = ushort.MaxValue };
+        var pack = new QuestInfo { Index = Pack, Name = "Pack" };
         var p = pack.Definition;
         p.NameKey = "pack.name";
         p.RepeatPolicy = QuestRepeatPolicy.Unlimited;
@@ -92,7 +92,7 @@ public class QuestReplaceTests
         var main = Envir.Main;
         var e = new Envir();
         foreach (var q in main.QuestInfoList)
-            e.QuestInfoList.Add(new QuestInfo { Index = q.Index, Name = q.Name, Group = q.Group, FileName = q.FileName, RequiredMaxLevel = q.RequiredMaxLevel, Definition = q.Definition.DeepCopy() });
+            e.QuestInfoList.Add(new QuestInfo { Index = q.Index, Name = q.Name, Group = q.Group, Definition = q.Definition.DeepCopy() });
         foreach (var c in main.QuestConditionList) e.QuestConditionList.Add(c.Copy());
         foreach (var t in main.QuestTextList) e.QuestTextList.Add(t.Copy());
         foreach (var g in main.QuestGroupList) e.QuestGroupList.Add(g.Copy());

@@ -26,12 +26,12 @@ internal static class SyntheticWorld
         var d = e.QuestInfoList[0].Definition;
         d.AuthorKey = "tutorial.first"; d.NameKey = "first.name"; d.Category = QuestCategory.Story; d.AcceptCondition = 1; d.Flags = QuestFlags.HiddenInLog;
         d.StorylineIndex = 1; d.PoolIndex = 1; d.GroupName = "Tutorial";
-        d.Steps.Add(new QuestStepInfo { Index = 1, Order = 1, TextKey = "first.task", NextStep = 2, LegacySource = "step" });
+        d.Steps.Add(new QuestStepInfo { Index = 1, Order = 1, TextKey = "first.task", NextStep = 2 });
         d.Steps.Add(new QuestStepInfo { Index = 2, Order = 2, NextStep = -1, CompletionMode = QuestStepCompletion.NOf, NRequired = 1 });
         d.Objectives.Add(new QuestObjectiveInfo { Index = 1, Step = 1, Order = 1, Type = QuestObjectiveType.Kill, TargetKind = QuestTargetKind.MonsterGroup, TargetId = 1, Count = 5 });
         d.Objectives.Add(new QuestObjectiveInfo { Index = 2, Step = 2, Order = 1, Type = QuestObjectiveType.Collect, TargetKind = QuestTargetKind.Item, TargetId = 3, Count = 3, Params = "" });
         d.Branches.Add(new QuestBranchInfo { Step = 1, ChoiceKey = "first.task", NextStep = 2, Outcome = 1 });
-        d.Endpoints.Add(new QuestEndpointInfo { Role = QuestEndpointRole.Start, Kind = QuestEndpointKind.Npc, TargetId = 1, LegacySource = "script Default" });
+        d.Endpoints.Add(new QuestEndpointInfo { Role = QuestEndpointRole.Start, Kind = QuestEndpointKind.Npc, TargetId = 1 });
         d.Rewards.Add(new QuestRewardInfo { Scope = QuestRewardScope.Quest, Kind = QuestRewardKind.Exp, Amount = 5_000_000_000L });
         d.Rewards.Add(new QuestRewardInfo { Scope = QuestRewardScope.Quest, Kind = QuestRewardKind.Item, TargetId = 1, Amount = 1, Condition = 2, ChoiceGroup = 1 });
         d.Vars.Add(new QuestVarInfo { Index = 1, AuthorKey = "count", Default = 2 });
@@ -79,7 +79,7 @@ internal static class SyntheticWorld
         e.MonsterInfoList.Add(new MonsterInfo { Index = 1, Name = "Hen", Level = 1, Experience = 5, IsBoss = false });
         e.MonsterInfoList.Add(new MonsterInfo { Index = 2, Name = "BossHen", Level = 20, Experience = 500, IsBoss = true });
         e.NPCInfoList.Add(new NPCInfo { Index = 1, MapIndex = 1, FileName = "Default", Name = "Guide", Location = new Point(301, 301) });
-        e.QuestInfoList.Add(new QuestInfo { Index = 1, Name = "First Steps", Group = "Tutorial", FileName = "FirstSteps", RequiredMinLevel = 1 });
+        e.QuestInfoList.Add(new QuestInfo { Index = 1, Name = "First Steps", Group = "Tutorial" });
         AddQuestDefinitions(e);
         e.GameShopList.Add(new GameShopItem { GIndex = 1, ItemIndex = 3, GoldPrice = 500, CreditPrice = 5, Count = 10, Class = "All", Category = "Potions", Date = now, CanBuyGold = true, DealGoldPrice = 750, DealCreditPrice = 8 }); // v119 deal prices
 

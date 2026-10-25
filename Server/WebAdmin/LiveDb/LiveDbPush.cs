@@ -7,14 +7,14 @@ namespace Server.WebAdmin.LiveDb
     /// What one LiveDb batch changed that connected clients may hold (finding F8: the client computes stats and tooltips from its own
     /// copies). Keys are Main's records (they are what the connections' Sent*Info lists contain); values are FRESH snapshot copies made
     /// on the game thread after the live step, never Main references, so a packet cannot change after it was queued (EncodeOnce).
-    /// Batch B fills items, monsters and spells; Batch C fills NPCs, quests, the game shop and map invalidations.
+    /// Batch B fills items, monsters and spells; Batch C fills NPCs, the game shop and map invalidations (quest edits
+    /// reach clients through the quest-replace hook, never through this push).
     /// </summary>
     internal sealed class LiveDbPushChanges
     {
         public readonly Dictionary<ItemInfo, ItemInfo> Items = new Dictionary<ItemInfo, ItemInfo>();
         public readonly Dictionary<MonsterInfo, ClientMonsterInfo> Monsters = new Dictionary<MonsterInfo, ClientMonsterInfo>();
         public readonly Dictionary<NPCInfo, ClientNPCInfo> Npcs = new Dictionary<NPCInfo, ClientNPCInfo>();
-        public readonly Dictionary<QuestInfo, ClientQuestInfo> Quests = new Dictionary<QuestInfo, ClientQuestInfo>();
 
         /// <summary>Changed spells; each connection's ClientMagic copies come from its player's / hero's own UserMagic.</summary>
         public readonly HashSet<Spell> Spells = new HashSet<Spell>();
@@ -30,7 +30,7 @@ namespace Server.WebAdmin.LiveDb
         /// <summary>Maps whose big-map info changed: connections that hold it drop it (client and SentMapInfo) and re-request it.</summary>
         public readonly HashSet<MapInfo> MapsInvalidated = new HashSet<MapInfo>();
 
-        public int Rows => Items.Count + Monsters.Count + Npcs.Count + Quests.Count + Spells.Count + GameShop.Count + GameShopRemoved.Count +
+        public int Rows => Items.Count + Monsters.Count + Npcs.Count + Spells.Count + GameShop.Count + GameShopRemoved.Count +
                            MapsInvalidated.Count;
 
         public bool IsEmpty => Rows == 0;
@@ -215,9 +215,6 @@ namespace Server.WebAdmin.LiveDb
                         var key = conn.SentNpcs[i];
                         if (key != null && changes.Npcs.TryGetValue(key, out var snap)) b.Add(Section.Npcs, snap, w => snap.Save(w));
                     }
-
-                // Quests: S.GameDataChanged has no quest section since quest V2 (wave 2 kick-off); changes.Quests is still collected
-                // (it counts against MaxPushRows) but quest edits reach clients through the V2 quest-replace hook (wave 3).
 
                 if (conn.Magics != null)
                     for (var i = 0; i < conn.Magics.Count; i++)

@@ -373,7 +373,6 @@ namespace Server.WebAdmin.Routes
             var roots = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["recipes"] = Path.GetFullPath(Settings.RecipePath),
-                ["quests"] = Path.GetFullPath(Settings.QuestPath),
                 ["npcs"] = Path.GetFullPath(Settings.NPCPath),
             };
 

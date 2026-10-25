@@ -245,9 +245,9 @@ namespace Server.WebAdmin.LiveDb
             Set(t, R("conquest NPCs are bound at world start"), "Conquest", "ConquestVisible");
             Set(t, Hook(LiveTiming.Now, "visibility is re-checked for nearby players"), "TimeVisible", "HourStart", "MinuteStart", "HourEnd",
                 "MinuteEnd", "MinLev", "MaxLev", "DayofWeek", "ClassRequired", "FlagNeeded");
-            Set(t, Read(note: "read when the NPC is used; pushed to clients"), "Rate", "CanTeleportTo", "CollectQuestIndexes", "FinishQuestIndexes");
+            Set(t, Read(note: "read when the NPC is used; pushed to clients"), "Rate", "CanTeleportTo");
             Set(t, Hook(LiveTiming.Clients, "re-broadcast to nearby players; pushed to clients"), "Image", "Name");
-            Set(t, Hook(LiveTiming.Hook, "the NPC script is rebound (its quests and speech come from the new script)"), "FileName");
+            Set(t, Hook(LiveTiming.Hook, "the NPC script is rebound (its speech comes from the new script)"), "FileName");
             Set(t, Hook(LiveTiming.Hook, "the NPC is moved (the target must be a walkable cell of a loaded map)"), "MapIndex", "Location_X", "Location_Y");
             Set(t, Hook(LiveTiming.Clients, "map info is invalidated for clients"), "ShowOnBigMap", "BigMapIcon");
             return t;
@@ -265,12 +265,10 @@ namespace Server.WebAdmin.LiveDb
 
         private static LiveTableRule Quests()
         {
-            // Quest V2 ship (D2): the legacy columns are read only (they only feed the legacy re-import) and no longer live: the V2 runtime
-            // never reads them, and QuestReload no longer reloads legacy bodies. The table is not a live table of the generic engine any more.
+            // Not a live table of the generic engine (quest V2 ship, D2): every column is edited in the Quests page and applied by the
+            // quest-replace hook, Name and Group included. The legacy columns were dropped in wave 4 (SqliteWorldFile.DropLegacyQuestColumns).
             var t = new LiveTableRule { Endpoint = "quests", PlannedBatch = "C", LiveInThisBuild = false };
-            Set(t, R("legacy quest field, read only since the quest V2 ship: it only feeds the legacy re-import (edit quests in the Quests page)"),
-                "Type", "Name", "Group", "RequiredMinLevel", "RequiredMaxLevel", "RequiredQuest", "RequiredClass", "GotoMessage", "KillMessage",
-                "ItemMessage", "FlagMessage", "TimeLimitInSeconds", "FileName");
+            Set(t, QuestV2Rule, "Name", "Group");
             Set(t, QuestV2Rule, GameData.GameDataRegistry.QuestV2Columns.ToArray());
             return t;
         }

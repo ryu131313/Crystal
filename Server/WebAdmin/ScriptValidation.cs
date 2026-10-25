@@ -68,7 +68,7 @@ namespace Server.WebAdmin
 
     /// <summary>
     /// Static checks for Crystal's text scripts, written against the real loaders: <c>DropInfo.FromLine/Load/ParseGroup/ParseInsert</c>
-    /// (MonsterInfo.cs), <c>NPCScript.ParseInsert/ParseInclude/ParsePage/ParseSegment/ParseGoods/...</c>, <c>QuestInfo.ParseFile</c>
+    /// (MonsterInfo.cs), <c>NPCScript.ParseInsert/ParseInclude/ParsePage/ParseSegment/ParseGoods/...</c>
     /// and <c>RecipeInfo.LoadIngredients</c>. "error" = the loader rejects the line or throws; "warning" = it is ignored or
     /// probably not what was meant.
     /// </summary>
@@ -97,13 +97,7 @@ namespace Server.WebAdmin
             "[TRADE]", "[RECIPE]", "[TYPES]", "[USEDTYPES]", "[QUESTS]", "[SPEECH]",
         };
 
-        private static readonly string[] QuestHeaders =
-        {
-            "[@DESCRIPTION]", "[@TASKDESCRIPTION]", "[@RETURNDESCRIPTION]", "[@COMPLETION]", "[@CARRYITEMS]", "[@KILLTASKS]",
-            "[@ITEMTASKS]", "[@FLAGTASKS]", "[@FIXEDREWARDS]", "[@SELECTREWARDS]", "[@EXPREWARD]", "[@GOLDREWARD]", "[@CREDITREWARD]",
-        };
-
-        /// <summary>Validates <paramref name="content"/> as the given kind ("drops", "npc", "quest", "recipe"). Unknown kind → empty list.</summary>
+        /// <summary>Validates <paramref name="content"/> as the given kind ("drops", "npc", "recipe"). Unknown kind → empty list.</summary>
         public static List<ScriptDiagnostic> Validate(string kind, string content, ScriptValidationContext ctx)
         {
             ctx = ctx ?? new ScriptValidationContext();
@@ -121,9 +115,6 @@ namespace Server.WebAdmin
                 case "npc":
                     result = ValidateNpc(lines, ctx);
                     break;
-                case "quest":
-                    result = ValidateQuest(lines, ctx);
-                    break;
                 case "recipe":
                     result = ValidateRecipe(lines, ctx);
                     break;
@@ -131,7 +122,7 @@ namespace Server.WebAdmin
                     return new List<ScriptDiagnostic>();
             }
 
-            if ((kind == "drops" || kind == DragonDropsKind || kind == "quest" || kind == "recipe" || kind == "npc") && !ctx.HasItemList)
+            if ((kind == "drops" || kind == DragonDropsKind || kind == "recipe" || kind == "npc") && !ctx.HasItemList)
                 result.Insert(0, Diag(0, ScriptDiagnostic.Info, "The item database is not loaded, so item names were not checked."));
 
             result.Sort((a, b) => a.Line != b.Line ? a.Line.CompareTo(b.Line) : SeverityRank(a.Severity).CompareTo(SeverityRank(b.Severity)));
@@ -847,9 +838,9 @@ namespace Server.WebAdmin
                         }
                         break;
                     case "[QUESTS]":
-                        if (!int.TryParse(line, NumberStyles.Integer, CultureInfo.InvariantCulture, out var questIndex) || questIndex == 0)
-                            diags.Add(Diag(lineNo, ScriptDiagnostic.Warning, "Expected a quest index (negative = the quest is finished at this NPC); this line is skipped."));
-                        break;
+                        // Quest V2 wave 4: the section is no longer read (quest givers are questendpoints rows); one warning on its first line.
+                        diags.Add(Diag(lineNo, ScriptDiagnostic.Warning, "[QUESTS] is ignored since quest V2: set quest givers in the Quests page and remove this section."));
+                        return;
                     case "[SPEECH]":
                         {
                             var parts = line.Split(' ');
@@ -862,96 +853,6 @@ namespace Server.WebAdmin
                         }
                 }
             }
-        }
-
-        // ================================================================== quests
-
-        public static List<ScriptDiagnostic> ValidateQuest(string[] lines, ScriptValidationContext ctx)
-        {
-            var diags = new List<ScriptDiagnostic>();
-            var known = new HashSet<string>(QuestHeaders, StringComparer.Ordinal);
-            var seen = new Dictionary<string, int>(StringComparer.Ordinal);
-
-            for (var i = 0; i < lines.Length; i++)
-            {
-                var raw = lines[i];
-                var lineNo = i + 1;
-                if (!raw.TrimStart().StartsWith("[", StringComparison.Ordinal)) continue;
-
-                var upper = raw.ToUpperInvariant();
-                if (!known.Contains(upper))
-                {
-                    if (known.Contains(upper.Trim()))
-                        diags.Add(Diag(lineNo, ScriptDiagnostic.Warning, "Spaces around " + upper.Trim() + ": the header is not recognised and the section is ignored."));
-                    else if (raw.StartsWith("[", StringComparison.Ordinal))
-                        diags.Add(Diag(lineNo, ScriptDiagnostic.Warning, "Unknown section " + raw.Trim() + ": it is ignored. Known: " + string.Join(" ", QuestHeaders) + "."));
-                    continue;
-                }
-
-                if (seen.TryGetValue(upper, out var firstLine))
-                    diags.Add(Diag(lineNo, ScriptDiagnostic.Info, upper + " also appears on line " + firstLine + "; both sections are read."));
-                else
-                    seen[upper] = lineNo;
-
-                for (var j = i + 1; j < lines.Length; j++)
-                {
-                    var inner = lines[j];
-                    if (inner.StartsWith("[", StringComparison.Ordinal) || inner.StartsWith("//", StringComparison.Ordinal)) break;
-                    if (string.IsNullOrEmpty(inner)) continue;
-                    CheckQuestLine(upper, inner, j + 1, ctx, diags);
-                }
-            }
-
-            return diags;
-        }
-
-        private static void CheckQuestLine(string header, string line, int lineNo, ScriptValidationContext ctx, List<ScriptDiagnostic> diags)
-        {
-            var split = line.Split(' ');
-
-            switch (header)
-            {
-                case "[@CARRYITEMS]":
-                case "[@ITEMTASKS]":
-                    if (split[0].Length == 0)
-                        diags.Add(Diag(lineNo, ScriptDiagnostic.Warning, "Leading space: the item name must start the line."));
-                    else if (!ctx.HasItem(split[0]))
-                        diags.Add(Diag(lineNo, ScriptDiagnostic.Warning, "Unknown item '" + split[0] + "': this task is skipped."));
-                    CheckQuestCount(split, lineNo, diags);
-                    break;
-                case "[@KILLTASKS]":
-                    if (split[0].Length == 0)
-                        diags.Add(Diag(lineNo, ScriptDiagnostic.Warning, "Leading space: the monster name must start the line."));
-                    else if (!ctx.HasMonster(split[0]))
-                        diags.Add(Diag(lineNo, ScriptDiagnostic.Warning, "Unknown monster '" + split[0] + "': this kill task is skipped."));
-                    if (split.Length > 1 && !split[1].StartsWith("\"", StringComparison.Ordinal) && !int.TryParse(split[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
-                        diags.Add(Diag(lineNo, ScriptDiagnostic.Warning, "Count '" + split[1] + "' is not a number (it becomes 0)."));
-                    break;
-                case "[@FLAGTASKS]":
-                    if (!int.TryParse(split[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var flag) || flag < 0 || flag > Globals.FlagIndexCount - 1000)
-                        diags.Add(Diag(lineNo, ScriptDiagnostic.Warning, "Flag must be a number from 0 to " + (Globals.FlagIndexCount - 1000) + "; this task is skipped."));
-                    break;
-                case "[@FIXEDREWARDS]":
-                case "[@SELECTREWARDS]":
-                    if (split[0].Length == 0)
-                        diags.Add(Diag(lineNo, ScriptDiagnostic.Warning, "Leading space: the item name must start the line."));
-                    else if (!ctx.HasItem(split[0]) && !ctx.HasItem(split[0] + "(M)") && !ctx.HasItem(split[0] + "(F)"))
-                        diags.Add(Diag(lineNo, ScriptDiagnostic.Warning, "Unknown item '" + split[0] + "' (also tried (M)/(F) variants): this reward is skipped."));
-                    CheckQuestCount(split, lineNo, diags);
-                    break;
-                case "[@EXPREWARD]":
-                case "[@GOLDREWARD]":
-                case "[@CREDITREWARD]":
-                    if (!uint.TryParse(line, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
-                        diags.Add(Diag(lineNo, ScriptDiagnostic.Warning, "'" + line + "' is not a whole number: the reward becomes 0."));
-                    break;
-            }
-        }
-
-        private static void CheckQuestCount(string[] split, int lineNo, List<ScriptDiagnostic> diags)
-        {
-            if (split.Length > 1 && !split[1].StartsWith("\"", StringComparison.Ordinal) && !ushort.TryParse(split[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
-                diags.Add(Diag(lineNo, ScriptDiagnostic.Warning, "Count '" + split[1] + "' is not a number from 0 to 65535 (it becomes 0)."));
         }
 
         // ================================================================== recipes

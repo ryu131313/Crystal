@@ -37,8 +37,8 @@ namespace Server.MirDatabase
         public bool CanTeleportTo;
         public bool ConquestVisible = true;
 
-        public List<int> CollectQuestIndexes = new List<int>();
-        public List<int> FinishQuestIndexes = new List<int>();
+        // The unused legacy CollectQuestIndexes / FinishQuestIndexes lists are gone (quest V2 wave 4; quest givers are questendpoints
+        // rows). The binary Server.MirDB layout still holds the two lists: read and discarded, written empty.
 
         public NPCInfo() { }
         public NPCInfo(BinaryReader reader)
@@ -48,11 +48,11 @@ namespace Server.MirDatabase
 
             int count = reader.ReadInt32();
             for (int i = 0; i < count; i++)
-                CollectQuestIndexes.Add(reader.ReadInt32());
+                reader.ReadInt32(); // CollectQuestIndexes (legacy)
 
             count = reader.ReadInt32();
             for (int i = 0; i < count; i++)
-                FinishQuestIndexes.Add(reader.ReadInt32());
+                reader.ReadInt32(); // FinishQuestIndexes (legacy)
 
             FileName = reader.ReadString();
             Name = reader.ReadString();
@@ -106,13 +106,8 @@ namespace Server.MirDatabase
             writer.Write(Index);
             writer.Write(MapIndex);
 
-            writer.Write(CollectQuestIndexes.Count());
-            for (int i = 0; i < CollectQuestIndexes.Count; i++)
-                writer.Write(CollectQuestIndexes[i]);
-
-            writer.Write(FinishQuestIndexes.Count());
-            for (int i = 0; i < FinishQuestIndexes.Count; i++)
-                writer.Write(FinishQuestIndexes[i]);
+            writer.Write(0); // CollectQuestIndexes (legacy, always empty)
+            writer.Write(0); // FinishQuestIndexes (legacy, always empty)
 
             writer.Write(FileName);
             writer.Write(Name);

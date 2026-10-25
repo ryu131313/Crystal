@@ -11,7 +11,7 @@ namespace Server.MirDatabase
         /// </summary>
         public QuestDefinition Definition = new QuestDefinition();
 
-        /// <summary>True when the quest has V2 rows (imported or authored).</summary>
+        /// <summary>True when the quest has V2 rows (a quest imported from an old Server.MirDB has none).</summary>
         public bool HasDefinition => Definition.Steps.Count > 0;
     }
 }
@@ -21,7 +21,7 @@ namespace Server.MirEnvir.Quests
     // Quest system V2 definition model (Knowledgebase/Future Ideas/UserData-and-Quests-Plan.md, Part B, "Definition model"). System data in
     // SystemData.db: every public scalar field below is a column of its table (SqliteWorldCodec specs, GameDataRegistry entries, read-only in
     // the generic grid). Enums are stored by value (explicit values in Shared/Enums.cs, append only). Ids come from the Envir counters and are
-    // never reused. Phase 1: legacy QuestInfo stays the runtime; these rows are a derived copy built by the importer (QuestLegacyImporter).
+    // never reused. Authored in the web admin Quests page (Server/WebAdmin/Quests); the runtime reads them through Envir.QuestCatalog.
     //
     // Column names: the spec's "Key" columns are AuthorKey (and TextKey in texts), because every store table already has a "key" column
     // (the row key) and SQLite column names ignore case.
@@ -53,11 +53,6 @@ namespace Server.MirEnvir.Quests
         public bool StartItemConsumed;
         public QuestFlags Flags;
         public string GroupName = string.Empty;
-        /// <summary>
-        /// Saved through the web admin Quests editor or its JSON import (wave 3 review S1): the legacy re-import skips the quest from then on,
-        /// so an edit of an imported row is never undone. An additive column (default false); set by the editor service only.
-        /// </summary>
-        public bool EditorOwned;
 
         public List<QuestStepInfo> Steps = new List<QuestStepInfo>();
         public List<QuestObjectiveInfo> Objectives = new List<QuestObjectiveInfo>();
@@ -115,8 +110,6 @@ namespace Server.MirEnvir.Quests
         public int FailCondition;
         public string OnEnterPage = string.Empty;
         public string OnCompletePage = string.Empty;
-        /// <summary>Importer only (keeps the step id stable on a re-import); empty for authored rows. Dropped in phase 4.</summary>
-        public string LegacySource = string.Empty;
     }
 
     /// <summary><c>questobjectives</c>, child of quests (Step names the step); keyed by its stable Index (counter QuestObjectiveIndex).</summary>
@@ -141,11 +134,10 @@ namespace Server.MirEnvir.Quests
         public bool Hidden;
         public int Condition;
         public string TextKey = string.Empty;
-        /// <summary>Per 10,000; Collect objectives only. 0 for imported quests (drops stay in the drop files).</summary>
+        /// <summary>Per 10,000; Collect objectives only. 0 = the item comes from the normal drop files only.</summary>
         public int DropChance;
         /// <summary>JSON, reserved for the later objective types; empty for every designed type.</summary>
         public string Params = string.Empty;
-        public string LegacySource = string.Empty;
     }
 
     /// <summary><c>questbranches</c>, child of quests (position keyed).</summary>
@@ -172,7 +164,6 @@ namespace Server.MirEnvir.Quests
         public QuestEndpointKind Kind;
         public int TargetId;
         public int Map;
-        public string LegacySource = string.Empty;
     }
 
     /// <summary><c>questrewards</c>, child of quests (position keyed).</summary>
@@ -191,7 +182,6 @@ namespace Server.MirEnvir.Quests
         public int ChoiceGroup;
         public int Condition;
         public bool FirstTimeOnly;
-        public string LegacySource = string.Empty;
     }
 
     /// <summary><c>questvars</c>, child of quests; keyed by its stable Index (counter QuestVarIndex).</summary>

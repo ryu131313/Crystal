@@ -8,7 +8,7 @@ namespace Server.WebAdmin.Tests
     /// <summary>
     /// Quest system V2 (UserData-and-Quests-Plan.md, Part B): the new tables are read-only grids, the quest V2 columns read-only in the
     /// quests grid, and every new table and quest V2 column is QuestReplace in LiveDb (wave 3): the generic engine never applies them row by
-    /// row; the Quests page and the quest-replace hook do. The legacy quests columns are read only since the ship (D2).
+    /// row; the Quests page and the quest-replace hook do. The legacy quests columns were dropped in wave 4.
     /// </summary>
     public class QuestDefinitionRegistryTests
     {
@@ -49,13 +49,18 @@ namespace Server.WebAdmin.Tests
                 Assert.Equal(LiveClass.QuestReplace, LiveDbClassification.Effective("quests", name).Class);
             }
 
-            // The legacy columns are read only since the ship (they only feed the re-import), restart-only, and still restored by the store.
-            foreach (var name in new[] { "Name", "Group", "FileName", "RequiredMinLevel", "RequiredClass", "Type" })
+            // Name and Group: read only, applied by the quest-replace hook, restored by the store. The legacy columns are gone (wave 4).
+            foreach (var name in new[] { "Name", "Group" })
             {
                 var c = quests.Column(name);
                 Assert.True(c.ReadOnly && c.Set == null && c.StoreSet != null, name);
-                Assert.Equal(LiveClass.RestartOnly, LiveDbClassification.Effective("quests", name).Class);
+                Assert.Equal(LiveClass.QuestReplace, LiveDbClassification.Effective("quests", name).Class);
             }
+
+            foreach (var name in new[] { "FileName", "RequiredMinLevel", "RequiredClass", "Type", "EditorOwned" })
+                Assert.Null(quests.Column(name));
+            foreach (var t in new[] { "queststeps", "questobjectives", "questendpoints", "questrewards" })
+                Assert.Null(GameDataRegistry.Get(t).Column("LegacySource"));
 
             Assert.False(quests.Insertable);
             Assert.False(quests.Deletable);

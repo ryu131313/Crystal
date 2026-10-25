@@ -1506,9 +1506,6 @@ namespace Server.MirObjects
                 case DelayedType.DamageIndicator:
                     CompleteDamageIndicator(action.Params);
                     break;
-                case DelayedType.Quest:
-                    CompleteQuest(action.Params);
-                    break;
                 case DelayedType.SpellEffect:
                     CompleteSpellEffect(action.Params);
                     break;
@@ -5363,11 +5360,7 @@ namespace Server.MirObjects
             if (send)
                 ReceiveChat(GameLanguage.ServerTextMap.GetLocalization(ServerTextKeys.NoNearbyOwnedCarcasses), ChatType.System);
         }
-        private void CompleteQuest(IList<object> data)
-        {
-            // Legacy QuestProgressInfo time limit (DelayedType.Quest): unused since quest V2, whose timers live in PlayerQuests. The
-            // differential-test oracle runs QuestProgressInfo with Owner = null, which never queues this action. Removed in phase 4.
-        }        private void CompleteNPC(IList<object> data)
+        private void CompleteNPC(IList<object> data)
         {
             uint npcid = (uint)data[0];
             int scriptid = (int)data[1];
@@ -12746,8 +12739,7 @@ namespace Server.MirObjects
 
         #region Quests
 
-        // Quest V2 bridges (Player/PlayerQuests*.cs holds the runtime). The legacy QuestProgressInfo runtime that lived here is gone;
-        // QuestProgressInfo stays in the tree only as the differential-test oracle until phase 4.
+        // Quest V2 bridges (Player/PlayerQuests*.cs holds the runtime).
 
         /// <summary>
         /// Kill credit (MonsterObject.Die, inside its RunOutsideMobPass lambda, so on the game thread): the killer gets direct credit,

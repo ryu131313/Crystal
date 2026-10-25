@@ -120,6 +120,7 @@ namespace MirDbExport
                     using var conn = SqliteWorldFile.Open(copy, create: false);
                     SqliteWorldFile.CheckIntegrity(conn);
                     SqliteWorldFile.CheckSchema(conn);
+                    SqliteWorldFile.DropLegacyQuestColumns(conn, Console.WriteLine); // quest V2 wave 4 (works on a copy: no backup)
                     SqliteWorldFile.Migrate(conn, Console.WriteLine);
                     rows = SqliteWorldFile.ReadAll(conn);
                 }

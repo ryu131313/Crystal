@@ -54,8 +54,6 @@ namespace Server.WebAdmin.Quests
                 groupName = string.IsNullOrEmpty(q.Definition.GroupName) ? q.Group : q.Definition.GroupName,
                 storylineIndex = q.Definition.StorylineIndex,
                 hasDefinition = q.HasDefinition,
-                legacy = QuestLegacyImporter.IsLegacy(q), // a re-import rebuilds it (a legacy body, never saved here)
-                editorOwned = q.Definition.EditorOwned,
                 steps = q.Definition.Steps.Count,
                 objectives = q.Definition.Objectives.Count,
                 errors = errors.TryGetValue(q.Index, out var e) ? e : 0,
@@ -102,8 +100,6 @@ namespace Server.WebAdmin.Quests
             {
                 Index = q.Index,
                 Name = q.Name,
-                Legacy = QuestLegacyImporter.IsLegacy(q),
-                EditorOwned = d.EditorOwned,
                 Revision = d.Revision,
                 ShapeHash = N(d.ShapeHash),
                 AuthorKey = d.AuthorKey,
@@ -132,13 +128,13 @@ namespace Server.WebAdmin.Quests
                 {
                     Index = s.Index, Order = s.Order, TitleKey = s.TitleKey, TextKey = s.TextKey, ReadyTextKey = s.ReadyTextKey, CompletionMode = (int)s.CompletionMode,
                     NRequired = s.NRequired, NextStep = s.NextStep, TimeLimitSeconds = s.TimeLimitSeconds, FailCondition = s.FailCondition, OnEnterPage = s.OnEnterPage,
-                    OnCompletePage = s.OnCompletePage, LegacySource = s.LegacySource,
+                    OnCompletePage = s.OnCompletePage,
                 }).ToList(),
                 Objectives = d.Objectives.Select(o => new QuestObjectiveDto
                 {
                     Index = o.Index, Step = o.Step, Order = o.Order, Type = (int)o.Type, PartyCredit = (int)o.PartyCredit, TargetKind = (int)o.TargetKind, TargetId = o.TargetId,
                     Count = o.Count, Map = o.Map, X = o.X, Y = o.Y, Radius = o.Radius, Optional = o.Optional, Hidden = o.Hidden, Condition = o.Condition, TextKey = o.TextKey,
-                    DropChance = o.DropChance, Params = o.Params, LegacySource = o.LegacySource,
+                    DropChance = o.DropChance, Params = o.Params,
                 }).ToList(),
                 Branches = d.Branches.Select(b => new QuestBranchDto
                 {
@@ -146,12 +142,12 @@ namespace Server.WebAdmin.Quests
                 }).ToList(),
                 Endpoints = d.Endpoints.Select(ep => new QuestEndpointDto
                 {
-                    Role = (int)ep.Role, Kind = (int)ep.Kind, TargetId = ep.TargetId, Map = ep.Map, LegacySource = ep.LegacySource,
+                    Role = (int)ep.Role, Kind = (int)ep.Kind, TargetId = ep.TargetId, Map = ep.Map,
                 }).ToList(),
                 Rewards = d.Rewards.Select(r => new QuestRewardDto
                 {
                     Scope = (int)r.Scope, ScopeId = r.ScopeId, Kind = (int)r.Kind, TargetId = r.TargetId, Amount = r.Amount, Scaling = (int)r.Scaling,
-                    ChoiceGroup = r.ChoiceGroup, Condition = r.Condition, FirstTimeOnly = r.FirstTimeOnly, LegacySource = r.LegacySource,
+                    ChoiceGroup = r.ChoiceGroup, Condition = r.Condition, FirstTimeOnly = r.FirstTimeOnly,
                 }).ToList(),
                 Vars = d.Vars.Select(v => new QuestVarDto { Index = v.Index, AuthorKey = v.AuthorKey, Default = v.Default }).ToList(),
                 Conditions = _w.QuestConditionList.Where(c => c.OwnerQuest == q.Index).OrderBy(c => c.Index).Select(c => new QuestConditionDto
@@ -565,27 +561,7 @@ namespace Server.WebAdmin.Quests
                 StartItemConsumed = dto.StartItemConsumed,
                 Flags = (QuestFlags)dto.Flags,
                 GroupName = dto.GroupName ?? string.Empty,
-                // Review S1: a save here makes the quest editor-owned; legacy re-imports skip it from now on.
-                EditorOwned = true,
             };
-
-            // Review S2: LegacySource is the importer's, never the client's. Rows with an id keep their stored value; rows without an id
-            // (endpoints, rewards) keep a value only when the stored quest has a row with it; everything new gets "".
-            var oldStepSources = new Dictionary<int, string>();
-            var oldObjectiveSources = new Dictionary<int, string>();
-            var oldEndpointSources = new HashSet<string>(StringComparer.Ordinal);
-            var oldRewardSources = new HashSet<string>(StringComparer.Ordinal);
-            if (q != null)
-            {
-                foreach (var s in q.Definition.Steps) oldStepSources.TryAdd(s.Index, s.LegacySource ?? string.Empty);
-                foreach (var o in q.Definition.Objectives) oldObjectiveSources.TryAdd(o.Index, o.LegacySource ?? string.Empty);
-                foreach (var ep in q.Definition.Endpoints) if (!string.IsNullOrEmpty(ep.LegacySource)) oldEndpointSources.Add(ep.LegacySource);
-                foreach (var r in q.Definition.Rewards) if (!string.IsNullOrEmpty(r.LegacySource)) oldRewardSources.Add(r.LegacySource);
-            }
-
-            string StepSource(int id) => id > 0 && oldStepSources.TryGetValue(id, out var v) ? v : string.Empty;
-            string ObjectiveSource(int id) => id > 0 && oldObjectiveSources.TryGetValue(id, out var v) ? v : string.Empty;
-            static string Kept(string value, HashSet<string> stored) => !string.IsNullOrEmpty(value) && stored.Contains(value) ? value : string.Empty;
 
             foreach (var s in dto.Steps)
                 def.Steps.Add(new QuestStepInfo
@@ -594,7 +570,7 @@ namespace Server.WebAdmin.Quests
                     ReadyTextKey = s.ReadyTextKey ?? string.Empty, CompletionMode = (QuestStepCompletion)s.CompletionMode, NRequired = s.NRequired,
                     NextStep = Next(s.NextStep, "step " + N(s.Index) + " NextStep"), TimeLimitSeconds = s.TimeLimitSeconds,
                     FailCondition = Cond(s.FailCondition, "step " + N(s.Index) + " FailCondition"), OnEnterPage = s.OnEnterPage ?? string.Empty,
-                    OnCompletePage = s.OnCompletePage ?? string.Empty, LegacySource = StepSource(s.Index),
+                    OnCompletePage = s.OnCompletePage ?? string.Empty,
                 });
 
             foreach (var o in dto.Objectives)
@@ -613,7 +589,7 @@ namespace Server.WebAdmin.Quests
                     Type = (QuestObjectiveType)o.Type, PartyCredit = (QuestPartyCredit)o.PartyCredit, TargetKind = kind, TargetId = target, Count = o.Count,
                     Map = o.Map, X = o.X, Y = o.Y, Radius = o.Radius, Optional = o.Optional, Hidden = o.Hidden,
                     Condition = Cond(o.Condition, "objective " + N(o.Index) + " Condition"), TextKey = o.TextKey ?? string.Empty, DropChance = o.DropChance,
-                    Params = o.Params ?? string.Empty, LegacySource = ObjectiveSource(o.Index),
+                    Params = o.Params ?? string.Empty,
                 });
             }
 
@@ -627,7 +603,7 @@ namespace Server.WebAdmin.Quests
             foreach (var ep in dto.Endpoints)
                 def.Endpoints.Add(new QuestEndpointInfo
                 {
-                    Role = (QuestEndpointRole)ep.Role, Kind = (QuestEndpointKind)ep.Kind, TargetId = ep.TargetId, Map = ep.Map, LegacySource = Kept(ep.LegacySource, oldEndpointSources),
+                    Role = (QuestEndpointRole)ep.Role, Kind = (QuestEndpointKind)ep.Kind, TargetId = ep.TargetId, Map = ep.Map,
                 });
 
             foreach (var r in dto.Rewards)
@@ -644,7 +620,7 @@ namespace Server.WebAdmin.Quests
                 {
                     Scope = scope, ScopeId = scopeId, Kind = (QuestRewardKind)r.Kind, TargetId = r.TargetId, Amount = r.Amount, Scaling = (QuestRewardScaling)r.Scaling,
                     ChoiceGroup = r.ChoiceGroup, Condition = Cond(r.Condition, scope + " reward " + (QuestRewardKind)r.Kind + " Condition"),
-                    FirstTimeOnly = r.FirstTimeOnly, LegacySource = Kept(r.LegacySource, oldRewardSources),
+                    FirstTimeOnly = r.FirstTimeOnly,
                 });
             }
 
@@ -802,12 +778,6 @@ namespace Server.WebAdmin.Quests
                 throw new WebAdminException(409, "Quest " + N(index) + " was changed since you loaded it (reload it first)", new { rev = current });
 
             var uses = WhereUsed(QuestRefKind.Quest, index).Where(u => u.Quest != index).ToList();
-            foreach (var npc in _w.NPCInfoList)
-                if (npc != null && (npc.CollectQuestIndexes.Contains(index) || npc.FinishQuestIndexes.Contains(index)))
-                    uses.Add(new QuestUseDto { Where = "NPC " + N(npc.Index) + " " + npc.Name + " (legacy [QUESTS] script)" });
-            foreach (var other in _w.QuestInfoList)
-                if (other != null && other != q && other.RequiredQuest == index)
-                    uses.Add(new QuestUseDto { Quest = other.Index, QuestLabel = QuestWhereUsed.Label(other), Where = "legacy RequiredQuest" });
             if (uses.Count > 0)
                 throw new WebAdminException(409, "Quest " + N(index) + " is still used (" + N(uses.Count) + " reference(s)); remove them first", new { uses });
 
@@ -1228,7 +1198,7 @@ namespace Server.WebAdmin.Quests
                 return lines;
             }
 
-            FieldsDiff("quest", before, after, lines, "Index", "Rev", "Name", "Legacy", "Revision", "ShapeHash");
+            FieldsDiff("quest", before, after, lines, "Index", "Rev", "Name", "Revision", "ShapeHash");
             ById("step", before.Steps, after.Steps, s => s.Index, lines);
             ById("objective", before.Objectives, after.Objectives, o => o.Index, lines);
             ById("variable", before.Vars, after.Vars, v => v.Index, lines);
@@ -1325,8 +1295,6 @@ namespace Server.WebAdmin.Quests
             {
                 if (Envir.EditorFormsOpen > 0)
                     throw new WebAdminException(409, "A database editor window is open on the server (WinForms). Close it first: it edits the same data and saves it when it closes.");
-                if (QuestImportRunner.BackgroundRunning)
-                    throw new WebAdminException(409, "The automatic quest import is running; try again in a moment.");
                 if (GameDataState.Unsaved.Changes > 0)
                     throw new WebAdminException(409, "The Game Data editor copy has " + GameDataState.Unsaved.Changes.ToString(CultureInfo.InvariantCulture) +
                                                      " unsaved change(s) that this save would write too. Save or discard them in Game Data first.");
