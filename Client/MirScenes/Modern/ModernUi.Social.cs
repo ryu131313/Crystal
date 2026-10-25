@@ -215,6 +215,14 @@ namespace Client.MirScenes.Modern
                 () => Network.Enqueue(new C.QuestAccept { Quest = quest, NpcObjectID = 0 }), null);
         }
 
+        /// <summary>S.QuestRefused: the quest's buttons unlock at once and the reason shows as a quest banner.</summary>
+        public void QuestRefused(S.QuestRefused p)
+        {
+            if (p == null) return;
+            QuestActions.Unlock(p.Quest);
+            if (_questToasts != null && !_questToasts.IsDisposed) _questToasts.Refusal(p);
+        }
+
         /// <summary>S.FriendRequest (Models.Friends.RequestReceived): a request toast for the 60 s the server keeps it. A repeat
         /// replaces it; answering in the friends window (or the request settling) closes it without a second answer.</summary>
         private void FriendRequestToast(FriendRequestInfo r)

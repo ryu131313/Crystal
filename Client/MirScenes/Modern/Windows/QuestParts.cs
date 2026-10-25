@@ -98,6 +98,9 @@ namespace Client.MirScenes.Modern.Windows
 
         private static void Lock(int quest) => _pending[quest] = (CMain.Time + PendingMs, Signature(quest));
 
+        /// <summary>S.QuestRefused: the quest's buttons unlock at once (no state reply will come).</summary>
+        public static void Unlock(int quest) => _pending.Remove(quest);
+
         /// <summary>What a reply changes: the run's status and step, the times completed.</summary>
         private static long Signature(int quest)
         {

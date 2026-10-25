@@ -728,7 +728,7 @@ namespace Client.MirScenes.Modern.Windows
         {
             if (_tab != Tab.Active || !Book.ChoiceDue(e.Quest)) return y;
             QuestBook.BranchesOf(e.Def, e.Run.Step, _branches);
-            uint npc = Book.NpcFinishing(e.Quest);
+            uint npc = Book.NpcChoosing(e.Quest);
             bool here = InView(npc), pending = QuestActions.IsPending(e.Quest);
             W.Caption(_detail.Content, W.T(ClientTextKeys.ModernQuestChoose), 16, y, w);
             y += 20;
@@ -849,7 +849,8 @@ namespace Client.MirScenes.Modern.Windows
                 {
                     bool shared = _shared.ContainsKey(id);
                     var share = Act(W.T(shared ? ClientTextKeys.ModernSocialQShared : ClientTextKeys.ModernSocialQShare), ButtonKind.Normal, () => Share(id), W.T(ClientTextKeys.ModernSocialQShareHint));
-                    if (GameScene.Models.Group.Members.Count < 2) share.SetDisabled(true, W.T(ClientTextKeys.ModernSocialQShareNoGroup));
+                    if (!QuestText.Shareable(e.Def)) share.SetDisabled(true, W.T(ClientTextKeys.ModernQuestNoShare));
+                    else if (GameScene.Models.Group.Members.Count < 2) share.SetDisabled(true, W.T(ClientTextKeys.ModernSocialQShareNoGroup));
                     else if (shared) share.SetDisabled(true, W.T(ClientTextKeys.ModernSocialQShareWait));
                 }
                 MapButton(Act, e);

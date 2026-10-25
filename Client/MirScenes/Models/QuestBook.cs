@@ -53,6 +53,8 @@ namespace Client.MirScenes.Models
         public readonly Emitter<int> Failed = new Emitter<int>();
         /// <summary>A history row was added or its count went up (not at login): the quest was turned in.</summary>
         public readonly Emitter<int> TurnedIn = new Emitter<int>();
+        /// <summary>The server refused a quest request (S.QuestRefused): the UI unlocks the quest's buttons and shows why.</summary>
+        public readonly Emitter<S.QuestRefused> Refused = new Emitter<S.QuestRefused>();
 
         // ------------------------------------------------------------------ packets (GameScene.QuestsV2.cs)
 
@@ -158,13 +160,20 @@ namespace Client.MirScenes.Models
             Touch();
         }
 
+        public void ApplyRefused(S.QuestRefused p)
+        {
+            if (p == null) return;
+            Refused.Emit(p);
+            Touch();
+        }
+
         public void ApplyAvailability(S.QuestAvailability p)
         {
             if (p == null) return;
             for (int i = 0; i < p.Npcs.Count; i++)
             {
                 S.QuestAvailability.Entry e = p.Npcs[i];
-                if (e.Icon == QuestIcon.None && e.Offered.Count == 0 && e.Finishing.Count == 0) Npcs.Remove(e.ObjectID);
+                if (e.Icon == QuestIcon.None && e.Offered.Count == 0 && e.Finishing.Count == 0 && e.Choosing.Count == 0) Npcs.Remove(e.ObjectID);
                 else Npcs[e.ObjectID] = e;
             }
             AvailabilityChanged.Emit();
@@ -282,17 +291,24 @@ namespace Client.MirScenes.Models
         }
 
         /// <summary>The NPC (ObjectID) that offers this quest, preferring one on screen; 0 = none known.</summary>
-        public uint NpcOffering(int quest) => FindNpc(quest, true);
+        public uint NpcOffering(int quest) => FindNpc(quest, 0);
 
-        /// <summary>The NPC (ObjectID) where this run is turned in (or its branch chosen), preferring one on screen; 0 = none known.</summary>
-        public uint NpcFinishing(int quest) => FindNpc(quest, false);
+        /// <summary>The NPC (ObjectID) where this run is turned in, preferring one on screen; 0 = none known.</summary>
+        public uint NpcFinishing(int quest) => FindNpc(quest, 1);
 
-        private uint FindNpc(int quest, bool offered)
+        /// <summary>The NPC (ObjectID) where this run's branch can be chosen (its Choosing list, else a finishing NPC); 0 = none known.</summary>
+        public uint NpcChoosing(int quest)
+        {
+            uint npc = FindNpc(quest, 2);
+            return npc != 0 ? npc : FindNpc(quest, 1);
+        }
+
+        private uint FindNpc(int quest, int which)
         {
             uint any = 0;
             foreach (KeyValuePair<uint, S.QuestAvailability.Entry> kv in Npcs)
             {
-                List<int> list = offered ? kv.Value.Offered : kv.Value.Finishing;
+                List<int> list = which == 0 ? kv.Value.Offered : which == 1 ? kv.Value.Finishing : kv.Value.Choosing;
                 if (!list.Contains(quest)) continue;
                 if (MapControl.Objects != null && MapControl.Objects.ContainsKey(kv.Key)) return kv.Key;
                 if (any == 0) any = kv.Key;
@@ -302,8 +318,8 @@ namespace Client.MirScenes.Models
 
         public QuestIcon IconFor(uint npc) => Npcs.TryGetValue(npc, out S.QuestAvailability.Entry e) ? e.Icon : QuestIcon.None;
 
-        /// <summary>True when the NPC offers or finishes anything for this player (the classic NPC dialog's quest button).</summary>
-        public bool NpcHasQuests(uint npc) => Npcs.TryGetValue(npc, out S.QuestAvailability.Entry e) && (e.Offered.Count > 0 || e.Finishing.Count > 0);
+        /// <summary>True when the NPC offers, finishes or takes a branch choice of anything for this player (the classic NPC dialog's quest button).</summary>
+        public bool NpcHasQuests(uint npc) => Npcs.TryGetValue(npc, out S.QuestAvailability.Entry e) && (e.Offered.Count > 0 || e.Finishing.Count > 0 || e.Choosing.Count > 0);
 
         /// <summary>Every quest offered by the NPCs known on this map, without repeats and without quests already taken.</summary>
         public void Offered(List<int> into)
@@ -379,9 +395,17 @@ namespace Client.MirScenes.Models
             return T(ClientTextKeys.QuestObjProgress, label, Math.Min(value, o.Count), o.Count);
         }
 
-        /// <summary>The objective's target: the server's label (groups, flags, maps), else the item / monster / NPC / skill name.</summary>
+        /// <summary>
+        /// The objective's target: for a group with several members their names ("Wolf, WolfKing", at most three, then "…") once
+        /// their infos are known, else the server's label (groups, flags, maps), else the item / monster / NPC / skill name.
+        /// </summary>
         public static string TargetName(S.QuestDefinition.Objective o)
         {
+            if (o.TargetMembers.Count > 1 && (o.TargetKind == QuestTargetKind.MonsterGroup || o.TargetKind == QuestTargetKind.ItemGroup))
+            {
+                string members = MemberNames(o);
+                if (members != null) return members;
+            }
             if (!string.IsNullOrEmpty(o.TargetName)) return o.TargetName;
             switch (o.TargetKind)
             {
@@ -414,6 +438,78 @@ namespace Client.MirScenes.Models
             }
             return T(ClientTextKeys.QuestTargetUnknown);
         }
+
+        /// <summary>The group members' names (distinct, at most three, then "…"), or null while an info is missing.</summary>
+        private static string MemberNames(S.QuestDefinition.Objective o)
+        {
+            const int Shown = 3;
+            var names = new List<string>(Shown);
+            bool item = o.TargetKind == QuestTargetKind.ItemGroup;
+            for (int i = 0; i < o.TargetMembers.Count; i++)
+            {
+                int id = o.TargetMembers[i];
+                string name = null;
+                if (item)
+                {
+                    for (int j = 0; j < GameScene.ItemInfoList.Count; j++)
+                        if (GameScene.ItemInfoList[j].Index == id) { name = GameScene.ItemInfoList[j].FriendlyName; break; }
+                }
+                else
+                {
+                    for (int j = 0; j < GameScene.MonsterInfoList.Count; j++)
+                        if (GameScene.MonsterInfoList[j].Index == id)
+                        {
+                            ClientMonsterInfo m = GameScene.MonsterInfoList[j];
+                            name = !string.IsNullOrEmpty(m.GameName) ? m.GameName : m.Name;
+                            break;
+                        }
+                }
+                if (string.IsNullOrEmpty(name)) return null; // the server sends every member's info with the definition
+                if (names.Contains(name)) continue;
+                if (names.Count == Shown) return T(ClientTextKeys.QuestTargetMore, string.Join(", ", names));
+                names.Add(name);
+            }
+            return string.Join(", ", names);
+        }
+
+        /// <summary>A refusal as one line: "Cannot hand in "Hen Trouble": The quest is not ready to hand in."</summary>
+        public static string Refusal(S.QuestRefused p, out string title, out string reason)
+        {
+            string name = GameScene.Models?.Quests.Def(p.Quest)?.Name;
+            if (string.IsNullOrEmpty(name)) name = GameScene.Models?.Quests.Done(p.Quest)?.Name ?? string.Empty;
+            title = T(p.Request switch
+            {
+                QuestRequestKind.TurnIn => ClientTextKeys.QuestRefusedTurnIn,
+                QuestRequestKind.Abandon => ClientTextKeys.QuestRefusedAbandon,
+                QuestRequestKind.Share => ClientTextKeys.QuestRefusedShare,
+                QuestRequestKind.Choose => ClientTextKeys.QuestRefusedChoose,
+                _ => ClientTextKeys.QuestRefusedAccept,
+            }, name);
+            reason = T(p.Reason switch
+            {
+                QuestRefusal.NotAvailable => ClientTextKeys.QuestRefusalNotAvailable,
+                QuestRefusal.NotAtNpc => ClientTextKeys.QuestRefusalNotAtNpc,
+                QuestRefusal.QuestLogFull => ClientTextKeys.QuestRefusalQuestLogFull,
+                QuestRefusal.BagFull => ClientTextKeys.QuestRefusalBagFull,
+                QuestRefusal.NotReady => ClientTextKeys.QuestRefusalNotReady,
+                QuestRefusal.InvalidPick => ClientTextKeys.QuestRefusalInvalidPick,
+                QuestRefusal.AbandonNotAllowed => ClientTextKeys.QuestRefusalAbandonNotAllowed,
+                QuestRefusal.NotInGroup => ClientTextKeys.QuestRefusalNotInGroup,
+                QuestRefusal.ShareNotAllowed => ClientTextKeys.QuestRefusalShareNotAllowed,
+                QuestRefusal.UnknownQuest => ClientTextKeys.QuestRefusalUnknownQuest,
+                QuestRefusal.ConditionNotMet => ClientTextKeys.QuestRefusalConditionNotMet,
+                QuestRefusal.AlreadyActive => ClientTextKeys.QuestRefusalAlreadyActive,
+                QuestRefusal.Dead => ClientTextKeys.QuestRefusalDead,
+                QuestRefusal.AlreadyCompleted => ClientTextKeys.QuestRefusalAlreadyCompleted,
+                QuestRefusal.QuestBagFull => ClientTextKeys.QuestRefusalQuestBagFull,
+                QuestRefusal.NoMemberCouldTake => ClientTextKeys.QuestRefusalNoMemberCouldTake,
+                _ => ClientTextKeys.QuestRefusalOther,
+            });
+            return T(ClientTextKeys.QuestRefusedLine, title, reason);
+        }
+
+        /// <summary>The quest can be shared at all (its ShareMode; the server refuses C.QuestShare when None).</summary>
+        public static bool Shareable(S.QuestDefinition def) => def != null && def.ShareMode != QuestShareMode.None;
 
         /// <summary>How the UI shows an NPC's raw name; set by the UI at build (the new UI: the last '_' part, ChatGfx.NpcName;
         /// null = the classic NPC dialog's rule, the part before the first '_').</summary>

@@ -205,8 +205,9 @@ namespace Client.RenderTest
             if (d.SelectedQuest != row.Quest) row.InvokeMouseClick(null);
             if (pickOnly)
             {
-                QuestCell cell = QuestRewards.SelectItems.Length > 1 ? QuestRewards.SelectItems[1] : null;
-                cell?.InvokeMouseClick(null);
+                // one pick per choice group: group 1's second cell (the ring), group 2's first cell (the potions)
+                for (int i = 1; i <= 2 && i < QuestRewards.SelectItems.Length; i++)
+                    if (QuestRewards.SelectItems[i] != null && !QuestRewards.SelectItems[i].IsDisposed) QuestRewards.SelectItems[i].InvokeMouseClick(null);
                 return;
             }
             string field = accept ? "_acceptButton" : "_finishButton";

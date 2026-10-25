@@ -656,7 +656,10 @@ namespace Client.MirScenes.Modern.Windows
 
         // ------------------------------------------------------------------ quests (QuestListDialog for this NPC; quest V2)
 
-        /// <summary>What this NPC finishes (the player's runs) and offers for the player, as S.QuestAvailability said; definitions known.</summary>
+        /// <summary>
+        /// What this NPC finishes (the player's runs), takes a branch choice of (Choosing: runs whose step has branches, also at a
+        /// start-only NPC) and offers for the player, as S.QuestAvailability said; definitions known.
+        /// </summary>
         private static void NpcQuests(uint npc, List<(int Quest, bool Offer)> into)
         {
             into.Clear();
@@ -664,6 +667,8 @@ namespace Client.MirScenes.Modern.Windows
             if (book == null || !book.Npcs.TryGetValue(npc, out S.QuestAvailability.Entry e)) return;
             for (int i = 0; i < e.Finishing.Count; i++)
                 if (book.Def(e.Finishing[i]) != null && book.Run(e.Finishing[i]) != null) into.Add((e.Finishing[i], false));
+            for (int i = 0; i < e.Choosing.Count; i++)
+                if (book.Def(e.Choosing[i]) != null && book.Run(e.Choosing[i]) != null && !e.Finishing.Contains(e.Choosing[i])) into.Add((e.Choosing[i], false));
             for (int i = 0; i < e.Offered.Count; i++)
                 if (book.Def(e.Offered[i]) != null && book.Run(e.Offered[i]) == null) into.Add((e.Offered[i], true));
         }

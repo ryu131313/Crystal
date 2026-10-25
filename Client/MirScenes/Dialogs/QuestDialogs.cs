@@ -132,16 +132,22 @@ namespace Client.MirScenes.Dialogs
             };
             _finishButton.Click += (o, e) =>
             {
-                if (Reward == null || !SelectedQuest.Completed) return;
+                if (Reward == null || SelectedQuest == null) return;
+                if (!SelectedQuest.Completed)
+                {
+                    // quest V2: a met branch step at an NPC that takes the choice
+                    if (QuestV2Classic.ChoiceDueAt(SelectedQuest.QuestInfo.Index, CurrentNPCID)) QuestV2Classic.PromptBranches(SelectedQuest.QuestInfo.Index, CurrentNPCID);
+                    return;
+                }
 
-                if (Reward.SelectedItemIndex < 0 && SelectedQuest.QuestInfo.RewardsSelectItem.Count > 0)
+                if (!Reward.PicksComplete())
                 {
                     MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.YouMustSelectRewardItem));
                     messageBox.Show();
                     return;
                 }
 
-                QuestV2Classic.TurnIn(SelectedQuest.QuestInfo.Index, CurrentNPCID, Reward.SelectedItemIndex);
+                QuestV2Classic.TurnIn(SelectedQuest.QuestInfo.Index, CurrentNPCID, Reward.SelectedPicks.Values); // one pick per choice group
                 //Hide();
             };
 
@@ -421,7 +427,7 @@ namespace Client.MirScenes.Dialogs
                 if (!SelectedQuest.Taken && QuestV2Classic.ActiveCount < Globals.MaxConcurrentQuests)
                     _acceptButton.Visible = true;
 
-                if (SelectedQuest.Completed && Reward != null)
+                if ((SelectedQuest.Completed || QuestV2Classic.ChoiceDueAt(SelectedQuest.QuestInfo.Index, CurrentNPCID)) && Reward != null)
                     _finishButton.Visible = true;
             }
         }
@@ -633,6 +639,7 @@ namespace Client.MirScenes.Dialogs
             Quest = quest;
             Reward.UpdateRewards(Quest);
             Message.UpdateQuest(Quest);
+            _shareButton.Enabled = QuestV2Classic.Shareable(Quest.Id); // quest V2: ShareMode None cannot be shared
 
             Show();
         }
@@ -1417,6 +1424,9 @@ namespace Client.MirScenes.Dialogs
 
         public int SelectedItemIndex = -1;
         public ItemInfo SelectedItem = null;
+        /// <summary>Quest V2: choice group → the picked RewardsSelectItem index (one pick per group).</summary>
+        public readonly Dictionary<int, int> SelectedPicks = new Dictionary<int, int>();
+        private readonly int[] _selectIndex = new int[5];
 
         public static QuestCell[] FixedItems = new QuestCell[5];
         public static QuestCell[] SelectItems = new QuestCell[5];
@@ -1502,6 +1512,19 @@ namespace Client.MirScenes.Dialogs
 
             SelectedItemIndex = -1;
             SelectedItem = null;
+            SelectedPicks.Clear();
+        }
+
+        /// <summary>Every choice group shown in the select row has a pick.</summary>
+        public bool PicksComplete()
+        {
+            if (Quest == null) return false;
+            for (int i = 0; i < SelectItems.Length; i++)
+            {
+                if (SelectItems[i] == null || SelectItems[i].IsDisposed) continue;
+                if (!SelectedPicks.ContainsKey(QuestV2Classic.SelectGroup(Quest.Id, _selectIndex[i]))) return false;
+            }
+            return true;
         }
 
         public void UpdateInterface()
@@ -1567,34 +1590,41 @@ namespace Client.MirScenes.Dialogs
             if (quest.RewardsSelectItem.Count > 0)
             {
                 var selRewards = FilterRewards(quest.RewardsSelectItem);
+                int questId = Quest.Id, x = 15, lastGroup = -1;
 
+                // quest V2: one pick per choice group; groups sit side by side with a small gap between them
                 for (int i = 0; i < SelectItems.Length; i++)
                 {
                     if (i >= selRewards.Count) break;
+
+                    int index = quest.RewardsSelectItem.IndexOf(selRewards[i]);
+                    int group = QuestV2Classic.SelectGroup(questId, index);
+                    if (lastGroup >= 0 && group != lastGroup) x += 8;
+                    lastGroup = group;
+                    _selectIndex[i] = index;
 
                     SelectItems[i] = new QuestCell
                     {
                         Item = selRewards[i].Item,
                         Count = selRewards[i].Count,
                         Parent = this,
-                        Location = new Point(i * 45 + 15, 89),
+                        Location = new Point(x, 89),
                     };
+                    x += 45;
+                    int slot = i;
                     SelectItems[i].Click += (o, e) =>
                     {
-                        foreach (var itm in SelectItems)
+                        for (int j = 0; j < SelectItems.Length; j++)
                         {
-                            if (itm == null) continue;
-
-                            if (itm == o)
-                            {
-                                itm.Selected = true;
-                                SelectedItem = itm.Item;
-                                SelectedItemIndex = FindSelectedItemIndex();
-                            }
-                            else
-                                itm.Selected = false;
+                            QuestCell itm = SelectItems[j];
+                            if (itm == null || itm.IsDisposed) continue;
+                            if (j == slot) itm.Selected = true;
+                            else if (QuestV2Classic.SelectGroup(questId, _selectIndex[j]) == group) itm.Selected = false; // other groups keep their pick
                         }
 
+                        SelectedItem = selRewards[slot].Item;
+                        SelectedItemIndex = index;
+                        SelectedPicks[group] = index;
                         Redraw();
                     };
                 }

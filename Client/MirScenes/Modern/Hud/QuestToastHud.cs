@@ -75,6 +75,14 @@ namespace Client.MirScenes.Modern.Hud
             Show(BannerMs);
         }
 
+        /// <summary>S.QuestRefused (ModernUi.QuestRefused): a red banner, the request + quest as the title and the reason below.</summary>
+        public void Refusal(S.QuestRefused p)
+        {
+            QuestText.Refusal(p, out string title, out string reason);
+            _card.Set(true, true, title, reason, 0, 0, small: true);
+            Show(BannerMs);
+        }
+
         private void Show(int ms)
         {
             _until = CMain.Time + ms;
@@ -127,8 +135,11 @@ namespace Client.MirScenes.Modern.Hud
         public int Have { get; private set; }
         public int Need { get; private set; }
 
-        public void Set(bool banner, bool bad, string title, string text, int have, int need)
+        private bool _small;
+
+        public void Set(bool banner, bool bad, string title, string text, int have, int need, bool small = false)
         {
+            _small = small;
             Banner = banner;
             _bad = bad;
             Title = title ?? string.Empty;
@@ -151,7 +162,7 @@ namespace Client.MirScenes.Modern.Hud
             {
                 Color tc = _bad ? ModernTheme.Hex("#ff6b5a") : ModernTheme.Hex("#f0c860");
                 ModernSkin.SpacedText(g, Title.ToUpperInvariant(), ModernSkin.Font(11, true), tc, new RectangleF(0, 7 * k, Size.Width, 16 * k), 1.6f * k);
-                ModernSkin.Text(g, Text, ModernSkin.Font(14, true), Color.White, new RectangleF(10 * k, 25 * k, Size.Width - 20 * k, 24 * k), StringAlignment.Center);
+                ModernSkin.Text(g, Text, ModernSkin.Font(_small ? 11.5f : 14, !_small), Color.White, new RectangleF(10 * k, 25 * k, Size.Width - 20 * k, 24 * k), StringAlignment.Center);
                 return;
             }
             ModernSkin.Text(g, Title, ModernSkin.Font(10, true), ModernTheme.Hex("#f0c860"), new RectangleF(12 * k, 6 * k, Size.Width - 24 * k, 15 * k));

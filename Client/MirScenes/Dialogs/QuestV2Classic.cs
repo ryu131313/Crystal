@@ -8,8 +8,9 @@ namespace Client.MirScenes.Dialogs
     /// <summary>
     /// The classic quest dialogs' minimal quest V2 adapter (Part B phase 3, "Classic UIs"): projects GameScene.Models.Quests into
     /// the ClientQuestProgress / ClientQuestInfo shapes QuestDialogs.cs already draws (the current step's objectives as client-built
-    /// text lines, quest-scope rewards), and sends the V2 packets for accept / turn in / abandon / share. No bars, markers, branch
-    /// choices or other new classic features. Built on demand (the dialogs rebuild on IGameUi.QuestsChanged only).
+    /// text lines, quest-scope rewards), and sends the V2 packets for accept / turn in / abandon / share. Branch choices (wave 3
+    /// kick-off) are a chain of Yes / No prompts, one per branch, at an NPC that lists the quest as Choosing (or finishing). No bars,
+    /// markers or other new classic features. Built on demand (the dialogs rebuild on IGameUi.QuestsChanged only).
     /// </summary>
     public static class QuestV2Classic
     {
@@ -18,6 +19,8 @@ namespace Client.MirScenes.Dialogs
 
         /// <summary>The reward positions (in the definition's Rewards list) behind each RewardsSelectItem entry, per quest.</summary>
         private static readonly Dictionary<int, List<int>> _selectPositions = new Dictionary<int, List<int>>();
+        /// <summary>The choice group of each RewardsSelectItem entry, per quest (same order as _selectPositions).</summary>
+        private static readonly Dictionary<int, List<int>> _selectGroups = new Dictionary<int, List<int>>();
 
         /// <summary>The player's runs (Active / Ready / Failed) whose definition has arrived.</summary>
         public static List<ClientQuestProgress> Current()
@@ -42,6 +45,12 @@ namespace Client.MirScenes.Dialogs
             for (int i = 0; i < e.Finishing.Count; i++)
             {
                 ClientQuestProgress p = Project(e.Finishing[i], npc);
+                if (p != null) list.Add(p);
+            }
+            for (int i = 0; i < e.Choosing.Count; i++)
+            {
+                if (e.Finishing.Contains(e.Choosing[i]) || book.Run(e.Choosing[i]) == null) continue;
+                ClientQuestProgress p = Project(e.Choosing[i], npc);
                 if (p != null) list.Add(p);
             }
             for (int i = 0; i < e.Offered.Count; i++)
@@ -114,6 +123,7 @@ namespace Client.MirScenes.Dialogs
 
             // rewards: quest scope only; currencies as numbers, fixed items, and one choice group as the classic "select one" row
             var positions = new List<int>();
+            var groups = new List<int>();
             for (int i = 0; i < def.Rewards.Count; i++)
             {
                 S.QuestDefinition.Reward r = def.Rewards[i];
@@ -133,11 +143,13 @@ namespace Client.MirScenes.Dialogs
                         {
                             info.RewardsSelectItem.Add(reward);
                             positions.Add(i);
+                            groups.Add(r.ChoiceGroup);
                         }
                         break;
                 }
             }
             _selectPositions[quest] = positions;
+            _selectGroups[quest] = groups;
             return progress;
         }
 
@@ -171,13 +183,48 @@ namespace Client.MirScenes.Dialogs
 
         public static void Accept(int quest, uint npc) => Network.Enqueue(new C.QuestAccept { Quest = quest, NpcObjectID = npc });
 
-        /// <summary>C.QuestTurnIn; <paramref name="selectIndex"/> = the RewardsSelectItem pick (-1 = none) mapped to its reward position.</summary>
-        public static void TurnIn(int quest, uint npc, int selectIndex)
+        /// <summary>The choice group of a RewardsSelectItem entry (0 = unknown).</summary>
+        public static int SelectGroup(int quest, int selectIndex) =>
+            _selectGroups.TryGetValue(quest, out List<int> groups) && selectIndex >= 0 && selectIndex < groups.Count ? groups[selectIndex] : 0;
+
+        /// <summary>C.QuestTurnIn; <paramref name="selectIndices"/> = the RewardsSelectItem picks (one per choice group) mapped to reward positions.</summary>
+        public static void TurnIn(int quest, uint npc, IEnumerable<int> selectIndices)
         {
             var picks = new List<int>();
-            if (selectIndex >= 0 && _selectPositions.TryGetValue(quest, out List<int> positions) && selectIndex < positions.Count) picks.Add(positions[selectIndex]);
+            if (selectIndices != null && _selectPositions.TryGetValue(quest, out List<int> positions))
+                foreach (int selectIndex in selectIndices)
+                    if (selectIndex >= 0 && selectIndex < positions.Count) picks.Add(positions[selectIndex]);
             Network.Enqueue(new C.QuestTurnIn { Quest = quest, NpcObjectID = npc, RewardPicks = picks });
         }
+
+        /// <summary>A branch choice of this run is due and <paramref name="npc"/> takes it (Choosing or finishing).</summary>
+        public static bool ChoiceDueAt(int quest, uint npc)
+        {
+            QuestBook book = Book;
+            if (book == null || !book.ChoiceDue(quest) || !book.Npcs.TryGetValue(npc, out S.QuestAvailability.Entry e)) return false;
+            return e.Choosing.Contains(quest) || e.Finishing.Contains(quest);
+        }
+
+        /// <summary>The branch prompts: one Yes / No box per branch in order (Yes sends C.QuestChoose, No asks about the next one).</summary>
+        public static void PromptBranches(int quest, uint npc, int from = 0)
+        {
+            QuestBook book = Book;
+            S.QuestDefinition def = book?.Def(quest);
+            QuestRun run = book?.Run(quest);
+            if (def == null || run == null) return;
+            var branches = new List<S.QuestDefinition.Branch>();
+            QuestBook.BranchesOf(def, run.Step, branches);
+            if (from < 0 || from >= branches.Count) return;
+            S.QuestDefinition.Branch b = branches[from];
+            string text = b.Text.Length > 0 ? b.Text : b.ChoiceKey;
+            var box = new MirControls.MirMessageBox(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.QuestChooseBranchPrompt, def.Name, text), MirControls.MirMessageBoxButtons.YesNo);
+            string key = b.ChoiceKey;
+            box.YesButton.Click += (o, e) => Network.Enqueue(new C.QuestChoose { Quest = quest, NpcObjectID = npc, ChoiceKey = key });
+            if (from + 1 < branches.Count) box.NoButton.Click += (o, e) => PromptBranches(quest, npc, from + 1);
+            box.Show();
+        }
+
+        public static bool Shareable(int quest) => QuestText.Shareable(Book?.Def(quest));
 
         public static void Abandon(int quest) => Network.Enqueue(new C.QuestAbandon { Quest = quest });
 

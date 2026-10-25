@@ -49,5 +49,13 @@ namespace Client.MirScenes
         {
             Ui.QuestOffer(p);
         }
+
+        /// <summary>S.QuestRefused: the model tells the UI (unlock the quest's buttons), then the UI shows the reason.</summary>
+        private void QuestRefused(S.QuestRefused p)
+        {
+            Models.Quests.ApplyRefused(p);
+            Ui.QuestRefused(p);
+            Ui.QuestsChanged();
+        }
     }
 }

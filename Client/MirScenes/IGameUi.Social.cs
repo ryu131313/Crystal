@@ -9,6 +9,8 @@ namespace Client.MirScenes
     {
         /// <summary>S.QuestOffer (a share, an item / area / auto start): ask whether to accept it (Yes sends C.QuestAccept { NpcObjectID = 0 }).</summary>
         void QuestOffer(S.QuestOffer p);
+        /// <summary>S.QuestRefused (after Models.Quests.Refused fired): show why a quest request was refused (QuestText.Refusal).</summary>
+        void QuestRefused(S.QuestRefused p);
         /// <summary>S.GuildInvite: ask whether to join p.Name's guild (C.GuildInvite accept / decline).</summary>
         void GuildInviteRequest(S.GuildInvite p);
         /// <summary>S.GuildNameRequest: ask for the new guild's name (letters and digits; C.GuildNameReturn).</summary>
