@@ -81,7 +81,7 @@ The player belt grows 6 → 8 cells (`Inventory[0..7]`, new characters 48 cells,
 
 - `CharacterInfo` saves the quest V2 state (runs, objective values, history, quest variables), `PlayerStatistics` and `HideFromRankings`, and no longer saves the legacy `CurrentQuests` / `CompletedQuests`. A pre-121 file still loads, with its legacy quest progress discarded (no conversion).
 - Ships **only at D2** (§14), together with the user-data wipe and the quest V2 wire change (`S.ObjectNPC` changed layout: an older desktop client would crash on it), so server, desktop client (patch root), WebRelay and web client come from one commit and the version check is refreshed (§14).
-- **Rollback = the D2 rollback** (§14, written at D2): a v120 build refuses a v121 `UserData.db`, so the pre-D2 `UserData.db` backup goes back with the previous binaries; everything played since D2 is lost.
+- **Rollback = the D2 rollback** (§14): a v120 build refuses a v121 `UserData.db`, so the pre-D2 `UserData.db` backup goes back with the previous binaries; everything played since D2 is lost.
 
 ## 4. Restore drill (do once, then after any backup-format change)
 
@@ -111,7 +111,7 @@ powershell -ExecutionPolicy Bypass -File C:\Mir2\tools\stop-scratch-server.ps1  
 ```
 - Use ports 17000-17999. The scratch `Setup.ini` sets `[LoadTest] ExemptLoopback=True`, `CheckVersion=False`, `EnforceDBChecks=False`, `AllowStartGame=True` and `[WebAdmin] Enabled=False`: **never copy it to a real server.**
 - The scratch profile sets `[Network] StatusPortEnabled=False`, so the status port (3100 by default, now configurable) stays free for the live server.
-- A fresh store (first start or `-Reset`) is started twice by the script: the first start imports the legacy quests into the quest V2 tables on `Envir.Edit` only (UserData-and-Quests-Plan.md, lane F), and the running world loads them at its next start. A scratch folder started by hand needs that second start too.
+- A fresh store (first start or `-Reset`) is started twice by the script: the first start imports the legacy quests into the quest V2 tables (UserData-and-Quests-Plan.md, lane F). Since wave 3 the import is also applied to the running world through the quest-replace hook (`[Quests] Imported quests: Applied live ...`), so the second start is no longer needed; it is kept and harmless.
 - After a run, check `%TEMP%\mir2-p6-server\run\Logs\Server\` for `[World] Isolated error` / `FATAL` and `run\Logs\Crash\`.
 - Baseline / regression: `powershell -ExecutionPolicy Bypass -File C:\Mir2\tools\run-baseline.ps1` (idle + 50/200/500 bots, ~10 min, writes `Knowledgebase\Future Optimisation\Baseline-<date>.md`). A/B a switch with `-Bots 500 -NoIdle -ExtraIni '[Optimisation]','EncodeOnce=False' -Out <file>`. CPU numbers are only comparable on a quiet machine (close browsers, chat apps).
 
@@ -280,9 +280,38 @@ D1 changes nothing players see. It moves user data into `UserData.db` (§12) and
 3. System data: put the `Back Up\Database\Pre-migrate <time>.bak` taken at the D1 start in place as `SystemData.db` and set its `LastWriteTime` to now (§10). The previous build refuses the migrated store (`unknown column(s)` / unknown tables). Design edits made since D1 are lost.
 4. Put back the previous server build (§3), the previous client build in the patch root, and the previous WebRelay + web client publish. Start.
 
-## 14. D2: quest V2 ship (UserData-and-Quests-Plan.md, wave 3) — draft, completed in wave 3
+## 14. D2: quest V2 ship (UserData-and-Quests-Plan.md, waves 2-3)
 
-Only the version-check part is written (wave 2 kick-off, 2026-10-24). Wave 3 adds the backups, the last legacy re-import, the wipe list, the deploy order, `log4net.config` (new `Quests` logger, `Logs\Quests\`), the new `[Quests]` / `[Website]` settings and the rollback.
+D2 ships the quest V2 runtime: `Envir.Version` 121 (§3.4), the V2 quest packets and the changed `S.ObjectNPC` / `S.GameDataChanged` layouts, the web admin Quests page with live quest edits (the LiveDb quest-replace hook), player statistics and the website export settings. Legacy quest bodies become read only (Scripts editor, quest reload, legacy `quests` grid columns, WinForms `QuestInfoForm`). It goes out **with a user-data wipe** (no conversion of legacy quest progress) and **one commit** for the server, the desktop client (patch root), WebRelay and the web client. Then `quests-v2` is merged into `FuckingAround`.
+
+**Before (world running or not):**
+1. Build everything from the D2 commit (`toolserify.ps1`, all green) and the Release client (version check below).
+2. Note the new settings (defaults are fine): `[Quests] DailyResetHour=0`, `WeeklyResetDay=Monday` (UTC, like `Envir.Now`); `[Website] ExportMinutes=0` (0 = off), `ExportPath=`.
+
+**Deploy (one stop window):**
+1. Stop the world and `Server.exe` (§2 step 1), and the public WebRelay (desktop players connect through it, §9).
+2. **Pre-ship backups, kept outside the server folder** (e.g. `D:\mir2-d2-backup\<date>\`): `UserData.db` (with the server stopped a plain copy is safe; there must be no `UserData.db-journal`, else copy it too) and `SystemData.db`. Also keep the deploy script's snapshot (step 4).
+3. **The D2 wipe**, in the run folder (`Build\Server\Release`). Move each item into a dated folder outside the run folder (never delete). Every item except `Archive\` is prior-data evidence, and the server refuses to create an empty user store while any is present (§12):
+   - `UserData.db` and `UserData.db-journal` (if present);
+   - the **whole `Back Up\Accounts\` folder** (binary and SQLite `*.bak` files both count as evidence);
+   - `Server.MirADBn` / `Server.MirADBo`, if present;
+   - every `*.imported` (`Server.MirADB.imported`, `Guilds.imported`, `Conquests.imported`, `Envir\Goods.imported`);
+   - `Archive\` (not evidence, but its old characters' `UniqueID`s would collide with the new world, as in §3.2).
+4. Deploy the server as §2 (`tools\deploy-with-backup.ps1`). Check that `log4net.config` was deployed too: the D2 one has the `Quests` logger (`Logs\Quests\`); without it the quest telemetry lines go nowhere.
+5. Version check + client: steps 1-3 of "Version-check refresh" below (the D2 `Client.exe` into the patch root before the server starts; `[General] CheckVersion=True`, `VersionPath=` that `Client.exe`).
+6. Start the server. Expect, besides the usual start lines:
+   - the user store created empty (no `[Load] ... Refusing` line; a refusal names the evidence still present: move it aside, step 3);
+   - **the one-time quest re-import** (background thread; the live `SystemData.db` holds D1-importer rows, which recorded no importer version): `[Quests] The quest V2 rows were imported by an older importer (version 0, this build 2): re-importing the legacy quests once (editor-made quests are kept).`, `[Quests] Importing the legacy quests into the V2 tables (world start: the quest importer version changed).`, `[Quests] Quest importer version 2 recorded in SystemData.db.`, `[Quests] Imported 154 legacy quest(s): ... 0 validation error(s) ...` (the D1 dry run listed 1 real data error, quest 74), then, once the world loop runs, `[Quests] Imported quests: Applied live to the running world (replaced 154, ...)`. The next start logs none of these (the version is current). `[Quests] Automatic import skipped: the editor copy (Envir.Edit) is not loaded ...` means it did not run: run it from the web admin (`POST /api/admin/quests/reimport`) or restart.
+7. Rebuild WebRelay from the D2 commit, run `tools\publish-webclient.ps1` (§8; the publish cache-busts the web client), and start the relay after the server (version check step 4).
+
+**Ship checks (each client):** with the desktop modern UI, the desktop classic UI and the web client: accept a quest at an NPC, kill its monsters, turn it in (rewards arrive, the quest moves to history). Then, with one player online on a quest: change that quest in the web admin Quests page (e.g. its kill count or a reward) and save: the save answers "Applied live to the running world (... for N online player(s))", and the player's quest window shows the change without a relog. Finally the version check: a pre-D2 desktop client is refused at login (step 5 below).
+
+**Rollback (D2 → D1 build):**
+1. Stop `Server.exe` and the WebRelay.
+2. Put back the files moved aside by the wipe (step 3), replacing any new `UserData.db` (keep a copy of it if anything played since D2 matters to you; it cannot be loaded by the D1 build).
+3. Restore the pre-ship `UserData.db` and `SystemData.db` backups (step 2) and set `SystemData.db`'s `LastWriteTime` to now (`(Get-Item SystemData.db).LastWriteTime = Get-Date`; a store older than `Server.MirDB` is refused, §10).
+4. Put back the D1 server build (§3, the deploy snapshot's `_binaries`), the D1 client build in the patch root (and the D1 `VersionPath`), and the D1 WebRelay + web client publish. Start.
+5. Player progress and design edits (Quests page included) made since the ship are lost.
 
 **Why the version check matters here:** the quest V2 `S.ObjectNPC` layout makes a pre-D2 desktop client misread every NPC on its socket thread and crash, so D2 must refuse old desktop builds at login. The server compares the MD5 of the client's `Client.exe` (the apphost) with `[General] VersionPath`. That file's version resource carries `ProductVersion` = `1.0.0+<git commit sha>`, so every commit's build hashes differently (a rebuild of one commit does not). WebRelay replaces only the browser's all-zero hash with the MD5 of its `--version-path`; a desktop client on `[Network] Relay` keeps its own hash (D2 relay build). A **pre-D2 WebRelay rewrites every hash**, desktop ones included, so old desktop clients would pass: the relay must be the D2 build.
 
