@@ -138,6 +138,46 @@ public class QuestReplaceTests
         QuestReplace.Apply(Envir.Main, QuestReplace.Take(edit, quests, "test"), players);
 
     [Fact]
+    public void A_raised_count_takes_a_Ready_run_back_to_Active_until_the_next_kill()
+    {
+        InWorld(() =>
+        {
+            // Pack needs 1 wolf to start with; the player is Ready at 1/1.
+            Def(Envir.Main, Pack).Objectives[0].Count = 1;
+            Envir.Main.InvalidateQuestCatalog();
+            var wolf = Envir.Main.MonsterInfoList.Single(m => m.Name == "Wolf");
+            var p = NewPlayer("Raise");
+            Assert.True(p.Quests.AdminStart(Pack));
+            p.Quests.MonsterKilled(wolf, true);
+            Assert.Equal(QuestRunStatus.Ready, p.Quests.StatusOf(p.Quests.GetRun(Pack)));
+
+            // The Quests page raises the count to 2 (a new revision): the online run migrates, keeps its 1 and is Active again.
+            var edit = EditCopy();
+            Def(edit, Pack).Objectives[0].Count = 2;
+            Def(edit, Pack).Revision = 2;
+            p.Sent.Clear();
+            var result = Replace(edit, new[] { Pack }, p);
+            Assert.Empty(result.Failed);
+            var q = Envir.Main.QuestCatalog.Get(Pack);
+            var run = p.Quests.GetRun(Pack);
+            Assert.Equal(2, run.Revision);
+            Assert.Equal(QuestRunStatus.Active, p.Quests.StatusOf(run));
+            Assert.Equal(1, p.Quests.ValueOf(q, run, q.ObjectivesById[4101]));
+            p.Quests.Process(); // states go out coalesced
+            Assert.Contains(p.Of<ServerPackets.QuestStates>().SelectMany(x => x.States), x => x.Quest == Pack && x.Status == QuestRunStatus.Active);
+
+            // A second kill makes it Ready (2/2), and it completes into the history (AdminComplete: TurnIn needs a spawned player at an NPC,
+            // which the scratch run covers).
+            p.Quests.MonsterKilled(wolf, true);
+            Assert.Equal(QuestRunStatus.Ready, p.Quests.StatusOf(p.Quests.GetRun(Pack)));
+            Assert.Equal(2, p.Quests.ValueOf(q, p.Quests.GetRun(Pack), q.ObjectivesById[4101]));
+            p.Quests.AdminComplete(Pack);
+            Assert.Null(p.Quests.GetRun(Pack));
+            Assert.Equal(1, p.Quests.TimesCompleted(Pack));
+        });
+    }
+
+    [Fact]
     public void A_replace_changes_mains_definition_and_migrates_an_online_run()
     {
         InWorld(() =>

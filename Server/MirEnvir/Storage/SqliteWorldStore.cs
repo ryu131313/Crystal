@@ -169,6 +169,10 @@ namespace Server.MirEnvir.Storage
                 meta["source_envir_version"] = (long)Envir.LoadVersion;
                 meta["source_sha256"] = Sha256(Envir.DatabasePath);
                 MessageQueue.Enqueue("[Store] Importing " + Envir.DatabasePath + " (version " + Envir.LoadVersion.ToString(CultureInfo.InvariantCulture) + ") into " + DatabasePath);
+                if (e.QuestInfoList.Count > 0)
+                    MessageQueue.Enqueue("[Quests] WARNING: " + Envir.DatabasePath + " has " + e.QuestInfoList.Count.ToString(CultureInfo.InvariantCulture) +
+                                         " quest(s) but carries no quest V2 definitions (quest V2 wave 4): they are imported without steps and do nothing. " +
+                                         "Quest definitions live only in SystemData.db and its SQLite backups: restore one of those instead (Knowledgebase/Runbook.md §10, §15).");
             }
             else meta["source"] = "new";
 

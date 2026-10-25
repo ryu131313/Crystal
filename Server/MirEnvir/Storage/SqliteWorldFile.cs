@@ -329,6 +329,8 @@ namespace Server.MirEnvir.Storage
 
             if (meta) Exec(conn, tx, "DELETE FROM meta WHERE name = '" + LegacyQuestImporterMetaKey + "'");
             Upsert(conn, tx, "meta", "legacy_quests_dropped_utc", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
+            // In the same transaction: a dropped store is never left at schema 3, which the D2 build would accept (and run without its columns).
+            Upsert(conn, tx, "meta", "schema_version", (long)SqliteWorldCodec.SchemaVersion);
             tx.Commit();
             log("[Store] Legacy quest data dropped: " + drop.Count.ToString(CultureInfo.InvariantCulture) + " column(s)" + (questLines ? ", table quest_lines" : string.Empty) +
                 "; quests are V2 only from here on (schema_version " + SqliteWorldCodec.SchemaVersion.ToString(CultureInfo.InvariantCulture) + ")");

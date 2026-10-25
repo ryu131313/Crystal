@@ -154,6 +154,15 @@ public class QuestLegacyDropTests
                 Assert.Throws<InvalidDataException>(() => SqliteWorldFile.ReadAll(conn)); // unknown columns: this build needs the migration
             }
 
+            // The drop raises schema_version in its own transaction (never a dropped store at 3, which the D2 build would accept).
+            var direct = Path.Combine(dir, "direct.db");
+            File.Copy(db, direct);
+            using (var conn = SqliteWorldFile.Open(direct, create: false))
+            {
+                Assert.True(SqliteWorldFile.DropLegacyQuestColumns(conn, _ => { }) > 0);
+                Assert.Equal(4L, Scalar(conn, "SELECT value FROM meta WHERE name = 'schema_version'"));
+            }
+
             var writer = new SqliteWriter(db, "legacy drop test writer 2");
             try
             {
