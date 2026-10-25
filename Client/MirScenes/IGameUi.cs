@@ -112,11 +112,9 @@ namespace Client.MirScenes
         void MountChanged();
         /// <summary>S.FishingUpdate for the user (before the scene redraw; classic: the fishing status window keeps the percentages).</summary>
         void FishingUpdated(S.FishingUpdate p);
-        /// <summary>S.ChangeQuest Add, after the quest was added to User.CurrentQuests and bound.</summary>
-        void QuestAdded(ClientQuestProgress quest, bool track);
-        /// <summary>S.ChangeQuest Remove, after the quest left User.CurrentQuests.</summary>
-        void QuestRemoved(ClientQuestProgress quest);
-        /// <summary>S.ChangeQuest, at the end (every state).</summary>
+        /// <summary>S.QuestStates added a run after login (Models.Quests holds it); track = the server's TrackHint (auto-track it).</summary>
+        void QuestAccepted(int quest, bool track);
+        /// <summary>Any quest V2 packet changed Models.Quests (definitions, runs, progress, history, NPC availability).</summary>
         void QuestsChanged();
         /// <summary>S.TimeOfDay, after GameScene.Lights was set.</summary>
         void LightsChanged();

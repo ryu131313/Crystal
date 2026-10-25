@@ -227,27 +227,21 @@ namespace Client.MirScenes
                 FishingStatusDialog.Hide();
         }
 
-        internal void ClassicQuestAdded(ClientQuestProgress quest, bool track)
+        internal void ClassicQuestAccepted(int quest, bool track)
         {
-            if (Settings.TrackedQuests.Contains(quest.Id))
-            {
-                GameScene.Scene.QuestTrackingDialog.AddQuest(quest, true);
-            }
-
-            if (track)
-            {
-                GameScene.Scene.QuestTrackingDialog.AddQuest(quest);
-            }
-        }
-
-        internal void ClassicQuestRemoved(ClientQuestProgress quest)
-        {
-            GameScene.Scene.QuestTrackingDialog.RemoveQuest(quest);
+            if (track) GameScene.Scene.QuestTrackingDialog.AddQuest(quest);
         }
 
         internal void ClassicQuestsChanged()
         {
+            // quest V2 adapter (QuestV2Classic): the saved tracked ids of the runs the server reported, then the views
+            GameScene.Scene.QuestTrackingDialog.SyncTracked();
             GameScene.Scene.QuestTrackingDialog.DisplayQuests();
+
+            if (Scene.NPCDialog.Visible)
+            {
+                Scene.NPCDialog.CheckQuestButtonDisplay();
+            }
 
             if (Scene.QuestListDialog.Visible)
             {

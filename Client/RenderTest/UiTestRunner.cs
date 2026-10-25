@@ -58,6 +58,8 @@ namespace Client.RenderTest
         static partial void AddClassicPromptSteps(List<Step> steps);
         // In-game patcher phase 3 (UiTestRunner.Patch.cs): the download strip in both UIs, last so earlier step numbers stay put.
         static partial void AddPatchSteps(List<Step> steps);
+        // Quest V2 (UiTestRunner.Quests.cs, lane C): both UIs, last so earlier step numbers stay put.
+        static partial void AddQuestSteps(List<Step> steps);
         static partial void DumpModern(List<string> log);
 
         public static bool ParseArg(string arg, string[] args, ref int i)
@@ -179,6 +181,46 @@ namespace Client.RenderTest
         /// <summary>The classic download strip (this file may name classic fields; UiTestRunner.Patch.cs may not).</summary>
         private static bool ClassicPatchStripVisible => Scene?.PatchStrip != null && Scene.PatchStrip.Visible;
         private static void Feed(Packet p) => Scene.ProcessPacket(p);
+
+        /// <summary>Classic: the quest diary row of a quest, left-clicked (opens the detail dialog).</summary>
+        private static void ClickClassicDiary(int quest)
+        {
+            foreach (QuestGroupQuestItem g in Scene.QuestLogDialog.TaskGroups)
+                foreach (MirControl c in g.Controls)
+                    if (c is QuestSingleQuestItem item && item.Quest?.Id == quest)
+                    {
+                        Scene.QuestDetailDialog.DisplayQuestDetails(item.Quest);
+                        return;
+                    }
+            _log.Add("   (no classic diary row for " + quest + ")");
+        }
+
+        /// <summary>Classic: select a quest in the NPC's QuestListDialog, then accept / pick the second choice item / turn in.</summary>
+        private static void ClickClassicNpcQuest(int quest, bool accept, bool pickOnly = false)
+        {
+            QuestListDialog d = Scene.QuestListDialog;
+            QuestRow row = null;
+            foreach (QuestRow r in d.Rows) if (r?.Quest?.Id == quest) row = r;
+            if (row == null) { _log.Add("   (no classic NPC quest row for " + quest + ")"); return; }
+            if (d.SelectedQuest != row.Quest) row.InvokeMouseClick(null);
+            if (pickOnly)
+            {
+                QuestCell cell = QuestRewards.SelectItems.Length > 1 ? QuestRewards.SelectItems[1] : null;
+                cell?.InvokeMouseClick(null);
+                return;
+            }
+            string field = accept ? "_acceptButton" : "_finishButton";
+            var button = typeof(QuestListDialog).GetField(field, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(d) as MirButton;
+            button?.InvokeMouseClick(null);
+        }
+
+        // the classic quest dialogs for UiTestRunner.Quests.cs (this file may name classic dialogs; the quest file may not)
+        private static bool ClassicTracks(int quest) => Scene.QuestTrackingDialog.TrackedQuestsIds.Contains(quest);
+        private static void ClassicTrack(int quest) => Scene.QuestTrackingDialog.AddQuest(quest, true);
+        private static void ClassicNpcQuestButton() => Scene.NPCDialog.QuestButton.InvokeMouseClick(null);
+        private static string ClassicQuestDump() =>
+            $"tracking=[{string.Join(",", Scene.QuestTrackingDialog.TrackedQuestsIds)}] list={Scene.QuestListDialog.Visible}({Scene.QuestListDialog.Quests.Count}) diary={Scene.QuestLogDialog.Visible} detail={Scene.QuestDetailDialog.Visible}({Scene.QuestDetailDialog.Quest?.Id})";
+
 
         private static void PressBind(KeybindOptions function)
         {
@@ -434,6 +476,7 @@ namespace Client.RenderTest
             AddCompanionSteps(steps);
             AddClassicPromptSteps(steps);
             AddPatchSteps(steps);
+            AddQuestSteps(steps);
             return steps;
         }
 
@@ -523,6 +566,7 @@ namespace Client.RenderTest
                     string s => "\"" + s + "\"",
                     UserItem item => item.Info?.Name ?? item.UniqueID.ToString(),
                     Array a => "[" + a.Length + "]",
+                    List<int> l => "[" + string.Join(",", l) + "]",
                     _ => v.GetType().IsPrimitive || v.GetType().IsEnum ? v.ToString() : v.GetType().Name,
                 };
                 sb.Append(' ').Append(f.Name).Append('=').Append(text);

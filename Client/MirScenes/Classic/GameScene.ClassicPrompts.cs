@@ -41,11 +41,16 @@ namespace Client.MirScenes
             messageBox.Show();
         }
 
-        internal void ClassicQuestShareRequest(S.ShareQuest p, ClientQuestInfo quest)
+        internal void ClassicQuestOffer(S.QuestOffer p)
         {
-            MirMessageBox messageBox = new MirMessageBox(GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.PlayerShareQuestRequest), p.SharerName), MirMessageBoxButtons.YesNo);
+            int quest = p.Quest;
+            string name = Models.Quests.Def(quest)?.Name ?? string.Empty;
+            string text = string.IsNullOrEmpty(p.SharedBy)
+                ? GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.QuestOfferPrompt, name)
+                : GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.PlayerShareQuestRequest, p.SharedBy);
+            MirMessageBox messageBox = new MirMessageBox(text, MirMessageBoxButtons.YesNo);
 
-            messageBox.YesButton.Click += (o, e) => Network.Enqueue(new C.AcceptQuest { NPCIndex = 0, QuestIndex = quest.Index });
+            messageBox.YesButton.Click += (o, e) => Network.Enqueue(new C.QuestAccept { Quest = quest, NpcObjectID = 0 });
 
             messageBox.Show();
         }

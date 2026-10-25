@@ -7,8 +7,8 @@ namespace Client.MirScenes
     // request toasts and popups. Called on the UI thread only.
     public partial interface IGameUi
     {
-        /// <summary>S.ShareQuest for a known quest: ask whether to accept it (Yes sends C.AcceptQuest { NPCIndex = 0 }).</summary>
-        void QuestShareRequest(S.ShareQuest p, ClientQuestInfo quest);
+        /// <summary>S.QuestOffer (a share, an item / area / auto start): ask whether to accept it (Yes sends C.QuestAccept { NpcObjectID = 0 }).</summary>
+        void QuestOffer(S.QuestOffer p);
         /// <summary>S.GuildInvite: ask whether to join p.Name's guild (C.GuildInvite accept / decline).</summary>
         void GuildInviteRequest(S.GuildInvite p);
         /// <summary>S.GuildNameRequest: ask for the new guild's name (letters and digits; C.GuildNameReturn).</summary>

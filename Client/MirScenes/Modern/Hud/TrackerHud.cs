@@ -1,18 +1,19 @@
 ﻿// Ported from WebClient/src/ui/modern/hud/tracker.ts (QuestTracker): the tracked quests on the right of the screen, the
-// desktop's QuestTrackingDialog. Tracking (at most 5) is kept like the classic tracker: Settings.TrackedQuests per character
-// (QuestTracking.ini, Settings.SaveTrackedQuests), a quest the server adds with track = true is tracked. Quest names in gold,
-// each ClientQuestProgress.TaskList line under it (a trailing "n/m" is shown as the count and marks the line when complete),
-// and "Ready: return to <NPC>" once Completed (FinishNPCIndex = the NPC's ObjectID: its name from the map objects or the map's
-// NPC list). The header folds the list (Settings.UiTrackerFolded); a quest click opens the "quests" window when one is registered.
-// Hidden while nothing is tracked. Repainted on ModernEvents.Quests / QuestAdded only (and only when the text changed).
+// desktop's QuestTrackingDialog. Tracking (at most 5) stays client-side like the classic tracker: Settings.TrackedQuests per
+// character (QuestTracking.ini, Settings.SaveTrackedQuests); a run the server adds with TrackHint is tracked (ModernEvents.QuestAdded).
+// Quest V2 (Part B phase 3): the data is GameScene.Models.Quests: the quest name in gold, then the current step's objectives
+// (client-built text, QuestText.Label) with their count and a short bar; "Ready: return to <NPC>" once the run is Ready; "Failed"
+// for a failed run; the quest / step time left when the run has a limit (refreshed once a second). Ids of runs that ended are
+// dropped once the login picture is in (Models.Quests.Settled). The header folds the list (Settings.UiTrackerFolded); a quest
+// click opens the "quests" window on it. Hidden while nothing is tracked. Repainted only when its text key changes.
 // Desktop idiom: one surface on the HUD layer; long lines end in an ellipsis (the web scrolls them back and forth).
 using System.Drawing.Drawing2D;
-using System.Text.RegularExpressions;
 using Client.MirControls;
-using Client.MirObjects;
 using Client.MirSounds;
+using Client.MirScenes.Models;
 using Client.MirScenes.Modern.Core;
 using Client.MirScenes.Modern.Windows;
+using S = ServerPackets;
 
 namespace Client.MirScenes.Modern.Hud
 {
@@ -27,6 +28,9 @@ namespace Client.MirScenes.Modern.Hud
         private TrackerHead _head;
         private TrackerBody _body;
         private string _key = "\u0000";
+        private bool _timers, _saveDue;
+        private long _nextTick;
+        private readonly Action _quests;
 
         public TrackerHud(BigMapData data)
         {
@@ -34,10 +38,10 @@ namespace Client.MirScenes.Modern.Hud
             PassThrough = true;
             Visible = false;
             Parent = ModernRoot.Instance?.Hud;
-            for (int i = 0; i < Settings.TrackedQuests.Length; i++)
-                if (Settings.TrackedQuests[i] >= 0 && !_tracked.Contains(Settings.TrackedQuests[i])) _tracked.Add(Settings.TrackedQuests[i]);
+            LoadTracked();
             Build();
-            ModernEvents.Quests.On(OnQuests);
+            _quests = Render;
+            ModernEvents.Quests.On(_quests);
             ModernEvents.QuestAdded.On(OnQuestAdded);
             ModernEvents.UserInformation.On(OnUserInformation);
             if (ModernRoot.Instance != null) ModernRoot.Instance.Relayout += OnRelayout;
@@ -48,8 +52,10 @@ namespace Client.MirScenes.Modern.Hud
 
         public bool IsTracked(int questId) => _tracked.Contains(questId);
 
-        /// <summary>QuestTrackingDialog.AddQuest / RemoveQuest + UpdateTrackedQuests (saved per character).</summary>
-        public void Track(int questId, bool on)
+        /// <summary>QuestTrackingDialog.AddQuest / RemoveQuest + UpdateTrackedQuests (saved per character). A player's click saves
+        /// at once; changes from packets (TrackHint, ended runs) only update Settings.TrackedQuests and are written on the next click
+        /// or when the tracker goes (no file I/O in the packet path).</summary>
+        public void Track(int questId, bool on, bool save = true)
         {
             if (on)
             {
@@ -57,26 +63,36 @@ namespace Client.MirScenes.Modern.Hud
                 _tracked.Add(questId);
             }
             else if (!_tracked.Remove(questId)) return;
-            for (int j = 0; j < Settings.TrackedQuests.Length; j++)
-                Settings.TrackedQuests[j] = j < _tracked.Count ? _tracked[j] : -1;
-            if (GameScene.User != null) Settings.SaveTrackedQuests(GameScene.User.Name);
+            SyncSettings(save);
             Render();
         }
 
-        private void OnQuests() => Render();
-
-        private void OnQuestAdded((ClientQuestProgress Quest, bool Track) e)
+        private void SyncSettings(bool save)
         {
-            if (e.Quest != null && e.Track) Track(e.Quest.Id, true);
+            for (int j = 0; j < Settings.TrackedQuests.Length; j++)
+                Settings.TrackedQuests[j] = j < _tracked.Count ? _tracked[j] : -1;
+            if (!save) { _saveDue = true; return; }
+            _saveDue = false;
+            if (GameScene.User != null) Settings.SaveTrackedQuests(GameScene.User.Name);
+        }
+
+        private void LoadTracked()
+        {
+            _tracked.Clear();
+            for (int i = 0; i < Settings.TrackedQuests.Length; i++)
+                if (Settings.TrackedQuests[i] >= 0 && !_tracked.Contains(Settings.TrackedQuests[i])) _tracked.Add(Settings.TrackedQuests[i]);
+        }
+
+        private void OnQuestAdded((int Quest, bool Track) e)
+        {
+            if (e.Track) Track(e.Quest, true, false);
             else Render();
         }
 
         /// <summary>A new character's ids (UserObject.Load reads QuestTracking.ini).</summary>
         private void OnUserInformation()
         {
-            _tracked.Clear();
-            for (int i = 0; i < Settings.TrackedQuests.Length; i++)
-                if (Settings.TrackedQuests[i] >= 0 && !_tracked.Contains(Settings.TrackedQuests[i])) _tracked.Add(Settings.TrackedQuests[i]);
+            LoadTracked();
             Render();
         }
 
@@ -108,15 +124,66 @@ namespace Client.MirScenes.Modern.Hud
             Render();
         }
 
-        /// <summary>The tracked entries in tracking order (tracker.ts tracked()).</summary>
-        internal List<ClientQuestProgress> Entries()
+        /// <summary>Time limits tick: re-render once a second while a tracked run has one (the key carries the seconds).</summary>
+        public override void Process()
         {
-            var list = new List<ClientQuestProgress>();
-            List<ClientQuestProgress> current = GameScene.User?.CurrentQuests;
-            if (current == null) return list;
+            if (!_timers || CMain.Time < _nextTick) return;
+            _nextTick = CMain.Time + 1000;
+            Render();
+        }
+
+        /// <summary>The tracked runs in tracking order whose definition has arrived (tracker.ts tracked()).</summary>
+        internal List<TrackerEntry> Entries()
+        {
+            var list = new List<TrackerEntry>();
+            QuestBook book = GameScene.Models?.Quests;
+            if (book == null) return list;
+            // a run that ended (turned in, abandoned) leaves the tracker once the login picture is in
+            if (book.Settled)
+            {
+                bool pruned = false;
+                for (int t = _tracked.Count - 1; t >= 0; t--)
+                    if (book.Run(_tracked[t]) == null) { _tracked.RemoveAt(t); pruned = true; }
+                if (pruned) SyncSettings(false);
+            }
             for (int t = 0; t < _tracked.Count; t++)
-                for (int i = 0; i < current.Count; i++)
-                    if (current[i] != null && current[i].Id == _tracked[t] && current[i].QuestInfo != null) { list.Add(current[i]); break; }
+            {
+                QuestRun run = book.Run(_tracked[t]);
+                S.QuestDefinition def = run != null ? book.Def(run.Quest) : null;
+                if (def == null) continue;
+                var e = new TrackerEntry { Quest = run.Quest, Name = def.Name, Status = run.Status };
+                if (run.Status == QuestRunStatus.Ready)
+                {
+                    string npc = QuestText.EndpointName(def, QuestEndpointRole.Finish);
+                    e.Lines.Add(new TrackerLine { Text = npc.Length > 0 ? string.Format(T(ClientTextKeys.ModernChatTrackReady), npc) : T(ClientTextKeys.ModernQuestReadyTurnIn), Done = true });
+                }
+                else if (run.Status == QuestRunStatus.Failed)
+                    e.Lines.Add(new TrackerLine { Text = T(ClientTextKeys.ModernQuestFailed), Failed = true });
+                else if (run.Step >= 0)
+                {
+                    var objectives = new List<S.QuestDefinition.Objective>();
+                    QuestBook.ObjectivesOf(def, run.Step, objectives);
+                    for (int i = 0; i < objectives.Count; i++)
+                    {
+                        S.QuestDefinition.Objective o = objectives[i];
+                        if (!book.Shown(run.Quest, o)) continue;
+                        int value = book.Value(run.Quest, o.Index), need = Math.Max(1, o.Count);
+                        e.Lines.Add(new TrackerLine
+                        {
+                            Text = QuestText.Label(o), Have = Math.Min(value, need), Need = need, Bar = QuestText.Countable(o), Done = value >= need, Optional = o.Optional,
+                        });
+                    }
+                    if (book.ChoiceDue(run.Quest))
+                    {
+                        string npc = QuestText.EndpointName(def, QuestEndpointRole.Finish);
+                        e.Lines.Add(new TrackerLine { Text = string.Format(T(ClientTextKeys.ModernQuestChooseAt), npc.Length > 0 ? npc : T(ClientTextKeys.ModernChatTrackQuestGiver)), Done = true });
+                    }
+                    long step = QuestText.SecondsLeft(run.StepExpiresAt), quest = QuestText.SecondsLeft(run.ExpiresAt);
+                    long left = step >= 0 && (quest < 0 || step < quest) ? step : quest;
+                    if (left >= 0) e.TimeLeft = left;
+                }
+                list.Add(e);
+            }
             return list;
         }
 
@@ -124,21 +191,25 @@ namespace Client.MirScenes.Modern.Hud
         private void Render()
         {
             if (IsDisposed || _body == null) return;
-            List<ClientQuestProgress> list = Entries();
+            List<TrackerEntry> list = Entries();
             var sb = new System.Text.StringBuilder();
             sb.Append(_shut ? '1' : '0').Append(list.Count);
+            bool timers = false;
             for (int i = 0; i < list.Count; i++)
             {
-                sb.Append('\u0002').Append(list[i].Id).Append('|').Append(list[i].Completed).Append('|');
-                for (int j = 0; j < list[i].TaskList.Count; j++) sb.Append(list[i].TaskList[j]).Append('\u0001');
+                TrackerEntry e = list[i];
+                sb.Append('\u0002').Append(e.Quest).Append('|').Append((int)e.Status).Append('|').Append(e.Name).Append('|').Append(e.TimeLeft).Append('|');
+                if (e.TimeLeft >= 0) timers = true;
+                for (int j = 0; j < e.Lines.Count; j++) sb.Append(e.Lines[j].Text).Append(':').Append(e.Lines[j].Have).Append('/').Append(e.Lines[j].Need).Append('\u0001');
             }
+            _timers = timers;
             string key = sb.ToString();
             bool show = list.Count > 0;
             if (Visible != show) Visible = show;
             if (key == _key) return;
             _key = key;
             _head.Count = list.Count;
-            _body.SetEntries(_shut ? new List<ClientQuestProgress>() : list);
+            _body.SetEntries(_shut ? new List<TrackerEntry>() : list);
             Size = new Size(S(Width), _head.Size.Height + (_shut ? 0 : _body.Size.Height));
             _body.Visible = !_shut;
             Place();
@@ -150,38 +221,44 @@ namespace Client.MirScenes.Modern.Hud
             Location = new Point(Settings.ScreenWidth - S(10) - Size.Width, Math.Max(0, (Settings.ScreenHeight - Size.Height) / 2));
         }
 
-        /// <summary>The finishing NPC's name (FinishNPCIndex is its ObjectID).</summary>
-        internal string NpcName(uint id)
-        {
-            if (MapControl.Objects.TryGetValue(id, out MapObject ob)) return ChatGfx.NpcName(ob.Name).Name;
-            MapControl map = GameScene.Scene?.MapControl;
-            ClientMapInfo info = map != null ? _data?.Map(map.Index) : null;
-            if (info != null)
-                for (int i = 0; i < info.NPCs.Count; i++)
-                    if (info.NPCs[i].ObjectID == id) return ChatGfx.NpcName(info.NPCs[i].Name).Name;
-            return T(ClientTextKeys.ModernChatTrackQuestGiver);
-        }
-
-        /// <summary>A quest click: the quest log when a later phase registers it.</summary>
+        /// <summary>A quest click: the quest log on that quest.</summary>
         internal void OpenQuest(int questId)
         {
             WindowManager wm = ModernRoot.Instance?.Wm;
-            if (wm == null || !wm.IsRegistered("quests")) return;
-            wm.Open("quests");
-            (wm.Get("quests") as Windows.QuestsWindow)?.FocusQuest(questId);
+            if (wm == null || !wm.IsRegistered(QuestsWindow.WindowKey)) return;
+            wm.Open(QuestsWindow.WindowKey);
+            (wm.Get(QuestsWindow.WindowKey) as QuestsWindow)?.FocusQuest(questId);
         }
 
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
-                ModernEvents.Quests.Off(OnQuests);
+                if (_saveDue && GameScene.User != null) Settings.SaveTrackedQuests(GameScene.User.Name);
+                ModernEvents.Quests.Off(_quests);
                 ModernEvents.QuestAdded.Off(OnQuestAdded);
                 ModernEvents.UserInformation.Off(OnUserInformation);
                 if (ModernRoot.Instance != null) ModernRoot.Instance.Relayout -= OnRelayout;
             }
             base.Dispose(disposing);
         }
+    }
+
+    /// <summary>One tracked quest as the tracker paints it (built on a change only).</summary>
+    internal sealed class TrackerEntry
+    {
+        public int Quest;
+        public string Name;
+        public QuestRunStatus Status;
+        public long TimeLeft = -1;
+        public readonly List<TrackerLine> Lines = new List<TrackerLine>();
+    }
+
+    internal sealed class TrackerLine
+    {
+        public string Text;
+        public int Have, Need;
+        public bool Bar, Done, Failed, Optional;
     }
 
     /// <summary>"QUESTS ─── n ▾" (tracker.ts .th): folds the list.</summary>
@@ -235,11 +312,9 @@ namespace Client.MirScenes.Modern.Hud
     /// <summary>The quest blocks (tracker.ts .tq / .tn / .to / .tr), painted once per change; clicks open the quest log.</summary>
     internal sealed class TrackerBody : ModernControl
     {
-        private static readonly Regex Count = new Regex(@"^(.*?)[\s:]*\(?(\d+)\s*/\s*(\d+)\)?\s*$");
-
         private readonly TrackerHud _hud;
         private readonly List<(int Quest, float Top, float Bottom)> _blocks = new List<(int, float, float)>();
-        private List<ClientQuestProgress> _entries = new List<ClientQuestProgress>();
+        private List<TrackerEntry> _entries = new List<TrackerEntry>();
 
         public TrackerBody(TrackerHud hud)
         {
@@ -248,15 +323,19 @@ namespace Client.MirScenes.Modern.Hud
             Hint = GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ModernChatTrackOpenLog);
         }
 
-        public void SetEntries(List<ClientQuestProgress> entries)
+        private static float NameH(float k) => 12.5f * k * 1.35f;
+        private static float LineH(float k) => 11.5f * k * 1.55f;
+        private static float BarH(float k) => 5 * k;
+
+        public void SetEntries(List<TrackerEntry> entries)
         {
-            _entries = entries ?? new List<ClientQuestProgress>();
+            _entries = entries ?? new List<TrackerEntry>();
             float k = K, y = 0;
-            float nameH = 12.5f * k * 1.35f, lineH = 11.5f * k * 1.55f;
             for (int i = 0; i < _entries.Count; i++)
             {
-                y += 5 * k + nameH;
-                y += _entries[i].Completed ? lineH : _entries[i].TaskList.Count * lineH;
+                y += 5 * k + NameH(k);
+                for (int j = 0; j < _entries[i].Lines.Count; j++) y += LineH(k) + (_entries[i].Lines[j].Bar ? BarH(k) : 0);
+                if (_entries[i].TimeLeft >= 0) y += LineH(k);
                 y += 3 * k;
             }
             Size = new Size(Size.Width, Math.Max(1, (int)Math.Ceiling(y)));
@@ -280,50 +359,64 @@ namespace Client.MirScenes.Modern.Hud
             _blocks.Clear();
             float k = K, y = 0, w = Size.Width;
             Font name = ModernSkin.Font(12.5f, true), task = ModernSkin.Font(11.5f), taskBold = ModernSkin.Font(11.5f, true), tick = ModernSkin.Font(10, true);
-            float nameH = 12.5f * k * 1.35f, lineH = 11.5f * k * 1.55f;
-            Color text = Color.FromArgb(232, 237, 245), ok = ModernTheme.Hex("#ff5a4a"), ready = ModernTheme.Hex("#5fe07a");
+            float nameH = NameH(k), lineH = LineH(k);
+            Color text = Color.FromArgb(232, 237, 245), ok = ModernTheme.Hex("#ff5a4a"), ready = ModernTheme.Hex("#5fe07a"), bad = ModernTheme.Hex("#ff6b5a");
             for (int i = 0; i < _entries.Count; i++)
             {
-                ClientQuestProgress e = _entries[i];
+                TrackerEntry e = _entries[i];
                 float top = y;
                 y += 5 * k;
-                GoldText(g, e.QuestInfo.Name, name, 0, y + (nameH - name.Height) / 2f, w);
+                GoldText(g, e.Name, name, 0, y + (nameH - name.Height) / 2f, w);
                 y += nameH;
-                if (e.Completed)
+                for (int t = 0; t < e.Lines.Count; t++)
                 {
-                    string line = string.Format(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ModernChatTrackReady), _hud.NpcName(e.QuestInfo.FinishNPCIndex));
-                    ChatGfx.ShadowText(g, "✓", tick, ready, 0, y + (lineH - tick.Height) / 2f);
-                    Clip(g, line, taskBold, ready, 12 * k, y + (lineH - taskBold.Height) / 2f, w - 12 * k);
+                    TrackerLine l = e.Lines[t];
+                    float ty = y + (lineH - task.Height) / 2f;
+                    if (l.Failed)
+                    {
+                        ChatGfx.ShadowText(g, "✗", tick, bad, 0, y + (lineH - tick.Height) / 2f);
+                        Clip(g, l.Text, taskBold, bad, 12 * k, ty, w - 12 * k);
+                        y += lineH;
+                        continue;
+                    }
+                    if (e.Status == QuestRunStatus.Ready || (l.Done && !l.Bar && l.Need <= 0))
+                    {
+                        ChatGfx.ShadowText(g, "✓", tick, ready, 0, y + (lineH - tick.Height) / 2f);
+                        Clip(g, l.Text, taskBold, ready, 12 * k, ty, w - 12 * k);
+                        y += lineH;
+                        continue;
+                    }
+                    Color c = l.Done ? ok : l.Optional ? Color.FromArgb(170, 232, 237, 245) : text;
+                    if (l.Done) ChatGfx.ShadowText(g, "✓", tick, ok, 0, y + (lineH - tick.Height) / 2f);
+                    else
+                    {
+                        // the diamond bullet (.to::before)
+                        GraphicsState st = g.Save();
+                        g.TranslateTransform(5 * k, y + lineH * 0.5f);
+                        g.RotateTransform(45);
+                        using (var b = new SolidBrush(Color.FromArgb(179, 232, 237, 245))) g.FillRectangle(b, -2 * k, -2 * k, 4 * k, 4 * k);
+                        g.Restore(st);
+                    }
+                    string count = l.Bar ? l.Have + "/" + l.Need : null;
+                    float cw = count != null ? ChatGfx.Measure(count, taskBold) : 0;
+                    if (count != null) ChatGfx.ShadowText(g, count, taskBold, c, w - cw, ty);
+                    Clip(g, l.Text, task, c, 12 * k, ty, w - 12 * k - (cw > 0 ? cw + 6 * k : 0));
+                    y += lineH;
+                    if (l.Bar)
+                    {
+                        QuestGfx.Bar(g, new RectangleF(12 * k, y, w - 12 * k, 3 * k), l.Need > 0 ? l.Have / (float)l.Need : 0f, l.Done, true);
+                        y += BarH(k);
+                    }
+                }
+                if (e.TimeLeft >= 0)
+                {
+                    string left = string.Format(GameLanguage.ClientTextMap.GetLocalization(ClientTextKeys.ModernQuestTimeLeft), QuestGfx.Clock(e.TimeLeft));
+                    Color tc = e.TimeLeft <= 60 ? bad : Color.FromArgb(200, 240, 200, 110);
+                    Clip(g, left, task, tc, 12 * k, y + (lineH - task.Height) / 2f, w - 12 * k);
                     y += lineH;
                 }
-                else
-                    for (int t = 0; t < e.TaskList.Count; t++)
-                    {
-                        string s = e.TaskList[t] ?? string.Empty;
-                        Match m = Count.Match(s);
-                        int have = 0, need = 0;
-                        if (m.Success) { int.TryParse(m.Groups[2].Value, out have); int.TryParse(m.Groups[3].Value, out need); }
-                        bool done = m.Success && need > 0 && have >= need;
-                        Color c = done ? ok : text;
-                        float ty = y + (lineH - task.Height) / 2f;
-                        if (done) ChatGfx.ShadowText(g, "✓", tick, ok, 0, y + (lineH - tick.Height) / 2f);
-                        else
-                        {
-                            // the diamond bullet (.to::before)
-                            GraphicsState st = g.Save();
-                            g.TranslateTransform(5 * k, y + lineH * 0.5f);
-                            g.RotateTransform(45);
-                            using (var b = new SolidBrush(Color.FromArgb(179, 232, 237, 245))) g.FillRectangle(b, -2 * k, -2 * k, 4 * k, 4 * k);
-                            g.Restore(st);
-                        }
-                        string count = m.Success && need > 0 ? Math.Min(have, need) + "/" + need : null;
-                        float cw = count != null ? ChatGfx.Measure(count, taskBold) : 0;
-                        if (count != null) ChatGfx.ShadowText(g, count, taskBold, c, w - cw, ty);
-                        Clip(g, m.Success && m.Groups[1].Value.Length > 0 ? m.Groups[1].Value : s, task, c, 12 * k, ty, w - 12 * k - (cw > 0 ? cw + 6 * k : 0));
-                        y += lineH;
-                    }
                 y += 3 * k;
-                _blocks.Add((e.Id, top, y));
+                _blocks.Add((e.Quest, top, y));
             }
         }
 
@@ -331,7 +424,7 @@ namespace Client.MirScenes.Modern.Hud
         private static void Clip(Graphics g, string text, Font f, Color c, float x, float y, float width)
         {
             if (width <= 0) return;
-            string s = text;
+            string s = text ?? string.Empty;
             if (ChatGfx.Measure(s, f) > width)
             {
                 int n = s.Length;

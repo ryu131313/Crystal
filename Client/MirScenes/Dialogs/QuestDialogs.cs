@@ -115,7 +115,7 @@ namespace Client.MirScenes.Dialogs
             {
                 if (Reward == null || SelectedQuest.Taken) return;
 
-                Network.Enqueue(new C.AcceptQuest { NPCIndex = SelectedQuest.QuestInfo.NPCIndex, QuestIndex = SelectedQuest.QuestInfo.Index });
+                QuestV2Classic.Accept(SelectedQuest.QuestInfo.Index, CurrentNPCID); // quest V2: the giver is the NPC this list is for
                 //Hide();
             };
 
@@ -141,7 +141,7 @@ namespace Client.MirScenes.Dialogs
                     return;
                 }
 
-                Network.Enqueue(new C.FinishQuest { QuestIndex = SelectedQuest.QuestInfo.Index, SelectedItemIndex = Reward.SelectedItemIndex });
+                QuestV2Classic.TurnIn(SelectedQuest.QuestInfo.Index, CurrentNPCID, Reward.SelectedItemIndex);
                 //Hide();
             };
 
@@ -263,7 +263,7 @@ namespace Client.MirScenes.Dialogs
             if (Visible) return;
             Visible = true;
 
-            CurrentNPCID = GameScene.NPCID;
+            CurrentNPCID = GameScene.QuestNPCID;
 
             Reset();
 
@@ -319,7 +319,7 @@ namespace Client.MirScenes.Dialogs
             NPCObject npc = (NPCObject)MapControl.GetObject(CurrentNPCID);
             if (npc != null)
             {
-                Quests = npc.GetAvailableQuests();
+                Quests = QuestV2Classic.ForNpc(CurrentNPCID); // quest V2: S.QuestAvailability for this NPC
             }
 
             return Quests.Count >= 1 && npc != null;
@@ -418,7 +418,7 @@ namespace Client.MirScenes.Dialogs
 
             if (SelectedQuest != null)
             {
-                if (!SelectedQuest.Taken && MapControl.User.CurrentQuests.Count < Globals.MaxConcurrentQuests)
+                if (!SelectedQuest.Taken && QuestV2Classic.ActiveCount < Globals.MaxConcurrentQuests)
                     _acceptButton.Visible = true;
 
                 if (SelectedQuest.Completed && Reward != null)
@@ -561,7 +561,7 @@ namespace Client.MirScenes.Dialogs
             };
             _shareButton.Click += (o, e) =>
             {
-                Network.Enqueue(new C.ShareQuest { QuestIndex = Quest.Id });
+                QuestV2Classic.Share(Quest.Id);
             };
 
             _pauseButton = new MirButton
@@ -592,7 +592,7 @@ namespace Client.MirScenes.Dialogs
 
                 messageBox.YesButton.Click += (o1, a) =>
                 {
-                    Network.Enqueue(new C.AbandonQuest { QuestIndex = Quest.Id });
+                    QuestV2Classic.Abandon(Quest.Id);
                     Hide();
                 };
                 messageBox.Show();
@@ -702,7 +702,7 @@ namespace Client.MirScenes.Dialogs
         {
             ClearLog();
 
-            Quests = GameScene.User.CurrentQuests;
+            Quests = QuestV2Classic.Current();
 
             _takenQuestsLabel.Text = GameLanguage.ClientTextMap.GetLocalization((ClientTextKeys.TakenQuestsList), Quests.Count, Globals.MaxConcurrentQuests);
 
@@ -817,7 +817,7 @@ namespace Client.MirScenes.Dialogs
 
             questsToTrack.Clear();
 
-            questsToTrack.AddRange(from quest in MapObject.User.CurrentQuests from id in TrackedQuestsIds.Where(id => quest.Id == id) select quest);
+            questsToTrack.AddRange(from quest in QuestV2Classic.Current() from id in TrackedQuestsIds.Where(id => quest.Id == id) select quest);
 
             if (questsToTrack.Count < 1)
             {
@@ -875,11 +875,13 @@ namespace Client.MirScenes.Dialogs
             Show();
         }
 
-        public void AddQuest(ClientQuestProgress quest, bool New = false)
-        {
-            if (TrackedQuestsIds.Any(d => d == quest.Id) || TrackedQuestsIds.Count >= 5) return;
+        public void AddQuest(ClientQuestProgress quest, bool New = false) => AddQuest(quest.Id, New);
 
-            TrackedQuestsIds.Add(quest.Id);
+        public void AddQuest(int questId, bool New = false)
+        {
+            if (TrackedQuestsIds.Any(d => d == questId) || TrackedQuestsIds.Count >= 5) return;
+
+            TrackedQuestsIds.Add(questId);
 
             DisplayQuests();
             if (!New)
@@ -892,6 +894,21 @@ namespace Client.MirScenes.Dialogs
 
             DisplayQuests();
             UpdateTrackedQuests();
+        }
+
+        /// <summary>Quest V2 adapter: the saved tracked ids (Settings.TrackedQuests) of runs the server reported join the list (no save).</summary>
+        public void SyncTracked()
+        {
+            Models.QuestBook book = GameScene.Models?.Quests;
+            if (book == null) return;
+            // runs that ended (turned in, abandoned) leave the tracker once the login picture is in (saved with the next track change)
+            if (book.Settled) TrackedQuestsIds.RemoveAll(id => book.Run(id) == null);
+            for (int i = 0; i < Settings.TrackedQuests.Length; i++)
+            {
+                int id = Settings.TrackedQuests[i];
+                if (id < 0 || TrackedQuestsIds.Contains(id) || TrackedQuestsIds.Count >= 5 || book.Run(id) == null) continue;
+                TrackedQuestsIds.Add(id);
+            }
         }
 
         public void UpdateTrackedQuests()

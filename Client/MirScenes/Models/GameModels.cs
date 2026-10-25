@@ -30,5 +30,6 @@
         public readonly RankingsState Rankings = new RankingsState();
         public readonly RelationshipState Relationship = new RelationshipState();
         public readonly PoisonTimers Poisons = new PoisonTimers();
+        public readonly QuestBook Quests = new QuestBook();
     }
 }

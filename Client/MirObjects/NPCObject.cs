@@ -41,9 +41,6 @@ namespace Client.MirObjects
             }
         }
 
-        public List<ClientQuestInfo> Quests;
-
-
         public NPCObject(uint objectID) : base(objectID)
         {
         }
@@ -58,7 +55,8 @@ namespace Client.MirObjects
             MapLocation = info.Location;
             GameScene.Scene.MapControl.AddObject(this);
 
-            Quests = GameScene.QuestInfoList.Where(c => c.NPCIndex == ObjectID).ToList();
+            // quest V2: the icon the server picked for this player (S.QuestAvailability); usually it arrives just after this object
+            QuestIcon = GameScene.Models?.Quests.IconFor(ObjectID) ?? QuestIcon.None;
 
             Image = info.Image;
             Colour = info.Colour;
@@ -90,11 +88,6 @@ namespace Client.MirObjects
             bool update = CMain.Time >= NextMotion || GameScene.CanMove;
 
             ProcessFrames();
-
-            if (update)
-            {
-                UpdateBestQuestIcon();
-            }
 
             if (Frame == null)
             {
@@ -377,94 +370,12 @@ namespace Client.MirObjects
         }
 
 
-        //Quests
-
-        #region Quest System
-        public void UpdateBestQuestIcon()
+        /// <summary>S.QuestAvailability: the server-picked quest icon (no client-side accept rules any more).</summary>
+        public void SetQuestIcon(QuestIcon icon)
         {
-            ClientQuestProgress quests = GetAvailableQuests(true).FirstOrDefault();
-            QuestIcon bestIcon = QuestIcon.None;
-
-            if (quests != null)
-            {
-                bestIcon = quests.Icon;
-            }
-
-            QuestIcon = bestIcon;
+            if (QuestIcon == icon) return;
+            QuestIcon = icon;
+            InvalidateMap();
         }
-
-        public List<ClientQuestProgress> GetAvailableQuests(bool returnFirst = false)
-        {
-            List<ClientQuestProgress> quests = new List<ClientQuestProgress>();
-
-            foreach (ClientQuestProgress q in User.CurrentQuests.Where(q => !User.CompletedQuests.Contains(q.QuestInfo.Index)))
-            {
-                if (q.QuestInfo.FinishNPCIndex == ObjectID)
-                {
-                    quests.Add(q);
-                }
-                else if (q.QuestInfo.NPCIndex == ObjectID && q.QuestInfo.SameFinishNPC)
-                {
-                    quests.Add(q);
-
-                    if (returnFirst) return quests;
-                }
-            }
-
-            foreach (ClientQuestProgress quest in (
-                from q in Quests
-                where !quests.Exists(p => p.QuestInfo.Index == q.Index)
-                where CanAccept(q)
-                where !User.CompletedQuests.Contains(q.Index)
-                select q).Select(
-                q => User.CurrentQuests.Exists(p => p.QuestInfo.Index == q.Index) ?
-                    new ClientQuestProgress { QuestInfo = q, Taken = true, Completed = false } :
-                    new ClientQuestProgress { QuestInfo = q }))
-            {
-                quests.Add(quest);
-
-                if (returnFirst) return quests;
-            }
-
-            return quests;
-        }
-
-        public bool CanAccept(ClientQuestInfo quest)
-        {
-            if (quest.MinLevelNeeded > User.Level || quest.MaxLevelNeeded < User.Level)
-                return false;
-
-            if (!quest.ClassNeeded.HasFlag(RequiredClass.None))
-            {
-                switch (User.Class)
-                {
-                    case MirClass.Warrior:
-                        if (!quest.ClassNeeded.HasFlag(RequiredClass.Warrior))
-                            return false;
-                        break;
-                    case MirClass.Wizard:
-                        if (!quest.ClassNeeded.HasFlag(RequiredClass.Wizard))
-                            return false;
-                        break;
-                    case MirClass.Taoist:
-                        if (!quest.ClassNeeded.HasFlag(RequiredClass.Taoist))
-                            return false;
-                        break;
-                    case MirClass.Assassin:
-                        if (!quest.ClassNeeded.HasFlag(RequiredClass.Assassin))
-                            return false;
-                        break;
-                    case MirClass.Archer:
-                        if (!quest.ClassNeeded.HasFlag(RequiredClass.Archer))
-                            return false;
-                        break;
-                }
-            }
-
-            //check against active quest list
-            return quest.QuestNeeded <= 0 || User.CompletedQuests.Contains(quest.QuestNeeded);
-        }
-
-        #endregion
     }
 }
