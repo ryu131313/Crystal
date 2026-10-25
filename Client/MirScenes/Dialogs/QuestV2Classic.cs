@@ -7,7 +7,7 @@ namespace Client.MirScenes.Dialogs
 {
     /// <summary>
     /// The classic quest dialogs' minimal quest V2 adapter (Part B phase 3, "Classic UIs"): projects GameScene.Models.Quests into
-    /// the ClientQuestProgress / ClientQuestInfo shapes QuestDialogs.cs already draws (the current step's objectives as client-built
+    /// the client-only ClientQuestProgress / ClientQuestInfo shapes QuestDialogs.cs already draws (ClassicQuestModels.cs) (the current step's objectives as client-built
     /// text lines, quest-scope rewards), and sends the V2 packets for accept / turn in / abandon / share. Branch choices (wave 3
     /// kick-off) are a chain of Yes / No prompts, one per branch, at an NPC that lists the quest as Choosing (or finishing). No bars,
     /// markers or other new classic features. Built on demand (the dialogs rebuild on IGameUi.QuestsChanged only).
@@ -80,13 +80,13 @@ namespace Client.MirScenes.Dialogs
                 Index = quest,
                 Name = def.Name,
                 Group = string.IsNullOrEmpty(def.GroupName) ? CategoryName(def.Category) : def.GroupName,
-                Type = def.Category switch
+                Kind = def.Category switch
                 {
-                    QuestCategory.Story => QuestType.Story,
-                    QuestCategory.Daily => QuestType.Daily,
-                    QuestCategory.Weekly => QuestType.Daily,
-                    QuestCategory.Repeatable => QuestType.Repeatable,
-                    _ => QuestType.General,
+                    QuestCategory.Story => ClassicQuestKind.Story,
+                    QuestCategory.Daily => ClassicQuestKind.Daily,
+                    QuestCategory.Weekly => ClassicQuestKind.Daily,
+                    QuestCategory.Repeatable => ClassicQuestKind.Repeatable,
+                    _ => ClassicQuestKind.General,
                 },
                 MinLevelNeeded = def.LevelHint,
                 MaxLevelNeeded = 0,

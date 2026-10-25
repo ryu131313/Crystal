@@ -59,8 +59,6 @@ namespace Client.MirObjects
         public bool CreatureSummoned;
         public int PearlCount = 0;
 
-        public List<ClientQuestProgress> CurrentQuests = new List<ClientQuestProgress>();
-        public List<int> CompletedQuests = new List<int>();
         public List<ClientMail> Mail = new List<ClientMail>();
 
         public bool Slaying, Thrusting, HalfMoon, CrossHalfMoon, DoubleSlash, TwinDrakeBlade, FlamingSword;

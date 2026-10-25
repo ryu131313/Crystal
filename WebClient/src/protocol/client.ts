@@ -131,11 +131,7 @@ export const ClientPackets = {
     for (const i of items) { w.writeU64(BigInt(i.UniqueID)); w.writeString(i.Title); w.writeU8(i.Grid); }
   }),
   // — Section 4: social —
-  AcceptQuest: (p: { NPCIndex: number; QuestIndex: number }) => frame(C.AcceptQuest, (w) => { w.writeU32(p.NPCIndex); w.writeI32(p.QuestIndex); }),
-  /** SelectedItemIndex: the chosen RewardsSelectItem entry, -1 for none. */
-  FinishQuest: (p: { QuestIndex: number; SelectedItemIndex: number }) => frame(C.FinishQuest, (w) => { w.writeI32(p.QuestIndex); w.writeI32(p.SelectedItemIndex); }),
-  AbandonQuest: (p: { QuestIndex: number }) => frame(C.AbandonQuest, (w) => w.writeI32(p.QuestIndex)),
-  ShareQuest: (p: { QuestIndex: number }) => frame(C.ShareQuest, (w) => w.writeI32(p.QuestIndex)),
+  // C.AcceptQuest / FinishQuest / AbandonQuest / ShareQuest: legacy quest packets, removed in quest V2 wave 4 (C.QuestAccept, ... below).
   /** ItemsIdx: always 5 UniqueIDs (0 = empty slot). */
   SendMail: (p: { Name: string; Message: string; Gold: number; ItemsIdx: bigint[]; Stamped: boolean }) => frame(C.SendMail, (w) => {
     w.writeString(p.Name); w.writeString(p.Message); w.writeU32(p.Gold);

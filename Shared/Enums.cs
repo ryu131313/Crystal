@@ -155,14 +155,6 @@ public enum RefinedValue : byte
     SC = 3,
 }
 
-public enum QuestType : byte
-{
-    General = 0,
-    Daily = 1,
-    Repeatable = 2,
-    Story = 3
-}
-
 public enum QuestIcon : byte
 {
     None = 0,
@@ -173,18 +165,6 @@ public enum QuestIcon : byte
     QuestionBlue = 6,
     ExclamationGreen = 52,
     QuestionGreen = 53
-}
-
-public enum QuestState : byte
-{
-    Add,
-    Update,
-    Remove
-}
-
-public enum QuestAction : byte
-{
-    TimeExpired
 }
 
 // Quest system V2 (Knowledgebase/Future Ideas/UserData-and-Quests-Plan.md, Part B). Stored by value in SystemData.db
@@ -1883,10 +1863,11 @@ public enum ServerPacketIds : short
     MountUpdate,
     EquipSlotItem,
     FishingUpdate,
-    ChangeQuest,
-    CompleteQuest,
-    ShareQuest,
-    NewQuestInfo,
+    // Legacy quest packets (quest V2 wave 4): classes and factory cases removed; the members stay so the later ordinals never move.
+    [Obsolete("Legacy quest packet removed in quest V2 wave 4 (no class, no factory case); the member keeps its ordinal, never reuse it.")] ChangeQuest,
+    [Obsolete("Legacy quest packet removed in quest V2 wave 4 (no class, no factory case); the member keeps its ordinal, never reuse it.")] CompleteQuest,
+    [Obsolete("Legacy quest packet removed in quest V2 wave 4 (no class, no factory case); the member keeps its ordinal, never reuse it.")] ShareQuest,
+    [Obsolete("Legacy quest packet removed in quest V2 wave 4 (no class, no factory case); the member keeps its ordinal, never reuse it.")] NewQuestInfo,
     GainedQuestItem,
     DeleteQuestItem,
     CancelReincarnation,
@@ -2100,10 +2081,11 @@ public enum ClientPacketIds : short
     EquipSlotItem,
     FishingCast,
     FishingChangeAutocast,
-    AcceptQuest,
-    FinishQuest,
-    AbandonQuest,
-    ShareQuest,
+    // Legacy quest packets (quest V2 wave 4): classes and factory cases removed; the members stay so the later ordinals never move.
+    [Obsolete("Legacy quest packet removed in quest V2 wave 4 (no class, no factory case); the member keeps its ordinal, never reuse it.")] AcceptQuest,
+    [Obsolete("Legacy quest packet removed in quest V2 wave 4 (no class, no factory case); the member keeps its ordinal, never reuse it.")] FinishQuest,
+    [Obsolete("Legacy quest packet removed in quest V2 wave 4 (no class, no factory case); the member keeps its ordinal, never reuse it.")] AbandonQuest,
+    [Obsolete("Legacy quest packet removed in quest V2 wave 4 (no class, no factory case); the member keeps its ordinal, never reuse it.")] ShareQuest,
 
     AcceptReincarnation,
     CancelReincarnation,

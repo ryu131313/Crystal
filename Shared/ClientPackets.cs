@@ -1897,76 +1897,8 @@ namespace ClientPackets
         }
     }
 
-    public sealed class AcceptQuest : Packet
-    {
-        public override short Index { get { return (short)ClientPacketIds.AcceptQuest; } }
-
-        public uint NPCIndex;
-        public int QuestIndex;
-
-        protected override void ReadPacket(BinaryReader reader)
-        {
-            NPCIndex = reader.ReadUInt32();
-            QuestIndex = reader.ReadInt32();
-        }
-        protected override void WritePacket(BinaryWriter writer)
-        {
-            writer.Write(NPCIndex);
-            writer.Write(QuestIndex);
-        }
-    }
-
-    public sealed class FinishQuest : Packet
-    {
-        public override short Index { get { return (short)ClientPacketIds.FinishQuest; } }
-
-        public int QuestIndex;
-        public int SelectedItemIndex;
-
-        protected override void ReadPacket(BinaryReader reader)
-        {
-            QuestIndex = reader.ReadInt32();
-            SelectedItemIndex = reader.ReadInt32();
-        }
-        protected override void WritePacket(BinaryWriter writer)
-        {
-            writer.Write(QuestIndex);
-            writer.Write(SelectedItemIndex);
-        }
-    }
-
-    public sealed class AbandonQuest : Packet
-    {
-        public override short Index { get { return (short)ClientPacketIds.AbandonQuest; } }
-
-        public int QuestIndex;
-
-        protected override void ReadPacket(BinaryReader reader)
-        {
-            QuestIndex = reader.ReadInt32();
-        }
-        protected override void WritePacket(BinaryWriter writer)
-        {
-            writer.Write(QuestIndex);
-        }
-    }
-
-    public sealed class ShareQuest : Packet
-    {
-        public override short Index { get { return (short)ClientPacketIds.ShareQuest; } }
-
-        public int QuestIndex;
-
-        protected override void ReadPacket(BinaryReader reader)
-        {
-            QuestIndex = reader.ReadInt32();
-        }
-        protected override void WritePacket(BinaryWriter writer)
-        {
-            writer.Write(QuestIndex);
-        }
-    }
-
+    // C.AcceptQuest, C.FinishQuest, C.AbandonQuest and C.ShareQuest (legacy quest packets) were removed in quest V2 wave 4: their
+    // ClientPacketIds members stay [Obsolete] (Shared.Tests KnownClientFactoryGaps); C.QuestAccept / TurnIn / Abandon / Share replace them.
     public sealed class AcceptReincarnation : Packet
     {
         public override short Index { get { return (short)ClientPacketIds.AcceptReincarnation; } }

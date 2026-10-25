@@ -214,9 +214,6 @@ namespace Client.MirControls
                 case (short)ServerPacketIds.NewChatItem:
                     NewChatItem((S.NewChatItem)p);
                     break;
-                case (short)ServerPacketIds.NewQuestInfo:
-                    NewQuestInfo((S.NewQuestInfo)p);
-                    break;
                 case (short)ServerPacketIds.NewRecipeInfo:
                     NewRecipeInfo((S.NewRecipeInfo)p);
                     break;
@@ -269,11 +266,6 @@ namespace Client.MirControls
 
             GameScene.Bind(p.Item);
             GameScene.ChatItemList.Add(p.Item);
-        }
-
-        private void NewQuestInfo(S.NewQuestInfo info)
-        {
-            GameScene.UpsertQuestInfo(info.Info); // F7: replace a stale copy instead of adding a second one
         }
 
         private void NewRecipeInfo(S.NewRecipeInfo info)

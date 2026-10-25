@@ -1799,23 +1799,6 @@ export const AwakeType = {
 export type AwakeType = (typeof AwakeType)[keyof typeof AwakeType];
 export const AwakeTypeName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(AwakeType).map(([k, v]) => [v, k]));
 
-export const QuestState = {
-  Add: 0,
-  Update: 1,
-  Remove: 2,
-} as const;
-export type QuestState = (typeof QuestState)[keyof typeof QuestState];
-export const QuestStateName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestState).map(([k, v]) => [v, k]));
-
-export const QuestType = {
-  General: 0,
-  Daily: 1,
-  Repeatable: 2,
-  Story: 3,
-} as const;
-export type QuestType = (typeof QuestType)[keyof typeof QuestType];
-export const QuestTypeName: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(QuestType).map(([k, v]) => [v, k]));
-
 export const QuestIcon = {
   None: 0,
   QuestionWhite: 1,

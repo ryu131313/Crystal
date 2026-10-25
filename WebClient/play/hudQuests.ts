@@ -1,6 +1,6 @@
 // Quests window mock for the scene lab's UI tester (window style from hudWindow.ts), a modern take on the desktop's
 // QuestDiaryDialog / QuestDetail / QuestTrackingDialog: Active / Available / Completed tabs, search, quests grouped by
-// Crystal's QuestType (Story, General, Daily, Repeatable) in folding groups, a pin per quest to track it (at most 5, like
+// the quest categories (Story, Side, Daily, Repeatable, ...) in folding groups, a pin per quest to track it (at most 5, like
 // the desktop), and a detail pane with the giver, zone, objectives (kill / item / talk, with progress) and rewards
 // (EXP, gold, credit, fixed items and a choose-one pick, Items.Lib icons) plus Accept / Turn in / Track / Find on map /
 // Abandon. Tracked quests show in an on-screen tracker (top right); kills in the HUD simulation advance kill objectives.

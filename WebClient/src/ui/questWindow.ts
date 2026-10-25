@@ -5,10 +5,10 @@
 // C.QuestTurnIn (one pick per choice group from the select cells), Cancel = C.QuestAbandon; an S.QuestOffer (share,
 // item, area) is the old "would like to share a quest" box (Yes = C.QuestAccept with 0).
 //   QuestListDialog     (Prguse 950) the NPC's available quests (NPCDialog.QuestButton): 5 QuestRows + up / down,
-//                       QuestMessage, QuestRewards with the select-reward cells, Accept (C.AcceptQuest) / Finish
-//                       (C.FinishQuest) / Leave.
-//   QuestDetailDialog   (Prguse 960) a current quest: message with progress, rewards, Share (C.ShareQuest), Cancel
-//                       (C.AbandonQuest).
+//                       QuestMessage, QuestRewards with the select-reward cells, Accept (C.QuestAccept) / Finish
+//                       (C.QuestTurnIn) / Leave.
+//   QuestDetailDialog   (Prguse 960) a current quest: message with progress, rewards, Share (C.QuestShare), Cancel
+//                       (C.QuestAbandon).
 //   QuestDiaryDialog    (Prguse 961) the quest log (Q, KeybindOptions.Quests): QuestGroupQuestItem (expand / collapse)
 //                       + QuestSingleQuestItem rows: left-click = details, right-click = track / untrack (at most 5).
 //   QuestTrackingDialog the tracked quests' names and task lines (top left).

@@ -397,14 +397,6 @@ public abstract class Packet
                 return new C.FishingCast();
             case (short)ClientPacketIds.FishingChangeAutocast:
                 return new C.FishingChangeAutocast();
-            case (short)ClientPacketIds.AcceptQuest:
-                return new C.AcceptQuest();
-            case (short)ClientPacketIds.FinishQuest:
-                return new C.FinishQuest();
-            case (short)ClientPacketIds.AbandonQuest:
-                return new C.AbandonQuest();
-            case (short)ClientPacketIds.ShareQuest:
-                return new C.ShareQuest();
             case (short)ClientPacketIds.AcceptReincarnation:
                 return new C.AcceptReincarnation();
             case (short)ClientPacketIds.CancelReincarnation:
@@ -1022,14 +1014,6 @@ public abstract class Packet
                 return new S.EquipSlotItem();
             case (short)ServerPacketIds.FishingUpdate:
                 return new S.FishingUpdate();
-            case (short)ServerPacketIds.ChangeQuest:
-                return new S.ChangeQuest();
-            case (short)ServerPacketIds.CompleteQuest:
-                return new S.CompleteQuest();
-            case (short)ServerPacketIds.ShareQuest:
-                return new S.ShareQuest();
-            case (short)ServerPacketIds.NewQuestInfo:
-                return new S.NewQuestInfo();
             case (short)ServerPacketIds.GainedQuestItem:
                 return new S.GainedQuestItem();
             case (short)ServerPacketIds.DeleteQuestItem:

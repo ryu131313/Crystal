@@ -17,7 +17,6 @@ function keyOf(p: ServerPacket): string | null {
     case "NewItemInfo": return `i${p.Info.Index}`;
     case "NewMonsterInfo": return `m${p.Info.Index}`;
     case "NewNPCInfo": return `n${p.Info.Index}`;
-    case "NewQuestInfo": return `q${p.Info.Index}`;
     case "NewRecipeInfo": return `r${p.Info.Item.ItemIndex}`;
     case "NewChatItem": return `c${p.Item.UniqueID}`;
     case "NewMapInfo": return `p${p.MapIndex}`;

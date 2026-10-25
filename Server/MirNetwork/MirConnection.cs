@@ -1361,18 +1361,6 @@ namespace Server.MirNetwork
                 case (short)ClientPacketIds.FishingChangeAutocast:
                     FishingChangeAutocast((C.FishingChangeAutocast)p);
                     break;
-                case (short)ClientPacketIds.AcceptQuest:
-                    AcceptQuest((C.AcceptQuest)p);
-                    break;
-                case (short)ClientPacketIds.FinishQuest:
-                    FinishQuest((C.FinishQuest)p);
-                    break;
-                case (short)ClientPacketIds.AbandonQuest:
-                    AbandonQuest((C.AbandonQuest)p);
-                    break;
-                case (short)ClientPacketIds.ShareQuest:
-                    ShareQuest((C.ShareQuest)p);
-                    break;
                 case (short)ClientPacketIds.AcceptReincarnation:
                     AcceptReincarnation();
                     break;
@@ -2821,16 +2809,6 @@ namespace Server.MirNetwork
 
             Player.FishingChangeAutocast(p.AutoCast);
         }
-
-        // Legacy quest packets (C.AcceptQuest, C.FinishQuest, C.AbandonQuest, C.ShareQuest): ignored since quest V2 (lane F); the
-        // V2 packets below replace them. The classes leave Shared/ in phase 4.
-        private void AcceptQuest(C.AcceptQuest p) { }
-
-        private void FinishQuest(C.FinishQuest p) { }
-
-        private void AbandonQuest(C.AbandonQuest p) { }
-
-        private void ShareQuest(C.ShareQuest p) { }
 
         private void AcceptReincarnation()
         {

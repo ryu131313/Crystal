@@ -221,16 +221,6 @@ function readObjectPlayer(r: Reader) {
   };
 }
 
-/** ClientQuestInfo(reader) (S.NewQuestInfo, S.GameDataChanged). */
-function readClientQuestInfo(r: Reader): ClientQuestInfo {
-  return {
-    Index: r.readI32(), NPCIndex: r.readU32(), Name: r.readString(), Group: r.readString(), Description: readStrings(r), TaskDescription: readStrings(r),
-    ReturnDescription: readStrings(r), CompletionDescription: readStrings(r), MinLevelNeeded: r.readI32(), MaxLevelNeeded: r.readI32(), QuestNeeded: r.readI32(),
-    ClassNeeded: r.readU8(), Type: r.readU8(), TimeLimitInSeconds: r.readI32(), RewardGold: r.readU32(), RewardExp: r.readU32(), RewardCredit: r.readU32(),
-    RewardsFixedItem: readQuestRewards(r), RewardsSelectItem: readQuestRewards(r), FinishNPCIndex: r.readU32(),
-  } as ClientQuestInfo;
-}
-
 /** ClientMonsterInfo(reader) (S.NewMonsterInfo, S.GameDataChanged). */
 function readClientMonsterInfo(r: Reader): ClientMonsterInfo {
   return {
@@ -304,17 +294,6 @@ function readAuctions(r: Reader): ClientAuction[] {
   return out;
 }
 
-/** ClientQuestProgress(reader) (Shared/Data/ClientData.cs). */
-export interface ClientQuestProgress { Id: number; TaskList: string[]; Taken: boolean; Completed: boolean; New: boolean }
-/** QuestItemReward(reader): an ItemInfo + count. */
-export interface QuestItemReward { Item: ItemInfo; Count: number }
-/** ClientQuestInfo(reader). ClassNeeded = RequiredClass, Type = QuestType. */
-export interface ClientQuestInfo {
-  Index: number; NPCIndex: number; Name: string; Group: string; Description: string[]; TaskDescription: string[]; ReturnDescription: string[];
-  CompletionDescription: string[]; MinLevelNeeded: number; MaxLevelNeeded: number; QuestNeeded: number; ClassNeeded: number; Type: number;
-  TimeLimitInSeconds: number; RewardGold: number; RewardExp: number; RewardCredit: number; RewardsFixedItem: QuestItemReward[]; RewardsSelectItem: QuestItemReward[];
-  FinishNPCIndex: number;
-}
 /** ClientMail(reader). DateSent is DateTime.ToBinary. */
 export interface ClientMail {
   MailID: bigint; SenderName: string; Message: string; Opened: boolean; Locked: boolean; CanReply: boolean; Collected: boolean; DateSent: bigint; Gold: number; Items: UserItem[];
@@ -332,13 +311,6 @@ function readStrings(r: Reader): string[] {
   const n = readCount(r, 1);
   const out: string[] = [];
   for (let i = 0; i < n; i++) out.push(r.readString());
-  return out;
-}
-
-function readQuestRewards(r: Reader): QuestItemReward[] {
-  const n = readCount(r, 1);
-  const out: QuestItemReward[] = [];
-  for (let i = 0; i < n; i++) out.push({ Item: readItemInfo(r), Count: r.readU16() });
   return out;
 }
 
@@ -686,19 +658,7 @@ const decoders = {
   },
   ObjectRemove: (r: Reader) => ({ ObjectID: r.readU32() }),
   // — Section 4: social (GameScene handlers of the same names) —
-  /** QuestState: 0 add, 1 update, 2 remove. */
-  ChangeQuest: (r: Reader) => ({
-    Quest: { Id: r.readI32(), TaskList: readStrings(r), Taken: r.readBool(), Completed: r.readBool(), New: r.readBool() } as ClientQuestProgress,
-    QuestState: r.readU8(), TrackQuest: r.readBool(),
-  }),
-  CompleteQuest: (r: Reader) => {
-    const n = readCount(r, 4);
-    const CompletedQuests: number[] = [];
-    for (let i = 0; i < n; i++) CompletedQuests.push(r.readI32());
-    return { CompletedQuests };
-  },
-  ShareQuest: (r: Reader) => ({ QuestIndex: r.readI32(), SharerName: r.readString() }),
-  NewQuestInfo: (r: Reader) => ({ Info: readClientQuestInfo(r) }),
+  // S.ChangeQuest / CompleteQuest / ShareQuest / NewQuestInfo: legacy quest packets, removed in quest V2 wave 4 (ids stay, no decoder).
   GainedQuestItem: (r: Reader) => ({ Item: readUserItem(r) }),
   DeleteQuestItem: (r: Reader) => ({ UniqueID: r.readU64(), Count: r.readU16() }),
   ReceiveMail: (r: Reader) => {

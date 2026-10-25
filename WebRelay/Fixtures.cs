@@ -269,20 +269,6 @@ internal static class Fixtures
         };
         yield return new S.WorldMapSetupInfo { Setup = new WorldMapSetup { Enabled = true, Icons = { new WorldMapIcon { ImageIndex = 3, Title = "Bichon", MapIndex = 1 } } }, TeleportToNPCCost = 5000 };
         yield return new S.SearchMapResult { MapIndex = 3, NPCIndex = 4000000001 };
-        yield return new S.ChangeQuest { Quest = new ClientQuestProgress { Id = 12, TaskList = { "Kill 5 Hens (2/5)", "Bring 皮 x3" }, Taken = true, Completed = false, New = true }, QuestState = QuestState.Update, TrackQuest = true };
-        yield return new S.CompleteQuest { CompletedQuests = { 1, 2, 300 } };
-        yield return new S.ShareQuest { QuestIndex = 12, SharerName = "WebAlly" };
-        yield return new S.NewQuestInfo
-        {
-            Info = new ClientQuestInfo
-            {
-                Index = 12, NPCIndex = 4000000001, Name = "Hen Hunt", Group = "Bichon", Description = { "Line 1", "Line 2" }, TaskDescription = { "Kill hens" },
-                ReturnDescription = { "Return to me" }, CompletionDescription = { "Well done — 好" }, MinLevelNeeded = 1, MaxLevelNeeded = 40, QuestNeeded = 3,
-                ClassNeeded = RequiredClass.Warrior, Type = QuestType.Repeatable, TimeLimitInSeconds = 600, RewardGold = 4_000_000_000, RewardExp = 500, RewardCredit = 7,
-                RewardsFixedItem = { new QuestItemReward { Item = torchInfo, Count = 2 } }, RewardsSelectItem = { new QuestItemReward { Item = armourInfo, Count = 1 } },
-                FinishNPCIndex = 88,
-            },
-        };
         yield return new S.GainedQuestItem { Item = torch };
         yield return new S.DeleteQuestItem { UniqueID = 9_000_000_001UL, Count = 3 };
         yield return new S.ReceiveMail { Mail = { new ClientMail { MailID = 9_000_000_003UL, SenderName = "WebAlly", Message = "Hi — 你好", Opened = true, Locked = false, CanReply = true, Collected = false, DateSent = new DateTime(2026, 10, 12, 1, 0, 0, DateTimeKind.Utc), Gold = 3_000_000_000, Items = { torch } } }, Part = 1, PartCount = 2 };
@@ -664,10 +650,6 @@ internal static class Fixtures
         yield return new C.SellItem { UniqueID = 5, Count = 2 };
         yield return new C.RepairItem { UniqueID = 6 };
         yield return new C.SRepairItem { UniqueID = 7 };
-        yield return new C.AcceptQuest { NPCIndex = 4000000001, QuestIndex = 12 };
-        yield return new C.FinishQuest { QuestIndex = 12, SelectedItemIndex = -1 };
-        yield return new C.AbandonQuest { QuestIndex = 12 };
-        yield return new C.ShareQuest { QuestIndex = 12 };
         yield return new C.SendMail { Name = "WebAlly", Message = "Hi — 你好", Gold = 3_000_000_000, ItemsIdx = new ulong[] { 5, 0, 9_000_000_001UL, 0, 0 }, Stamped = true };
         yield return new C.ReadMail { MailID = 9_000_000_003UL };
         yield return new C.CollectParcel { MailID = 9_000_000_003UL };
@@ -829,7 +811,7 @@ internal static class Fixtures
             IncludeFields = true,
             WriteIndented = true,
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-            Converters = { new PointConverter(), new ColorConverter(), new DateTimeConverter(), new UserItemConverter(), new ItemInfoLiteConverter(), new StatsConverter(), new ByteArrayConverter(), new QuestProgressConverter(), new SellEntryConverter(), new SafeInt64Converter() },
+            Converters = { new PointConverter(), new ColorConverter(), new DateTimeConverter(), new UserItemConverter(), new ItemInfoLiteConverter(), new StatsConverter(), new ByteArrayConverter(), new SellEntryConverter(), new SafeInt64Converter() },
         };
         int n = 0;
         foreach (var (packet, direction) in ServerSamples().Select(p => (p, "server")).Concat(ClientSamples().Select(p => (p, "client"))))
@@ -951,20 +933,6 @@ internal static class Fixtures
             w.WriteStartArray();
             foreach (var b in v) w.WriteNumberValue(b);
             w.WriteEndArray();
-        }
-    }
-
-    /// <summary>ClientQuestProgress wire fields only (its computed properties need the client's QuestInfo).</summary>
-    private sealed class QuestProgressConverter : JsonConverter<ClientQuestProgress>
-    {
-        public override ClientQuestProgress Read(ref Utf8JsonReader reader, Type t, JsonSerializerOptions o) => throw new NotSupportedException();
-        public override void Write(Utf8JsonWriter w, ClientQuestProgress v, JsonSerializerOptions o)
-        {
-            w.WriteStartObject();
-            w.WriteNumber("Id", v.Id);
-            w.WritePropertyName("TaskList"); JsonSerializer.Serialize(w, v.TaskList, o);
-            w.WriteBoolean("Taken", v.Taken); w.WriteBoolean("Completed", v.Completed); w.WriteBoolean("New", v.New);
-            w.WriteEndObject();
         }
     }
 

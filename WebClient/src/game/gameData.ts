@@ -1,5 +1,5 @@
 // S.GameDataChanged (the web admin's LiveDb push, GameScene.GameDataChanged): upserts game data the client already caches.
-// Items / monsters / NPCs / quests go through the same handlers as S.NewItemInfo / NewMonsterInfo / NewNPCInfo / NewQuestInfo
+// Items / monsters / NPCs go through the same handlers as S.NewItemInfo / NewMonsterInfo / NewNPCInfo
 // (the desktop's Upsert* helpers are what those handlers call), spells copy their server-owned fields onto the user's and
 // the hero's own magics (CopyMagicInfo), shop rows replace by GIndex (RemoveGameShopItem + GameShopInfo), and big-map
 // records are dropped so they are requested again (InvalidateMapInfo). The packet arrives in chunks; `Last` ends a batch.
@@ -8,7 +8,7 @@ import type { ClientMagic, GameShopItem, PacketOf, ServerPacket } from "../proto
 import type { UserMagic } from "./magic.ts";
 
 export interface GameDataHost {
-  /** Runs a synthetic packet through game.ts's normal handler (NewItemInfo, NewMonsterInfo, NewNPCInfo, NewQuestInfo, GameShopInfo). */
+  /** Runs a synthetic packet through game.ts's normal handler (NewItemInfo, NewMonsterInfo, NewNPCInfo, GameShopInfo). */
   dispatch(p: ServerPacket): void;
   userMagics(): UserMagic[];
   heroMagics(): UserMagic[];

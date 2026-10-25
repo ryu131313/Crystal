@@ -72,7 +72,6 @@ namespace Client.MirScenes
         public static List<ItemInfo> ItemInfoList = new List<ItemInfo>();
         public static List<UserId> UserIdList = new List<UserId>();
         public static List<UserItem> ChatItemList = new List<UserItem>();
-        public static List<ClientQuestInfo> QuestInfoList = new List<ClientQuestInfo>();
         public static List<GameShopItem> GameShopInfoList = new List<GameShopItem>();
         public static List<ClientRecipeInfo> RecipeInfoList = new List<ClientRecipeInfo>();
         public static List<ClientHeroInformation> HeroInfoList = new List<ClientHeroInformation>();
@@ -177,20 +176,6 @@ namespace Client.MirScenes
 
             ItemInfoList.Add(info);
             return info;
-        }
-
-        /// <summary>Replaces the quest with the same Index (or adds it).</summary>
-        public static void UpsertQuestInfo(ClientQuestInfo info)
-        {
-            if (info == null) return;
-            for (int i = 0; i < QuestInfoList.Count; i++)
-            {
-                if (QuestInfoList[i].Index != info.Index) continue;
-                QuestInfoList[i] = info;
-                return;
-            }
-
-            QuestInfoList.Add(info);
         }
 
         /// <summary>Replaces the monster info with the same Index (or adds it).</summary>
@@ -1531,7 +1516,6 @@ namespace Client.MirScenes
                 case (short)ServerPacketIds.FishingUpdate:
                     FishingUpdate((S.FishingUpdate)p);
                     break;
-                // S.ChangeQuest / S.CompleteQuest / S.ShareQuest: legacy quest packets, no longer sent (quest V2, GameScene.QuestsV2.cs)
                 case (short)ServerPacketIds.GainedQuestItem:
                     GainedQuestItem((S.GainedQuestItem)p);
                     break;
