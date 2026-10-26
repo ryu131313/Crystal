@@ -62,6 +62,44 @@
 #section-quests .qe-inline { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
 #section-quests .qe-inline .qe-field { min-width: 140px; }
 #section-quests .qe-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#section-quests .qe-duration { width: 100%; }
+
+#section-quests .qe-essentials { border: 1px solid var(--border-bright); border-radius: 6px; padding: 10px 12px; background: var(--well); margin-bottom: 12px; }
+
+#section-quests .qe-ready { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 8px; }
+#section-quests .qe-ready-item { font-size: 12px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--border); background: transparent; cursor: pointer; }
+#section-quests .qe-ready-item.ok { color: var(--ok, #6c6); }
+#section-quests .qe-ready-item.warn { color: var(--warn, #d9a441); }
+#section-quests .qe-ready-item.bad { color: var(--danger, #e66); border-color: var(--danger, #e66); }
+
+#section-quests .qe-flash { outline: 2px solid var(--warn, #d9a441); outline-offset: 2px; border-radius: 4px; }
+
+#section-quests .qe-more summary { cursor: pointer; font-size: 12px; color: var(--muted, #9aa); margin: 2px 0; }
+#section-quests .qe-more[open] summary { margin-bottom: 6px; }
+
+#section-quests .qe-wizard { display: flex; flex-direction: column; gap: 10px; }
+#section-quests .qe-wizard h4 { margin: 8px 0 0; }
+#section-quests .qe-wizard textarea { width: 100%; }
+#section-quests .qe-wizard-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; align-items: center; }
+#section-quests .qe-wizard-cols { display: flex; flex-direction: column; gap: 12px; }
+#section-quests .qe-drag { cursor: grab; color: var(--muted, #9aa); }
+#section-quests .qe-area { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+#section-quests .qe-tag { font-size: 11px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 8px; color: var(--muted, #9aa); }
+#section-quests .qe-hint-line { display: block; font-size: 11px; color: var(--muted, #9aa); margin-top: 2px; }
+#section-quests .qe-hint-line.qe-warn { color: var(--warn, #d9a441); }
+#section-quests .qe-place { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+#section-quests .qe-place-text { font-size: 12px; }
+#section-quests .qe-place-numbers { display: flex; gap: 8px; flex-wrap: wrap; }
+#section-quests .qe-thumb { width: 160px; height: 120px; border: 1px solid var(--border); border-radius: 4px; background: var(--well); }
+#section-quests .qe-icon { width: 24px; height: 24px; image-rendering: pixelated; vertical-align: middle; margin-right: 6px; }
+#section-quests .qe-invalid input, #section-quests .qe-invalid select { border-color: var(--danger, #e66); }
+#section-quests .qe-preview { display: none; }
+#section-quests .qe-preview-box { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; background: var(--well); }
+#section-quests .qe-preview-step { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+@media (min-width: 1400px) {
+  #section-quests .qe-wizard-cols { flex-direction: row; align-items: flex-start; }
+  #section-quests .qe-preview { display: block; width: 360px; flex: 0 0 360px; position: sticky; top: 8px; }
+}
 
 #section-quests .qe-text { display: flex; flex-direction: column; gap: 3px; }
 #section-quests .qe-text-row { display: grid; grid-template-columns: minmax(140px, 220px) minmax(0, 1fr); gap: 6px; align-items: start; }

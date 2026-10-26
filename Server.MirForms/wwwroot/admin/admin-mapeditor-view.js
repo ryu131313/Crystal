@@ -151,7 +151,7 @@
 
     var st = {
       ov: null, art: null, w: 0, h: 0, objects: [], players: [], pending: [],
-      base: 'art', layers: {}, sel: null, hover: null, spot: null, pin: null,
+      base: 'art', layers: {}, sel: null, hover: null, spot: null, pin: null, pinRadius: 0,
       view: null, img: null, mini: null, walk: null, hatch: null,
       tiles: new Map(), tileQueue: [], tilesInFlight: 0, ver: '',
       drag: null, queued: false, destroyed: false
@@ -165,7 +165,7 @@
       st.w = num(ov && ov.width);
       st.h = num(ov && ov.height);
       st.objects = [];
-      st.sel = null; st.hover = null; st.spot = null; st.pin = null; st.players = []; st.pending = [];
+      st.sel = null; st.hover = null; st.spot = null; st.pin = null; st.pinRadius = 0; st.players = []; st.pending = [];
       st.walk = null; st.hatch = null; st.img = null; st.mini = null;
       st.tiles = new Map(); st.tileQueue = [];
       st.view = null;
@@ -742,6 +742,14 @@
 
     function drawPin(ctx, v, p) {
       var c = centre(v, p.x, p.y);
+      if (st.pinRadius > 0) {
+        var sq = rectPx(v, { x: p.x, y: p.y, r: st.pinRadius });
+        ctx.fillStyle = 'rgba(244, 114, 182, 0.12)';
+        ctx.fillRect(sq.x, sq.y, sq.w, sq.h);
+        ctx.strokeStyle = 'rgba(244, 114, 182, 0.95)';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(sq.x, sq.y, sq.w, sq.h);
+      }
       ctx.strokeStyle = 'rgba(244, 114, 182, 0.95)';
       ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(c.x, c.y, 6, 0, Math.PI * 2); ctx.stroke();
@@ -904,6 +912,7 @@
       fit: fit, zoomBy: function (f) { zoomAt(f); }, showCell: showCell, redraw: queueDraw,
       clearPin: function () { st.pin = null; queueDraw(); },
       pin: function (x, y) { st.pin = { x: x, y: y }; queueDraw(); },
+      setPinRadius: function (r) { st.pinRadius = Math.max(0, Number(r) || 0); queueDraw(); },
       baseAvailable: baseAvailable, walkable: walkable, walk: function () { return st.walk; },
       size: function () { return { w: st.w, h: st.h, noFile: !!st.noFile }; },
       view: function () { return st.view; }, cellAt: cellAt, toCell: function (px, py) { return st.view ? toCell(st.view, px, py) : null; },

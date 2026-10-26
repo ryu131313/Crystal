@@ -41,8 +41,43 @@ namespace Server.WebAdmin.Tests
         {
             var js = Js();
             var urls = Regex.Matches(js, @"'(/api/[^']*)'").Select(m => m.Groups[1].Value).Distinct().ToList();
-            Assert.Equal(new[] { "/api/admin/quests" }, urls);
+            // The page also calls the characters' quest edit / reset routes for the Test tab.
+            Assert.Equal(new[] { "/api/admin/characters/", "/api/admin/players-online", "/api/admin/quests" }, urls.OrderBy(u => u, StringComparer.Ordinal).ToArray());
             Assert.Contains("DbLookups.fetch", js);
+        }
+
+        [Fact]
+        public void Wizard_is_loaded_after_the_page_and_never_calls_the_api()
+        {
+            var index = File.ReadAllText(Path.Combine(AdminDir(), "index.html"));
+            var page = index.IndexOf("<script src=\"admin-quests.js\"></script>", StringComparison.Ordinal);
+            var wizard = index.IndexOf("<script src=\"admin-quests-wizard.js\"></script>", StringComparison.Ordinal);
+            var app = index.IndexOf("app.js", StringComparison.Ordinal);
+            Assert.True(page >= 0 && wizard > page && wizard < app);
+
+            var js = File.ReadAllText(Path.Combine(AdminDir(), "admin-quests-wizard.js"));
+            Assert.DoesNotContain("/api/", js);
+            Assert.Empty(Regex.Matches(js, @"(?<![\w.$])fetch\s*\("));
+            Assert.DoesNotContain("innerHTML", js);
+            Assert.DoesNotContain("insertAdjacentHTML", js);
+            Assert.DoesNotContain("localStorage", js);
+            Assert.Contains("QuestsPage.openDraft", js);
+        }
+
+        [Fact]
+        public void Assist_is_loaded_between_the_page_and_the_wizard_and_uses_only_known_routes()
+        {
+            var index = File.ReadAllText(Path.Combine(AdminDir(), "index.html"));
+            int At(string s) => index.IndexOf(s, StringComparison.Ordinal);
+            Assert.True(At("admin-quests.js\"") < At("admin-quests-assist.js\"") && At("admin-quests-assist.js\"") < At("admin-quests-wizard.js\"") && At("admin-quests-wizard.js\"") < At("app.js"));
+
+            var js = File.ReadAllText(Path.Combine(AdminDir(), "admin-quests-assist.js"));
+            var urls = Regex.Matches(js, @"'(/api/[^']*)'").Select(m => m.Groups[1].Value).Distinct().OrderBy(u => u, StringComparer.Ordinal).ToArray();
+            Assert.Equal(new[] { "/api/admin/gm/action", "/api/admin/mapeditor/maps/", "/api/admin/players-online", "/api/admin/quests" }, urls);
+            Assert.Empty(Regex.Matches(js, @"(?<![\w.$])fetch\s*\("));
+            Assert.DoesNotContain("innerHTML", js);
+            Assert.DoesNotContain("insertAdjacentHTML", js);
+            Assert.DoesNotContain("localStorage", js);
         }
 
         [Fact]

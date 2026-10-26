@@ -1,6 +1,10 @@
 ﻿using System.Globalization;
 using System.Text.Json;
+using Server.MirEnvir;
+using Server.MirEnvir.Storage;
 using Server.WebAdmin.GameData;
+using Server.WebAdmin.MapArt;
+using Server.WebAdmin.MapEditor;
 
 namespace Server.WebAdmin.Quests
 {
@@ -13,6 +17,8 @@ namespace Server.WebAdmin.Quests
     /// <item>POST /api/admin/quests/save {quest, dryRun?, reason?} → saved (422 + data.problems when validation fails)</item>
     /// <item>POST /api/admin/quests/{index}/delete {rev, reason?}</item>
     /// <item>GET  /api/admin/quests/where-used?kind=monster|item|npc|map|group|condition|quest|spell&amp;id=n</item>
+    /// <item>GET  /api/admin/quests/hints?kind=monster|item|npc|map&amp;id=n → picker hints (spawns, drops, an NPC's place, a map's respawns)</item>
+    /// <item>GET  /api/admin/quests/item-icon/{index}       → the client's item icon (Data\Items.Lib) as a PNG</item>
     /// <item>GET  /api/admin/quests/{index}/export        → the crystal-quest/1 file (download)</item>
     /// <item>POST /api/admin/quests/import {file, apply?, token?} → preview (diff, problems, token), then apply with the token</item>
     /// <item>POST /api/admin/quests/groups/save {group}, POST /api/admin/quests/groups/{index}/delete</item>
@@ -28,6 +34,8 @@ namespace Server.WebAdmin.Quests
             router.Get("/api/admin/quests", GetList);
             router.Get("/api/admin/quests/meta", GetMeta);
             router.Get("/api/admin/quests/where-used", GetWhereUsed);
+            router.Get("/api/admin/quests/hints", GetHints);
+            router.Get("/api/admin/quests/item-icon/{index:int}", GetItemIcon);
             router.Get("/api/admin/quests/{index:int}", GetQuest);
             router.Get("/api/admin/quests/{index:int}/export", GetExport);
             router.Post("/api/admin/quests/save", PostSave);
@@ -61,6 +69,54 @@ namespace Server.WebAdmin.Quests
             if (id == 0) throw new WebAdminException(400, "'id' is required");
             var uses = QuestEditorGate.Read(s => s.WhereUsed(kind, id));
             return req.Json(new { kind = kind.ToString().ToLowerInvariant(), id, uses });
+        }
+
+        private static Task GetHints(WebAdminRequest req)
+        {
+            var kind = (req.Query["kind"] ?? string.Empty).Trim().ToLowerInvariant();
+            if (kind != "monster" && kind != "item" && kind != "npc" && kind != "map")
+                throw new WebAdminException(400, "'kind' must be one of: monster, item, npc, map");
+            var id = req.QueryInt("id", 0);
+            if (id <= 0) throw new WebAdminException(400, "'id' is required");
+
+            var hint = QuestEditorGate.Read(s => s.Hint(kind, id));
+            if (hint == null) throw new WebAdminException(404, "No " + kind + " #" + id.ToString(CultureInfo.InvariantCulture));
+
+            if (hint is QuestHints.ItemHint item)
+            {
+                // Drop tables are read without EditLock (as DropRoutes): take the monster snapshot under it, then walk them outside.
+                item.dropsKnown = DesignStore.Active;
+                if (DesignStore.Active)
+                {
+                    var monsters = new List<(int Index, string Name, string DropPath)>();
+                    lock (WebAdminGame.EditLock)
+                    {
+                        var list = Envir.Edit.MonsterInfoList;
+                        for (var i = 0; i < list.Count; i++) if (list[i] != null) monsters.Add((list[i].Index, list[i].Name, list[i].DropPath));
+                    }
+
+                    item.droppedBy = QuestHints.DroppedBy(id, monsters, (i, n, p) => DropTables.ForMonster(i, n, p), DropTables.Get);
+                }
+            }
+            else if (hint is QuestHints.MapHint map)
+            {
+                var walk = MapEditorService.Walkability(map.fileName);   // file IO outside EditLock
+                map.width = walk?.Width ?? 0;
+                map.height = walk?.Height ?? 0;
+            }
+
+            return req.Json(hint);
+        }
+
+        private static Task GetItemIcon(WebAdminRequest req)
+        {
+            var index = req.RouteInt("index");
+            var image = QuestEditorGate.Read(s => s.ItemImage(index))
+                        ?? throw new WebAdminException(404, "Item #" + index.ToString(CultureInfo.InvariantCulture) + " does not exist");
+            var png = MapArtService.ItemIconPng(image)
+                      ?? throw new WebAdminException(404, "No item icon (is [WebAdmin] ClientDataPath set?)");
+            req.SetHeader("Cache-Control", "private, max-age=300");
+            return req.Bytes(png, "image/png");
         }
 
         private static Task GetExport(WebAdminRequest req)

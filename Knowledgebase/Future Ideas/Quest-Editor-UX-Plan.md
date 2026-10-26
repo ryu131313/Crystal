@@ -1,6 +1,8 @@
 # Quest Editor UX Plan (web admin › Game Data › Quests)
 
-**Status:** proposed 2026-10-25. Not started.
+**Status:** proposed 2026-10-25; phases A, B, C, D and E implemented 2026-10-25 (backend meta / refs / runtime warnings / name sync /
+`levelHint`, editor clean-up, the wizard, the Test and Texts tabs, hints + item icons + map place picker + area hunts + templates /
+region / follow-up / save & test, docs). The manual smoke steps in B12, C, D and E still need a live server and a logged-in character.
 **Goal:** make creating a new quest as quick as possible: a wizard for common quests, duplicate, fewer fields on screen, choices that
 actually work at runtime, validation you can click, and testing a quest on an online character without leaving the page.
 **Audience:** written for an implementing agent that has **not** read the code. Follow it literally. Where it says "exactly", copy the
@@ -303,13 +305,15 @@ Do the steps in order and run `node --check` after each.
    `enumList('flags').filter(function (f) { return !f.reserved || (q.flags & f.value) !== 0; })`.
 3. **Replace the magic `cmp: 5`** with `enumValue('compare', 'Ge')` in the two places that create a Leaf condition (in
    `renderConditionNode` "+ Part" and in `renderConditions` "+ Single check").
-4. **Lookup details.** In `ensureLookups`, keep each option's `detail` and show it in the datalist:
+4. **Lookup details.** In `ensureLookups`, keep each option's `detail` and show it in the datalist. A datalist option **displays
+   its `label` instead of its `value`** when both are set, so the label must repeat the name (a bare `label: o.detail` hides the name:
+   the NPC dropdown showed only map names):
    ```js
    lookups[n].detailByIndex = {};
    (lookups[n].options || []).forEach(function (o) {
      if (!o.index) return;
      lookups[n].detailByIndex[o.index] = o.detail || '';
-     dl.appendChild(h('option', { value: o.label + ' #' + o.index, label: o.detail || null }));
+     dl.appendChild(h('option', { value: o.label + ' #' + o.index, label: o.detail ? o.label + ' · ' + o.detail : null }));
    });
    ```
    Add `function lookupDetail(name, index) { var l = lookups[name]; return (l && l.detailByIndex && l.detailByIndex[index]) || ''; }`.
@@ -1111,13 +1115,564 @@ Start → the quest appears in the client's log → Jump to step "Ready to turn 
 
 ---
 
+## Phase E — Maps, area hunts, hints, suggestions, templates, fewer clicks
+
+**Goal:** a person who doesn't know the data tables can make a quest by clicking. Places are picked on the map, hunts can target
+"whatever spawns here", every picker says where things are, rewards and the level hint are suggested, and common shapes are one click.
+Phases A to D must be done first (they are, as of 2026-10-25).
+
+### E0. Read first
+
+**Files.** Same rules as §0.2. Phase E adds or touches:
+
+| File | Part | What |
+|---|---|---|
+| `Server/WebAdmin/Quests/QuestHints.cs` | E1 | **new**: hint data (spawns, drops, NPC place, map respawns) |
+| `Server/WebAdmin/Quests/QuestEditorRoutes.cs` | E1 | 2 GET routes |
+| `Server/WebAdmin/MapArt/MapArtService.cs` | E1 | `ItemIconPng` (next to `MiniMapPng`) |
+| `Server.WebAdmin.Tests/QuestHintsTests.cs` | E1 | **new** tests |
+| `Server.MirForms/wwwroot/admin/admin-mapeditor-picker.js` + `admin-mapeditor-view.js` | E2 | optional radius square in `MapPicker.pick` |
+| `Server.MirForms/wwwroot/admin/admin-quests-assist.js` | E3 | **new**: `QuestsAssist`, shared by the editor and the wizard |
+| `Server.MirForms/wwwroot/admin/admin-quests.js` | E4, E9 | kit additions, hints under pickers, editor upgrades |
+| `Server.MirForms/wwwroot/admin/admin-quests-wizard.js` | E5-E8 | wizard upgrades |
+| `Server.MirForms/wwwroot/admin/admin-quests.css` | all | styles (scoped `#section-quests`; the map picker keeps its own `me-` classes in `admin-mapeditor.css`) |
+| `Server.MirForms/wwwroot/admin/index.html` | E3 | one `<script>` line |
+| `Server.WebAdmin.Tests/QuestEditorFrontendTests.cs` | E10 | static checks for the new file |
+| `Server/WebAdmin/README.md` | E10 | Quests bullet |
+
+**More runtime facts (verified 2026-10-25):**
+- **The ReachArea area is a square, not a circle:** `PlayerQuests.cs` ~L748 skips the area when `|px - X| > Radius || |py - Y| > Radius`.
+  Draw it as a square and call it "area" in the UI, never "circle".
+- **An objective's condition gates its progress:** `PlayerQuests.cs` ~L352 and ~L655 skip the objective when
+  `o.Condition != 0 && !EvaluateCondition(o.Condition)`. The `MapIs` leaf compares the player's map with `Arg1` using `Cmp`
+  (`PlayerQuests.Conditions.cs` ~L84). So "kills only count on this map" = an owned Leaf condition `{ leaf: MapIs, arg1: map, cmp: Eq }`
+  set as the Kill objective's `condition`.
+- `QuestStatus` leaf: `arg1` = quest index, `arg2` = a `QuestRunStatus` (Completed = 4), `cmp` Eq. This is used for follow-up quests.
+- **Respawns:** `MapInfo.Respawns` is a `List<RespawnInfo>` with `MonsterIndex`, `Location` (Point), `Count`, `Spread`.
+  `MonsterInfo` has `Level`, `Experience`, `IsBoss`, `DropPath`. `NPCInfo` has `MapIndex`, `Location`, `Name`. `ItemInfo` has `Price`,
+  `Image`, `RequiredClass`. All of these are in `QuestWorld` (`MapInfoList`, `MonsterInfoList`, `NPCInfoList`, `ItemInfoList`), so the
+  hints are testable on a detached `QuestWorld`, as `QuestEditorTests` does.
+- **Drops** live in `DropTables` (`Server/MirEnvir/Storage/Design/DropTables.cs`): `DropTables.Lists()` lists every list,
+  `DropTables.ForMonster(index, name, dropPath)` gives a monster's list, and `DropRow` has `Kind` (`DropKind.Item` / `Include` / `Group` /
+  …), `Chance` (the N of "1/N"), `ItemIndex`, `Parent` (≥ 0 inside a group) and `IncludeListId`. `DropRoutes` reads these on HTTP
+  threads without a lock. Copy that, and only when `DesignStore.Active` is true.
+- `MapPicker.pick(opts)` (`admin-mapeditor-picker.js`) is a modal: a map list plus `MapEditorView`. It resolves `{ map, x, y }` or
+  `null`. The view draws the picked cell with `drawPin` (`admin-mapeditor-view.js` ~L743) and has `rectPx(v, {x, y, r})` for squares.
+- GM teleport (existing, audited): `POST /api/admin/gm/action` with
+  `{ action: 'teleport', character: <name>, characterIndex: <index>, map: '#' + mapIndex, x, y, reason }` (see `teleportOne` in
+  `admin-mapeditor.js` ~L1080).
+- Minimap image: `GET /api/admin/mapeditor/maps/{index}/minimap` (404 when `[WebAdmin] ClientDataPath` is unset or the map has no
+  minimap). The terrain image `.../terrain` always works when the map file exists. Both are plain `<img>` GETs (cookie auth, no CSRF).
+- There is **no** item icon endpoint today (`admin-lookups.js` L8). E1 adds one for the Quests page only.
+
+**Where API calls may live.** The wizard stays API-free (the test `Wizard_..._never_calls_the_api` stays). Every new call goes in the
+new `admin-quests-assist.js` (E3). The `admin-quests.js` URL test stays as it is.
+
+---
+
+### E1. Backend: hints and item icons
+
+**E1.1 `Server/WebAdmin/Quests/QuestHints.cs` (new, `internal static class QuestHints`, namespace `Server.WebAdmin.Quests`).** Start the
+file with a UTF-8 BOM like its neighbours. One `<summary>` on the class: read-only, HTTP worker, the world parts read under `EditLock`
+through `QuestEditorGate.Read`, and drops outside the lock (as `DropRoutes`).
+
+```csharp
+public sealed class SpawnHint { public int map; public string mapTitle; public int respawns; public int count; }
+
+private static string MapTitle(MapInfo m) => string.IsNullOrWhiteSpace(m.Title) ? m.FileName : m.Title;
+
+public static object Monster(QuestWorld w, int id)
+{
+    var m = w.MonsterInfoList.FirstOrDefault(x => x != null && x.Index == id);
+    if (m == null) return null;
+    var spawns = new List<SpawnHint>();
+    foreach (var map in w.MapInfoList)
+    {
+        if (map == null) continue;
+        var rows = map.Respawns.Where(r => r != null && r.MonsterIndex == id).ToList();
+        if (rows.Count == 0) continue;
+        spawns.Add(new SpawnHint { map = map.Index, mapTitle = MapTitle(map), respawns = rows.Count, count = rows.Sum(r => (int)r.Count) });
+    }
+    return new
+    {
+        kind = "monster", id, name = m.Name, level = (int)m.Level, experience = (long)m.Experience, boss = m.IsBoss,
+        spawns = spawns.OrderByDescending(s => s.count).Take(10).ToList(),
+    };
+}
+```
+Keep the lowercase field names shown in every hint shape (they are what the page reads).
+
+```csharp
+public static object Npc(QuestWorld w, int id)       // { kind:"npc", id, name, map, mapTitle, x, y } or null
+public static object Item(QuestWorld w, int id)      // { kind:"item", id, name, price, image, requiredClass (the enum name), droppedBy: [] }  (droppedBy filled by the route)
+public static object Map(QuestWorld w, int id)       // see below, or null
+```
+`Map` returns
+`{ kind: "map", id, title, fileName, miniMap, npcs: [{ index, name, x, y }], respawns: [{ monster, name, level, boss, x, y, spread, count }] }`,
+with `name`/`level`/`boss` looked up in `MonsterInfoList` (unknown monster: name `"#" + index`, level 0). The route adds `width` and
+`height`.
+
+Drops (testable without the store):
+```csharp
+public sealed class DropHint { public int monster; public string name; public int chance; public bool grouped; }
+
+// Which monsters drop an item: each monster's own list plus the lists it includes (followed once each, cycles ignored). The best
+// (lowest N) chance per monster wins.
+public static List<DropHint> DroppedBy(long itemIndex, IEnumerable<(int Index, string Name, string DropPath)> monsters,
+    Func<int, string, string, DropList> listOf, Func<long, DropList> byId)
+{
+    var best = new Dictionary<int, DropHint>();
+    foreach (var (index, name, dropPath) in monsters)
+    {
+        var root = listOf(index, name, dropPath);
+        if (root == null) continue;
+        var seen = new HashSet<long>();
+        var stack = new Stack<DropList>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var l = stack.Pop();
+            if (l == null || !seen.Add(l.Id)) continue;
+            foreach (var r in l.Rows)
+            {
+                if (r.Kind == DropKind.Include && r.IncludeListId is long inc) stack.Push(byId(inc));
+                else if (r.Kind == DropKind.Item && r.ItemIndex == itemIndex && r.Chance > 0
+                         && (!best.TryGetValue(index, out var h) || r.Chance < h.chance))
+                    best[index] = new DropHint { monster = index, name = name, chance = r.Chance, grouped = r.Parent >= 0 };
+            }
+        }
+    }
+    return best.Values.OrderBy(h => h.chance).ThenBy(h => h.name, StringComparer.OrdinalIgnoreCase).Take(15).ToList();
+}
+```
+Check that `DropList`, `DropRow` and `DropKind` are visible from `Server.WebAdmin` (they are `internal` in the same assembly; `DropRoutes`
+uses them) and add `using Server.MirEnvir.Storage;` if needed (see `DropRoutes.cs`'s usings).
+
+**E1.2 Routes in `QuestEditorRoutes.Register`:**
+```csharp
+router.Get("/api/admin/quests/hints", GetHints);
+router.Get("/api/admin/quests/item-icon/{index:int}", GetItemIcon);
+```
+`GetHints`: `kind` = `monster | item | npc | map` (anything else → 400 "'kind' must be one of: monster, item, npc, map"), `id` > 0 (else
+400). Then:
+1. `var hint = QuestEditorGate.Read(s => s.Hint(kind, id));`. Add a thin `Hint` method to `QuestEditorService` that switches to the
+   `QuestHints` functions with `_w`. This keeps the world access behind the same gate as the rest of the page.
+2. `null` → 404 "No <kind> #<id>".
+3. `item`: when `DesignStore.Active`, take a monster snapshot under `EditLock` exactly like `DropRoutes.Snapshot()` (Index, Name, DropPath),
+   then call `QuestHints.DroppedBy(id, monsters, (i, n, p) => DropTables.ForMonster(i, n, p), DropTables.Get)` **outside** the lock. Return
+   the item object plus `droppedBy` and `dropsKnown = DesignStore.Active`. The cleanest way is to have `Item(...)` return a small class
+   with a settable `droppedBy` list instead of an anonymous object.
+4. `map`: `var walk = MapEditorService.Walkability(fileName);` **outside** the gate (file IO, as `MapEditorRoutes.GetOverlay` does), and
+   add `width = walk?.Width ?? 0, height = walk?.Height ?? 0`. Again: return a class with settable fields.
+5. `req.Json(hint)`.
+
+`GetItemIcon`: look up `ItemInfo.Image` for the item index via `QuestEditorGate.Read`. 404 when the item doesn't exist. Then
+`MapArtService.ItemIconPng(image)` → 404 "No item icon (is [WebAdmin] ClientDataPath set?)" when null. Otherwise
+`req.SetHeader("Cache-Control", "private, max-age=300"); return req.Bytes(png, "image/png");` (copy `GetMiniMap` in `MapEditorRoutes.cs`).
+
+**E1.3 `MapArtService.ItemIconPng(int image)`:** copy `MiniMapLib()` + `MiniMapPng()` exactly as `ItemsLib()` + `ItemIconPng()`, with the
+library `Path.Combine(root, "Items.Lib")`, its own cache field `_items` and its own `ConcurrentDictionary<int, byte[]> ItemIconPngs`
+(look at how `MiniMapPngs` is declared and copy it). `image < 0` → null. The client's item icons are `Data\Items.Lib`, and `Root` is the
+client Data folder (the minimap reads `Root\MMap.Lib`).
+
+**E1.4 Tests (`Server.WebAdmin.Tests/QuestHintsTests.cs`).** Build a `QuestWorld` as `QuestEditorTests.World()` does, plus
+`w.MapInfoList[0].Respawns.Add(new RespawnInfo { MonsterIndex = 1, Location = new Point(20, 20), Count = 5, Spread = 3 })` and a second
+row for monster 2 at (60, 60):
+1. `Monster_hint_lists_where_it_spawns`: `QuestHints.Monster(w, 1)` serialised with `WebAdminJson.Options` has `level`, one spawn on map 1
+   with `count == 5`.
+2. `Npc_hint_gives_map_and_cell`: NPC 1 → map 1, x 10, y 10, `mapTitle == "Bichon"`.
+3. `Map_hint_lists_respawns_with_monster_names`: 2 respawns, the first `name == "Wolf"`.
+4. `DroppedBy_follows_includes_once_and_keeps_the_best_chance`: build three `DropList`s in the test (A: Item 2 at chance 20, plus an
+   Include of B; B: Item 2 at chance 5, plus an Include of A, which is a cycle; C: no item 2). Monster 1 → A, monster 3 → C. Expect
+   one hint: monster 1, chance 5. Construct `DropList { Id = 1, Rows = new[] { new DropRow { Kind = DropKind.Item, ItemIndex = 2, Chance = 20 }, ... } }`
+   and pass lambdas for `listOf` / `byId`.
+
+**E1 done when** Server.Library builds and the WebAdmin tests pass.
+
+---
+
+### E2. Map picker: an optional area square
+
+In `admin-mapeditor-picker.js` `pick(opts)`:
+1. A new option `opts.radius` (number). Only when `opts.radius != null`, add to the footer, before the `note` span:
+   `el('span', 'mir-muted', 'Area')`, a `−` button, a number input `ri` (`min 0`, `max 50`, class `mir-input me-picker-xy`) and a `+`
+   button. `state.radius = Math.max(0, num(opts.radius, 0))`. The buttons and the input set `state.radius` (clamp 0..50), then
+   `view.setPinRadius(state.radius)`.
+2. `confirm()` resolves `{ map, x, y, radius: state.radius }` when `opts.radius != null`, else `{ map, x, y }` as today. That keeps
+   every existing caller unchanged.
+3. In `check()`, when `opts.radius != null` and the overlay is loaded, add how many monster spawns touch the area:
+   `var n = (state.overlay.respawns || []).filter(function (r) { var sp = num(r.Spread, 0); return Math.abs(num(r.Location_X) - state.x) <= state.radius + sp && Math.abs(num(r.Location_Y) - state.y) <= state.radius + sp; }).length;`
+   and, when the cell is fine, show `note.textContent = n + ' monster spawn(s) in this area';` (only if `bad` is empty).
+4. After `view.pin(...)` / `view.showCell(...)` (in `setCell`) and after `loadMap`, call `view.setPinRadius(state.radius || 0)`.
+
+In `admin-mapeditor-view.js`:
+- Add `st.pinRadius = 0` next to where `st.pin` is reset (~L168), and `setPinRadius: function (r) { st.pinRadius = Math.max(0, Number(r) || 0); queueDraw(); }`
+  to the returned object (~L906).
+- In `drawPin(ctx, v, p)`, before the two arcs:
+  ```js
+  if (st.pinRadius > 0) {
+    var sq = rectPx(v, { x: p.x, y: p.y, r: st.pinRadius });
+    ctx.fillStyle = 'rgba(244, 114, 182, 0.12)';
+    ctx.fillRect(sq.x, sq.y, sq.w, sq.h);
+    ctx.strokeStyle = 'rgba(244, 114, 182, 0.95)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(sq.x, sq.y, sq.w, sq.h);
+  }
+  ```
+  (`drawPin` is declared inside `create`, so `st` and `rectPx` are in scope. Check this; if not, pass the radius in as an argument.)
+
+The map editor never passes `radius`, so it is unchanged. Note in the picker's header comment: `radius` → an area square and a Radius
+control, resolved as `radius`.
+
+---
+
+### E3. `admin-quests-assist.js` (new): `QuestsAssist`
+
+Load it in `index.html` **between** `admin-quests.js` and `admin-quests-wizard.js`. IIFE, same style. Header comment: what it is, and the
+URLs it uses. Contents:
+
+```js
+var API = '/api/admin/quests';
+var cache = {};                     // 'kind:id' -> Promise<hint|null>, for the page session
+
+function hints(kind, id) {
+  id = Number(id) || 0;
+  if (!id) return Promise.resolve(null);
+  var key = kind + ':' + id;
+  if (!cache[key]) cache[key] = OpsUI.get(API + '/hints?kind=' + encodeURIComponent(kind) + '&id=' + id);
+  return cache[key];
+}
+function clearHints() { cache = {}; }
+function itemIconUrl(id) { return API + '/item-icon/' + Number(id); }
+```
+
+**`hintLine(kind, id)`** returns a `span.qe-hint-line` filled asynchronously (`hints(kind, id).then(...)`; null → leave it empty):
+- `monster`: `'Lv ' + level + ' · ' + experience + ' exp' + (boss ? ' · boss' : '')`, then `' · spawns on '` + the first 3 spawns as
+  `mapTitle + ' (×' + count + ')'`, joined with `', '`, plus `' …'` if there are more. No spawns → `' · no spawns'` with class `qe-warn`.
+- `item`: `droppedBy.length` → `'Dropped by '` + the first 4 as `name + ' 1/' + chance + (grouped ? '*' : '')` (and a `title` saying "*
+  inside a drop group"). Empty and `dropsKnown` → `'No monster drops it (shop, craft or script only?)'` with class `qe-warn`. Not
+  `dropsKnown` → nothing.
+- `npc`: `mapTitle + ' (' + x + ', ' + y + ')'`, then two small link buttons: `Map` (sets `location.hash` to
+  `'#section=mapeditor&map=' + map + '&x=' + x + '&y=' + y`; check how other pages deep-link before choosing `location.hash`) and
+  `Teleport…` → `teleportPrompt(map, x, y)`.
+
+**`teleportPrompt(map, x, y)`**: `GET /api/admin/players-online`. No rows → toast "No one is online.". Otherwise
+`OpsUI.actionDialog(...)` with a select of the online characters (GMs first). Read `actionDialog`'s signature in `admin-ops-common.js`
+and copy a caller such as the map editor's `teleportOne` dialog (~L1088). Then
+`OpsUI.post('/api/admin/gm/action', { action: 'teleport', character: p.name, characterIndex: p.characterIndex, map: '#' + map, x: x, y: y, reason: 'Quest editor' })`.
+
+**`placeLine(place, onChange, opts)`**, where `place = { map, x, y, radius }`. It returns a `div.qe-place` with:
+- A **thumbnail** (`thumbnail(place)`, below).
+- A text line: map title (from `hints('map', place.map)`, else `'Pick a place'`) + `' (' + x + ', ' + y + ')'` + (radius != null ?
+  `' · area ' + (2 * radius + 1) + '×' + (2 * radius + 1)` : '').
+- A button `Pick on map…`:
+  `MapPicker.pick({ map: place.map || -1, x: place.x, y: place.y, radius: opts.radius ? (place.radius || opts.defaultRadius || 5) : null, walkableOnly: true, title: opts.title || 'Pick the place' })`.
+  On a result, set `place.map/x/y` (and `radius` when given), call `onChange(place)`, then re-render the line in place: replace the old
+  `div` with a new `placeLine(...)`. Guard `if (!global.MapPicker)` → toast "The map picker isn't loaded.".
+- A toggle `Numbers` that shows Map / X / Y / Radius number inputs (for typing coordinates). They write into `place` and call `onChange`.
+
+**`thumbnail(place)`** returns a `canvas.qe-thumb` (160 × 120), drawn when both arrive: the image (`img.src =
+'/api/admin/mapeditor/maps/' + map + '/minimap'`, and on `error` try `.../terrain` once, then give up, leaving a grey box) and
+`hints('map', map)` for `width`/`height`. Scale the image to fit the canvas while keeping its aspect ratio. Draw the marker at
+`(x / width, y / height)` of the drawn image: a 3 px dot, plus a square of half-size `radius / width × drawnWidth` (at least 3 px) when
+`radius > 0`. Colours: `rgba(244, 114, 182, …)` as in the picker. No map → only the grey box.
+
+**`areaMonsters(place)`** → `Promise<[{ monster, name, level, boss, count, respawns }]>` from `hints('map', place.map)`. Keep the respawns
+whose square touches the area (`|rx - x| <= radius + spread && |ry - y| <= radius + spread`), grouped by `monster` (summing `count`, counting
+`respawns`), sorted by `count` descending.
+
+**`suggest(input)`**, the reward and level suggestion. It is pure apart from `hints`, and **all tuning sits in one object at the top of
+the file**:
+```js
+// First guesses for authors, not balance rules: tune these numbers to the server.
+var TUNING = { killExpFactor: 1.5, stepExpBase: 100, stepExpPerLevelSq: 20, goldPerLevelPerStep: 50, itemPriceFactor: 0.5 };
+```
+`input = { steps: [{ type, monsters: [ids], count, item, level }], levelHint }`. Returns `Promise<{ level, exp, gold }>`:
+- `level`: the average `level` of every monster in Kill steps (one value per step: the mean of its monsters), and for ReachLevel the
+  step's `count`. The result is the max of those, rounded. Nothing → 0.
+- `exp`: Kill steps add `mean monster experience × count × killExpFactor`. Every other step adds
+  `stepExpBase + stepExpPerLevelSq × L²`, where `L = level || levelHint || 1`. Round to a whole number.
+- `gold`: `goldPerLevelPerStep × L × steps`, plus Collect / Deliver `item price × count × itemPriceFactor`. Round.
+
+**`saveGroup(members, keyBase)`**: reuse a group with exactly the same member set (sorted compare) from `QuestsPage.meta().groups` with
+kind Monster (0). Otherwise POST `API + '/groups/save'` with `{ group: { index: 0, authorKey: key, kind: 0, members: members } }`, where
+`key` = `keyBase`, or `keyBase + '-2'`, `-3`, … until no group has it (case-insensitive). On `__ok`, call `await QuestsPage.reloadMeta()`
+(E4) and return `j.data.index`. Otherwise return 0 (the post already showed a toast).
+
+**`players()`**: GET `/api/admin/players-online`, rows sorted GMs first, then by name. This is shared by `teleportPrompt` and the
+wizard's "Save & test".
+
+Export:
+`global.QuestsAssist = { hints: hints, clearHints: clearHints, hintLine: hintLine, placeLine: placeLine, thumbnail: thumbnail, areaMonsters: areaMonsters, suggest: suggest, saveGroup: saveGroup, players: players, teleportPrompt: teleportPrompt, itemIconUrl: itemIconUrl, TUNING: TUNING };`
+
+CSS:
+```css
+#section-quests .qe-hint-line { display: block; font-size: 11px; color: var(--muted, #9aa); margin-top: 2px; }
+#section-quests .qe-hint-line.qe-warn { color: var(--warn, #d9a441); }
+#section-quests .qe-place { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+#section-quests .qe-thumb { width: 160px; height: 120px; border: 1px solid var(--border); border-radius: 4px; background: var(--well); }
+#section-quests .qe-icon { width: 24px; height: 24px; image-rendering: pixelated; vertical-align: middle; margin-right: 6px; }
+```
+
+---
+
+### E4. `admin-quests.js`: hooks for the assist and the wizard
+
+1. **Hints under pickers:** in `picker(name, value, onChange)`, when `global.QuestsAssist` and `name` is `monsters` / `items` / `npcs`, add
+   `var hintHost = h('span');` after `status`, fill it with `QuestsAssist.hintLine(kind, value)` (kind = `monster` / `item` / `npc`), and
+   in `sync()` replace its child with `hintLine(kind, idx)` (or clear it when `idx` is 0). This automatically covers the editor and the
+   wizard.
+2. **Item icons:** in the item picker only, put `h('img', { cls: 'qe-icon', alt: '', src: QuestsAssist.itemIconUrl(value) })` in front
+   of the input when `value > 0`. Hide it on `error` (`img.style.display = 'none'`) and update `src` in `sync()`.
+3. **`picker` option `opts.list`:** a 4th argument `opts`. When `opts.list` is set, use it as the datalist id instead of `'qe-dl-' + name`
+   (the region datalists, E7.3).
+4. **`save()` returns the result:** `return r;` at the end of the success path (dry run too), `return null` on every other exit. Expose
+   `saveNow: function () { return save(false, el('save-btn')); }`.
+5. **`reloadMeta`:** expose `reloadMeta: function () { return loadMeta(); }` (`loadMeta` is async). After a group save, the group pickers
+   rebuild their options from `meta.groups` on the next render.
+6. **`startOn(characterIndex)`:** refactor `questAction(action, extra, btn)` to take the character as a parameter
+   (`questAction(action, extra, btn, character)`, defaulting to `testState.character`) and expose
+   `startOn: function (ch) { return questAction('start', null, null, ch); }`. Make `questAction` `return` the `OpsUI.post` result.
+7. **`wizard(prefill)`:** expose `wizard: function (prefill) { ... }`, which does what `newQuest()` does but calls
+   `QuestsWizard.open(el('editor'), prefill)` (E7.2 / E7.4). `QuestsWizard.open(host, prefill)` must accept a missing `prefill`.
+8. Extend `kit` with `picker` (already there; it now takes `opts`), `jumpTo`, and `textArea` if you move the wizard's `textArea` into the
+   page (optional).
+
+---
+
+### E5. Wizard: places on the map, and "monsters in an area"
+
+Change `blankStep()` to
+`{ type: 'Kill', killMode: 'one', targetId: 0, count: 10, place: { map: 0, x: 0, y: 0, radius: 5 }, area: null, picked: [], onlyHere: true, giveOnAccept: false, title: '' }`.
+Replace the old `group` boolean with `killMode` everywhere (`'one'`, `'group'`, `'area'`), and replace `s.x/s.y/s.radius` with
+`s.place`.
+
+**Go to a place** (`ReachArea`): instead of the Map / X / Y / Radius fields, use
+`QuestsAssist.placeLine(s.place, function (p) { s.targetId = p.map; refreshTitle(); }, { radius: true, defaultRadius: 5, title: 'Where must the player go?' })`.
+`build()` uses `targetId = s.place.map`, `x/y/radius = s.place.*`. `checkState`: `!s.place.map` → "Step i: pick the place on the map."
+
+**Kill:** a `Target` select with `one` "One monster", `group` "Any monster of a group" and `area` "Monsters in an area" (re-render on
+change):
+- `one` / `group`: as today.
+- `area`:
+  1. `QuestsAssist.placeLine(s.place, onPlace, { radius: true, defaultRadius: 20, title: 'Where do they hunt?' })`. `onPlace` calls
+     `QuestsAssist.areaMonsters(s.place)`, then stores the list in `s.area`, sets `s.picked` to every non-boss monster id, and re-renders.
+  2. When `s.area` is set: one checkbox per monster, `name + ' (Lv ' + level + ', ×' + count + (boss ? ', boss' : '') + ')'`, ticked when
+     its id is in `s.picked`. An empty area → muted "No monster spawns in this area: make it bigger or move it.".
+  3. A checkbox "Only kills on this map count" (`s.onlyHere`, default **on**). Its hint: "Kills anywhere count otherwise; the area is
+     shown on the tracker".
+- `checkState` for `area`: `!s.place.map` → "Step i: pick the hunting area."; `!s.picked.length` → "Step i: tick at least one monster.".
+
+**Building an area step** (this makes `create()` async; keep the API calls in the assist):
+```js
+async function resolveAreas() {
+  for (var i = 0; i < state.steps.length; i++) {
+    var s = state.steps[i];
+    if (s.type !== 'Kill' || s.killMode !== 'area') continue;
+    if (s.picked.length === 1) { s.resolvedTarget = { kind: 'Monster', id: s.picked[0] }; continue; }
+    var map = await QuestsAssist.hints('map', s.place.map);
+    var base = 'area.' + K.slug((map && map.title) || ('map-' + s.place.map)) + '.' + K.slug(K.lookupLabel('monsters', s.picked[0]) || 'monsters');
+    var gid = await QuestsAssist.saveGroup(s.picked.slice().sort(function (a, b) { return a - b; }), base);
+    if (!gid) return false;
+    s.resolvedTarget = { kind: 'MonsterGroup', id: gid };
+  }
+  return true;
+}
+```
+In `create()`: after `checkState()` passes, `if (!await resolveAreas()) return;`, then build. Tell the author in the wizard (a muted line
+under the area list) that a group named `area.…` will be created when they click Create (it is shared and reused). In `build()`, for an
+area step: `targetKind` / `targetId` from `s.resolvedTarget`; `map/x/y/radius` = `s.place.*` (the tracker marker); and when `s.onlyHere`:
+```js
+var condId = K.newTemp();
+q.conditions.push({ index: condId, op: K.enumValue('conditionOp', 'Leaf'), parent: 0, order: 0, leaf: K.enumValue('conditionLeaf', 'MapIs'), arg1: s.place.map, arg2: 0, cmp: K.enumValue('compare', 'Eq') });
+// objective.condition = condId
+```
+For `one` / `group` Kill steps, optionally also allow a marker: an "Add a map marker" link that shows a `placeLine` with
+`{ radius: true, defaultRadius: 10 }` and fills `map/x/y/radius`.
+
+**Default title for area:** `'Kill ' + count + ' ' + (picked.length === 1 ? monster name : 'monsters') + ' near ' + mapTitle`. The map
+title comes from the cached `hints('map', ...)`; while it's loading, use `'the area'`.
+
+---
+
+### E6. Wizard: hints, auto level, suggested rewards, item rewards
+
+1. **Hints under pickers** come from E4.1. Nothing more to do.
+2. **NPCs on different maps:** in the Who section, after both pickers, add a `span.qe-hint-line` that, once both `hints('npc', …)`
+   resolve, says "The turn-in NPC is on <map>, the giver on <map>." with class `qe-warn` when the maps differ. Empty otherwise.
+3. **Auto level hint:** add `state.levelTouched = false`. The Level hint input's handler sets it to true. Under the field, show
+   `Suggested: N` with a `Use` button. Get N from `QuestsAssist.suggest(toSuggestInput())`. In `create()`, if `!state.levelTouched` and
+   the suggestion is > 0, use it.
+   ```js
+   function toSuggestInput() {
+     return { levelHint: state.levelHint, steps: state.steps.map(function (s) {
+       var monsters = s.type !== 'Kill' ? [] : s.killMode === 'area' ? s.picked : s.killMode === 'group' ? groupMembers(s.targetId) : (s.targetId ? [s.targetId] : []);
+       return { type: s.type, monsters: monsters, count: s.count, item: (s.type === 'Collect' || s.type === 'Deliver') ? s.targetId : 0 };
+     }) };
+   }
+   ```
+   `groupMembers(id)` = the `members` of the meta group with that index.
+   Refresh the suggestion text only when the steps change (a re-render), not on every keystroke.
+4. **Suggested exp and gold:** a `Suggest` button next to Exp and Gold (one button fills both): `suggest(...)` → set `state.exp` /
+   `state.gold`, re-render. Under the reward grid add a muted line: "Server exp / gold rates are applied on top.".
+5. **Item rewards:** each row shows the item icon (E4.2 is automatic in the picker) and its `requiredClass` from `hints('item', id)` as a
+   small tag when it isn't `None`. Above the rows, a checkbox "The player picks one of these" (`state.pickOne`). In `build()`, the item
+   rewards then get `choiceGroup: 1`. With fewer than 2 items the checkbox is disabled.
+
+---
+
+### E7. Wizard: templates, region, follow-ups
+
+1. **Templates.** Above Basics, a row `Start from:` with buttons. Each button replaces `state.steps` (asking first with `portalConfirm`
+   when steps already have targets) and sets the fields shown:
+
+   | Button | Sets |
+   |---|---|
+   | Blank | one Kill step (today's default) |
+   | Hunt | one Kill step, `killMode 'area'`, count 10 |
+   | Hunt then report | Kill (`area`) + Talk (target = `state.giver` if set) |
+   | Fetch and deliver | Collect (count 5) + Deliver (same item: `targetId` copied when the Collect target is picked; leave it 0 here) |
+   | Travel chain | ReachArea + Talk + ReachArea |
+   | Daily bounty | Kill (`area`), count 20, `category = Daily`, `repeat = Daily` |
+
+   Note: the turn-in already goes back to the giver (or the Turn in NPC), so no template ends with "talk to the giver" except
+   "Hunt then report", where the report is a separate step on purpose (it can carry Step rewards).
+2. **Start from an existing quest** (the "save as template" idea): add `QuestsWizard.open(host, prefill)` support. `prefill` may be
+   `{ fromGraph: graph }`. `fromGraph` → `stateFromGraph(graph)`:
+   - It refuses (toast "This quest has parts the wizard can't show; use Duplicate instead." and opens nothing) when the graph has
+     branches, more than one objective in a step, an objective type outside the wizard's six, conditions other than one `MapIs` per
+     Kill objective, or Step / Outcome / Objective rewards.
+   - Otherwise it maps: category, level, repeat, cooldown, giver / finisher from the endpoints, one wizard step per step (Kill with a
+     MonsterGroup target → `killMode 'group'`; a marker becomes `place`), exp / gold / items from the Quest-scope rewards, the Accept item
+     reward → `giveOnAccept`. **Not** copied: the name (empty, so the author types one), summary and turn-in texts, tracker titles.
+   - In the editor head, a `Use as template` button (saved quests only, when not dirty) → `QuestsPage.wizard({ fromGraph: quest })`.
+3. **Region.** A `Region` field at the top of the wizard: `picker('maps', state.region, ...)`, empty by default. When it's set, fetch
+   `hints('map', region)` and build two datalists inside the wizard box: `qe-dl-region-npcs` (its `npcs`) and `qe-dl-region-monsters`
+   (the distinct monsters of its `respawns`). Option values must be `label + ' #' + index`, the same format `picker` parses. Then pass
+   `{ list: 'qe-dl-region-npcs' }` / `{ list: 'qe-dl-region-monsters' }` to the NPC and monster pickers, and default every new `place.map`
+   to the region. A small `Show all` checkbox (`state.regionAll`) switches the pickers back to the global lists.
+4. **Follow-up quest.** In the editor head (saved quests only), a `Follow-up quest` button →
+   `QuestsPage.wizard({ after: { index: quest.index, name: quest.name }, giver: <the quest's first Start NPC>, category: quest.category, levelHint: quest.levelHint, storylineIndex: quest.storylineIndex, storylineOrder: quest.storylineOrder })`.
+   `fresh(prefill)` copies these into the state. The wizard shows a line "Unlocks after #N Name (×)" (the × clears `state.after`). In
+   `build()`, when `state.after`:
+   ```js
+   var c = K.newTemp();
+   q.conditions.push({ index: c, op: K.enumValue('conditionOp', 'Leaf'), parent: 0, order: 0, leaf: K.enumValue('conditionLeaf', 'QuestStatus'), arg1: state.after.index, arg2: K.enumValue('runStatus', 'Completed'), cmp: K.enumValue('compare', 'Eq') });
+   q.acceptCondition = c;
+   q.storylineIndex = state.storylineIndex || 0;
+   q.storylineOrder = state.storylineIndex ? (state.storylineOrder || 0) + 1 : 0;
+   ```
+
+---
+
+### E8. Wizard: texts, preview, fewer clicks
+
+1. **Live tracker title placeholder:** in `stepCard`, keep a reference to the title input and add
+   `function refreshTitle() { titleInput.placeholder = defaultTitle(s); }`. Call it from every target, count, place and area callback of
+   that step, so the placeholder follows the picks without a re-render.
+2. **Write the texts for me:** a button next to the Texts heading. It fills Summary and Turn-in text **only when they are empty**
+   (otherwise it asks with `portalConfirm` before overwriting):
+   - Summary: one sentence per step, joined with a space:
+     Kill `'Kill ' + count + ' ' + target + (place ? ' near ' + mapTitle : '') + '.'`; Collect `'Bring me ' + count + ' ' + item + '.'`;
+     Deliver `'Take the ' + item + ' to ' + finisherName + '.'`; Talk `'Speak with ' + npc + '.'`; ReachArea `'Travel to ' + mapTitle + '.'`;
+     ReachLevel `'Come back when you reach level ' + count + '.'`. Then, unless the last step is a Talk to the turn-in NPC,
+     `' Then return to ' + (finisherName || giverName) + '.'`.
+   - Turn-in: `'Well done. Here is your reward.'` (with exp / gold: `'Well done. Take this for your trouble.'`).
+   - Use plain words only (no `%name%`-style tokens: the client doesn't substitute them).
+3. **Player preview:** on wide screens (`@media (min-width: 1400px)`) the wizard becomes two columns (`.qe-wizard-cols`): the form on the
+   left and `div.qe-preview` (sticky) on the right. Re-render the preview on each `render(host)` and also, cheaply, from text inputs (a
+   `renderPreview()` that only rebuilds the preview node). It shows:
+   - **Offer** box: the name, the summary, then "Rewards:" with exp / gold / item names × count (items `(choose one)` when `pickOne`).
+   - **Tracker** box: per step, the title (or `defaultTitle`), then the objective line `target + ' 0/' + count` (Talk / ReachArea:
+     `target + ' 0/1'`).
+   - A muted note: "Approximate: the game client draws the real dialog."
+4. **Smart defaults:**
+   - Picking a Talk step's NPC while `state.finisher` is empty shows a link under it, `Finish at this NPC`, which sets
+     `state.finisher` (no automatic change).
+   - `+ Add step` copies the previous step's `type`, `killMode`, `place` (a copy) and `count`, with an empty target.
+   - A second quick button next to it: `+ Then talk to…` adds a Talk step.
+5. **Drag to reorder:** step cards get `draggable="true"`, and the head shows a `⠿` handle. `dragstart` stores the index in
+   `e.dataTransfer.setData('text/plain', i)`, `dragover` calls `preventDefault()`, and `drop` moves the step to the drop target's index,
+   then re-renders. Keep ↑ / ↓ for keyboard users. Do the same in the editor's `renderSteps` (call `renumberSteps` after a drop).
+6. **Validate as you go:** change `checkState()` to return `[{ key, message }]`, with keys `name`, `giver`, `finisher`, `step<i>.target`,
+   `step<i>.place`, `step<i>.count`, `step<i>.picked`, `item<i>`. Keep `state.tried` false until the first Create. After that, every
+   render runs `checkState()` and adds class `qe-invalid` to the field wrapper whose key has an error: give the wrappers
+   `data-key="..."` and loop over them. The bottom list stays.
+   ```css
+   #section-quests .qe-invalid input, #section-quests .qe-invalid select { border-color: var(--danger, #e66); }
+   ```
+7. **Save & test:** next to `Create draft`, a select of online characters (filled once from `QuestsAssist.players()`; "(no one online)"
+   disables it) and a button `Create, save & start`. It runs the same steps as Create, then `await QuestsPage.openDraft(graph)` →
+   `var r = await QuestsPage.saveNow();` → if `r && r.index`, `await QuestsPage.startOn(characterIndex)`. A checkbox "and teleport them
+   to the giver" (on when the character is a GM) then POSTs the GM teleport (put this in the assist: `teleport(character, map, x, y)`,
+   sharing code with `teleportPrompt`) to the giver's `hints('npc', giver)` cell. If the save fails, the editor already shows Validation;
+   stop there.
+
+---
+
+### E9. Editor (`admin-quests.js`) gets the same helpers
+
+- **ReachArea objectives** (`renderObjective`): replace the inline X / Y / Radius with `QuestsAssist.placeLine({ map: o.targetId, x: o.x, y: o.y, radius: o.radius }, function (p) { o.targetId = p.map; o.x = p.x; o.y = p.y; o.radius = p.radius; markDirty(); }, { radius: true, defaultRadius: 5 })`.
+- **"More options" marker** of other types: `placeLine({ map: o.map, x: o.x, y: o.y, radius: o.radius }, ..., { radius: true, defaultRadius: 10 })`.
+  Keep the raw number fields behind its `Numbers` toggle (they're part of `placeLine`).
+- **Quest tab:** a `Suggest` button next to Level hint, and one next to Exp / Gold in the quick setup strip. Both use
+  `QuestsAssist.suggest(...)` built from the graph: Kill objectives with Monster / MonsterGroup targets, Collect / Deliver items,
+  ReachLevel counts.
+- **Write the texts for me** on the Quest tab's Texts heading. It uses the same sentence builder as E8.2: move `summarySentences(steps)`
+  into the assist so both share it. The editor version reads the graph's objectives in step order.
+- **Head buttons:** `Use as template` (E7.2) and `Follow-up quest` (E7.4).
+
+---
+
+### E10. Tests and docs
+
+`QuestEditorFrontendTests.cs`:
+```csharp
+[Fact]
+public void Assist_is_loaded_between_the_page_and_the_wizard_and_uses_only_known_routes()
+{
+    var index = File.ReadAllText(Path.Combine(AdminDir(), "index.html"));
+    int At(string s) => index.IndexOf(s, StringComparison.Ordinal);
+    Assert.True(At("admin-quests.js\"") < At("admin-quests-assist.js\"") && At("admin-quests-assist.js\"") < At("admin-quests-wizard.js\"") && At("admin-quests-wizard.js\"") < At("app.js"));
+
+    var js = File.ReadAllText(Path.Combine(AdminDir(), "admin-quests-assist.js"));
+    var urls = Regex.Matches(js, @"'(/api/[^']*)'").Select(m => m.Groups[1].Value).Distinct().OrderBy(u => u, StringComparer.Ordinal).ToArray();
+    Assert.Equal(new[] { "/api/admin/gm/action", "/api/admin/mapeditor/maps/", "/api/admin/players-online", "/api/admin/quests" }, urls);
+    Assert.Empty(Regex.Matches(js, @"(?<![\w.$])fetch\s*\("));
+    Assert.DoesNotContain("innerHTML", js);
+    Assert.DoesNotContain("insertAdjacentHTML", js);
+    Assert.DoesNotContain("localStorage", js);
+}
+```
+Build the minimap URL as `'/api/admin/mapeditor/maps/' + map + '/minimap'` so the literal matches. The existing wizard test (no
+`/api/`) must still pass. Keep every call in the assist.
+
+`Server/WebAdmin/README.md`: add one or two sentences to the Quests bullet covering the map place picker (area square), monsters in an
+area (creates or reuses an `area.*` group, optional "this map only" condition), hints under pickers
+(`GET /api/admin/quests/hints`, `GET /api/admin/quests/item-icon/{index}`), suggestions (`QuestsAssist.TUNING`), templates, region,
+follow-up quests, and Save & test.
+
+**Phase E done when** `dotnet build C:\Mir2\Server\Server.Library.csproj`, the WebAdmin tests, and `node --check` on
+`admin-quests.js`, `admin-quests-assist.js`, `admin-quests-wizard.js`, `admin-mapeditor-picker.js` and `admin-mapeditor-view.js` all pass.
+
+**Manual smoke for the user:**
+1. Wizard → Hunt → Pick on map. The area square shows, ± resizes it, and the footer counts the spawns.
+2. Tick two monsters → Create → a group `area.…` appears under Groups, and the draft has a Kill objective on it plus a MapIs condition.
+3. The picker hints show spawn maps for a monster and "Dropped by" for an item. An NPC shows its map and cell, and Map opens the map
+   editor there.
+4. Suggest fills exp / gold / level.
+5. Follow-up quest from a saved quest → the draft's accept condition is "QuestStatus #N = Completed".
+6. Create, save & start on a GM → the quest is in the client's log, and the GM is next to the giver.
+7. The map editor's own "Pick on map…" (row drawer) still works with no area control.
+
+---
+
 ## Not in this plan (ideas for later)
 
-- A player-view preview (quest log, tracker, offer dialog) drawn from the texts.
 - A step graph view (Then / branch arrows) and storyline neighbours.
-- A link from a giver NPC to the Map Editor (`#section=mapeditor&map=<index>&x=&y=`). This needs the NPC's map and location in the
-  lookup, which today returns only the map name.
 - Named shared conditions, and a condition library.
+- Item icons in every Game Data lookup (E1 adds the endpoint for the Quests page only; `admin-lookups.js` `ICON_URL` could point at
+  it later).
 - Showing the runtime warnings (A3) in the list counts. That would mean moving them into `QuestDefinitions.Validate`, which is runtime
   code.
 
@@ -1126,3 +1681,5 @@ Start → the quest appears in the client's log → Jump to step "Ready to turn 
 1. Deliver to the giver: the wizard refuses it. Allow it?
 2. Should the wizard default to Category **Side** and Repeat **Once**?
 3. Is the Test tab OK being offered to every admin (it uses existing audited routes)?
+4. Phase E: "Only kills on this map count" defaults to **on** for area hunts. Keep it?
+5. Phase E: the reward suggestion numbers (`QuestsAssist.TUNING`) are placeholders. Do you have target exp / gold per level to use?

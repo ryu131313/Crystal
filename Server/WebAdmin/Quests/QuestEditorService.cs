@@ -2,6 +2,7 @@
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using Server.MirDatabase;
 using Server.MirEnvir;
 using Server.MirEnvir.Quests;
@@ -51,6 +52,7 @@ namespace Server.WebAdmin.Quests
                 name = DisplayName(q, texts),
                 authorKey = q.Definition.AuthorKey,
                 category = (int)q.Definition.Category,
+                levelHint = q.Definition.LevelHint,
                 groupName = string.IsNullOrEmpty(q.Definition.GroupName) ? q.Group : q.Definition.GroupName,
                 storylineIndex = q.Definition.StorylineIndex,
                 hasDefinition = q.HasDefinition,
@@ -222,16 +224,17 @@ namespace Server.WebAdmin.Quests
                     ["shareMode"] = EnumList<QuestShareMode>(),
                     ["creditMode"] = EnumList<QuestCreditMode>(),
                     ["failPolicy"] = EnumList<QuestFailPolicy>(),
-                    ["flags"] = EnumList<QuestFlags>().Where(e => e.value != 0).ToList(),
+                    ["flags"] = EnumList(QuestFlags.AccountWide).Where(e => e.value != 0).ToList(),
                     ["completionMode"] = EnumList<QuestStepCompletion>(),
-                    ["objectiveType"] = EnumList<QuestObjectiveType>(),
-                    ["partyCredit"] = EnumList<QuestPartyCredit>(),
-                    ["targetKind"] = EnumList<QuestTargetKind>(),
+                    ["objectiveType"] = EnumList(QuestObjectiveType.Interact, QuestObjectiveType.Escort, QuestObjectiveType.Defend, QuestObjectiveType.PvpWin, QuestObjectiveType.Equip),
+                    ["partyCredit"] = EnumList(QuestPartyCredit.Shared),
+                    ["targetKind"] = EnumList(QuestTargetKind.MapObject),
                     ["groupKind"] = EnumList<QuestGroupKind>(),
                     ["endpointRole"] = EnumList<QuestEndpointRole>(),
-                    ["endpointKind"] = EnumList<QuestEndpointKind>(),
-                    ["rewardScope"] = EnumList<QuestRewardScope>(),
-                    ["rewardKind"] = EnumList<QuestRewardKind>(),
+                    ["endpointKind"] = EnumList(QuestEndpointKind.ItemUse, QuestEndpointKind.AreaEnter, QuestEndpointKind.Board),
+                    ["rewardScope"] = EnumList(QuestRewardScope.Objective),
+                    ["rewardKind"] = EnumList(QuestRewardKind.Reputation, QuestRewardKind.Title, QuestRewardKind.Spell, QuestRewardKind.Unlock,
+                        QuestRewardKind.Buff, QuestRewardKind.Currency, QuestRewardKind.ScriptPage),
                     ["rewardScaling"] = EnumList<QuestRewardScaling>(),
                     ["conditionOp"] = EnumList<QuestConditionOp>(),
                     ["conditionLeaf"] = EnumList<QuestConditionLeaf>(),
@@ -261,19 +264,42 @@ namespace Server.WebAdmin.Quests
         private static List<(int value, string label)> EnumListRaw<T>() where T : struct, Enum =>
             Enum.GetValues<T>().Select(v => (Convert.ToInt32(v, CultureInfo.InvariantCulture), v.ToString())).ToList();
 
-        private static List<EnumOption> EnumList<T>() where T : struct, Enum =>
-            EnumListRaw<T>().Select(x => new EnumOption { value = x.value, label = x.label }).ToList();
+        private static List<EnumOption> EnumList<T>(params T[] reserved) where T : struct, Enum =>
+            EnumListRaw<T>().Select(x => new EnumOption
+            {
+                value = x.value, label = x.label,
+                reserved = reserved.Any(r => Convert.ToInt32(r, CultureInfo.InvariantCulture) == x.value),
+            }).ToList();
 
         internal sealed class EnumOption
         {
             public int value;
             public string label;
+            public bool reserved;
         }
 
         // ================================================================== where used
 
         public List<QuestUseDto> WhereUsed(QuestRefKind kind, int id) =>
             QuestWhereUsed.Find(_w.QuestInfoList, _w.QuestConditionList, _w.QuestGroupList, _w.QuestPoolList, kind, id);
+
+        // ================================================================== hints
+
+        /// <summary>A picker hint for a monster / item / npc / map (see <see cref="QuestHints"/>), or null when it does not exist.</summary>
+        public object Hint(string kind, int id) => kind switch
+        {
+            "monster" => QuestHints.Monster(_w, id),
+            "item" => QuestHints.Item(_w, id),
+            "npc" => QuestHints.Npc(_w, id),
+            "map" => QuestHints.Map(_w, id),
+            _ => null,
+        };
+
+        public int? ItemImage(int index)
+        {
+            var item = _w.ItemInfoList.FirstOrDefault(x => x != null && x.Index == index);
+            return item == null ? (int?)null : item.Image;
+        }
 
         // ================================================================== save
 
@@ -285,6 +311,8 @@ namespace Server.WebAdmin.Quests
             public List<QuestGroupInfo> Groups;
             public QuestInfo Quest;
             public QuestDefinition Definition;
+            public string Name;
+            public string Group;
             public int[] Counters;
         }
 
@@ -296,6 +324,8 @@ namespace Server.WebAdmin.Quests
             Groups = new List<QuestGroupInfo>(_w.QuestGroupList),
             Quest = q,
             Definition = q?.Definition,
+            Name = q?.Name,
+            Group = q?.Group,
             Counters = new[]
             {
                 _w.QuestIndex, _w.QuestStepIndex, _w.QuestObjectiveIndex, _w.QuestConditionIndex, _w.QuestGroupIndex, _w.QuestTextIndex, _w.QuestVarIndex,
@@ -308,7 +338,7 @@ namespace Server.WebAdmin.Quests
             Replace(_w.QuestConditionList, s.Conditions);
             Replace(_w.QuestTextList, s.Texts);
             Replace(_w.QuestGroupList, s.Groups);
-            if (s.Quest != null) s.Quest.Definition = s.Definition;
+            if (s.Quest != null) { s.Quest.Definition = s.Definition; s.Quest.Name = s.Name; s.Quest.Group = s.Group; }
             if (!counters) return;
             _w.QuestIndex = s.Counters[0]; _w.QuestStepIndex = s.Counters[1]; _w.QuestObjectiveIndex = s.Counters[2]; _w.QuestConditionIndex = s.Counters[3];
             _w.QuestGroupIndex = s.Counters[4]; _w.QuestTextIndex = s.Counters[5]; _w.QuestVarIndex = s.Counters[6];
@@ -475,7 +505,12 @@ namespace Server.WebAdmin.Quests
 
             foreach (var g in newGroups) CheckGroup(g, null, Err);
 
-            if (errors.Count > 0) throw Refused(errors.Select(m => new QuestProblemDto { Quest = questIndex, Message = m }).ToList());
+            if (errors.Count > 0)
+            {
+                var structural = errors.Select(m => new QuestProblemDto { Quest = questIndex, Message = m }).ToList();
+                Annotate(structural, null);
+                throw Refused(structural);
+            }
 
             // ---- allocate ids and resolve references -------------------------------------------------------------------------------
             var snap = Take(q);
@@ -657,7 +692,9 @@ namespace Server.WebAdmin.Quests
             if (errors.Count > 0)
             {
                 Restore(snap, true);
-                throw Refused(errors.Select(m => new QuestProblemDto { Quest = questIndex, Message = m }).ToList());
+                var structural = errors.Select(m => new QuestProblemDto { Quest = questIndex, Message = m }).ToList();
+                Annotate(structural, null);
+                throw Refused(structural);
             }
 
             // ---- texts: upsert the graph's keys, drop keys only this quest used --------------------------------------------------------
@@ -695,6 +732,13 @@ namespace Server.WebAdmin.Quests
             }
 
             q.Definition = def;
+            // Pickers and the "quests" lookup show QuestInfo.Name, so an existing quest follows its name text too.
+            if (!isNew)
+            {
+                var renamed = dto.Texts.TryGetValue(def.NameKey, out var nb2) ? FirstLine(nb2) : string.Empty;
+                if (renamed.Length > 0) q.Name = renamed;
+                q.Group = def.GroupName;
+            }
             var conditions = _w.QuestConditionList.Where(c => c.OwnerQuest != questIndex).ToList();
             conditions.AddRange(owned);
             Replace(_w.QuestConditionList, conditions);
@@ -708,6 +752,17 @@ namespace Server.WebAdmin.Quests
 
             var problems = QuestDefinitions.Validate(_w);
             mine = problems.Where(p => p.Quest == questIndex).Select(ToDto).ToList();
+            var varRealToTemp = new Dictionary<int, int>();
+            for (var i = 0; i < dto.Vars.Count; i++)
+                if (dto.Vars[i].Index < 0) varRealToTemp[varIds[i]] = dto.Vars[i].Index;
+            mine.AddRange(RuntimeWarnings(def, questIndex));
+            Annotate(mine, new Dictionary<string, Dictionary<int, int>>
+            {
+                ["step"] = stepMap.ToDictionary(kv => kv.Value, kv => kv.Key),
+                ["objective"] = objectiveMap.ToDictionary(kv => kv.Value, kv => kv.Key),
+                ["condition"] = conditionMap.ToDictionary(kv => kv.Value, kv => kv.Key),
+                ["variable"] = varRealToTemp,
+            });
             var blocking = mine.Where(p => !p.Warning).ToList();
             if (blocking.Count > 0 || dryRun)
             {
@@ -744,6 +799,52 @@ namespace Server.WebAdmin.Quests
         }
 
         private static QuestProblemDto ToDto(QuestValidationProblem p) => new QuestProblemDto { Quest = p.Quest, Warning = p.Warning, Message = p.Message };
+
+        private static readonly Regex RowRef = new Regex(@"^(step|objective|condition|variable)(?: id)? (-?\d+)", RegexOptions.CultureInvariant);
+
+        // Validate names rows by the counter ids a save hands out; the page only knows the temporary ids of rows it has not saved yet.
+        private static void Annotate(List<QuestProblemDto> problems, Dictionary<string, Dictionary<int, int>> realToTemp)
+        {
+            foreach (var p in problems)
+            {
+                if (p.RefKind != null) continue;
+                var msg = p.Message ?? string.Empty;
+                var m = RowRef.Match(msg);
+                if (m.Success)
+                {
+                    p.RefKind = m.Groups[1].Value;
+                    p.RefId = int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
+                    if (realToTemp != null && realToTemp.TryGetValue(p.RefKind, out var map) && map.TryGetValue(p.RefId, out var temp)) p.RefId = temp;
+                }
+                else if (msg.Contains("endpoint", StringComparison.Ordinal)) p.RefKind = "endpoint";
+                else if (msg.Contains(" reward ", StringComparison.Ordinal) || msg.StartsWith("Objective reward", StringComparison.Ordinal)) p.RefKind = "reward";
+                else if (msg.Contains("branch", StringComparison.Ordinal)) p.RefKind = "branch";
+                else p.RefKind = "quest";
+            }
+        }
+
+        // Editor-only warnings for rows that save fine but do nothing in game (Validate stays the runtime's contract).
+        private static IEnumerable<QuestProblemDto> RuntimeWarnings(QuestDefinition def, int quest)
+        {
+            QuestProblemDto W(string kind, int id, string message) => new QuestProblemDto { Quest = quest, Warning = true, RefKind = kind, RefId = id, Message = message };
+
+            if (!def.Endpoints.Any(e => e != null && e.Role == QuestEndpointRole.Start && (e.Kind == QuestEndpointKind.Npc || e.Kind == QuestEndpointKind.Auto)))
+                yield return W("endpoint", 0, "has no Start NPC (or Auto) endpoint: players cannot pick it up, only a script or a GM can start it");
+            foreach (var e in def.Endpoints)
+                if (e != null && (e.Kind == QuestEndpointKind.ItemUse || e.Kind == QuestEndpointKind.AreaEnter))
+                    yield return W("endpoint", 0, e.Role + " endpoint " + e.Kind + " has no runtime yet: use an Npc or Auto endpoint");
+            foreach (var r in def.Rewards)
+            {
+                if (r == null) continue;
+                if (r.Scope == QuestRewardScope.Objective)
+                    yield return W("reward", 0, "Objective reward " + r.Kind + " has no runtime yet: it is never given (use a Step reward)");
+                else if (r.Kind != QuestRewardKind.Exp && r.Kind != QuestRewardKind.Gold && r.Kind != QuestRewardKind.Credit && r.Kind != QuestRewardKind.Item)
+                    yield return W("reward", 0, r.Scope + " reward " + r.Kind + " has no runtime yet: it is never given");
+            }
+            foreach (var o in def.Objectives)
+                if (o != null && o.PartyCredit == QuestPartyCredit.Shared)
+                    yield return W(null, 0, "objective " + N(o.Index) + " party credit Shared is reserved (no runtime yet)");
+        }
 
         private static WebAdminException Refused(List<QuestProblemDto> problems)
         {

@@ -159,6 +159,8 @@
         public int Quest;
         public bool Warning;
         public string Message;
+        public string RefKind;            // "quest" | "step" | "objective" | "condition" | "variable" | "endpoint" | "reward" | "branch"
+        public int RefId;                 // the row id as the page knows it (a temporary id for a row that is not saved yet); 0 = none
     }
 
     /// <summary>One "where used" reference.</summary>

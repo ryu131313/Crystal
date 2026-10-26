@@ -1,7 +1,8 @@
 /**
  * Maps editor — pieces other sections use:
- *   - MapPicker.pick({ map, x, y, title, walkableOnly, lockMap }) -> Promise<{ map, x, y } | null>: a modal with a map list and the
- *     map canvas (MapEditorView); click a cell or type X / Y; "Use this cell" (Enter) confirms, Esc cancels.
+ *   - MapPicker.pick({ map, x, y, radius, title, walkableOnly, lockMap }) -> Promise<{ map, x, y, radius? } | null>: a modal with a map
+ *     list and the map canvas (MapEditorView); click a cell or type X / Y; "Use this cell" (Enter) confirms, Esc cancels. With
+ *     `radius` set it also shows an Area control that resizes a square around the cell (resolved as `radius`).
  *   - A "Pick on map…" button next to every <Name>_X / <Name>_Y pair in the row form drawer (FormDrawer.EXTENSIONS). The map is the
  *     row's DestinationMapIndex for Destination_X/Y, else its MapIndex; NPC locations must be walkable.
  *   - Grid hover previews (installed as window.ImagePreview when no other module provides one): a ...MapIndex cell shows that map,
@@ -76,6 +77,13 @@
       var yi = el('input', 'mir-input me-picker-xy');
       yi.type = 'number'; yi.min = '0'; yi.setAttribute('aria-label', 'Y');
       var note = el('span', 'me-picker-note', '');
+      var minus = button('−', '', 'Smaller area');
+      var plus = button('+', '', 'Bigger area');
+      var ri = el('input', 'mir-input me-picker-xy');
+      ri.type = 'number'; ri.min = '0'; ri.max = '50'; ri.setAttribute('aria-label', 'Area radius');
+      minus.addEventListener('click', function () { setRadius(state.radius - 1); });
+      plus.addEventListener('click', function () { setRadius(state.radius + 1); });
+      ri.addEventListener('change', function () { setRadius(ri.value); });
       var cancel = button('Cancel', '');
       var ok = button('Use this cell', 'primary');
       foot.appendChild(mapName);
@@ -83,6 +91,12 @@
       foot.appendChild(xi);
       foot.appendChild(el('span', 'mir-muted', 'Y'));
       foot.appendChild(yi);
+      if (opts.radius != null) {
+        foot.appendChild(el('span', 'mir-muted', 'Area'));
+        foot.appendChild(minus);
+        foot.appendChild(ri);
+        foot.appendChild(plus);
+      }
       foot.appendChild(note);
       foot.appendChild(el('span', 'me-spacer'));
       foot.appendChild(cancel);
@@ -91,7 +105,7 @@
       backdrop.appendChild(dlg);
       document.body.appendChild(backdrop);
 
-      var state = { map: num(opts.map, -1), x: num(opts.x, 0), y: num(opts.y, 0), overlay: null, all: [] };
+      var state = { map: num(opts.map, -1), x: num(opts.x, 0), y: num(opts.y, 0), radius: Math.max(0, num(opts.radius, 0)), overlay: null, all: [] };
       xi.value = state.x;
       yi.value = state.y;
 
@@ -102,12 +116,21 @@
       });
       view.setLayers({ safezones: true, respawns: true, movements: true, inbound: false, mines: true, npcs: true, grid: true, labels: true, walk: !!opts.walkableOnly });
       view.setBase('art');
+      if (opts.radius != null) { ri.value = state.radius; view.setPinRadius(state.radius); }
+
+      function setRadius(r) {
+        state.radius = Math.max(0, Math.min(50, num(r, 0)));
+        if (ri) ri.value = state.radius;
+        view.setPinRadius(state.radius);
+        check();
+      }
 
       function setCell(x, y, centre) {
         state.x = x; state.y = y;
         xi.value = x; yi.value = y;
         if (centre) view.showCell(x, y, true, true);   // typed / opened: bring the cell into view
         else view.pin(x, y);                          // clicked: the view stays where it is
+        view.setPinRadius(state.radius || 0);
         check();
       }
 
@@ -122,6 +145,13 @@
         note.textContent = bad;
         note.classList.toggle('me-bad', !!bad);
         ok.disabled = state.map < 0 || !state.overlay || /Outside|Pick a map/.test(bad) || (opts.walkableOnly && w === false);
+        if (opts.radius != null && !bad && state.overlay) {
+          var n = (state.overlay.respawns || []).filter(function (r) {
+            var sp = num(r.Spread, 0);
+            return Math.abs(num(r.Location_X) - state.x) <= state.radius + sp && Math.abs(num(r.Location_Y) - state.y) <= state.radius + sp;
+          }).length;
+          note.textContent = n + ' monster spawn(s) in this area';
+        }
       }
 
       async function loadMap(index, keepCell) {
@@ -138,6 +168,7 @@
         view.setObjects(global.MapEditorGeo.objectsFromOverlay(res.data));
         if (keepCell) { xi.value = state.x; yi.value = state.y; view.showCell(state.x, state.y, true, false); }   // zoom in on the current cell
         else { state.x = Math.floor(num(res.data.width, 0) / 2); state.y = Math.floor(num(res.data.height, 0) / 2); xi.value = state.x; yi.value = state.y; view.fit(); }
+        view.setPinRadius(state.radius || 0);
         check();
       }
 
@@ -166,7 +197,7 @@
       }
       function confirm() {
         if (ok.disabled) return;
-        done({ map: state.map, x: state.x, y: state.y });
+        done(opts.radius != null ? { map: state.map, x: state.x, y: state.y, radius: state.radius } : { map: state.map, x: state.x, y: state.y });
       }
       function onKey(e) {
         if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(null); }

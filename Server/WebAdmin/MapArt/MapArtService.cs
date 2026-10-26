@@ -48,11 +48,13 @@ namespace Server.WebAdmin.MapArt
         private static string _libRoot;
         private static LibFile[] _libs = new LibFile[MapLibCatalog.Size];
         private static LibFile _miniMaps;
+        private static LibFile _items;
 
         private static readonly SemaphoreSlim RenderGate = new SemaphoreSlim(1, 1);
         private static readonly ConcurrentDictionary<string, Lazy<Task<byte[]>>> InFlight = new ConcurrentDictionary<string, Lazy<Task<byte[]>>>();
         private static readonly ConcurrentDictionary<int, MapArtMapInfo> MapInfos = new ConcurrentDictionary<int, MapArtMapInfo>();
         private static readonly ConcurrentDictionary<int, byte[]> MiniMapPngs = new ConcurrentDictionary<int, byte[]>();
+        private static readonly ConcurrentDictionary<int, byte[]> ItemIconPngs = new ConcurrentDictionary<int, byte[]>();
 
         private static readonly ByteLru<string, byte[]> Tiles = new ByteLru<string, byte[]>(TileBudgetBytes, b => b.Length);
         private static readonly ByteLru<long, ScaledFrame> Frames = new ByteLru<long, ScaledFrame>(FrameBudgetBytes, f => (f.Px?.Length ?? 0) + 64);
@@ -105,12 +107,15 @@ namespace Server.WebAdmin.MapArt
             if (_libRoot == root) return;
             for (var i = 0; i < _libs.Length; i++) _libs[i]?.Dispose();
             _miniMaps?.Dispose();
+            _items?.Dispose();
             _libs = new LibFile[MapLibCatalog.Size];
             _miniMaps = null;
+            _items = null;
             _libRoot = root;
             Frames.Clear();
             Tiles.Clear();
             MiniMapPngs.Clear();
+            ItemIconPngs.Clear();
         }
 
         private static LibFile Lib(int index)
@@ -184,6 +189,35 @@ namespace Server.WebAdmin.MapArt
             for (var i = 3; i < px.Length && opaque; i += 4) opaque = px[i] == 255;
             png = WebAdminMonitor.EncodeBgraPng(info.Width, info.Height, px, alpha: !opaque);
             MiniMapPngs[miniMapIndex] = png;
+            return png;
+        }
+
+        private static LibFile ItemsLib()
+        {
+            var root = Root;
+            if (string.IsNullOrEmpty(root)) return null;
+            lock (LibGate)
+            {
+                EnsureRoot(root);
+                return _items ??= new LibFile(Path.Combine(root, "Items.Lib"));
+            }
+        }
+
+        /// <summary>HTTP thread. The client's item icon (<c>Data\Items.Lib</c> frame <paramref name="image"/>) as an RGBA PNG, or null.</summary>
+        public static byte[] ItemIconPng(int image)
+        {
+            if (image <= 0) return null;
+            if (ItemIconPngs.TryGetValue(image, out var png)) return png;
+
+            var lib = ItemsLib();
+            if (lib == null) return null;
+            var px = lib.ReadPixels(image, out var info);
+            if (px == null) return null;
+
+            var opaque = true;
+            for (var i = 3; i < px.Length && opaque; i += 4) opaque = px[i] == 255;
+            png = WebAdminMonitor.EncodeBgraPng(info.Width, info.Height, px, alpha: !opaque);
+            ItemIconPngs[image] = png;
             return png;
         }
 

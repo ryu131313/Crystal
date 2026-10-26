@@ -235,6 +235,20 @@ confirmation dialog, with a reason field for moderation actions. Every successfu
   used (also `GET /api/admin/quests/where-used`), per-quest JSON export and a two-step import (preview diff + token, then apply).
   Saves go live through the quest-replace hook (`QuestEditNotifier.QuestsChangedAsync`, see LiveDb "Quest replace"). Deleting a monster,
   item, NPC, map, quest, quest group or condition that a quest references is refused everywhere (`GameDataEngine.Delete`).
+  For authoring speed: a **New** wizard (`wwwroot/admin/admin-quests-wizard.js`) builds the common shapes (kill / collect / deliver /
+  talk / go to / reach level, one step per objective) as an unsaved draft, **Duplicate** copies a saved quest on new temporary ids and
+  text keys, the Quest tab opens with a giver / turn-in / exp / gold strip and a basic grid (advanced settings behind a toggle) and a
+  clickable "ready to play" checklist. Enum members with no runtime are hidden from the dropdowns (meta marks them `reserved`;
+  editor-only warnings name the rows that do nothing in game), validation problems carry `refKind` / `refId` so **Show** jumps to the
+  row, and a **Test** tab starts / jumps to a step / completes / resets the saved quest on an online character through the characters'
+  quest routes (`POST /api/admin/characters/{index}/quests/edit` and `/quests/reset`, audited).
+  Places are picked on the map (the map picker draws the ReachArea square and counts the spawns in it); a Kill step can target "monsters
+  in an area", which creates or reuses a shared `area.…` monster group and can gate progress with a "only kills on this map" condition.
+  Pickers show hints (`GET /api/admin/quests/hints?kind=monster|item|npc|map&id=`: spawn maps, "dropped by", an NPC's map and cell, a map's
+  respawns) and item icons (`GET /api/admin/quests/item-icon/{index}`). The wizard and the editor share `wwwroot/admin/admin-quests-assist.js`
+  (hints, map thumbnails, teleport, `QuestsAssist.TUNING` reward/level suggestions, one-sentence text writing) and offer templates,
+  a region filter for NPCs/monsters, "Use as template" / "Follow-up quest" from a saved quest, a live preview, and **Create, save & start**
+  (save, start on an online character, optionally teleport it to the giver) — all through existing audited routes.
 - **Drops** (Game Data › Drops, Drops-Tables-Plan phase 2; `Server/WebAdmin/Routes/DropRoutes.cs`, `wwwroot/admin/admin-drops.js`):
   every drop list as rows (the `drop_lists` / `drops` tables in SystemData.db): a list picker (search, kind filter, the monsters
   that load each list) and a grid per list (chance as 1/N, item lookup, quest, gold, group mode, dragon level; group members

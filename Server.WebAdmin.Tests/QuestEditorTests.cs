@@ -102,7 +102,14 @@ namespace Server.WebAdmin.Tests
             var json = JsonSerializer.Serialize(ex.Payload, WebAdminJson.Options);
             using var doc = JsonDocument.Parse(json);
             return doc.RootElement.GetProperty("problems").EnumerateArray()
-                .Select(p => new QuestProblemDto { Quest = p.GetProperty("quest").GetInt32(), Warning = p.TryGetProperty("warning", out var w) && w.GetBoolean(), Message = p.GetProperty("message").GetString() })
+                .Select(p => new QuestProblemDto
+                {
+                    Quest = p.GetProperty("quest").GetInt32(),
+                    Warning = p.TryGetProperty("warning", out var w) && w.GetBoolean(),
+                    Message = p.GetProperty("message").GetString(),
+                    RefKind = p.TryGetProperty("refKind", out var k) && k.ValueKind == JsonValueKind.String ? k.GetString() : null,
+                    RefId = p.TryGetProperty("refId", out var r) ? r.GetInt32() : 0,
+                })
                 .ToList();
         }
 
@@ -278,6 +285,89 @@ namespace Server.WebAdmin.Tests
             Assert.Contains(messages, m => m.Contains("unknown Category 99"));
             Assert.Contains(messages, m => m.Contains("step id -5 is invalid"));
             Assert.Empty(w.QuestInfoList);
+        }
+
+        [Fact]
+        public void Meta_marks_reserved_enum_members()
+        {
+            var w = World();
+            var (svc, _) = Editor(w);
+            using var doc = JsonDocument.Parse(WebAdminJson.Serialize(svc.Meta()));
+
+            bool Reserved(string enums, string label)
+            {
+                var entry = doc.RootElement.GetProperty("enums").GetProperty(enums).EnumerateArray()
+                    .Single(e => e.GetProperty("label").GetString() == label);
+                return entry.GetProperty("reserved").GetBoolean();
+            }
+
+            Assert.True(Reserved("objectiveType", "Escort"));
+            Assert.False(Reserved("objectiveType", "Kill"));
+            Assert.True(Reserved("rewardKind", "Title"));
+            Assert.True(Reserved("endpointKind", "ItemUse"));
+        }
+
+        [Fact]
+        public void Dry_run_problems_name_new_rows_by_their_temporary_ids()
+        {
+            var w = World();
+            var (svc, persist) = Editor(w);
+            var q = FullQuest();
+            q.Objectives[0].Count = 0;
+
+            var dry = svc.Save(q, dryRun: true);
+            Assert.True(dry.DryRun);
+            Assert.Contains(dry.Problems, p => !p.Warning && p.RefKind == "objective" && p.RefId == T - 20);
+            Assert.Equal(0, persist.Calls);
+            Assert.Empty(w.QuestInfoList);
+        }
+
+        [Fact]
+        public void Structural_errors_carry_the_page_ids()
+        {
+            var w = World();
+            var (svc, _) = Editor(w);
+            var q = FullQuest();
+            q.Steps[0].CompletionMode = 99;
+
+            var ex = Assert.Throws<WebAdminException>(() => svc.Save(q, false));
+            Assert.Equal(422, ex.Status);
+            var problem = Assert.Single(ProblemsOf(ex));
+            Assert.Equal("step", problem.RefKind);
+            Assert.Equal(T - 10, problem.RefId);
+        }
+
+        [Fact]
+        public void Runtime_warnings_flag_objective_rewards_and_missing_givers()
+        {
+            var w = World();
+            var (svc, _) = Editor(w);
+
+            var result = svc.Save(FullQuest(), false);
+            Assert.Contains(result.Problems, p => p.Warning && p.Message.StartsWith("Objective reward", StringComparison.Ordinal));
+
+            var read = svc.Read(1);
+            read.Endpoints.Clear();
+            var again = svc.Save(read, false);
+            Assert.Contains(again.Problems, p => p.Warning && p.Message.Contains("has no Start NPC"));
+        }
+
+        [Fact]
+        public void Renaming_the_name_text_renames_QuestInfo()
+        {
+            var w = World();
+            var (svc, _) = Editor(w);
+            svc.Save(FullQuest(), false);
+
+            var read = svc.Read(1);
+            read.Texts["bichon.wolves.name"] = "Pack of Bichon";
+            svc.Save(read, false);
+            Assert.Equal("Pack of Bichon", w.QuestInfoList[0].Name);
+
+            var dry = svc.Read(1);
+            dry.Texts["bichon.wolves.name"] = "Wolves Again";
+            svc.Save(dry, dryRun: true);
+            Assert.Equal("Pack of Bichon", w.QuestInfoList[0].Name);
         }
 
         // ------------------------------------------------------------------ export / import
