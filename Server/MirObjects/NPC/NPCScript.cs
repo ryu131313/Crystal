@@ -682,6 +682,9 @@ namespace Server.MirObjects
                 }
             }
         }
+        // Scripts load one per NPC (a shared script many times), so the names are collected and logged as one line by ReportLegacyQuestSections.
+        private static readonly HashSet<string> LegacyQuestScripts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>
         /// The legacy [QUESTS] section (quest ids this NPC gives / takes) is no longer read (quest V2 wave 4): quest givers and turn-in
         /// NPCs are questendpoints rows, edited in the web admin Quests page. A script that still has the section only gets a warning.
@@ -692,10 +695,20 @@ namespace Server.MirObjects
             {
                 if (!lines[i].ToUpper().StartsWith(QuestKey)) continue;
 
-                MessageQueue.Enqueue("[Quests] NPC script " + FileName + " still has a [QUESTS] section; it is ignored since quest V2 " +
-                                     "(set quest givers in the web admin Quests page) and can be removed.");
+                LegacyQuestScripts.Add(FileName);
                 return;
             }
+        }
+
+        public static void ReportLegacyQuestSections()
+        {
+            if (LegacyQuestScripts.Count == 0) return;
+
+            var names = LegacyQuestScripts.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).Take(5).ToList();
+            MessageQueue.Enqueue("[Quests] " + LegacyQuestScripts.Count + " NPC script(s) still have a [QUESTS] section, ignored since quest V2 " +
+                                 "(e.g. " + string.Join(", ", names) + (LegacyQuestScripts.Count > names.Count ? ", ..." : "") +
+                                 "); tools\\strip-npc-quest-sections.ps1 removes them.");
+            LegacyQuestScripts.Clear();
         }
 
         private void ParseSpeech(IList<string> lines)
