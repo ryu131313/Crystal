@@ -814,6 +814,19 @@ namespace Server
 
         public static void Save()
         {
+            Reader.BeginBatch();
+            try
+            {
+                WriteAll();
+            }
+            finally
+            {
+                Reader.EndBatch();
+            }
+        }
+
+        private static void WriteAll()
+        {
             //General
             Reader.Write("General", "VersionPath", VersionPath);
             Reader.Write("General", "CheckVersion", CheckVersion);

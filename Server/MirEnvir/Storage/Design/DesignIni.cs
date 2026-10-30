@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using Microsoft.Data.Sqlite;
 
 namespace Server.MirEnvir.Storage
@@ -231,8 +232,99 @@ namespace Server.MirEnvir.Storage
     internal sealed class SetupIniReader : InIReader
     {
         private const string StoreKeySuffix = "#design";
+        private const string BackupSuffix = ".bak";
+        private const string TempSuffix = ".tmp";
 
-        public SetupIniReader(string path) : base(path) { }
+        // False after a recovery from the backup: the first save must not rotate the damaged file over the only good copy.
+        private bool _rotateBackup = true;
+        private readonly bool _fileWritesBlocked;
+        private bool _batching;
+
+        /// <summary>
+        /// Settings fall back to their defaults for any key that is missing and Settings.Save writes them all back, so a file that reads as
+        /// empty would silently become a file of defaults (2026-10-28: a Windows restart killed the exit save mid-write). A file with no
+        /// section is therefore never taken at face value: it is read again, then restored from the backup, and with neither the file is
+        /// left alone until it is fixed by hand.
+        /// </summary>
+        public SetupIniReader(string path) : base(path)
+        {
+            if (!File.Exists(path) || HasSection(Lines)) return;
+
+            // A sync tool or antivirus holding the file open reads the same as an empty file.
+            for (var attempt = 0; attempt < 3; attempt++)
+            {
+                Thread.Sleep(200);
+                var again = TryReadLines(path);
+                if (!HasSection(again)) continue;
+                Lines.Clear();
+                Lines.AddRange(again);
+                return;
+            }
+
+            var backup = TryReadLines(path + BackupSuffix);
+            if (HasSection(backup))
+            {
+                Lines.Clear();
+                Lines.AddRange(backup);
+                _rotateBackup = false;
+                MessageQueue.Instance.Enqueue("[Settings] " + path + " is empty or damaged: restored from " + path + BackupSuffix + ".");
+                return;
+            }
+
+            _fileWritesBlocked = true;
+            MessageQueue.Instance.Enqueue("[Settings] " + path + " is empty or damaged and has no usable backup: running on default settings and " +
+                                          "not overwriting it. Restore the file, then restart.");
+        }
+
+        private static bool HasSection(IEnumerable<string> lines) => lines.Any(x => x.StartsWith('[') && x.TrimEnd().EndsWith(']'));
+
+        private static List<string> TryReadLines(string path)
+        {
+            try
+            {
+                return File.Exists(path) ? File.ReadAllLines(path).ToList() : new List<string>();
+            }
+            catch (IOException ex)
+            {
+                MessageQueue.Instance.Enqueue("[Settings] Reading " + path + " failed: " + ex.Message);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                MessageQueue.Instance.Enqueue("[Settings] Reading " + path + " failed: " + ex.Message);
+            }
+
+            return new List<string>();
+        }
+
+        // The exit save runs while Windows may be ending the process: a truncate-and-write killed halfway is what emptied the file.
+        private void WriteFile(IEnumerable<string> lines)
+        {
+            if (_fileWritesBlocked) return;
+
+            try
+            {
+                var temp = FileName + TempSuffix;
+                using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
+                using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
+                {
+                    foreach (var line in lines) writer.WriteLine(line);
+                    writer.Flush();
+                    stream.Flush(true);
+                }
+
+                if (File.Exists(FileName)) File.Replace(temp, FileName, _rotateBackup ? FileName + BackupSuffix : null, ignoreMetadataErrors: true);
+                else File.Move(temp, FileName);
+                _rotateBackup = true;
+            }
+            catch (IOException ex)
+            {
+                MessageQueue.Instance.Enqueue("[Store] Writing " + FileName + " failed: " + ex.Message);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                MessageQueue.Instance.Enqueue("[Store] Writing " + FileName + " failed: " + ex.Message);
+            }
+        }
 
         /// <summary>An enum key by name or number, case-insensitive (P9-12); an unknown value reads as <paramref name="Default"/>.</summary>
         public T ReadEnum<T>(string section, string key, T Default) where T : struct, Enum
@@ -262,11 +354,23 @@ namespace Server.MirEnvir.Storage
             Lines.AddRange(stored.Lines);
         }
 
+        // InIReader.Write saves after every key: without this one Settings.Save would rewrite the file (and flush it to disk) about 170 times,
+        // and the backup would be the file from one key ago rather than the previous save.
+        public void BeginBatch() => _batching = true;
+
+        public void EndBatch()
+        {
+            _batching = false;
+            Save();
+        }
+
         public override void Save()
         {
+            if (_batching) return;
+
             if (!DesignStore.Active)
             {
-                base.Save();
+                WriteFile(Lines);
                 return;
             }
 
@@ -282,18 +386,7 @@ namespace Server.MirEnvir.Storage
                 }, "Setup.ini design sections save");
             }
 
-            try
-            {
-                File.WriteAllLines(FileName, rest);
-            }
-            catch (IOException ex)
-            {
-                MessageQueue.Instance.Enqueue("[Store] Writing " + FileName + " failed: " + ex.Message);
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                MessageQueue.Instance.Enqueue("[Store] Writing " + FileName + " failed: " + ex.Message);
-            }
+            WriteFile(rest);
         }
     }
 }
